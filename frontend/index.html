@@ -1,0 +1,758 @@
+<!DOCTYPE html>
+<html lang="zh-HK">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>PropWatch — 香港樓市追蹤</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg: #0a0f1a;
+      --surface: #111827;
+      --surface2: #1a2436;
+      --border: #1f2d42;
+      --text: #e2e8f0;
+      --muted: #64748b;
+      --accent: #f59e0b;
+      --accent2: #3b82f6;
+      --up: #10b981;
+      --down: #ef4444;
+      --radius: 10px;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+    }
+
+    /* Header */
+    header {
+      border-bottom: 1px solid var(--border);
+      padding: 1rem 2rem;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      position: sticky;
+      top: 0;
+      background: rgba(10,15,26,0.92);
+      backdrop-filter: blur(8px);
+      z-index: 100;
+    }
+    .logo { display: flex; align-items: center; gap: 0.6rem; }
+    .logo-icon { font-size: 1.4rem; }
+    .logo h1 { font-size: 1.1rem; font-weight: 700; letter-spacing: -0.02em; }
+    .logo span { color: var(--accent); }
+    .sync-btn {
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      color: var(--muted);
+      padding: 0.4rem 0.9rem;
+      border-radius: 6px;
+      font-size: 0.8rem;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    .sync-btn:hover { color: var(--text); border-color: var(--accent); }
+
+    /* Layout */
+    .layout {
+      display: grid;
+      grid-template-columns: 300px 1fr;
+      height: calc(100vh - 57px);
+    }
+
+    /* Sidebar */
+    .sidebar {
+      border-right: 1px solid var(--border);
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    .search-box {
+      padding: 1rem;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .search-input-wrap {
+      position: relative;
+    }
+
+    .search-input {
+      width: 100%;
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 0.65rem 0.9rem 0.65rem 2.2rem;
+      color: var(--text);
+      font-size: 0.9rem;
+      outline: none;
+      transition: border-color 0.2s;
+    }
+    .search-input:focus { border-color: var(--accent2); }
+    .search-icon {
+      position: absolute;
+      left: 0.7rem;
+      top: 50%;
+      transform: translateY(-50%);
+      color: var(--muted);
+      font-size: 0.9rem;
+    }
+
+    .autocomplete {
+      position: absolute;
+      top: calc(100% + 4px);
+      left: 0;
+      right: 0;
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      overflow: hidden;
+      z-index: 200;
+      box-shadow: 0 8px 24px rgba(0,0,0,0.4);
+    }
+    .autocomplete-item {
+      padding: 0.7rem 0.9rem;
+      cursor: pointer;
+      font-size: 0.85rem;
+      border-bottom: 1px solid var(--border);
+      transition: background 0.15s;
+    }
+    .autocomplete-item:last-child { border-bottom: none; }
+    .autocomplete-item:hover { background: var(--border); }
+    .autocomplete-name { font-weight: 600; }
+    .autocomplete-meta { color: var(--muted); font-size: 0.75rem; margin-top: 0.15rem; }
+
+    .estate-list {
+      flex: 1;
+      overflow-y: auto;
+      padding: 0.75rem;
+      display: flex;
+      flex-direction: column;
+      gap: 0.5rem;
+    }
+
+    .estate-card {
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 0.85rem 1rem;
+      cursor: pointer;
+      transition: border-color 0.15s, background 0.15s;
+      position: relative;
+    }
+    .estate-card:hover { border-color: var(--accent2); }
+    .estate-card.active { border-color: var(--accent); background: rgba(245,158,11,0.06); }
+    .estate-card-name { font-weight: 600; font-size: 0.9rem; }
+    .estate-card-meta { color: var(--muted); font-size: 0.75rem; margin-top: 0.25rem; }
+    .estate-card-delete {
+      position: absolute;
+      top: 0.6rem;
+      right: 0.6rem;
+      background: none;
+      border: none;
+      color: var(--muted);
+      cursor: pointer;
+      font-size: 0.8rem;
+      padding: 2px 5px;
+      border-radius: 4px;
+      opacity: 0;
+      transition: opacity 0.15s, color 0.15s;
+    }
+    .estate-card:hover .estate-card-delete { opacity: 1; }
+    .estate-card-delete:hover { color: var(--down); }
+
+    .sidebar-empty {
+      text-align: center;
+      padding: 2rem 1rem;
+      color: var(--muted);
+      font-size: 0.85rem;
+    }
+
+    /* Main content */
+    .main {
+      overflow-y: auto;
+      padding: 1.5rem 2rem;
+    }
+
+    .welcome {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      height: 100%;
+      gap: 1rem;
+      color: var(--muted);
+      text-align: center;
+    }
+    .welcome-icon { font-size: 3rem; }
+    .welcome h2 { font-size: 1.1rem; color: var(--text); }
+    .welcome p { font-size: 0.85rem; max-width: 280px; line-height: 1.6; }
+
+    /* Estate detail */
+    .estate-header {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      margin-bottom: 1.5rem;
+      flex-wrap: wrap;
+      gap: 1rem;
+    }
+    .estate-title { font-size: 1.4rem; font-weight: 700; letter-spacing: -0.02em; }
+    .estate-sub { color: var(--muted); font-size: 0.85rem; margin-top: 0.25rem; }
+
+    .stats-row {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 0.75rem;
+      margin-bottom: 1.5rem;
+    }
+    .stat-card {
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 1rem;
+    }
+    .stat-label { color: var(--muted); font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.06em; }
+    .stat-value { font-size: 1.4rem; font-weight: 700; margin-top: 0.25rem; color: var(--accent); }
+    .stat-unit { font-size: 0.7rem; color: var(--muted); font-weight: 400; }
+
+    /* Chart */
+    .chart-section {
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 1.25rem;
+      margin-bottom: 1.5rem;
+    }
+    .section-title {
+      font-size: 0.8rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: var(--muted);
+      margin-bottom: 1rem;
+    }
+    .chart-wrap { position: relative; height: 160px; }
+    canvas { width: 100% !important; }
+
+    .no-data {
+      text-align: center;
+      padding: 2rem;
+      color: var(--muted);
+      font-size: 0.85rem;
+    }
+
+    /* Listings table */
+    .listings-section {
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      overflow: hidden;
+    }
+    .listings-header {
+      padding: 1rem 1.25rem;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    table { width: 100%; border-collapse: collapse; font-size: 0.82rem; }
+    th {
+      padding: 0.65rem 1rem;
+      text-align: left;
+      color: var(--muted);
+      font-size: 0.72rem;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      font-weight: 600;
+      border-bottom: 1px solid var(--border);
+      white-space: nowrap;
+    }
+    td {
+      padding: 0.7rem 1rem;
+      border-bottom: 1px solid rgba(31,45,66,0.5);
+      vertical-align: middle;
+    }
+    tr:last-child td { border-bottom: none; }
+    tr:hover td { background: rgba(255,255,255,0.02); }
+
+    .price-cell { font-weight: 700; color: var(--accent); }
+    .unit-price { color: var(--muted); font-size: 0.75rem; margin-top: 0.1rem; }
+    .floor-badge {
+      display: inline-block;
+      padding: 0.15rem 0.45rem;
+      border-radius: 4px;
+      font-size: 0.72rem;
+      font-weight: 600;
+    }
+    .floor-high { background: rgba(16,185,129,0.15); color: var(--up); }
+    .floor-mid  { background: rgba(59,130,246,0.15); color: var(--accent2); }
+    .floor-low  { background: rgba(245,158,11,0.15); color: var(--accent); }
+
+    .detail-link {
+      color: var(--accent2);
+      text-decoration: none;
+      font-size: 0.75rem;
+    }
+    .detail-link:hover { text-decoration: underline; }
+
+    /* Loading */
+    .loading {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      color: var(--muted);
+      font-size: 0.85rem;
+      padding: 2rem;
+      justify-content: center;
+    }
+    .spinner {
+      width: 16px;
+      height: 16px;
+      border: 2px solid var(--border);
+      border-top-color: var(--accent);
+      border-radius: 50%;
+      animation: spin 0.7s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    .toast {
+      position: fixed;
+      bottom: 1.5rem;
+      right: 1.5rem;
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 0.75rem 1.1rem;
+      font-size: 0.85rem;
+      z-index: 1000;
+      box-shadow: 0 4px 20px rgba(0,0,0,0.4);
+      animation: fadeIn 0.2s ease;
+    }
+    .toast.success { border-color: var(--up); }
+    .toast.error { border-color: var(--down); }
+    @keyframes fadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+
+    @media (max-width: 768px) {
+      .layout { grid-template-columns: 1fr; height: auto; }
+      .sidebar { max-height: 40vh; border-right: none; border-bottom: 1px solid var(--border); }
+      .stats-row { grid-template-columns: repeat(2, 1fr); }
+      .main { padding: 1rem; }
+    }
+  </style>
+</head>
+<body>
+
+<header>
+  <div class="logo">
+    <span class="logo-icon">🏙️</span>
+    <h1>Prop<span>Watch</span></h1>
+  </div>
+  <button class="sync-btn" onclick="syncAll()">↻ 立即同步</button>
+</header>
+
+<div class="layout">
+  <!-- Sidebar -->
+  <aside class="sidebar">
+    <div class="search-box">
+      <div class="search-input-wrap">
+        <span class="search-icon">🔍</span>
+        <input
+          type="text"
+          class="search-input"
+          id="searchInput"
+          placeholder="搜尋屋苑名稱…"
+          autocomplete="off"
+        >
+        <div class="autocomplete hidden" id="autocomplete"></div>
+      </div>
+    </div>
+    <div class="estate-list" id="estateList">
+      <div class="sidebar-empty">載入中…</div>
+    </div>
+  </aside>
+
+  <!-- Main -->
+  <main class="main" id="main">
+    <div class="welcome">
+      <div class="welcome-icon">🏠</div>
+      <h2>追蹤香港樓市動態</h2>
+      <p>在左側搜尋屋苑名稱，系統每日自動更新售價，並顯示趨勢走勢。</p>
+    </div>
+  </main>
+</div>
+
+<script>
+const API = "https://propwatch-worker.johnwong777.workers.dev";
+let activeEstateId = null;
+let searchTimer = null;
+let chart = null;
+
+// ── Toast ──────────────────────────────────────────────────────
+function toast(msg, type = "info") {
+  const el = document.createElement("div");
+  el.className = `toast ${type}`;
+  el.textContent = msg;
+  document.body.appendChild(el);
+  setTimeout(() => el.remove(), 3000);
+}
+
+// ── API calls ──────────────────────────────────────────────────
+async function api(path, opts = {}) {
+  const res = await fetch(API + path, {
+    headers: { "Content-Type": "application/json" },
+    ...opts,
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || "請求失敗");
+  return data;
+}
+
+// ── Estate list ────────────────────────────────────────────────
+async function loadEstates() {
+  const list = document.getElementById("estateList");
+  try {
+    const { estates } = await api("/api/estates");
+    if (!estates.length) {
+      list.innerHTML = '<div class="sidebar-empty">未追蹤任何屋苑<br><small>在上方搜尋並新增</small></div>';
+      return;
+    }
+    list.innerHTML = estates.map(e => `
+      <div class="estate-card ${e.id === activeEstateId ? 'active' : ''}"
+           onclick="showEstate(${e.id}, '${escHtml(e.name)}', '${escHtml(e.district||'')}')">
+        <button class="estate-card-delete" onclick="deleteEstate(event,${e.id})">✕</button>
+        <div class="estate-card-name">${escHtml(e.name)}</div>
+        <div class="estate-card-meta">
+          ${e.district ? escHtml(e.district) + ' · ' : ''}
+          ${e.today_count ?? 0} 個盤
+          ${e.last_synced ? ' · ' + e.last_synced.slice(0,10) : ''}
+        </div>
+      </div>
+    `).join('');
+  } catch (err) {
+    list.innerHTML = `<div class="sidebar-empty">載入失敗：${err.message}</div>`;
+  }
+}
+
+async function deleteEstate(e, id) {
+  e.stopPropagation();
+  if (!confirm("確認移除此屋苑追蹤？")) return;
+  await api(`/api/estates/${id}`, { method: "DELETE" });
+  if (activeEstateId === id) {
+    activeEstateId = null;
+    document.getElementById("main").innerHTML = `<div class="welcome"><div class="welcome-icon">🏠</div><h2>選擇屋苑</h2></div>`;
+  }
+  loadEstates();
+}
+
+// ── Search autocomplete ────────────────────────────────────────
+const searchInput = document.getElementById("searchInput");
+const autocomplete = document.getElementById("autocomplete");
+
+searchInput.addEventListener("input", () => {
+  clearTimeout(searchTimer);
+  const val = searchInput.value.trim();
+  if (val.length < 2) { autocomplete.classList.add("hidden"); return; }
+  searchTimer = setTimeout(() => doSearch(val), 400);
+});
+
+searchInput.addEventListener("blur", () => {
+  setTimeout(() => autocomplete.classList.add("hidden"), 200);
+});
+
+async function doSearch(keyword) {
+  try {
+    const { results } = await api("/api/search", {
+      method: "POST",
+      body: JSON.stringify({ keyword }),
+    });
+
+    if (!results?.length) {
+      autocomplete.innerHTML = '<div class="autocomplete-item" style="color:var(--muted)">沒有結果</div>';
+      autocomplete.classList.remove("hidden");
+      return;
+    }
+
+    autocomplete.innerHTML = results.slice(0, 8).map(r => `
+      <div class="autocomplete-item"
+           onclick="trackEstate('${escHtml(r.bigEstateName || r.name)}', '${r.bigestcode || r.bigCode}', '${escHtml(r.districtName || r.district || '')}')">
+        <div class="autocomplete-name">${escHtml(r.bigEstateName || r.name)}</div>
+        <div class="autocomplete-meta">${escHtml(r.districtName || r.district || '')} ${r.bigestcode || r.bigCode || ''}</div>
+      </div>
+    `).join('');
+    autocomplete.classList.remove("hidden");
+  } catch {}
+}
+
+async function trackEstate(name, bigestcode, district) {
+  autocomplete.classList.add("hidden");
+  searchInput.value = "";
+  toast("正在抓取 " + name + " 資料…");
+  try {
+    const data = await api("/api/track", {
+      method: "POST",
+      body: JSON.stringify({ name, bigestcode, district }),
+    });
+    toast(`已新增 ${name}，共 ${data.count} 個盤`, "success");
+    await loadEstates();
+    showEstate(data.estate.id, name, district);
+  } catch (err) {
+    toast("新增失敗：" + err.message, "error");
+  }
+}
+
+// ── Estate detail ──────────────────────────────────────────────
+async function showEstate(id, name, district) {
+  activeEstateId = id;
+  document.querySelectorAll(".estate-card").forEach(c => {
+    c.classList.toggle("active", c.getAttribute("onclick")?.includes(`${id},`));
+  });
+
+  const main = document.getElementById("main");
+  main.innerHTML = '<div class="loading"><div class="spinner"></div> 載入中…</div>';
+
+  try {
+    const [{ listings }, { trends }] = await Promise.all([
+      api(`/api/estates/${id}/listings`),
+      api(`/api/estates/${id}/trends`),
+    ]);
+
+    const prices = listings.map(l => l.price).filter(Boolean);
+    const pricesPerFt = listings.map(l => l.price_per_ft).filter(Boolean);
+    const avgPricePerFt = pricesPerFt.length ? Math.round(pricesPerFt.reduce((a,b)=>a+b,0)/pricesPerFt.length) : 0;
+    const minPrice = prices.length ? Math.min(...prices) : 0;
+    const maxPrice = prices.length ? Math.max(...prices) : 0;
+
+    // Trend change
+    let trendChange = "";
+    if (trends.length >= 2) {
+      const last = trends[trends.length-1].avg_price_ft;
+      const prev = trends[trends.length-2].avg_price_ft;
+      const pct = ((last-prev)/prev*100).toFixed(1);
+      const color = pct >= 0 ? "var(--up)" : "var(--down)";
+      trendChange = `<span style="color:${color};font-size:0.8rem">${pct>=0?'▲':'▼'} ${Math.abs(pct)}%</span>`;
+    }
+
+    main.innerHTML = `
+      <div class="estate-header">
+        <div>
+          <div class="estate-title">${escHtml(name)}</div>
+          <div class="estate-sub">${district ? escHtml(district) + ' · ' : ''}共 ${listings.length} 個在售單位</div>
+        </div>
+        ${trendChange}
+      </div>
+
+      <div class="stats-row">
+        <div class="stat-card">
+          <div class="stat-label">平均實呎價</div>
+          <div class="stat-value">$${avgPricePerFt.toLocaleString()} <span class="stat-unit">/呎</span></div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">最低售價</div>
+          <div class="stat-value">$${(minPrice/1e6).toFixed(2)} <span class="stat-unit">M</span></div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">最高售價</div>
+          <div class="stat-value">$${(maxPrice/1e6).toFixed(2)} <span class="stat-unit">M</span></div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">追蹤天數</div>
+          <div class="stat-value">${trends.length} <span class="stat-unit">天</span></div>
+        </div>
+      </div>
+
+      <div class="chart-section">
+        <div class="section-title">實用呎價趨勢</div>
+        ${trends.length < 2
+          ? '<div class="no-data">需要至少 2 天數據才能顯示趨勢圖<br><small>每日 09:00 自動更新</small></div>'
+          : '<div class="chart-wrap"><canvas id="trendChart"></canvas></div>'
+        }
+      </div>
+
+      <div class="listings-section">
+        <div class="listings-header">
+          <div class="section-title" style="margin:0">最新放盤</div>
+        </div>
+        ${listings.length === 0
+          ? '<div class="no-data">暫無放盤資料</div>'
+          : `<div style="overflow-x:auto">
+            <table>
+              <thead>
+                <tr>
+                  <th>屋苑/期</th>
+                  <th>樓層/單位</th>
+                  <th>房數</th>
+                  <th>實呎</th>
+                  <th>售價</th>
+                  <th>實呎價</th>
+                  <th>座向</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody>
+                ${listings.map(l => `
+                  <tr>
+                    <td>${escHtml(l.estate_name||'')} ${escHtml(l.phase||'')}</td>
+                    <td>
+                      <span class="floor-badge ${floorClass(l.floor)}">${escHtml(l.floor||'-')}</span>
+                      <span style="margin-left:0.4rem">${escHtml(l.unit||'-')}</span>
+                    </td>
+                    <td>${l.bedrooms ?? '-'}房</td>
+                    <td>${l.size_net ? l.size_net.toLocaleString() + '呎' : '-'}</td>
+                    <td class="price-cell">
+                      $${l.price ? (l.price/1e4).toFixed(0)+'萬' : '-'}
+                    </td>
+                    <td>
+                      <div>$${l.price_per_ft ? l.price_per_ft.toLocaleString() : '-'}</div>
+                      <div class="unit-price">/呎</div>
+                    </td>
+                    <td>${escHtml(l.direction||'-')}</td>
+                    <td>
+                      ${l.detail_url ? `<a href="${escHtml(l.detail_url)}" target="_blank" class="detail-link">詳情 ↗</a>` : ''}
+                    </td>
+                  </tr>
+                `).join('')}
+              </tbody>
+            </table>
+          </div>`
+        }
+      </div>
+    `;
+
+    // Draw chart
+    if (trends.length >= 2) {
+      drawChart(trends);
+    }
+  } catch (err) {
+    main.innerHTML = `<div class="welcome"><p>載入失敗：${err.message}</p></div>`;
+  }
+}
+
+function floorClass(floor) {
+  if (!floor) return "";
+  if (floor.includes("高")) return "floor-high";
+  if (floor.includes("中")) return "floor-mid";
+  if (floor.includes("低")) return "floor-low";
+  return "";
+}
+
+// ── Chart ──────────────────────────────────────────────────────
+function drawChart(trends) {
+  const canvas = document.getElementById("trendChart");
+  if (!canvas) return;
+
+  const labels = trends.map(t => t.snapshot_date.slice(5));
+  const data = trends.map(t => t.avg_price_ft);
+
+  const W = canvas.parentElement.offsetWidth;
+  const H = 160;
+  canvas.width = W;
+  canvas.height = H;
+
+  const ctx = canvas.getContext("2d");
+  const pad = { top: 20, right: 16, bottom: 28, left: 56 };
+  const w = W - pad.left - pad.right;
+  const h = H - pad.top - pad.bottom;
+
+  const minV = Math.min(...data) * 0.98;
+  const maxV = Math.max(...data) * 1.02;
+
+  ctx.clearRect(0, 0, W, H);
+
+  // Grid lines
+  ctx.strokeStyle = "rgba(31,45,66,0.8)";
+  ctx.lineWidth = 1;
+  for (let i = 0; i <= 4; i++) {
+    const y = pad.top + (h / 4) * i;
+    ctx.beginPath();
+    ctx.moveTo(pad.left, y);
+    ctx.lineTo(pad.left + w, y);
+    ctx.stroke();
+
+    const val = maxV - ((maxV - minV) / 4) * i;
+    ctx.fillStyle = "#64748b";
+    ctx.font = "10px -apple-system, sans-serif";
+    ctx.textAlign = "right";
+    ctx.fillText("$" + Math.round(val).toLocaleString(), pad.left - 6, y + 4);
+  }
+
+  // X labels
+  ctx.fillStyle = "#64748b";
+  ctx.textAlign = "center";
+  const step = Math.ceil(labels.length / 10);
+  labels.forEach((l, i) => {
+    if (i % step === 0) {
+      const x = pad.left + (w / (data.length - 1)) * i;
+      ctx.fillText(l, x, H - 6);
+    }
+  });
+
+  // Gradient fill
+  const grad = ctx.createLinearGradient(0, pad.top, 0, pad.top + h);
+  grad.addColorStop(0, "rgba(245,158,11,0.25)");
+  grad.addColorStop(1, "rgba(245,158,11,0)");
+
+  ctx.beginPath();
+  data.forEach((v, i) => {
+    const x = pad.left + (w / (data.length - 1)) * i;
+    const y = pad.top + h - ((v - minV) / (maxV - minV)) * h;
+    i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+  });
+  ctx.lineTo(pad.left + w, pad.top + h);
+  ctx.lineTo(pad.left, pad.top + h);
+  ctx.closePath();
+  ctx.fillStyle = grad;
+  ctx.fill();
+
+  // Line
+  ctx.beginPath();
+  ctx.strokeStyle = "#f59e0b";
+  ctx.lineWidth = 2;
+  ctx.lineJoin = "round";
+  data.forEach((v, i) => {
+    const x = pad.left + (w / (data.length - 1)) * i;
+    const y = pad.top + h - ((v - minV) / (maxV - minV)) * h;
+    i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+  });
+  ctx.stroke();
+
+  // Last point dot
+  const lx = pad.left + w;
+  const lv = data[data.length - 1];
+  const ly = pad.top + h - ((lv - minV) / (maxV - minV)) * h;
+  ctx.beginPath();
+  ctx.arc(lx, ly, 4, 0, Math.PI * 2);
+  ctx.fillStyle = "#f59e0b";
+  ctx.fill();
+}
+
+// ── Sync all ──────────────────────────────────────────────────
+async function syncAll() {
+  toast("同步中…");
+  try {
+    const { results } = await api("/api/sync", { method: "POST" });
+    const ok = results.filter(r => r.ok).length;
+    toast(`同步完成：${ok}/${results.length} 個屋苑`, "success");
+    loadEstates();
+    if (activeEstateId) {
+      const card = document.querySelector(".estate-card.active");
+      if (card) card.click();
+    }
+  } catch (err) {
+    toast("同步失敗：" + err.message, "error");
+  }
+}
+
+function escHtml(s) {
+  return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
+}
+
+// Init
+loadEstates();
+</script>
+</body>
+</html>

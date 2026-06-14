@@ -1,0 +1,11 @@
+name = "propwatch-worker"
+main = "index.js"
+compatibility_date = "2024-01-01"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "propwatch-db"
+database_id = "b4330ef2-78c4-48be-ae88-b1d94614faad"
+
+[triggers]
+crons = ["0 1 * * *"]
