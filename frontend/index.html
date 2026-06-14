@@ -102,6 +102,23 @@
       font-size: 0.9rem;
     }
 
+    .search-btn {
+      position: absolute;
+      right: 0.4rem;
+      top: 50%;
+      transform: translateY(-50%);
+      background: var(--accent);
+      color: #000;
+      border: none;
+      border-radius: 6px;
+      padding: 0.3rem 0.7rem;
+      font-size: 0.78rem;
+      font-weight: 700;
+      cursor: pointer;
+      transition: background 0.15s;
+    }
+    .search-btn:hover { background: #d97706; }
+
     .autocomplete {
       position: absolute;
       top: calc(100% + 4px);
@@ -368,6 +385,7 @@
           placeholder="搜尋屋苑名稱…"
           autocomplete="off"
         >
+        <button class="search-btn" id="searchBtn" onclick="handleSearchBtn()">搜尋</button>
         <div class="autocomplete hidden" id="autocomplete"></div>
       </div>
     </div>
@@ -387,7 +405,7 @@
 </div>
 
 <script>
-const API = "https://propwatch-worker.johnwong777.workers.dev";
+const API = "REPLACE_WITH_YOUR_WORKER_URL";
 let activeEstateId = null;
 let searchTimer = null;
 let chart = null;
@@ -464,6 +482,23 @@ searchInput.addEventListener("blur", () => {
   setTimeout(() => autocomplete.classList.add("hidden"), 200);
 });
 
+searchInput.addEventListener("keydown", (e) => {
+  if (e.key === "Enter") {
+    e.preventDefault();
+    handleSearchBtn();
+  }
+});
+
+async function handleSearchBtn() {
+  const val = searchInput.value.trim();
+  if (val.length < 2) return;
+  clearTimeout(searchTimer);
+  await doSearch(val);
+  // 如果只有一個結果就直接追蹤
+  const items = autocomplete.querySelectorAll(".autocomplete-item[data-code]");
+  if (items.length === 1) items[0].click();
+}
+
 async function doSearch(keyword) {
   try {
     const { results } = await api("/api/search", {
@@ -479,6 +514,7 @@ async function doSearch(keyword) {
 
     autocomplete.innerHTML = results.slice(0, 8).map(r => `
       <div class="autocomplete-item"
+           data-code="${r.bigestcode || r.bigCode || ''}"
            onclick="trackEstate('${escHtml(r.bigEstateName || r.name)}', '${r.bigestcode || r.bigCode}', '${escHtml(r.districtName || r.district || '')}')">
         <div class="autocomplete-name">${escHtml(r.bigEstateName || r.name)}</div>
         <div class="autocomplete-meta">${escHtml(r.districtName || r.district || '')} ${r.bigestcode || r.bigCode || ''}</div>
