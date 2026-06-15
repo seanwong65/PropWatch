@@ -405,7 +405,7 @@
 </div>
 
 <script>
-const API = "https://propwatch-worker.johnwong777.workers.dev";
+const API = "REPLACE_WITH_YOUR_WORKER_URL";
 let activeEstateId = null;
 let searchTimer = null;
 let chart = null;
@@ -512,16 +512,28 @@ async function doSearch(keyword) {
       return;
     }
 
-    autocomplete.innerHTML = results.slice(0, 8).map(r => `
-      <div class="autocomplete-item"
-           data-code="${r.bigestcode || r.bigCode || ''}"
-           onclick="trackEstate('${escHtml(r.bigEstateName || r.name)}', '${r.bigestcode || r.bigCode}', '${escHtml(r.districtName || r.district || '')}')">
+    autocomplete.innerHTML = "";
+    results.slice(0, 8).forEach(r => {
+      const div = document.createElement("div");
+      div.className = "autocomplete-item";
+      div.dataset.code = r.bigestcode || r.bigCode || "";
+      div.dataset.name = r.bigEstateName || r.name || "";
+      div.dataset.district = r.districtName || r.district || "";
+      div.innerHTML = `
         <div class="autocomplete-name">${escHtml(r.bigEstateName || r.name)}</div>
         <div class="autocomplete-meta">${escHtml(r.districtName || r.district || '')} ${r.bigestcode || r.bigCode || ''}</div>
-      </div>
-    `).join('');
+      `;
+      div.addEventListener("click", () => {
+        trackEstate(div.dataset.name, div.dataset.code, div.dataset.district);
+      });
+      autocomplete.appendChild(div);
+    });
     autocomplete.classList.remove("hidden");
-  } catch {}
+  } catch (err) {
+    console.error("Search error:", err);
+    autocomplete.innerHTML = `<div class="autocomplete-item" style="color:var(--down)">搜尋失敗：${err.message}</div>`;
+    autocomplete.classList.remove("hidden");
+  }
 }
 
 async function trackEstate(name, bigestcode, district) {
