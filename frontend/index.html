@@ -317,11 +317,73 @@
     }
     .detail-link:hover { text-decoration: underline; }
 
-    .price-change-up { color: var(--down); font-size: 0.75rem; font-weight: 600; }
-    .price-change-down { color: var(--up); font-size: 0.75rem; font-weight: 600; }
-    .price-change-flat { color: var(--muted); font-size: 0.75rem; }
+    .price-change-up { color: var(--down); font-size: 0.72rem; font-weight: 600; }
+    .price-change-down { color: var(--up); font-size: 0.72rem; font-weight: 600; }
+    .price-change-flat { color: var(--muted); font-size: 0.72rem; }
     .ref-link { color: var(--muted); font-size: 0.72rem; text-decoration: none; }
     .ref-link:hover { color: var(--accent2); }
+    .price-prev { color: var(--muted); font-size: 0.72rem; text-decoration: line-through; }
+    .history-btn {
+      background: none;
+      border: 1px solid var(--border);
+      color: var(--muted);
+      border-radius: 4px;
+      font-size: 0.68rem;
+      padding: 0.1rem 0.4rem;
+      cursor: pointer;
+      margin-top: 0.2rem;
+      display: inline-block;
+    }
+    .history-btn:hover { border-color: var(--accent2); color: var(--accent2); }
+
+    /* History modal */
+    .modal-overlay {
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,0.6);
+      z-index: 500;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .modal {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 1.5rem;
+      min-width: 320px;
+      max-width: 480px;
+      width: 90%;
+      box-shadow: 0 16px 48px rgba(0,0,0,0.5);
+    }
+    .modal-title {
+      font-weight: 700;
+      font-size: 1rem;
+      margin-bottom: 0.25rem;
+    }
+    .modal-sub { color: var(--muted); font-size: 0.78rem; margin-bottom: 1rem; }
+    .modal-close {
+      float: right;
+      background: none;
+      border: none;
+      color: var(--muted);
+      cursor: pointer;
+      font-size: 1.1rem;
+      margin-top: -0.2rem;
+    }
+    .history-table { width: 100%; border-collapse: collapse; font-size: 0.82rem; }
+    .history-table th {
+      color: var(--muted);
+      font-size: 0.7rem;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      padding: 0.4rem 0.5rem;
+      text-align: left;
+      border-bottom: 1px solid var(--border);
+    }
+    .history-table td { padding: 0.5rem; border-bottom: 1px solid rgba(31,45,66,0.5); }
+    .history-table tr:last-child td { border-bottom: none; }
+    .history-row-latest td { color: var(--accent); font-weight: 600; }
 
     /* Loading */
     .loading {
@@ -643,7 +705,6 @@ async function showEstate(id, name, district) {
                   <th>實呎</th>
                   <th>售價</th>
                   <th>實呎價</th>
-                  <th>價格變化</th>
                   <th>座向</th>
                   <th></th>
                 </tr>
@@ -663,16 +724,17 @@ async function showEstate(id, name, district) {
                     <td>${l.size_net ? l.size_net.toLocaleString() + '呎' : '-'}</td>
                     <td class="price-cell">
                       $${l.price ? (l.price/1e4).toFixed(0)+'萬' : '-'}
+                      ${l.prev_price ? `<div class="price-prev">$${(l.prev_price/1e4).toFixed(0)}萬</div>` : ''}
+                      ${priceChangeBadge(l.price, l.prev_price)}
+                      ${l.ref_no ? `<br><button class="history-btn" onclick="showHistory('${escHtml(l.ref_no)}','${escHtml(l.estate_name||'')} ${escHtml(l.floor||'')}${escHtml(l.unit||'')}')">歷史 ↓</button>` : ''}
                     </td>
                     <td>
                       <div>$${l.price_per_ft ? l.price_per_ft.toLocaleString() : '-'}</div>
                       <div class="unit-price">/呎</div>
                     </td>
-                    <td>${priceChangeBadge(l.price, l.prev_price)}</td>
+                    <td></td>
                     <td>${escHtml(l.direction||'-')}</td>
-                    <td>
-                      ${l.detail_url ? `<a href="${escHtml(l.detail_url)}" target="_blank" class="detail-link">詳情 ↗</a>` : ''}
-                    </td>
+                    <td>${l.detail_url ? `<a href="${escHtml(l.detail_url)}" target="_blank" class="detail-link">詳情 ↗</a>` : ''}</td>
                   </tr>
                 `).join('')}
               </tbody>
@@ -803,6 +865,46 @@ async function syncAll() {
     }
   } catch (err) {
     toast("同步失敗：" + err.message, "error");
+  }
+}
+
+async function showHistory(refNo, label) {
+  const overlay = document.createElement("div");
+  overlay.className = "modal-overlay";
+  overlay.innerHTML = `
+    <div class="modal">
+      <button class="modal-close" onclick="this.closest('.modal-overlay').remove()">✕</button>
+      <div class="modal-title">${escHtml(label)}</div>
+      <div class="modal-sub">放盤編號：<a href="https://hk.centanet.com/findproperty/buy/${escHtml(refNo)}" target="_blank" class="detail-link">${escHtml(refNo)} ↗</a></div>
+      <div id="historyContent"><div class="loading"><div class="spinner"></div> 載入中…</div></div>
+    </div>
+  `;
+  overlay.addEventListener("click", e => { if (e.target === overlay) overlay.remove(); });
+  document.body.appendChild(overlay);
+
+  try {
+    const { history } = await api(`/api/listings/${encodeURIComponent(refNo)}/history`);
+    const content = document.getElementById("historyContent");
+    if (!history.length) {
+      content.innerHTML = '<div class="no-data">暫無歷史記錄</div>';
+      return;
+    }
+    const rows = [...history].reverse().map((h, i) => `
+      <tr class="${i === 0 ? 'history-row-latest' : ''}">
+        <td>${h.snapshot_date}</td>
+        <td>$${(h.price/1e4).toFixed(0)}萬</td>
+        <td>$${h.price_per_ft ? h.price_per_ft.toLocaleString() : '-'}/呎</td>
+        <td>${i < history.length - 1 ? priceChangeBadge(h.price, history[history.length - 2 - i]?.price) : '首日'}</td>
+      </tr>
+    `).join('');
+    content.innerHTML = `
+      <table class="history-table">
+        <thead><tr><th>日期</th><th>售價</th><th>實呎價</th><th>變化</th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+    `;
+  } catch (err) {
+    document.getElementById("historyContent").innerHTML = `<div class="no-data">載入失敗：${err.message}</div>`;
   }
 }
 

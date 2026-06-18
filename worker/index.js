@@ -313,6 +313,20 @@ export default {
         return json(200, { listings: results });
       }
 
+      if (method === "GET" && path.match(/^\/api\/listings\/.+\/history$/)) {
+        const refNo = decodeURIComponent(path.split("/")[3]);
+        const { results } = await db
+          .prepare(
+            `SELECT snapshot_date, price, price_per_ft
+             FROM listing_price_history
+             WHERE ref_no = ?
+             ORDER BY snapshot_date ASC`
+          )
+          .bind(refNo)
+          .all();
+        return json(200, { history: results });
+      }
+
       if (method === "GET" && path.match(/^\/api\/estates\/\d+\/trends$/)) {
         const estateId = path.split("/")[3];
         const { results } = await db
