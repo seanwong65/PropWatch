@@ -422,6 +422,75 @@
     .toast.error { border-color: var(--down); }
     @keyframes fadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
 
+    /* Sortable table headers */
+    th.sortable {
+      cursor: pointer;
+      user-select: none;
+      white-space: nowrap;
+    }
+    th.sortable:hover { color: var(--text); }
+    th.sort-asc::after  { content: " ▲"; color: var(--accent); }
+    th.sort-desc::after { content: " ▼"; color: var(--accent); }
+
+    /* Filter bar */
+    .filter-bar {
+      padding: 0.75rem 1.25rem;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.6rem;
+      align-items: center;
+    }
+    .filter-label {
+      font-size: 0.72rem;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      white-space: nowrap;
+    }
+    .filter-group {
+      display: flex;
+      align-items: center;
+      gap: 0.35rem;
+      flex-wrap: wrap;
+    }
+    .filter-chip {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      color: var(--muted);
+      border-radius: 20px;
+      padding: 0.2rem 0.65rem;
+      font-size: 0.75rem;
+      cursor: pointer;
+      transition: all 0.15s;
+      white-space: nowrap;
+    }
+    .filter-chip:hover  { border-color: var(--accent2); color: var(--text); }
+    .filter-chip.active { background: rgba(245,158,11,0.12); border-color: var(--accent); color: var(--accent); }
+    .filter-input {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      color: var(--text);
+      border-radius: 6px;
+      padding: 0.25rem 0.5rem;
+      font-size: 0.75rem;
+      width: 72px;
+      outline: none;
+    }
+    .filter-input:focus { border-color: var(--accent2); }
+    .filter-sep {
+      width: 1px;
+      height: 18px;
+      background: var(--border);
+      margin: 0 0.2rem;
+    }
+    .filter-count {
+      margin-left: auto;
+      font-size: 0.75rem;
+      color: var(--muted);
+      white-space: nowrap;
+    }
+
     @media (max-width: 768px) {
       .layout { grid-template-columns: 1fr; height: auto; }
       .sidebar { max-height: 40vh; border-right: none; border-bottom: 1px solid var(--border); }
@@ -477,6 +546,12 @@ const API = "https://propwatch-worker.johnwong777.workers.dev";
 let activeEstateId = null;
 let searchTimer = null;
 let chart = null;
+
+// Listings state
+let allListings = [];
+let sortCol = "price";
+let sortDir = "asc";
+let filters = { beds: "all", floor: "all", minPrice: "", maxPrice: "", minSize: "", maxSize: "" };
 
 // ── Toast ──────────────────────────────────────────────────────
 function toast(msg, type = "info") {
@@ -690,57 +765,13 @@ async function showEstate(id, name, district) {
         }
       </div>
 
-      <div class="listings-section">
+      <div class="listings-section" id="listingsSection">
         <div class="listings-header">
           <div class="section-title" style="margin:0">最新放盤</div>
         </div>
         ${listings.length === 0
           ? '<div class="no-data">暫無放盤資料</div>'
-          : `<div style="overflow-x:auto">
-            <table>
-              <thead>
-                <tr>
-                  <th>屋苑/期</th>
-                  <th>樓層/單位</th>
-                  <th>房數</th>
-                  <th>實呎</th>
-                  <th>售價</th>
-                  <th>實呎價</th>
-                  <th>座向</th>
-                  <th></th>
-                </tr>
-              </thead>
-              <tbody>
-                ${listings.map(l => `
-                  <tr>
-                    <td>
-                      ${escHtml(l.estate_name||'')} ${escHtml(l.phase||'')}
-                      ${l.ref_no ? `<br><a href="https://hk.centanet.com/findproperty/buy/${escHtml(l.ref_no)}" target="_blank" class="ref-link">${escHtml(l.ref_no)}</a>` : ''}
-                    </td>
-                    <td>
-                      <span class="floor-badge ${floorClass(l.floor)}">${escHtml(l.floor||'-')}</span>
-                      <span style="margin-left:0.4rem">${escHtml(l.unit||'-')}</span>
-                    </td>
-                    <td>${l.bedrooms ?? '-'}房</td>
-                    <td>${l.size_net ? l.size_net.toLocaleString() + '呎' : '-'}</td>
-                    <td class="price-cell">
-                      $${l.price ? (l.price/1e4).toFixed(0)+'萬' : '-'}
-                      ${l.prev_price ? `<div class="price-prev">$${(l.prev_price/1e4).toFixed(0)}萬</div>` : ''}
-                      ${priceChangeBadge(l.price, l.prev_price)}
-                      ${l.ref_no ? `<br><button class="history-btn" onclick="showHistory('${escHtml(l.ref_no)}','${escHtml(l.estate_name||'')} ${escHtml(l.floor||'')}${escHtml(l.unit||'')}')">歷史 ↓</button>` : ''}
-                    </td>
-                    <td>
-                      <div>$${l.price_per_ft ? l.price_per_ft.toLocaleString() : '-'}</div>
-                      <div class="unit-price">/呎</div>
-                    </td>
-                    <td></td>
-                    <td>${escHtml(l.direction||'-')}</td>
-                    <td>${l.detail_url ? `<a href="${escHtml(l.detail_url)}" target="_blank" class="detail-link">詳情 ↗</a>` : ''}</td>
-                  </tr>
-                `).join('')}
-              </tbody>
-            </table>
-          </div>`
+          : '<div id="filterBar"></div><div id="listingsTable"></div>'
         }
       </div>
     `;
@@ -749,9 +780,164 @@ async function showEstate(id, name, district) {
     if (trends.length >= 2) {
       drawChart(trends);
     }
+
+    // Init listings sort/filter state and render
+    if (listings.length > 0) {
+      allListings = listings;
+      sortCol = "price";
+      sortDir = "asc";
+      filters = { beds: "all", floor: "all", minPrice: "", maxPrice: "", minSize: "", maxSize: "" };
+      renderFilterBar();
+      renderListingsTable();
+    }
   } catch (err) {
     main.innerHTML = `<div class="welcome"><p>載入失敗：${err.message}</p></div>`;
   }
+}
+
+function renderFilterBar() {
+  const bar = document.getElementById("filterBar");
+  if (!bar) return;
+  const bedOptions = ["all","1","2","3","4+"];
+  const floorOptions = ["all","高層","中層","低層"];
+  bar.innerHTML = `
+    <div class="filter-bar">
+      <span class="filter-label">房數</span>
+      <div class="filter-group">
+        ${bedOptions.map(b => `<button class="filter-chip ${filters.beds===b?'active':''}" onclick="setFilter('beds','${b}')">${b==='all'?'全部':b+'房'}</button>`).join('')}
+      </div>
+      <div class="filter-sep"></div>
+      <span class="filter-label">樓層</span>
+      <div class="filter-group">
+        ${floorOptions.map(f => `<button class="filter-chip ${filters.floor===f?'active':''}" onclick="setFilter('floor','${f}')">${f==='all'?'全部':f}</button>`).join('')}
+      </div>
+      <div class="filter-sep"></div>
+      <span class="filter-label">售價(萬)</span>
+      <div class="filter-group">
+        <input class="filter-input" type="number" placeholder="最低" value="${filters.minPrice}" onchange="setRangeFilter('minPrice',this.value)">
+        <span style="color:var(--muted);font-size:0.75rem">–</span>
+        <input class="filter-input" type="number" placeholder="最高" value="${filters.maxPrice}" onchange="setRangeFilter('maxPrice',this.value)">
+      </div>
+      <div class="filter-sep"></div>
+      <span class="filter-label">實呎</span>
+      <div class="filter-group">
+        <input class="filter-input" type="number" placeholder="最低" value="${filters.minSize}" onchange="setRangeFilter('minSize',this.value)">
+        <span style="color:var(--muted);font-size:0.75rem">–</span>
+        <input class="filter-input" type="number" placeholder="最高" value="${filters.maxSize}" onchange="setRangeFilter('maxSize',this.value)">
+      </div>
+      <span class="filter-count" id="filterCount"></span>
+    </div>
+  `;
+}
+
+function setFilter(key, val) {
+  filters[key] = val;
+  renderFilterBar();
+  renderListingsTable();
+}
+
+function setRangeFilter(key, val) {
+  filters[key] = val;
+  renderListingsTable();
+}
+
+function applyFilters(listings) {
+  return listings.filter(l => {
+    if (filters.beds !== "all") {
+      const b = l.bedrooms ?? 0;
+      if (filters.beds === "4+" && b < 4) return false;
+      if (filters.beds !== "4+" && String(b) !== filters.beds) return false;
+    }
+    if (filters.floor !== "all" && l.floor && !l.floor.includes(filters.floor)) return false;
+    if (filters.minPrice && l.price < filters.minPrice * 1e4) return false;
+    if (filters.maxPrice && l.price > filters.maxPrice * 1e4) return false;
+    if (filters.minSize && l.size_net < Number(filters.minSize)) return false;
+    if (filters.maxSize && l.size_net > Number(filters.maxSize)) return false;
+    return true;
+  });
+}
+
+function applySortAndFilter() {
+  const filtered = applyFilters(allListings);
+  const colMap = {
+    price: l => l.price ?? 0,
+    price_per_ft: l => l.price_per_ft ?? 0,
+    size_net: l => l.size_net ?? 0,
+    bedrooms: l => l.bedrooms ?? 0,
+    floor: l => { const f = l.floor||""; return f.includes("高")?3:f.includes("中")?2:f.includes("低")?1:0; },
+    building_name: l => l.building_name || "",
+    direction: l => l.direction || "",
+  };
+  const fn = colMap[sortCol] || (l => 0);
+  filtered.sort((a, b) => {
+    const av = fn(a), bv = fn(b);
+    if (av < bv) return sortDir === "asc" ? -1 : 1;
+    if (av > bv) return sortDir === "asc" ? 1 : -1;
+    return 0;
+  });
+  return filtered;
+}
+
+function setSort(col) {
+  if (sortCol === col) sortDir = sortDir === "asc" ? "desc" : "asc";
+  else { sortCol = col; sortDir = "asc"; }
+  renderListingsTable();
+}
+
+function renderListingsTable() {
+  const el = document.getElementById("listingsTable");
+  if (!el) return;
+  const visible = applySortAndFilter();
+
+  const fc = document.getElementById("filterCount");
+  if (fc) fc.textContent = `顯示 ${visible.length} / ${allListings.length} 個盤`;
+
+  const cols = [
+    { key: "building_name", label: "座" },
+    { key: "floor",         label: "樓層/單位" },
+    { key: "bedrooms",      label: "房數" },
+    { key: "size_net",      label: "實呎" },
+    { key: "price",         label: "售價" },
+    { key: "price_per_ft",  label: "實呎價" },
+    { key: "direction",     label: "座向" },
+    { key: null,            label: "" },
+  ];
+
+  const ths = cols.map(c => {
+    if (!c.key) return `<th></th>`;
+    const cls = c.key === sortCol
+      ? `sortable sort-${sortDir}`
+      : "sortable";
+    return `<th class="${cls}" onclick="setSort('${c.key}')">${c.label}</th>`;
+  }).join('');
+
+  const rows = visible.length === 0
+    ? `<tr><td colspan="${cols.length}" class="no-data" style="padding:2rem;text-align:center">無符合條件的放盤</td></tr>`
+    : visible.map(l => `
+      <tr>
+        <td>${escHtml(l.building_name||'-')}</td>
+        <td>
+          <span class="floor-badge ${floorClass(l.floor)}">${escHtml(l.floor||'-')}</span>
+          <span style="margin-left:0.4rem">${escHtml(l.unit||'-')}</span>
+        </td>
+        <td>${l.bedrooms ?? '-'}房</td>
+        <td>${l.size_net ? l.size_net.toLocaleString()+'呎' : '-'}</td>
+        <td class="price-cell">
+          $${l.price ? (l.price/1e4).toFixed(0)+'萬' : '-'}
+          ${l.prev_price ? `<div class="price-prev">$${(l.prev_price/1e4).toFixed(0)}萬</div>` : ''}
+          ${priceChangeBadge(l.price, l.prev_price)}
+          ${l.ref_no ? `<br><button class="history-btn" onclick="showHistory('${escHtml(l.ref_no)}','${escHtml((l.building_name||'')+' '+(l.floor||'')+(l.unit||''))}')">歷史 ↓</button>` : ''}
+        </td>
+        <td>
+          <div>$${l.price_per_ft ? l.price_per_ft.toLocaleString() : '-'}</div>
+          <div class="unit-price">/呎</div>
+        </td>
+        <td>${escHtml(l.direction||'-')}</td>
+        <td>${l.detail_url ? `<a href="${escHtml(l.detail_url)}" target="_blank" class="detail-link">詳情 ↗</a>` : ''}</td>
+      </tr>
+    `).join('');
+
+  el.innerHTML = `<div style="overflow-x:auto"><table><thead><tr>${ths}</tr></thead><tbody>${rows}</tbody></table></div>`;
 }
 
 function floorClass(floor) {
