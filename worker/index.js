@@ -198,25 +198,195 @@ async function saveSearchResults(db, estateId, listings) {
     .run();
 }
 
-async function runDailySync(db) {
+async function sendEmail(apiKey, to, subject, html) {
+  const res = await fetch("https://api.resend.com/emails", {
+    method: "POST",
+    headers: {
+      "Authorization": `Bearer ${apiKey}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      from: "PropWatch <onboarding@resend.dev>",
+      to: [to],
+      subject,
+      html,
+    }),
+  });
+  if (!res.ok) {
+    const err = await res.text();
+    throw new Error(`Resend error ${res.status}: ${err}`);
+  }
+  return res.json();
+}
+
+function buildEmailHtml(changes) {
+  const fmt = (p) => p ? `$${(p / 1e4).toFixed(0)}萬` : "-";
+  const pct = (n, o) => o ? ((n - o) / o * 100).toFixed(1) : null;
+
+  let sections = "";
+
+  for (const { estate, newListings, removedListings, priceChanges } of changes) {
+    if (!newListings.length && !removedListings.length && !priceChanges.length) continue;
+
+    let rows = "";
+
+    if (priceChanges.length) {
+      rows += `<tr><td colspan="4" style="padding:8px 0 4px;font-weight:700;color:#f59e0b">💰 售價變動 (${priceChanges.length})</td></tr>`;
+      for (const l of priceChanges) {
+        const diff = pct(l.newPrice, l.oldPrice);
+        const color = diff > 0 ? "#ef4444" : "#10b981";
+        rows += `<tr style="border-bottom:1px solid #1f2d42">
+          <td style="padding:6px 8px">${l.building || ""} ${l.floor || ""} ${l.unit || ""}</td>
+          <td style="padding:6px 8px;text-decoration:line-through;color:#64748b">${fmt(l.oldPrice)}</td>
+          <td style="padding:6px 8px;font-weight:700">${fmt(l.newPrice)}</td>
+          <td style="padding:6px 8px;color:${color}">${diff > 0 ? "▲" : "▼"} ${Math.abs(diff)}%</td>
+        </tr>`;
+      }
+    }
+
+    if (newListings.length) {
+      rows += `<tr><td colspan="4" style="padding:8px 0 4px;font-weight:700;color:#10b981">🆕 新增放盤 (${newListings.length})</td></tr>`;
+      for (const l of newListings) {
+        rows += `<tr style="border-bottom:1px solid #1f2d42">
+          <td style="padding:6px 8px">${l.building_name || ""} ${l.floor || ""} ${l.unit || ""}</td>
+          <td style="padding:6px 8px;color:#64748b">${l.bedrooms ?? "-"}房 ${l.size_net ? l.size_net + "呎" : ""}</td>
+          <td style="padding:6px 8px;font-weight:700;color:#f59e0b">${fmt(l.price)}</td>
+          <td style="padding:6px 8px;color:#64748b">$${l.price_per_ft ? l.price_per_ft.toLocaleString() : "-"}/呎</td>
+        </tr>`;
+      }
+    }
+
+    if (removedListings.length) {
+      rows += `<tr><td colspan="4" style="padding:8px 0 4px;font-weight:700;color:#ef4444">❌ 已下架 (${removedListings.length})</td></tr>`;
+      for (const l of removedListings) {
+        rows += `<tr style="border-bottom:1px solid #1f2d42">
+          <td style="padding:6px 8px">${l.building_name || ""} ${l.floor || ""} ${l.unit || ""}</td>
+          <td style="padding:6px 8px;color:#64748b">${l.bedrooms ?? "-"}房</td>
+          <td style="padding:6px 8px;text-decoration:line-through;color:#64748b">${fmt(l.price)}</td>
+          <td></td>
+        </tr>`;
+      }
+    }
+
+    sections += `
+      <div style="margin-bottom:24px">
+        <h2 style="margin:0 0 12px;font-size:18px;color:#f59e0b">${estate}</h2>
+        <table style="width:100%;border-collapse:collapse;font-size:14px;color:#e2e8f0">
+          ${rows}
+        </table>
+      </div>`;
+  }
+
+  const today = new Date().toLocaleDateString("zh-HK", { timeZone: "Asia/Hong_Kong" });
+  return `
+    <div style="background:#0a0f1a;color:#e2e8f0;font-family:-apple-system,sans-serif;padding:24px;max-width:600px;margin:0 auto;border-radius:12px">
+      <h1 style="margin:0 0 4px;font-size:22px">🏙️ PropWatch 每日通知</h1>
+      <p style="margin:0 0 24px;color:#64748b;font-size:14px">${today}</p>
+      ${sections}
+      <p style="margin-top:24px;font-size:12px;color:#64748b">
+        <a href="https://propwatch.pages.dev" style="color:#3b82f6">前往 PropWatch</a>
+      </p>
+    </div>`;
+}
+
+async function detectChanges(db, estateId, estateName, newListings) {
+  const today = new Date().toISOString().slice(0, 10);
+
+  // Get yesterday's listings
+  const { results: oldRows } = await db
+    .prepare(
+      `SELECT ref_no, building_name, floor, unit, bedrooms, price, size_net
+       FROM listings WHERE estate_id = ? AND snapshot_date = (
+         SELECT MAX(snapshot_date) FROM listings
+         WHERE estate_id = ? AND snapshot_date < ?
+       )`
+    )
+    .bind(estateId, estateId, today)
+    .all();
+
+  const oldMap = new Map(oldRows.map(r => [r.ref_no, r]));
+  const newMap = new Map(
+    newListings
+      .filter(l => l.refNo)
+      .map(l => [l.refNo, {
+        ref_no: l.refNo,
+        building_name: l.buildingName,
+        floor: l.yAxis,
+        unit: l.xAxis,
+        bedrooms: l.bedroomCount,
+        price: l.salePrice,
+        size_net: l.nSize,
+        price_per_ft: l.nUnitPrice,
+      }])
+  );
+
+  const priceChanges = [];
+  const newAdded = [];
+  const removed = [];
+
+  for (const [ref, nl] of newMap) {
+    if (!oldMap.has(ref)) {
+      newAdded.push(nl);
+    } else {
+      const ol = oldMap.get(ref);
+      if (ol.price && nl.price && Math.abs(nl.price - ol.price) > 1000) {
+        priceChanges.push({ ...nl, oldPrice: ol.price, newPrice: nl.price, building: nl.building_name });
+      }
+    }
+  }
+
+  for (const [ref, ol] of oldMap) {
+    if (!newMap.has(ref)) removed.push(ol);
+  }
+
+  return { estate: estateName, priceChanges, newListings: newAdded, removedListings: removed };
+}
+
+async function runDailySync(db, resendApiKey) {
   const { results: estates } = await db.prepare("SELECT * FROM estates").all();
-  return Promise.all(
+  const results = await Promise.all(
     estates.map(async (estate) => {
       try {
         const data = await fetchCentanet(estate.name);
         const listings = data.data || [];
+        const changes = await detectChanges(db, estate.id, estate.name, listings);
         await saveSearchResults(db, estate.id, listings);
-        return { estate: estate.name, count: listings.length, ok: true };
+        return { estate: estate.name, count: listings.length, ok: true, changes };
       } catch (err) {
         return { estate: estate.name, error: err.message, ok: false };
       }
     })
   );
+
+  // Send email if there are any changes
+  if (resendApiKey) {
+    const allChanges = results.filter(r => r.ok && r.changes).map(r => r.changes);
+    const hasChanges = allChanges.some(
+      c => c.priceChanges.length || c.newListings.length || c.removedListings.length
+    );
+    if (hasChanges) {
+      const totalPrice = allChanges.reduce((s, c) => s + c.priceChanges.length, 0);
+      const totalNew   = allChanges.reduce((s, c) => s + c.newListings.length, 0);
+      const totalDel   = allChanges.reduce((s, c) => s + c.removedListings.length, 0);
+      const parts = [];
+      if (totalPrice) parts.push(`${totalPrice} 個價格變動`);
+      if (totalNew)   parts.push(`${totalNew} 個新放盤`);
+      if (totalDel)   parts.push(`${totalDel} 個已下架`);
+      await sendEmail(
+        resendApiKey,
+        "johnwong777@hotmail.com",
+        `PropWatch 通知：${parts.join("、")}`,
+        buildEmailHtml(allChanges)
+      );
+    }
+  }
+
+  return results;
 }
 
 export default {
   async scheduled(event, env, ctx) {
-    ctx.waitUntil(runDailySync(env.DB));
+    ctx.waitUntil(runDailySync(env.DB, env.RESEND_API_KEY));
   },
 
   async fetch(request, env) {
@@ -340,8 +510,23 @@ export default {
       }
 
       if (method === "POST" && path === "/api/sync") {
-        const results = await runDailySync(db);
+        const results = await runDailySync(db, env.RESEND_API_KEY);
         return json(200, { ok: true, results });
+      }
+
+      if (method === "POST" && path === "/api/test-email") {
+        await sendEmail(
+          env.RESEND_API_KEY,
+          "johnwong777@hotmail.com",
+          "PropWatch 測試郵件",
+          buildEmailHtml([{
+            estate: "測試屋苑",
+            priceChanges: [{ building: "A座", floor: "高層", unit: "1室", oldPrice: 5000000, newPrice: 5500000 }],
+            newListings: [{ building_name: "B座", floor: "中層", unit: "2室", bedrooms: 2, size_net: 500, price: 6000000, price_per_ft: 12000 }],
+            removedListings: [{ building_name: "C座", floor: "低層", unit: "3室", bedrooms: 3, price: 7000000 }],
+          }])
+        );
+        return json(200, { ok: true, message: "測試郵件已發送至 johnwong777@hotmail.com" });
       }
 
       return json(404, { error: "Not found" });
