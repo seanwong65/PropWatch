@@ -587,12 +587,13 @@ async function doSearch(keyword) {
       div.dataset.code = r.bigestcode || r.bigCode || "";
       div.dataset.name = r.bigEstateName || r.name || "";
       div.dataset.district = r.districtName || r.district || "";
+      div.dataset.isBigest = r.isBigest ? "1" : "0";
       div.innerHTML = `
         <div class="autocomplete-name">${escHtml(r.bigEstateName || r.name)}</div>
         <div class="autocomplete-meta">${escHtml(r.districtName || r.district || '')} ${r.bigestcode || r.bigCode || ''}</div>
       `;
       div.addEventListener("click", () => {
-        trackEstate(div.dataset.name, div.dataset.code, div.dataset.district);
+        trackEstate(div.dataset.name, div.dataset.code, div.dataset.district, div.dataset.isBigest === "1");
       });
       autocomplete.appendChild(div);
     });
@@ -604,14 +605,14 @@ async function doSearch(keyword) {
   }
 }
 
-async function trackEstate(name, bigestcode, district) {
+async function trackEstate(name, bigestcode, district, isBigest) {
   autocomplete.classList.add("hidden");
   searchInput.value = "";
   toast("正在抓取 " + name + " 資料…");
   try {
     const data = await api("/api/track", {
       method: "POST",
-      body: JSON.stringify({ name, bigestcode, district }),
+      body: JSON.stringify({ name, bigestcode, district, isBigest }),
     });
     toast(`已新增 ${name}，共 ${data.count} 個盤`, "success");
     await loadEstates();
