@@ -38,7 +38,6 @@ const CF_OPTIONS = {
   },
 };
 
-// 判斷係大型屋苑群（有 bigestcode）定係單一屋苑（用 cestcode）
 function getEstateCode(item) {
   return item.bigestcode || item.cestcode || "";
 }
@@ -47,32 +46,19 @@ function getEstateName(item) {
   return item.bigEstateName || item.estateName || "";
 }
 
-// 按 bigestcode 或 cestcode 抓取
-async function fetchCentanet(estateCode, isBigest = true) {
-  const body = isBigest
-    ? {
-        postType: "Sale",
-        sort: "Ranking",
-        order: "Ascending",
-        size: 100,
-        offset: 0,
-        displayTextStyle: "WebResultList",
-        pageSource: "search",
-        bigestAndEstate: [estateCode],
-        phaseAndEstate: [],
-        bigPhotoMode: false,
-      }
-    : {
-        postType: "Sale",
-        sort: "Ranking",
-        order: "Ascending",
-        size: 100,
-        offset: 0,
-        displayTextStyle: "WebResultList",
-        pageSource: "search",
-        phaseAndEstate: [estateCode],
-        bigPhotoMode: false,
-      };
+// 用屋苑名稱 keyword 搜尋抓取放盤（適用所有屋苑）
+async function fetchCentanet(estateName) {
+  const body = {
+    postType: "Sale",
+    sort: "Ranking",
+    order: "Ascending",
+    size: 100,
+    offset: 0,
+    displayTextStyle: "WebResultList",
+    pageSource: "search",
+    keyword: estateName,
+    bigPhotoMode: false,
+  };
 
   const res = await fetch(CENTANET_SEARCH, {
     method: "POST",
@@ -81,7 +67,7 @@ async function fetchCentanet(estateCode, isBigest = true) {
     ...CF_OPTIONS,
   });
 
-  console.log("[fetchCentanet] status:", res.status, "estateCode:", estateCode);
+  console.log("[fetchCentanet] status:", res.status, "estate:", estateName);
   if (!res.ok) throw new Error(`Centanet API error: ${res.status}`);
   return res.json();
 }
@@ -132,58 +118,60 @@ async function searchEstateName(keyword) {
   return { estates };
 }
 
+const N = (v) => (v == null ? null : v);
+
 function parseListing(item) {
   return {
     listing_id: item.id,
-    ref_no: item.refNo,
+    ref_no: N(item.refNo),
     estate_name: getEstateName(item),
     phase: item.estateName !== getEstateName(item) ? item.estateName : "",
-    building_name: item.buildingName,
-    floor: item.yAxis,
-    unit: item.xAxis,
-    bedrooms: item.bedroomCount,
-    direction: item.direction,
+    building_name: N(item.buildingName),
+    floor: N(item.yAxis),
+    unit: N(item.xAxis),
+    bedrooms: N(item.bedroomCount),
+    direction: N(item.direction),
     size_net: item.nSize || null,
     size_gross: item.size || null,
     price: item.salePrice,
-    price_per_ft: item.nUnitPrice,
-    building_age: item.buildingAge,
-    detail_url: item.detailUrl,
-    thumbnail: item.thumbnail,
+    price_per_ft: N(item.nUnitPrice),
+    building_age: N(item.buildingAge),
+    detail_url: N(item.detailUrl),
+    thumbnail: N(item.thumbnail),
   };
 }
 
 async function saveSearchResults(db, estateId, listings) {
   const today = new Date().toISOString().slice(0, 10);
 
+  const stmtListing = db.prepare(
+    `INSERT OR IGNORE INTO listings
+     (estate_id, listing_id, ref_no, estate_name, phase, building_name,
+      floor, unit, bedrooms, direction, size_net, size_gross,
+      price, price_per_ft, building_age, detail_url, thumbnail, snapshot_date)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+  );
+  const stmtHistory = db.prepare(
+    `INSERT OR IGNORE INTO listing_price_history (ref_no, estate_id, price, price_per_ft, snapshot_date)
+     VALUES (?,?,?,?,?)`
+  );
+
+  const batch = [];
   for (const item of listings) {
     const l = parseListing(item);
-    await db
-      .prepare(
-        `INSERT OR IGNORE INTO listings
-         (estate_id, listing_id, ref_no, estate_name, phase, building_name,
-          floor, unit, bedrooms, direction, size_net, size_gross,
-          price, price_per_ft, building_age, detail_url, thumbnail, snapshot_date)
-         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
-      )
-      .bind(
+    batch.push(
+      stmtListing.bind(
         estateId, l.listing_id, l.ref_no, l.estate_name, l.phase,
         l.building_name, l.floor, l.unit, l.bedrooms, l.direction,
         l.size_net, l.size_gross, l.price, l.price_per_ft,
         l.building_age, l.detail_url, l.thumbnail, today
       )
-      .run();
-
+    );
     if (l.ref_no && l.price) {
-      await db
-        .prepare(
-          `INSERT OR IGNORE INTO listing_price_history (ref_no, estate_id, price, price_per_ft, snapshot_date)
-           VALUES (?,?,?,?,?)`
-        )
-        .bind(l.ref_no, estateId, l.price, l.price_per_ft, today)
-        .run();
+      batch.push(stmtHistory.bind(l.ref_no, estateId, l.price, l.price_per_ft, today));
     }
   }
+  if (batch.length > 0) await db.batch(batch);
 
   const prices = listings.map((l) => l.nUnitPrice).filter(Boolean);
   if (prices.length > 0) {
@@ -212,18 +200,18 @@ async function saveSearchResults(db, estateId, listings) {
 
 async function runDailySync(db) {
   const { results: estates } = await db.prepare("SELECT * FROM estates").all();
-  const results = [];
-  for (const estate of estates) {
-    try {
-      const data = await fetchCentanet(estate.bigestcode, estate.is_bigest !== 0);
-      const listings = data.data || [];
-      await saveSearchResults(db, estate.id, listings);
-      results.push({ estate: estate.name, count: listings.length, ok: true });
-    } catch (err) {
-      results.push({ estate: estate.name, error: err.message, ok: false });
-    }
-  }
-  return results;
+  return Promise.all(
+    estates.map(async (estate) => {
+      try {
+        const data = await fetchCentanet(estate.name);
+        const listings = data.data || [];
+        await saveSearchResults(db, estate.id, listings);
+        return { estate: estate.name, count: listings.length, ok: true };
+      } catch (err) {
+        return { estate: estate.name, error: err.message, ok: false };
+      }
+    })
+  );
 }
 
 export default {
@@ -280,7 +268,7 @@ export default {
             .bind(bigestcode)
             .first();
         }
-        const data = await fetchCentanet(bigestcode, useBigest);
+        const data = await fetchCentanet(name);
         const listings = data.data || [];
         await saveSearchResults(db, estate.id, listings);
 
@@ -337,6 +325,12 @@ export default {
           .bind(estateId)
           .all();
         return json(200, { trends: results });
+      }
+
+      if (method === "GET" && path.match(/^\/api\/debug\/.+$/)) {
+        const name = decodeURIComponent(path.split("/")[3]);
+        const raw = await fetchCentanet(name);
+        return json(200, { count: raw.data?.length ?? 0, name, sample: raw.data?.slice(0, 1) });
       }
 
       if (method === "DELETE" && path.match(/^\/api\/estates\/\d+$/)) {
