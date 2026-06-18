@@ -47,3 +47,16 @@ CREATE TABLE IF NOT EXISTS price_snapshots (
 
 CREATE INDEX IF NOT EXISTS idx_listings_estate ON listings(estate_id, snapshot_date DESC);
 CREATE INDEX IF NOT EXISTS idx_snapshots_estate ON price_snapshots(estate_id, snapshot_date DESC);
+
+-- 每個 refNo 的每日價格記錄（用於追蹤個別單位升跌）
+CREATE TABLE IF NOT EXISTS listing_price_history (
+  id            INTEGER PRIMARY KEY AUTOINCREMENT,
+  ref_no        TEXT    NOT NULL,
+  estate_id     INTEGER NOT NULL REFERENCES estates(id) ON DELETE CASCADE,
+  price         REAL    NOT NULL,
+  price_per_ft  REAL,
+  snapshot_date TEXT    NOT NULL,
+  UNIQUE(ref_no, snapshot_date)
+);
+
+CREATE INDEX IF NOT EXISTS idx_lph_ref ON listing_price_history(ref_no, snapshot_date DESC);

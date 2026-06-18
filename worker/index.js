@@ -5,7 +5,6 @@ const CORS = {
 };
 
 const CENTANET_SEARCH = "https://hk.centanet.com/findproperty/api/Post/Search";
-const CENTANET_ESTATE = "https://hk.centanet.com/estate/api/Estate/Search";
 
 function json(status, data) {
   return new Response(JSON.stringify(data), {
@@ -14,58 +13,131 @@ function json(status, data) {
   });
 }
 
-// ── 抓取中原 API ──────────────────────────────────────────────
-async function fetchCentanet(bigestcode) {
+const FETCH_HEADERS = {
+  "Content-Type": "application/json",
+  "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
+  "Referer": "https://hk.centanet.com/findproperty/list/buy",
+  "Origin": "https://hk.centanet.com",
+  "Accept": "application/json, text/plain, */*",
+  "Accept-Language": "zh-HK,zh;q=0.9,en;q=0.8",
+  "sec-ch-ua": '"Google Chrome";v="125", "Chromium";v="125", "Not.A/Brand";v="24"',
+  "sec-ch-ua-mobile": "?0",
+  "sec-ch-ua-platform": '"macOS"',
+  "sec-fetch-dest": "empty",
+  "sec-fetch-mode": "cors",
+  "sec-fetch-site": "same-origin",
+};
+
+// Cloudflare cf 選項：偽裝成香港用戶請求
+const CF_OPTIONS = {
+  cf: {
+    country: "HK",
+    resolveOverride: "hk.centanet.com",
+    cacheTtl: 0,
+    cacheEverything: false,
+  },
+};
+
+// 判斷係大型屋苑群（有 bigestcode）定係單一屋苑（用 cestcode）
+function getEstateCode(item) {
+  return item.bigestcode || item.cestcode || "";
+}
+
+function getEstateName(item) {
+  return item.bigEstateName || item.estateName || "";
+}
+
+// 按 bigestcode 或 cestcode 抓取
+async function fetchCentanet(estateCode, isBigest = true) {
+  const body = isBigest
+    ? {
+        postType: "Sale",
+        sort: "Ranking",
+        order: "Ascending",
+        size: 100,
+        offset: 0,
+        displayTextStyle: "WebResultList",
+        pageSource: "search",
+        bigestAndEstate: [estateCode],
+        phaseAndEstate: [],
+        bigPhotoMode: false,
+      }
+    : {
+        postType: "Sale",
+        sort: "Ranking",
+        order: "Ascending",
+        size: 100,
+        offset: 0,
+        displayTextStyle: "WebResultList",
+        pageSource: "search",
+        phaseAndEstate: [estateCode],
+        bigPhotoMode: false,
+      };
+
+  const res = await fetch(CENTANET_SEARCH, {
+    method: "POST",
+    headers: FETCH_HEADERS,
+    body: JSON.stringify(body),
+    ...CF_OPTIONS,
+  });
+
+  console.log("[fetchCentanet] status:", res.status, "estateCode:", estateCode);
+  if (!res.ok) throw new Error(`Centanet API error: ${res.status}`);
+  return res.json();
+}
+
+// 搜尋屋苑名稱，返回獨特屋苑列表（支援大型屋苑群同單一屋苑）
+async function searchEstateName(keyword) {
   const body = {
     postType: "Sale",
     sort: "Ranking",
     order: "Ascending",
-    size: 100,
+    size: 24,
     offset: 0,
     displayTextStyle: "WebResultList",
     pageSource: "search",
-    bigestAndEstate: [bigestcode],
-    phaseAndEstate: [],
+    keyword: keyword,
     bigPhotoMode: false,
   };
 
   const res = await fetch(CENTANET_SEARCH, {
     method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36",
-      Referer: "https://hk.centanet.com/findproperty/list/buy",
-      Origin: "https://hk.centanet.com",
-    },
+    headers: FETCH_HEADERS,
     body: JSON.stringify(body),
+    ...CF_OPTIONS,
   });
 
-  if (!res.ok) throw new Error(`Centanet API error: ${res.status}`);
-  return res.json();
-}
+  console.log("[searchEstateName] status:", res.status, "keyword:", keyword);
+  const rawText = await res.text();
+  console.log("[searchEstateName] response preview:", rawText.slice(0, 300));
 
-// 搜尋屋苑名稱 → 取得 bigestcode
-async function searchEstateName(keyword) {
-  const res = await fetch(
-    `${CENTANET_ESTATE}?keyword=${encodeURIComponent(keyword)}&size=10`,
-    {
-      headers: {
-        "User-Agent": "Mozilla/5.0",
-        Referer: "https://hk.centanet.com/findproperty/list/buy",
-      },
+  if (!res.ok) throw new Error(`Search error: ${res.status}`);
+  const data = JSON.parse(rawText);
+
+  const seen = new Set();
+  const estates = [];
+  for (const item of (data.data || [])) {
+    const code = getEstateCode(item);
+    const name = getEstateName(item);
+    if (code && name && !seen.has(code)) {
+      seen.add(code);
+      estates.push({
+        bigEstateName: name,
+        bigestcode: code,
+        isBigest: !!item.bigestcode,
+        districtName: item.districtName || item.scope?.hma || "",
+      });
     }
-  );
-  if (!res.ok) throw new Error(`Estate search error: ${res.status}`);
-  return res.json();
+  }
+  return { estates };
 }
 
-// ── 解析單位資料 ──────────────────────────────────────────────
 function parseListing(item) {
   return {
     listing_id: item.id,
     ref_no: item.refNo,
-    estate_name: item.bigEstateName,
-    phase: item.estateName,
+    estate_name: getEstateName(item),
+    phase: item.estateName !== getEstateName(item) ? item.estateName : "",
     building_name: item.buildingName,
     floor: item.yAxis,
     unit: item.xAxis,
@@ -81,7 +153,6 @@ function parseListing(item) {
   };
 }
 
-// ── 儲存搜尋結果到 DB ─────────────────────────────────────────
 async function saveSearchResults(db, estateId, listings) {
   const today = new Date().toISOString().slice(0, 10);
 
@@ -102,9 +173,18 @@ async function saveSearchResults(db, estateId, listings) {
         l.building_age, l.detail_url, l.thumbnail, today
       )
       .run();
+
+    if (l.ref_no && l.price) {
+      await db
+        .prepare(
+          `INSERT OR IGNORE INTO listing_price_history (ref_no, estate_id, price, price_per_ft, snapshot_date)
+           VALUES (?,?,?,?,?)`
+        )
+        .bind(l.ref_no, estateId, l.price, l.price_per_ft, today)
+        .run();
+    }
   }
 
-  // 計算今日快照統計
   const prices = listings.map((l) => l.nUnitPrice).filter(Boolean);
   if (prices.length > 0) {
     prices.sort((a, b) => a - b);
@@ -124,23 +204,19 @@ async function saveSearchResults(db, estateId, listings) {
       .run();
   }
 
-  // 更新屋苑 last_synced
   await db
     .prepare("UPDATE estates SET last_synced = datetime('now') WHERE id = ?")
     .bind(estateId)
     .run();
 }
 
-// ── Cron: 每日重新搜尋所有已追蹤屋苑 ────────────────────────
 async function runDailySync(db) {
-  const { results: estates } = await db
-    .prepare("SELECT * FROM estates")
-    .all();
-
+  const { results: estates } = await db.prepare("SELECT * FROM estates").all();
   const results = [];
   for (const estate of estates) {
     try {
-      const data = await fetchCentanet(estate.bigestcode);
+      const isBigest = estate.bigestcode && estate.bigestcode.length > 8;
+      const data = await fetchCentanet(estate.bigestcode, isBigest);
       const listings = data.data || [];
       await saveSearchResults(db, estate.id, listings);
       results.push({ estate: estate.name, count: listings.length, ok: true });
@@ -151,9 +227,7 @@ async function runDailySync(db) {
   return results;
 }
 
-// ── Router ────────────────────────────────────────────────────
 export default {
-  // Cron Trigger (每日 UTC 1:00 = HKT 9:00)
   async scheduled(event, env, ctx) {
     ctx.waitUntil(runDailySync(env.DB));
   },
@@ -167,7 +241,6 @@ export default {
     if (method === "OPTIONS") return new Response(null, { headers: CORS });
 
     try {
-      // GET /api/estates — 所有已追蹤屋苑
       if (method === "GET" && path === "/api/estates") {
         const { results } = await db
           .prepare(
@@ -180,21 +253,17 @@ export default {
         return json(200, { estates: results });
       }
 
-      // POST /api/search — 搜尋屋苑名稱（autocomplete）
       if (method === "POST" && path === "/api/search") {
         const { keyword } = await request.json();
         if (!keyword?.trim()) return json(400, { error: "請輸入屋苑名稱" });
-
         const data = await searchEstateName(keyword.trim());
-        return json(200, { results: data.data || data.estates || data || [] });
+        return json(200, { results: data.estates || [] });
       }
 
-      // POST /api/track — 追蹤屋苑並立即搜尋
       if (method === "POST" && path === "/api/track") {
-        const { name, bigestcode, district } = await request.json();
+        const { name, bigestcode, district, isBigest } = await request.json();
         if (!name || !bigestcode) return json(400, { error: "缺少屋苑資料" });
 
-        // 建立或取得屋苑記錄
         let estate = await db
           .prepare("SELECT * FROM estates WHERE bigestcode = ?")
           .bind(bigestcode)
@@ -202,9 +271,7 @@ export default {
 
         if (!estate) {
           await db
-            .prepare(
-              "INSERT INTO estates (name, bigestcode, district) VALUES (?,?,?)"
-            )
+            .prepare("INSERT INTO estates (name, bigestcode, district) VALUES (?,?,?)")
             .bind(name, bigestcode, district || null)
             .run();
           estate = await db
@@ -213,58 +280,59 @@ export default {
             .first();
         }
 
-        // 立即抓取資料
-        const data = await fetchCentanet(bigestcode);
+        // 大型屋苑群用 bigestAndEstate，單一屋苑用 phaseAndEstate
+        const useBigest = isBigest !== false && bigestcode.length > 8;
+        const data = await fetchCentanet(bigestcode, useBigest);
         const listings = data.data || [];
         await saveSearchResults(db, estate.id, listings);
 
-        return json(200, {
-          ok: true,
-          estate,
-          count: listings.length,
-        });
+        return json(200, { ok: true, estate, count: listings.length });
       }
 
-      // GET /api/estates/:id/listings — 最新一批單位
       if (method === "GET" && path.match(/^\/api\/estates\/\d+\/listings$/)) {
         const estateId = path.split("/")[3];
-        const date = url.searchParams.get("date") || "";
-        const query = date
-          ? `SELECT * FROM listings WHERE estate_id = ? AND snapshot_date = ? ORDER BY price ASC`
-          : `SELECT * FROM listings WHERE estate_id = ? AND snapshot_date = (
+        const { results } = await db
+          .prepare(
+            `SELECT l.*,
+               prev.price AS prev_price,
+               prev.price_per_ft AS prev_price_per_ft
+             FROM listings l
+             LEFT JOIN listing_price_history prev
+               ON prev.ref_no = l.ref_no
+               AND prev.snapshot_date = (
+                 SELECT MAX(snapshot_date) FROM listing_price_history
+                 WHERE ref_no = l.ref_no AND snapshot_date < l.snapshot_date
+               )
+             WHERE l.estate_id = ? AND l.snapshot_date = (
                SELECT MAX(snapshot_date) FROM listings WHERE estate_id = ?
-             ) ORDER BY price ASC`;
-        const { results } = date
-          ? await db.prepare(query).bind(estateId, date).all()
-          : await db.prepare(query).bind(estateId, estateId).all();
+             )
+             ORDER BY l.price ASC`
+          )
+          .bind(estateId, estateId)
+          .all();
         return json(200, { listings: results });
       }
 
-      // GET /api/estates/:id/trends — 售價趨勢
       if (method === "GET" && path.match(/^\/api\/estates\/\d+\/trends$/)) {
         const estateId = path.split("/")[3];
         const { results } = await db
           .prepare(
             `SELECT snapshot_date, avg_price_ft, median_price,
                     min_price, max_price, listing_count
-             FROM price_snapshots
-             WHERE estate_id = ?
-             ORDER BY snapshot_date ASC
-             LIMIT 90`
+             FROM price_snapshots WHERE estate_id = ?
+             ORDER BY snapshot_date ASC LIMIT 90`
           )
           .bind(estateId)
           .all();
         return json(200, { trends: results });
       }
 
-      // DELETE /api/estates/:id — 刪除追蹤
       if (method === "DELETE" && path.match(/^\/api\/estates\/\d+$/)) {
         const estateId = path.split("/")[3];
         await db.prepare("DELETE FROM estates WHERE id = ?").bind(estateId).run();
         return json(200, { ok: true });
       }
 
-      // POST /api/sync — 手動觸發同步
       if (method === "POST" && path === "/api/sync") {
         const results = await runDailySync(db);
         return json(200, { ok: true, results });
