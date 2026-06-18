@@ -4,6 +4,7 @@ CREATE TABLE IF NOT EXISTS estates (
   name        TEXT    NOT NULL,
   bigestcode  TEXT    NOT NULL UNIQUE,
   district    TEXT,
+  is_bigest   INTEGER NOT NULL DEFAULT 1,
   first_seen  TEXT    NOT NULL DEFAULT (datetime('now')),
   last_synced TEXT
 );

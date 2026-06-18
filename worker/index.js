@@ -215,8 +215,7 @@ async function runDailySync(db) {
   const results = [];
   for (const estate of estates) {
     try {
-      const isBigest = estate.bigestcode && estate.bigestcode.length > 8;
-      const data = await fetchCentanet(estate.bigestcode, isBigest);
+      const data = await fetchCentanet(estate.bigestcode, estate.is_bigest !== 0);
       const listings = data.data || [];
       await saveSearchResults(db, estate.id, listings);
       results.push({ estate: estate.name, count: listings.length, ok: true });
@@ -269,19 +268,18 @@ export default {
           .bind(bigestcode)
           .first();
 
+        const useBigest = isBigest !== false;
+
         if (!estate) {
           await db
-            .prepare("INSERT INTO estates (name, bigestcode, district) VALUES (?,?,?)")
-            .bind(name, bigestcode, district || null)
+            .prepare("INSERT INTO estates (name, bigestcode, district, is_bigest) VALUES (?,?,?,?)")
+            .bind(name, bigestcode, district || null, useBigest ? 1 : 0)
             .run();
           estate = await db
             .prepare("SELECT * FROM estates WHERE bigestcode = ?")
             .bind(bigestcode)
             .first();
         }
-
-        // 大型屋苑群用 bigestAndEstate，單一屋苑用 phaseAndEstate
-        const useBigest = isBigest !== false && bigestcode.length > 8;
         const data = await fetchCentanet(bigestcode, useBigest);
         const listings = data.data || [];
         await saveSearchResults(db, estate.id, listings);
