@@ -1208,7 +1208,7 @@ async function loadTransactions(estateId, offset, append) {
       if (t.hs_price) {
         hsCell = `<span class="price-cell">$${(t.hs_price/1e4).toFixed(0)}萬</span><div class="unit-price">${t.hs_date || ''}</div>`;
       } else if (canQuery) {
-        hsCell = `<button class="hs-val-btn" onclick="fetchHSVal('${rowId}','${encodeURIComponent(estateName)}','${blockNum}','${floorNum}','${encodeURIComponent(flatLetter)}','${estateId}')">查估值</button><span id="${rowId}"></span>`;
+        hsCell = `<button class="hs-val-btn" onclick="fetchHSVal('${rowId}','${estateName.replace(/'/g,"\\'")}','${blockNum}','${floorNum}','${flatLetter.replace(/'/g,"\\'")}','${estateId}')">查估值</button><span id="${rowId}"></span>`;
       } else {
         hsCell = '-';
       }
