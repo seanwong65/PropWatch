@@ -6,6 +6,77 @@ const CORS = {
 
 const CENTANET_SEARCH = "https://hk.centanet.com/findproperty/api/Post/Search";
 const CENTANET_TRANS  = "https://hk.centanet.com/findproperty/api/Transaction/Search";
+const HS_API = "https://rbwm-api.hsbc.com.hk/pws-hk-hase-mortgage-eapi-prod-proxy/v1/property";
+const HS_HEADERS = {
+  "Content-Type": "application/json",
+  "Referer": "https://www.hangseng.com/zh-hk/e-valuation/address-search/",
+  "Origin": "https://www.hangseng.com",
+  "Accept": "application/json",
+};
+
+// In-memory cache (per Worker instance lifetime)
+let hsBlockListCache = null;
+const hsEstateCache = new Map();
+
+async function hsKeywordSearch(estateName) {
+  if (hsEstateCache.has(estateName)) return hsEstateCache.get(estateName);
+  const res = await fetch(`${HS_API}/keywordsearch?keyword=${encodeURIComponent(estateName)}`, { headers: HS_HEADERS });
+  if (!res.ok) return null;
+  const data = await res.json();
+  const match = Array.isArray(data) ? data[0] : null;
+  if (match) hsEstateCache.set(estateName, match);
+  return match;
+}
+
+async function hsBlockList() {
+  if (hsBlockListCache) return hsBlockListCache;
+  const res = await fetch(`${HS_API}/area2blockfulllist`, { headers: HS_HEADERS });
+  if (!res.ok) return null;
+  hsBlockListCache = await res.json();
+  return hsBlockListCache;
+}
+
+async function findBlockCode(estateCode, blockNum) {
+  const list = await hsBlockList();
+  if (!list) return null;
+  for (const area of list.areas || []) {
+    for (const dist of area.districts || []) {
+      for (const estate of dist.estates || []) {
+        if (estate.estateCode === String(estateCode)) {
+          const block = estate.blocks?.find(b =>
+            b.blockChinesename === `第${blockNum}座` || b.blockName === `Block/Tower ${blockNum}`
+          );
+          return block ? { blockCode: block.blockCode, carpark: block.coveredCarpark || "0" } : null;
+        }
+      }
+    }
+  }
+  return null;
+}
+
+async function getHangSengValuation(estateName, blockNum, floorNum, flatLetter) {
+  const estate = await hsKeywordSearch(estateName);
+  if (!estate) return null;
+  const blockInfo = await findBlockCode(estate.estateCode, blockNum);
+  if (!blockInfo) return null;
+  const body = {
+    area: String(estate.areaCode),
+    district: String(estate.districtCode),
+    estate: String(estate.estateCode),
+    block: String(blockInfo.blockCode),
+    floor: String(floorNum),
+    flat: String(flatLetter),
+    carpark: 0,
+    tcKnowledge: "on",
+    openCarpark: 0,
+  };
+  const res = await fetch(`${HS_API}/valuation`, { method: "POST", headers: HS_HEADERS, body: JSON.stringify(body) });
+  if (!res.ok) return null;
+  const data = await res.json();
+  const result = Array.isArray(data) ? data[0] : data;
+  if (result?.errorCode || result?.fieldName) return null;
+  return { price: result.price, saleableArea: result.saleableArea, valuationDate: result.valuationDate };
+}
 
 function json(status, data) {
   return new Response(JSON.stringify(data), {
@@ -590,6 +661,18 @@ export default {
           detail_url: t.detailUrl,
         }));
         return json(200, { transactions: txns, total: raw.data?.length ?? 0 });
+      }
+
+      if (method === "GET" && path === "/api/hangseng-valuation") {
+        const estateName = url.searchParams.get("estate");
+        const blockNum   = url.searchParams.get("block");
+        const floorNum   = url.searchParams.get("floor");
+        const flatLetter = url.searchParams.get("flat");
+        if (!estateName || !blockNum || !floorNum || !flatLetter)
+          return json(400, { error: "Missing params" });
+        const result = await getHangSengValuation(estateName, blockNum, floorNum, flatLetter);
+        if (!result) return json(404, { error: "Not found" });
+        return json(200, result);
       }
 
       if (method === "GET" && path.match(/^\/api\/debug\/.+$/)) {
