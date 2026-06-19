@@ -245,6 +245,56 @@
     .welcome h2 { font-size: 1.1rem; color: var(--text); }
     .welcome p { font-size: 0.85rem; max-width: 280px; line-height: 1.6; }
 
+    /* Dashboard */
+    .dashboard { padding: 1.5rem 2rem; }
+    .dashboard-title {
+      font-size: 1.2rem;
+      font-weight: 700;
+      margin-bottom: 1.25rem;
+      letter-spacing: -0.02em;
+    }
+    .dashboard-cards {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+      gap: 0.75rem;
+      margin-bottom: 1.5rem;
+    }
+    .dashboard-card {
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 1rem;
+      cursor: pointer;
+      transition: border-color 0.15s;
+    }
+    .dashboard-card:hover { border-color: var(--accent2); }
+    .dashboard-card-name { font-weight: 600; font-size: 0.85rem; margin-bottom: 0.4rem; }
+    .dashboard-card-count { font-size: 1.5rem; font-weight: 700; color: var(--accent); }
+    .dashboard-card-label { font-size: 0.7rem; color: var(--muted); }
+    .dashboard-chart-section {
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 1.25rem;
+    }
+    .dashboard-chart-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 1rem;
+    }
+    .estate-select {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      color: var(--text);
+      border-radius: 6px;
+      padding: 0.3rem 0.6rem;
+      font-size: 0.8rem;
+      outline: none;
+      cursor: pointer;
+    }
+    .estate-select:focus { border-color: var(--accent2); }
+
     /* Estate detail */
     .estate-header {
       display: flex;
@@ -569,11 +619,7 @@
 
   <!-- Main -->
   <main class="main" id="main">
-    <div class="welcome">
-      <div class="welcome-icon">🏠</div>
-      <h2>追蹤香港樓市動態</h2>
-      <p>在左側搜尋屋苑名稱，系統每日自動更新售價，並顯示趨勢走勢。</p>
-    </div>
+    <div class="loading"><div class="spinner"></div> 載入中…</div>
   </main>
 </div>
 
@@ -609,6 +655,133 @@ async function api(path, opts = {}) {
   return data;
 }
 
+// ── Dashboard ──────────────────────────────────────────────────
+let dashboardEstates = [];
+
+async function showDashboard(estates) {
+  dashboardEstates = estates;
+  const main = document.getElementById("main");
+  main.innerHTML = `
+    <div class="dashboard">
+      <div class="dashboard-title">總覽</div>
+      <div class="dashboard-cards">
+        ${estates.map(e => `
+          <div class="dashboard-card" onclick="showEstate(${e.id},'${escHtml(e.name)}','${escHtml(e.district||'')}')">
+            <div class="dashboard-card-name">${escHtml(e.name)}</div>
+            <div class="dashboard-card-count">${e.today_count ?? 0}</div>
+            <div class="dashboard-card-label">個在售單位</div>
+          </div>
+        `).join('')}
+      </div>
+      <div class="dashboard-chart-section">
+        <div class="dashboard-chart-header">
+          <div class="section-title" style="margin:0">放盤數量趨勢</div>
+          <select class="estate-select" id="dashboardSelect" onchange="loadDashboardChart(this.value)">
+            ${estates.map(e => `<option value="${e.id}">${escHtml(e.name)}</option>`).join('')}
+          </select>
+        </div>
+        <div class="chart-wrap" style="height:200px"><canvas id="dashboardChart"></canvas></div>
+      </div>
+    </div>
+  `;
+  if (estates.length) loadDashboardChart(estates[0].id);
+}
+
+async function loadDashboardChart(estateId) {
+  try {
+    const { trends } = await api(`/api/estates/${estateId}/trends`);
+    drawDashboardChart(trends);
+  } catch (err) {
+    console.error(err);
+  }
+}
+
+function drawDashboardChart(trends) {
+  const canvas = document.getElementById("dashboardChart");
+  if (!canvas || trends.length < 2) return;
+
+  const labels = trends.map(t => t.snapshot_date.slice(5));
+  const data = trends.map(t => t.listing_count);
+
+  const W = canvas.parentElement.offsetWidth;
+  const H = 200;
+  canvas.width = W;
+  canvas.height = H;
+
+  const ctx = canvas.getContext("2d");
+  const pad = { top: 20, right: 16, bottom: 28, left: 44 };
+  const w = W - pad.left - pad.right;
+  const h = H - pad.top - pad.bottom;
+
+  const minV = Math.max(0, Math.min(...data) - 2);
+  const maxV = Math.max(...data) + 2;
+
+  ctx.clearRect(0, 0, W, H);
+
+  // Grid lines
+  ctx.strokeStyle = "rgba(31,45,66,0.8)";
+  ctx.lineWidth = 1;
+  for (let i = 0; i <= 4; i++) {
+    const y = pad.top + (h / 4) * i;
+    ctx.beginPath(); ctx.moveTo(pad.left, y); ctx.lineTo(pad.left + w, y); ctx.stroke();
+    const val = maxV - ((maxV - minV) / 4) * i;
+    ctx.fillStyle = "#64748b";
+    ctx.font = "10px -apple-system,sans-serif";
+    ctx.textAlign = "right";
+    ctx.fillText(Math.round(val), pad.left - 6, y + 4);
+  }
+
+  // X labels
+  ctx.fillStyle = "#64748b";
+  ctx.textAlign = "center";
+  const step = Math.ceil(labels.length / 8);
+  labels.forEach((l, i) => {
+    if (i % step === 0) {
+      const x = pad.left + (w / Math.max(data.length - 1, 1)) * i;
+      ctx.fillText(l, x, H - 6);
+    }
+  });
+
+  // Gradient fill
+  const grad = ctx.createLinearGradient(0, pad.top, 0, pad.top + h);
+  grad.addColorStop(0, "rgba(59,130,246,0.3)");
+  grad.addColorStop(1, "rgba(59,130,246,0)");
+
+  ctx.beginPath();
+  data.forEach((v, i) => {
+    const x = pad.left + (w / Math.max(data.length - 1, 1)) * i;
+    const y = pad.top + h - ((v - minV) / (maxV - minV)) * h;
+    i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+  });
+  ctx.lineTo(pad.left + w, pad.top + h);
+  ctx.lineTo(pad.left, pad.top + h);
+  ctx.closePath();
+  ctx.fillStyle = grad;
+  ctx.fill();
+
+  // Line
+  ctx.beginPath();
+  ctx.strokeStyle = "#3b82f6";
+  ctx.lineWidth = 2;
+  ctx.lineJoin = "round";
+  data.forEach((v, i) => {
+    const x = pad.left + (w / Math.max(data.length - 1, 1)) * i;
+    const y = pad.top + h - ((v - minV) / (maxV - minV)) * h;
+    i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+  });
+  ctx.stroke();
+
+  // Dots
+  data.forEach((v, i) => {
+    const x = pad.left + (w / Math.max(data.length - 1, 1)) * i;
+    const y = pad.top + h - ((v - minV) / (maxV - minV)) * h;
+    ctx.beginPath();
+    ctx.arc(x, y, i === data.length - 1 ? 4 : 2.5, 0, Math.PI * 2);
+    ctx.fillStyle = "#3b82f6";
+    ctx.fill();
+  });
+}
+
 // ── Estate list ────────────────────────────────────────────────
 async function loadEstates() {
   const list = document.getElementById("estateList");
@@ -616,8 +789,10 @@ async function loadEstates() {
     const { estates } = await api("/api/estates");
     if (!estates.length) {
       list.innerHTML = '<div class="sidebar-empty">未追蹤任何屋苑<br><small>在上方搜尋並新增</small></div>';
+      document.getElementById("main").innerHTML = '<div class="welcome"><div class="welcome-icon">🏠</div><h2>追蹤香港樓市動態</h2><p>在左側搜尋屋苑名稱，系統每日自動更新售價，並顯示趨勢走勢。</p></div>';
       return;
     }
+    if (!activeEstateId) showDashboard(estates);
     list.innerHTML = estates.map(e => `
       <div class="estate-card ${e.id === activeEstateId ? 'active' : ''}"
            data-id="${e.id}"
