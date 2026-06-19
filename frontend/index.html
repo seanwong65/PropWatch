@@ -1141,15 +1141,16 @@ async function showEstate(id, name, district) {
   }
 }
 
-function hsValHtml(hsPrice, txnPrice) {
-  const priceStr = `<span class="price-cell">$${(hsPrice/1e4).toFixed(0)}萬</span>`;
-  if (txnPrice && hsPrice) {
-    const pct = (hsPrice - txnPrice) / txnPrice * 100;
-    const cls = pct >= 0 ? 'gain-pos' : 'gain-neg';
-    const arrow = pct >= 0 ? '▲' : '▼';
-    return `${priceStr}<div class="unit-price"><span class="${cls}">${arrow} ${Math.abs(pct).toFixed(1)}%</span></div>`;
-  }
-  return priceStr;
+function hsValHtml(hsPrice) {
+  return `<span class="price-cell">$${(hsPrice/1e4).toFixed(0)}萬</span>`;
+}
+
+function hsDiffHtml(hsPrice, txnPrice) {
+  if (!hsPrice || !txnPrice) return '';
+  const pct = (hsPrice - txnPrice) / txnPrice * 100;
+  const absPct = Math.abs(pct).toFixed(1);
+  if (pct >= 0) return `<div class="unit-price"><span class="gain-neg">比估值低 ${absPct}%</span></div>`;
+  return `<div class="unit-price"><span class="gain-pos">比估值高 ${absPct}%</span></div>`;
 }
 
 async function fetchHSVal(rowId, estate, block, floor, flat, estateId, txnPrice) {
@@ -1162,7 +1163,9 @@ async function fetchHSVal(rowId, estate, block, floor, flat, estateId, txnPrice)
     if (estateId) params.set('estateId', estateId);
     const data = await api(`/api/hangseng-valuation?${params}`);
     const histBtn = `<button class="hs-val-btn" style="margin-top:4px" onclick="showHSHistory('${block}','${floor}','${flat}','${estateId}')">估值歷史</button>`;
-    span.innerHTML = hsValHtml(Number(data.price), txnPrice) + histBtn;
+    span.innerHTML = hsValHtml(Number(data.price)) + histBtn;
+    const diffSpan = document.getElementById(rowId + '-diff');
+    if (diffSpan) diffSpan.innerHTML = hsDiffHtml(Number(data.price), txnPrice);
     if (btn) { btn.disabled = false; btn.textContent = '查估值'; }
   } catch {
     span.textContent = '－';
@@ -1316,7 +1319,7 @@ function renderTransactionsTable(estateId, offset, hasMore) {
     const onclickHist = `showHSHistory('${blockNum}','${floorNum}','${flatLetter.replace(/'/g,"\\'")}','${estateId}')`;
     const histBtn = t.hs_price ? `<button class="hs-val-btn" style="margin-top:4px" onclick="${onclickHist}">估值歷史</button>` : '';
     const hsValCell = t.hs_price
-      ? `<span id="${rowId}">${hsValHtml(t.hs_price, t.price)}${histBtn}</span>`
+      ? `<span id="${rowId}">${hsValHtml(t.hs_price)}${histBtn}</span>`
       : `<span id="${rowId}"></span>`;
     const hsQueryCell = canQuery
       ? `<button class="hs-val-btn" id="${rowId}-btn" onclick="${onclickFetch}">查估值</button>`
@@ -1324,7 +1327,7 @@ function renderTransactionsTable(estateId, offset, hasMore) {
     return `<tr>
       <td class="txn-date">${t.reg_date || '-'}</td>
       <td>${escHtml(t.building||'')} ${escHtml(t.floor||'')} ${escHtml(t.unit||'')}</td>
-      <td class="price-cell">$${t.price ? (t.price/1e4).toFixed(0)+'萬' : '-'}</td>
+      <td><span class="price-cell">$${t.price ? (t.price/1e4).toFixed(0)+'萬' : '-'}</span><span id="${rowId}-diff">${t.hs_price ? hsDiffHtml(t.hs_price, t.price) : ''}</span></td>
       <td>
         <div>$${t.price_per_ft_net ? t.price_per_ft_net.toLocaleString() : '-'}/呎</div>
         <div class="unit-price">實${t.size_net ? t.size_net+'呎' : ''}</div>
