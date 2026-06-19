@@ -878,7 +878,7 @@ async function loadEstates() {
         <div class="estate-card-meta">
           ${e.district ? escHtml(e.district) + ' · ' : ''}
           ${e.today_count ?? 0} 個盤
-          ${e.last_synced ? ' · ' + e.last_synced.slice(0,10) : ''}
+          ${e.first_seen ? ' · 加入 ' + e.first_seen.slice(0,10) : ''}
         </div>
       </div>
     `).join('');
