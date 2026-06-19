@@ -487,42 +487,37 @@ async function runDailySync(db, resendApiKey) {
     })
   );
 
-  // Send email if there are any changes
-  // Exclude estates added today or yesterday — need at least 2 days to have a meaningful baseline
+  // Send email if there are any changes (exclude estates added today — first sync, no baseline)
   if (resendApiKey) {
     const hkNow = new Date(Date.now() + 8 * 3600 * 1000);
     const today = hkNow.toISOString().slice(0, 10);
-    const yesterday = new Date(hkNow - 86400000).toISOString().slice(0, 10);
     const estateMap = Object.fromEntries(estates.map(e => [e.name, e]));
     const allChanges = results.filter(r => {
       if (!r.ok || !r.changes) return false;
       const e = estateMap[r.estate];
-      const seen = e?.first_seen?.slice(0, 10);
-      if (seen && (seen === today || seen === yesterday)) return false;
+      if (e?.first_seen && e.first_seen.slice(0, 10) === today) return false;
       return true;
     }).map(r => r.changes);
     const hasChanges = allChanges.some(
       c => c.priceChanges.length || c.newListings.length || c.removedListings.length || (c.newTransactions || []).length
     );
-    const totalTxns  = allChanges.reduce((s, c) => s + (c.newTransactions || []).length, 0);
-    const totalPrice = allChanges.reduce((s, c) => s + c.priceChanges.length, 0);
-    const totalNew   = allChanges.reduce((s, c) => s + c.newListings.length, 0);
-    const totalDel   = allChanges.reduce((s, c) => s + c.removedListings.length, 0);
-    const parts = [];
-    if (totalTxns)  parts.push(`${totalTxns} 個新成交`);
-    if (totalPrice) parts.push(`${totalPrice} 個價格變動`);
-    if (totalNew)   parts.push(`${totalNew} 個新放盤`);
-    if (totalDel)   parts.push(`${totalDel} 個已下架`);
-    const subject = hasChanges
-      ? `PropWatch 通知：${parts.join("、")}`
-      : `PropWatch ${today}：今日無更新`;
-    const body = hasChanges
-      ? buildEmailHtml(allChanges)
-      : `<div style="font-family:sans-serif;padding:24px;color:#ccc;background:#0f1117">
-           <h2 style="color:#fff">PropWatch ${today}</h2>
-           <p style="color:#9ca3af">今日所有追蹤屋苑均無價格變動、新放盤或新成交記錄。</p>
-         </div>`;
-    await sendEmail(resendApiKey, "johnwong777@hotmail.com", subject, body);
+    if (hasChanges) {
+      const totalTxns  = allChanges.reduce((s, c) => s + (c.newTransactions || []).length, 0);
+      const totalPrice = allChanges.reduce((s, c) => s + c.priceChanges.length, 0);
+      const totalNew   = allChanges.reduce((s, c) => s + c.newListings.length, 0);
+      const totalDel   = allChanges.reduce((s, c) => s + c.removedListings.length, 0);
+      const parts = [];
+      if (totalTxns)  parts.push(`${totalTxns} 個新成交`);
+      if (totalPrice) parts.push(`${totalPrice} 個價格變動`);
+      if (totalNew)   parts.push(`${totalNew} 個新放盤`);
+      if (totalDel)   parts.push(`${totalDel} 個已下架`);
+      await sendEmail(
+        resendApiKey,
+        "johnwong777@hotmail.com",
+        `PropWatch 通知：${parts.join("、")}`,
+        buildEmailHtml(allChanges)
+      );
+    }
   }
 
   return results;
