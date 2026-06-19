@@ -1151,10 +1151,10 @@ async function fetchHSVal(rowId, estate, block, floor, flat, estateId) {
     if (estateId) params.set('estateId', estateId);
     const data = await api(`/api/hangseng-valuation?${params}`);
     span.innerHTML = `<span class="price-cell">$${(data.price/1e4).toFixed(0)}萬</span><div class="unit-price">${data.valuationDate}</div><button class="hs-val-btn" style="margin-top:4px" onclick="showHSHistory('${block}','${floor}','${flat}','${estateId}')">估值歷史</button>`;
-    if (btn) { btn.disabled = false; }
+    if (btn) { btn.disabled = false; btn.textContent = '查估值'; }
   } catch {
     span.textContent = '－';
-    if (btn) { btn.disabled = false; }
+    if (btn) { btn.disabled = false; btn.textContent = '查估值'; }
   }
 }
 
@@ -1304,7 +1304,7 @@ function renderTransactionsTable(estateId, offset, hasMore) {
     const onclickHist = `showHSHistory('${blockNum}','${floorNum}','${flatLetter.replace(/'/g,"\\'")}','${estateId}')`;
     const histBtn = t.hs_price ? `<button class="hs-val-btn" style="margin-top:4px" onclick="${onclickHist}">估值歷史</button>` : '';
     const hsValCell = t.hs_price
-      ? `<span class="price-cell">$${(t.hs_price/1e4).toFixed(0)}萬</span><div class="unit-price">${t.hs_date || ''}</div>${histBtn}`
+      ? `<span id="${rowId}"><span class="price-cell">$${(t.hs_price/1e4).toFixed(0)}萬</span><div class="unit-price">${t.hs_date || ''}</div>${histBtn}</span>`
       : `<span id="${rowId}"></span>`;
     const hsQueryCell = canQuery
       ? `<button class="hs-val-btn" id="${rowId}-btn" onclick="${onclickFetch}">查估值</button>`
