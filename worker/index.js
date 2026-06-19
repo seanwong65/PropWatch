@@ -468,7 +468,7 @@ async function detectChanges(db, estateId, estateName, newListings) {
 }
 
 async function runDailySync(db, resendApiKey) {
-  const { results: estates } = await db.prepare("SELECT * FROM estates").all();
+  const { results: estates } = await db.prepare("SELECT * FROM estates WHERE is_disabled = 0 OR is_disabled IS NULL").all();
   const results = await Promise.all(
     estates.map(async (estate) => {
       try {
@@ -535,7 +535,7 @@ export default {
             `SELECT e.*,
                (SELECT COUNT(*) FROM listings l WHERE l.estate_id = e.id
                 AND l.snapshot_date = date('now','localtime')) AS today_count
-             FROM estates e ORDER BY e.is_favourite DESC, e.sort_order ASC`
+             FROM estates e WHERE (e.is_disabled = 0 OR e.is_disabled IS NULL) ORDER BY e.is_favourite DESC, e.sort_order ASC`
           )
           .all();
         return json(200, { estates: results });
@@ -778,7 +778,7 @@ export default {
 
       if (method === "DELETE" && path.match(/^\/api\/estates\/\d+$/)) {
         const estateId = path.split("/")[3];
-        await db.prepare("DELETE FROM estates WHERE id = ?").bind(estateId).run();
+        await db.prepare("UPDATE estates SET is_disabled = 1 WHERE id = ?").bind(estateId).run();
         return json(200, { ok: true });
       }
 

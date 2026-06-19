@@ -6,6 +6,7 @@ CREATE TABLE IF NOT EXISTS estates (
   district    TEXT,
   is_bigest    INTEGER NOT NULL DEFAULT 1,
   is_favourite INTEGER NOT NULL DEFAULT 0,
+  is_disabled  INTEGER NOT NULL DEFAULT 0,
   sort_order   INTEGER NOT NULL DEFAULT 0,
   first_seen   TEXT    NOT NULL DEFAULT (datetime('now')),
   last_synced  TEXT
