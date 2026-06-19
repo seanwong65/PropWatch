@@ -321,6 +321,8 @@
     }
     .stat-label { color: var(--muted); font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.06em; }
     .stat-value { font-size: 1.4rem; font-weight: 700; margin-top: 0.25rem; color: var(--accent); }
+    .stat-breakdown { display: flex; flex-direction: column; gap: 0.15rem; margin-top: 0.5rem; }
+    .stat-breakdown span { font-size: 0.72rem; color: var(--muted); }
     .stat-unit { font-size: 0.7rem; color: var(--muted); font-weight: 400; }
 
     /* Chart */
@@ -1052,6 +1054,33 @@ async function showEstate(id, name, district) {
     const minPrice = prices.length ? Math.min(...prices) : 0;
     const maxPrice = prices.length ? Math.max(...prices) : 0;
 
+    // Bedroom breakdown
+    const bedGroups = {};
+    for (const l of listings) {
+      const b = l.bedrooms >= 4 ? '4+' : String(l.bedrooms ?? '?');
+      if (!bedGroups[b]) bedGroups[b] = [];
+      bedGroups[b].push(l);
+    }
+    const bedOrder = ['1','2','3','4+'];
+    function bedBreakdown(fn) {
+      return bedOrder.filter(b => bedGroups[b]?.length).map(b => {
+        const val = fn(bedGroups[b]);
+        return val != null ? `<span>${b}房 ${val}</span>` : '';
+      }).filter(Boolean).join('');
+    }
+    const avgFtBreakdown = bedBreakdown(ls => {
+      const vals = ls.map(l => l.price_per_ft).filter(Boolean);
+      return vals.length ? `$${Math.round(vals.reduce((a,b)=>a+b,0)/vals.length).toLocaleString()}` : null;
+    });
+    const minPriceBreakdown = bedBreakdown(ls => {
+      const vals = ls.map(l => l.price).filter(Boolean);
+      return vals.length ? `$${(Math.min(...vals)/1e4).toFixed(0)}萬` : null;
+    });
+    const maxPriceBreakdown = bedBreakdown(ls => {
+      const vals = ls.map(l => l.price).filter(Boolean);
+      return vals.length ? `$${(Math.max(...vals)/1e4).toFixed(0)}萬` : null;
+    });
+
     // Trend change
     let trendChange = "";
     if (trends.length >= 2) {
@@ -1081,14 +1110,17 @@ async function showEstate(id, name, district) {
         <div class="stat-card">
           <div class="stat-label">平均實呎價</div>
           <div class="stat-value">$${avgPricePerFt.toLocaleString()} <span class="stat-unit">/呎</span></div>
+          <div class="stat-breakdown">${avgFtBreakdown}</div>
         </div>
         <div class="stat-card">
           <div class="stat-label">最低售價</div>
           <div class="stat-value">$${(minPrice/1e6).toFixed(2)} <span class="stat-unit">M</span></div>
+          <div class="stat-breakdown">${minPriceBreakdown}</div>
         </div>
         <div class="stat-card">
           <div class="stat-label">最高售價</div>
           <div class="stat-value">$${(maxPrice/1e6).toFixed(2)} <span class="stat-unit">M</span></div>
+          <div class="stat-breakdown">${maxPriceBreakdown}</div>
         </div>
         <div class="stat-card">
           <div class="stat-label">追蹤天數</div>
