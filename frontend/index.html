@@ -1401,9 +1401,9 @@ function renderTransactionsTable(estateId, offset, hasMore) {
       <div class="filter-sep"></div>
       <span class="filter-label">持有年期</span>
       <div class="filter-group">
-        <input class="filter-input" type="number" placeholder="最少" value="${txnFilters.heldMin}" style="width:52px" oninput="setTxnFilter('heldMin',this.value)">
+        <input class="filter-input" type="text" inputmode="decimal" placeholder="最少" value="${txnFilters.heldMin}" style="width:52px" oninput="setTxnFilter('heldMin',this.value)">
         <span style="color:var(--muted);font-size:0.75rem">–</span>
-        <input class="filter-input" type="number" placeholder="最多" value="${txnFilters.heldMax}" style="width:52px" oninput="setTxnFilter('heldMax',this.value)">
+        <input class="filter-input" type="text" inputmode="decimal" placeholder="最多" value="${txnFilters.heldMax}" style="width:52px" oninput="setTxnFilter('heldMax',this.value)">
         <span class="filter-label">年</span>
       </div>
       <span class="filter-count">${filtered.length !== allTransactions.length ? `${filtered.length} / ${allTransactions.length} 條` : `${allTransactions.length} 條`}</span>
