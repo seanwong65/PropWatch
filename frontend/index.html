@@ -1234,6 +1234,26 @@ let txnEstateId = null;
 let allTransactions = [];
 let txnSortCol = "reg_date";
 let txnSortDir = "desc";
+let txnFilters = { dateMonths: 0, heldMin: '', heldMax: '' };
+
+function setTxnFilter(key, val) {
+  txnFilters[key] = val;
+  renderTransactionsTable(txnEstateId, txnOffset, !!document.querySelector(".load-more-btn"));
+}
+
+function applyTxnFilters(txns) {
+  return txns.filter(t => {
+    if (txnFilters.dateMonths > 0) {
+      const cutoff = new Date();
+      cutoff.setMonth(cutoff.getMonth() - txnFilters.dateMonths);
+      if (!t.reg_date || new Date(t.reg_date) < cutoff) return false;
+    }
+    const years = t.held_days ? t.held_days / 365 : null;
+    if (txnFilters.heldMin !== '' && (years === null || years < Number(txnFilters.heldMin))) return false;
+    if (txnFilters.heldMax !== '' && (years === null || years > Number(txnFilters.heldMax))) return false;
+    return true;
+  });
+}
 
 async function loadTransactions(estateId, offset, append) {
   txnEstateId = estateId;
@@ -1242,6 +1262,8 @@ async function loadTransactions(estateId, offset, append) {
   if (!append) {
     panel.innerHTML = '<div class="listings-section"><div class="loading"><div class="spinner"></div> 載入中…</div></div>';
   }
+
+  if (!append) txnFilters = { dateMonths: 0, heldMin: '', heldMax: '' };
 
   try {
     const { transactions } = await api(`/api/estates/${estateId}/transactions?offset=${offset}`);
@@ -1289,7 +1311,8 @@ function renderTransactionsTable(estateId, offset, hasMore) {
     gain_annual:    t => (t.held_days && t.gain_pct != null) ? (Math.pow(1 + t.gain_pct/100, 365/t.held_days) - 1)*100 : -Infinity,
     hs_price:       t => t.hs_price || 0,
   };
-  const sorted = [...allTransactions].sort((a, b) => {
+  const filtered = applyTxnFilters(allTransactions);
+  const sorted = [...filtered].sort((a, b) => {
     const fn = colMap[txnSortCol] || (() => 0);
     const av = fn(a), bv = fn(b);
     return txnSortDir === "asc" ? (av > bv ? 1 : -1) : (av < bv ? 1 : -1);
@@ -1360,8 +1383,35 @@ function renderTransactionsTable(estateId, offset, hasMore) {
     panel.innerHTML = '<div class="listings-section"><div class="no-data">暫無成交記錄</div></div>';
     return;
   }
+  const datePresets = [
+    { label: '所有', months: 0 },
+    { label: '3個月', months: 3 },
+    { label: '6個月', months: 6 },
+    { label: '1年', months: 12 },
+    { label: '2年', months: 24 },
+    { label: '3年', months: 36 },
+    { label: '5年', months: 60 },
+  ];
+  const filterBar = `
+    <div class="filter-bar">
+      <span class="filter-label">登記日期</span>
+      <div class="filter-group">
+        ${datePresets.map(p => `<button class="filter-chip ${txnFilters.dateMonths===p.months?'active':''}" onclick="setTxnFilter('dateMonths',${p.months})">${p.label}</button>`).join('')}
+      </div>
+      <div class="filter-sep"></div>
+      <span class="filter-label">持有年期</span>
+      <div class="filter-group">
+        <input class="filter-input" type="number" placeholder="最少" value="${txnFilters.heldMin}" style="width:52px" oninput="setTxnFilter('heldMin',this.value)">
+        <span style="color:var(--muted);font-size:0.75rem">–</span>
+        <input class="filter-input" type="number" placeholder="最多" value="${txnFilters.heldMax}" style="width:52px" oninput="setTxnFilter('heldMax',this.value)">
+        <span class="filter-label">年</span>
+      </div>
+      <span class="filter-count">${filtered.length !== allTransactions.length ? `${filtered.length} / ${allTransactions.length} 條` : `${allTransactions.length} 條`}</span>
+    </div>`;
+
   panel.innerHTML = `
     <div class="listings-section">
+      ${filterBar}
       <div style="overflow-x:auto">
         <table>
           <thead><tr>${ths}</tr></thead>
