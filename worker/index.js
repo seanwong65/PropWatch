@@ -404,7 +404,7 @@ export default {
             `SELECT e.*,
                (SELECT COUNT(*) FROM listings l WHERE l.estate_id = e.id
                 AND l.snapshot_date = date('now','localtime')) AS today_count
-             FROM estates e ORDER BY e.first_seen DESC`
+             FROM estates e ORDER BY e.is_favourite DESC, e.sort_order ASC`
           )
           .all();
         return json(200, { estates: results });
@@ -501,6 +501,22 @@ export default {
         const name = decodeURIComponent(path.split("/")[3]);
         const raw = await fetchCentanet(name);
         return json(200, { count: raw.data?.length ?? 0, name, sample: raw.data?.slice(0, 1) });
+      }
+
+      if (method === "POST" && path.match(/^\/api\/estates\/\d+\/favourite$/)) {
+        const estateId = path.split("/")[3];
+        const estate = await db.prepare("SELECT is_favourite FROM estates WHERE id = ?").bind(estateId).first();
+        if (!estate) return json(404, { error: "Not found" });
+        const newVal = estate.is_favourite ? 0 : 1;
+        await db.prepare("UPDATE estates SET is_favourite = ? WHERE id = ?").bind(newVal, estateId).run();
+        return json(200, { ok: true, is_favourite: newVal });
+      }
+
+      if (method === "POST" && path === "/api/estates/reorder") {
+        const { order } = await request.json();
+        const stmt = db.prepare("UPDATE estates SET sort_order = ? WHERE id = ?");
+        await db.batch(order.map(({ id, sort_order }) => stmt.bind(sort_order, id)));
+        return json(200, { ok: true });
       }
 
       if (method === "DELETE" && path.match(/^\/api\/estates\/\d+$/)) {

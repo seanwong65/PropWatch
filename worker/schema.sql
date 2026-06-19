@@ -4,9 +4,11 @@ CREATE TABLE IF NOT EXISTS estates (
   name        TEXT    NOT NULL,
   bigestcode  TEXT    NOT NULL UNIQUE,
   district    TEXT,
-  is_bigest   INTEGER NOT NULL DEFAULT 1,
-  first_seen  TEXT    NOT NULL DEFAULT (datetime('now')),
-  last_synced TEXT
+  is_bigest    INTEGER NOT NULL DEFAULT 1,
+  is_favourite INTEGER NOT NULL DEFAULT 0,
+  sort_order   INTEGER NOT NULL DEFAULT 0,
+  first_seen   TEXT    NOT NULL DEFAULT (datetime('now')),
+  last_synced  TEXT
 );
 
 -- 每次搜尋的單位快照

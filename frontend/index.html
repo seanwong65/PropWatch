@@ -182,6 +182,42 @@
     .estate-card:hover .estate-card-delete { opacity: 1; }
     .estate-card-delete:hover { color: var(--down); }
 
+    .estate-card-star {
+      position: absolute;
+      top: 0.6rem;
+      right: 2rem;
+      background: none;
+      border: none;
+      color: var(--muted);
+      cursor: pointer;
+      font-size: 0.85rem;
+      padding: 2px 4px;
+      border-radius: 4px;
+      opacity: 0;
+      transition: opacity 0.15s, color 0.15s;
+      line-height: 1;
+    }
+    .estate-card:hover .estate-card-star { opacity: 1; }
+    .estate-card-star.starred { opacity: 1; color: var(--accent); }
+    .estate-card-star:hover { color: var(--accent); }
+
+    .drag-handle {
+      position: absolute;
+      top: 50%;
+      left: 0.5rem;
+      transform: translateY(-50%);
+      color: var(--border);
+      cursor: grab;
+      font-size: 0.85rem;
+      opacity: 0;
+      transition: opacity 0.15s;
+      user-select: none;
+    }
+    .estate-card:hover .drag-handle { opacity: 1; }
+    .estate-card { padding-left: 1.6rem; }
+    .estate-card.drag-over { border-color: var(--accent2); background: rgba(59,130,246,0.06); }
+    .estate-card.dragging { opacity: 0.4; }
+
     .sidebar-empty {
       text-align: center;
       padding: 2rem 1rem;
@@ -584,9 +620,14 @@ async function loadEstates() {
     }
     list.innerHTML = estates.map(e => `
       <div class="estate-card ${e.id === activeEstateId ? 'active' : ''}"
+           data-id="${e.id}"
+           draggable="true"
            onclick="showEstate(${e.id}, '${escHtml(e.name)}', '${escHtml(e.district||'')}')">
+        <span class="drag-handle" title="拖拽排序">⠿</span>
+        <button class="estate-card-star ${e.is_favourite ? 'starred' : ''}"
+                onclick="toggleFavourite(event,${e.id})" title="標記最愛">★</button>
         <button class="estate-card-delete" onclick="deleteEstate(event,${e.id})">✕</button>
-        <div class="estate-card-name">${escHtml(e.name)}</div>
+        <div class="estate-card-name">${e.is_favourite ? '★ ' : ''}${escHtml(e.name)}</div>
         <div class="estate-card-meta">
           ${e.district ? escHtml(e.district) + ' · ' : ''}
           ${e.today_count ?? 0} 個盤
@@ -594,9 +635,56 @@ async function loadEstates() {
         </div>
       </div>
     `).join('');
+    initDragSort();
   } catch (err) {
     list.innerHTML = `<div class="sidebar-empty">載入失敗：${err.message}</div>`;
   }
+}
+
+async function toggleFavourite(e, id) {
+  e.stopPropagation();
+  await api(`/api/estates/${id}/favourite`, { method: "POST" });
+  loadEstates();
+}
+
+let dragSrc = null;
+
+function initDragSort() {
+  const cards = document.querySelectorAll("#estateList .estate-card");
+  cards.forEach(card => {
+    card.addEventListener("dragstart", e => {
+      dragSrc = card;
+      card.classList.add("dragging");
+      e.dataTransfer.effectAllowed = "move";
+    });
+    card.addEventListener("dragend", () => {
+      card.classList.remove("dragging");
+      document.querySelectorAll(".estate-card").forEach(c => c.classList.remove("drag-over"));
+    });
+    card.addEventListener("dragover", e => {
+      e.preventDefault();
+      e.dataTransfer.dropEffect = "move";
+      if (card !== dragSrc) {
+        document.querySelectorAll(".estate-card").forEach(c => c.classList.remove("drag-over"));
+        card.classList.add("drag-over");
+      }
+    });
+    card.addEventListener("drop", async e => {
+      e.preventDefault();
+      if (!dragSrc || dragSrc === card) return;
+      const list = document.getElementById("estateList");
+      const cards = [...list.querySelectorAll(".estate-card")];
+      const fromIdx = cards.indexOf(dragSrc);
+      const toIdx = cards.indexOf(card);
+      if (fromIdx < toIdx) card.after(dragSrc);
+      else card.before(dragSrc);
+      const newOrder = [...list.querySelectorAll(".estate-card")].map((c, i) => ({
+        id: Number(c.dataset.id),
+        sort_order: i,
+      }));
+      await api("/api/estates/reorder", { method: "POST", body: JSON.stringify({ order: newOrder }) });
+    });
+  });
 }
 
 async function deleteEstate(e, id) {
