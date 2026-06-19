@@ -46,30 +46,42 @@ function getEstateName(item) {
   return item.bigEstateName || item.estateName || "";
 }
 
-// 用屋苑名稱 keyword 搜尋抓取放盤（適用所有屋苑）
-async function fetchCentanet(estateName) {
-  const body = {
-    postType: "Sale",
-    sort: "Ranking",
-    order: "Ascending",
-    size: 200,
-    offset: 0,
-    displayTextStyle: "WebResultList",
-    pageSource: "search",
-    keyword: estateName,
-    bigPhotoMode: false,
-  };
+const PAGE_SIZE = 100;
 
+async function fetchCentanetPage(estateName, offset) {
   const res = await fetch(CENTANET_SEARCH, {
     method: "POST",
     headers: FETCH_HEADERS,
-    body: JSON.stringify(body),
+    body: JSON.stringify({
+      postType: "Sale",
+      sort: "Ranking",
+      order: "Ascending",
+      size: PAGE_SIZE,
+      offset,
+      displayTextStyle: "WebResultList",
+      pageSource: "search",
+      keyword: estateName,
+      bigPhotoMode: false,
+    }),
     ...CF_OPTIONS,
   });
-
-  console.log("[fetchCentanet] status:", res.status, "estate:", estateName);
   if (!res.ok) throw new Error(`Centanet API error: ${res.status}`);
   return res.json();
+}
+
+// 用屋苑名稱 keyword 搜尋抓取所有放盤（自動分頁）
+async function fetchCentanet(estateName) {
+  const all = [];
+  let offset = 0;
+  while (true) {
+    const data = await fetchCentanetPage(estateName, offset);
+    const page = data.data || [];
+    all.push(...page);
+    if (page.length < PAGE_SIZE) break;
+    offset += PAGE_SIZE;
+    if (offset >= 500) break; // safety cap
+  }
+  return { data: all };
 }
 
 // 搜尋屋苑名稱，返回獨特屋苑列表（支援大型屋苑群同單一屋苑）
