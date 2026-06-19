@@ -658,33 +658,38 @@ async function api(path, opts = {}) {
 // ── Dashboard ──────────────────────────────────────────────────
 let dashboardEstates = [];
 
+let dashboardMetric = "count"; // "count" | "price"
+
 async function showDashboard(estates) {
   dashboardEstates = estates;
   const main = document.getElementById("main");
   main.innerHTML = `
     <div class="dashboard">
-      <div class="dashboard-title">總覽</div>
-      <div class="dashboard-cards">
-        ${estates.map(e => `
-          <div class="dashboard-card" onclick="showEstate(${e.id},'${escHtml(e.name)}','${escHtml(e.district||'')}')">
-            <div class="dashboard-card-name">${escHtml(e.name)}</div>
-            <div class="dashboard-card-count">${e.today_count ?? 0}</div>
-            <div class="dashboard-card-label">個在售單位</div>
-          </div>
-        `).join('')}
-      </div>
       <div class="dashboard-chart-section">
         <div class="dashboard-chart-header">
-          <div class="section-title" style="margin:0">放盤數量趨勢</div>
+          <div style="display:flex;gap:0.4rem">
+            <button class="filter-chip ${dashboardMetric==='count'?'active':''}" onclick="setDashboardMetric('count')">放盤數量</button>
+            <button class="filter-chip ${dashboardMetric==='price'?'active':''}" onclick="setDashboardMetric('price')">平均實呎價</button>
+          </div>
           <select class="estate-select" id="dashboardSelect" onchange="loadDashboardChart(this.value)">
             ${estates.map(e => `<option value="${e.id}">${escHtml(e.name)}</option>`).join('')}
           </select>
         </div>
-        <div class="chart-wrap" style="height:200px"><canvas id="dashboardChart"></canvas></div>
+        <div class="chart-wrap" style="height:240px"><canvas id="dashboardChart"></canvas></div>
       </div>
     </div>
   `;
   if (estates.length) loadDashboardChart(estates[0].id);
+}
+
+function setDashboardMetric(metric) {
+  dashboardMetric = metric;
+  const sel = document.getElementById("dashboardSelect");
+  if (sel) loadDashboardChart(sel.value);
+  // update chip active states
+  document.querySelectorAll(".dashboard-chart-section .filter-chip").forEach(btn => {
+    btn.classList.toggle("active", btn.textContent.trim() === (metric === "count" ? "放盤數量" : "平均實呎價"));
+  });
 }
 
 async function loadDashboardChart(estateId) {
@@ -700,8 +705,10 @@ function drawDashboardChart(trends) {
   const canvas = document.getElementById("dashboardChart");
   if (!canvas || trends.length < 2) return;
 
+  const isPrice = dashboardMetric === "price";
   const labels = trends.map(t => t.snapshot_date.slice(5));
-  const data = trends.map(t => t.listing_count);
+  const data = trends.map(t => isPrice ? t.avg_price_ft : t.listing_count);
+  const color = isPrice ? "#f59e0b" : "#3b82f6";
 
   const W = canvas.parentElement.offsetWidth;
   const H = 200;
@@ -724,15 +731,11 @@ function drawDashboardChart(trends) {
   for (let i = 0; i <= 4; i++) {
     const y = pad.top + (h / 4) * i;
     ctx.beginPath(); ctx.moveTo(pad.left, y); ctx.lineTo(pad.left + w, y); ctx.stroke();
-    const val = maxV - ((maxV - minV) / 4) * i;
-    ctx.fillStyle = "#64748b";
-    ctx.font = "10px -apple-system,sans-serif";
-    ctx.textAlign = "right";
-    ctx.fillText(Math.round(val), pad.left - 6, y + 4);
   }
 
   // X labels
   ctx.fillStyle = "#64748b";
+  ctx.font = "10px -apple-system,sans-serif";
   ctx.textAlign = "center";
   const step = Math.ceil(labels.length / 8);
   labels.forEach((l, i) => {
@@ -742,10 +745,22 @@ function drawDashboardChart(trends) {
     }
   });
 
+  // Y label formatting
+  const fmtY = v => isPrice ? `$${Math.round(v).toLocaleString()}` : String(Math.round(v));
+  ctx.fillStyle = "#64748b";
+  ctx.font = "10px -apple-system,sans-serif";
+  ctx.textAlign = "right";
+  for (let i = 0; i <= 4; i++) {
+    const y = pad.top + (h / 4) * i;
+    const val = maxV - ((maxV - minV) / 4) * i;
+    ctx.fillText(fmtY(val), pad.left - 6, y + 4);
+  }
+
   // Gradient fill
   const grad = ctx.createLinearGradient(0, pad.top, 0, pad.top + h);
-  grad.addColorStop(0, "rgba(59,130,246,0.3)");
-  grad.addColorStop(1, "rgba(59,130,246,0)");
+  const rgb = isPrice ? "245,158,11" : "59,130,246";
+  grad.addColorStop(0, `rgba(${rgb},0.28)`);
+  grad.addColorStop(1, `rgba(${rgb},0)`);
 
   ctx.beginPath();
   data.forEach((v, i) => {
@@ -761,7 +776,7 @@ function drawDashboardChart(trends) {
 
   // Line
   ctx.beginPath();
-  ctx.strokeStyle = "#3b82f6";
+  ctx.strokeStyle = color;
   ctx.lineWidth = 2;
   ctx.lineJoin = "round";
   data.forEach((v, i) => {
@@ -777,7 +792,7 @@ function drawDashboardChart(trends) {
     const y = pad.top + h - ((v - minV) / (maxV - minV)) * h;
     ctx.beginPath();
     ctx.arc(x, y, i === data.length - 1 ? 4 : 2.5, 0, Math.PI * 2);
-    ctx.fillStyle = "#3b82f6";
+    ctx.fillStyle = color;
     ctx.fill();
   });
 }

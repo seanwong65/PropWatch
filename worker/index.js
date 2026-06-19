@@ -52,7 +52,7 @@ async function fetchCentanet(estateName) {
     postType: "Sale",
     sort: "Ranking",
     order: "Ascending",
-    size: 100,
+    size: 200,
     offset: 0,
     displayTextStyle: "WebResultList",
     pageSource: "search",
