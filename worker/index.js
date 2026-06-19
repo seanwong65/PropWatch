@@ -279,7 +279,7 @@ async function saveSearchResults(db, estateId, listings) {
   }
 
   await db
-    .prepare("UPDATE estates SET last_synced = datetime('now') WHERE id = ?")
+    .prepare("UPDATE estates SET last_synced = datetime('now', '+8 hours') WHERE id = ?")
     .bind(estateId)
     .run();
 }
@@ -489,7 +489,8 @@ async function runDailySync(db, resendApiKey) {
 
   // Send email if there are any changes (exclude estates added today — first sync, no baseline)
   if (resendApiKey) {
-    const today = new Date().toISOString().slice(0, 10);
+    const hkNow = new Date(Date.now() + 8 * 3600 * 1000);
+    const today = hkNow.toISOString().slice(0, 10);
     const estateMap = Object.fromEntries(estates.map(e => [e.name, e]));
     const allChanges = results.filter(r => {
       if (!r.ok || !r.changes) return false;

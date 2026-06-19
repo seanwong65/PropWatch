@@ -8,7 +8,7 @@ CREATE TABLE IF NOT EXISTS estates (
   is_favourite INTEGER NOT NULL DEFAULT 0,
   is_disabled  INTEGER NOT NULL DEFAULT 0,
   sort_order   INTEGER NOT NULL DEFAULT 0,
-  first_seen   TEXT    NOT NULL DEFAULT (datetime('now')),
+  first_seen   TEXT    NOT NULL DEFAULT (datetime('now', '+8 hours')),
   last_synced  TEXT
 );
 
