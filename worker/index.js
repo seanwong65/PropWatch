@@ -5,6 +5,7 @@ const CORS = {
 };
 
 const CENTANET_SEARCH = "https://hk.centanet.com/findproperty/api/Post/Search";
+const CENTANET_TRANS  = "https://hk.centanet.com/findproperty/api/Transaction/Search";
 
 function json(status, data) {
   return new Response(JSON.stringify(data), {
@@ -237,10 +238,24 @@ function buildEmailHtml(changes) {
 
   let sections = "";
 
-  for (const { estate, newListings, removedListings, priceChanges } of changes) {
-    if (!newListings.length && !removedListings.length && !priceChanges.length) continue;
+  for (const { estate, newListings, removedListings, priceChanges, newTransactions = [] } of changes) {
+    if (!newListings.length && !removedListings.length && !priceChanges.length && !newTransactions.length) continue;
 
     let rows = "";
+
+    if (newTransactions.length) {
+      rows += `<tr><td colspan="4" style="padding:8px 0 4px;font-weight:700;color:#a78bfa">🏠 新成交記錄 (${newTransactions.length})</td></tr>`;
+      for (const t of newTransactions) {
+        const gainColor = t.gain_pct > 0 ? "#ef4444" : t.gain_pct < 0 ? "#10b981" : "#64748b";
+        const gainStr = t.gain_pct != null ? `${t.gain_pct > 0 ? "▲" : "▼"} ${Math.abs(t.gain_pct).toFixed(1)}%` : "-";
+        rows += `<tr style="border-bottom:1px solid #1f2d42">
+          <td style="padding:6px 8px">${t.building || ""} ${t.floor || ""} ${t.unit || ""}</td>
+          <td style="padding:6px 8px;color:#64748b">${t.size_net ? t.size_net + "實呎" : ""}</td>
+          <td style="padding:6px 8px;font-weight:700;color:#f59e0b">${t.price ? `$${(t.price / 1e4).toFixed(0)}萬` : "-"}</td>
+          <td style="padding:6px 8px;color:${gainColor}">${gainStr}</td>
+        </tr>`;
+      }
+    }
 
     if (priceChanges.length) {
       rows += `<tr><td colspan="4" style="padding:8px 0 4px;font-weight:700;color:#f59e0b">💰 售價變動 (${priceChanges.length})</td></tr>`;
@@ -301,6 +316,32 @@ function buildEmailHtml(changes) {
     </div>`;
 }
 
+async function fetchNewTransactions(estateName) {
+  const res = await fetch(CENTANET_TRANS, {
+    method: "POST",
+    headers: FETCH_HEADERS,
+    body: JSON.stringify({ postType: "Sale", size: 50, offset: 0, keyword: estateName }),
+    ...CF_OPTIONS,
+  });
+  if (!res.ok) return [];
+  const raw = await res.json();
+  const yesterday = new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+  return (raw.data || [])
+    .filter(t => t.regDate && t.regDate.slice(0, 10) >= yesterday)
+    .map(t => ({
+      building: t.buildingName,
+      floor: t.yAxis,
+      unit: t.xAxis,
+      price: t.transactionPrice,
+      size_net: t.nArea,
+      price_per_ft: t.nUnitPrice,
+      reg_date: t.regDate?.slice(0, 10),
+      prev_price: t.prevTransactionPrice,
+      gain_pct: t.gainPercent,
+      held_days: t.heldDay,
+    }));
+}
+
 async function detectChanges(db, estateId, estateName, newListings) {
   const today = new Date().toISOString().slice(0, 10);
 
@@ -359,9 +400,13 @@ async function runDailySync(db, resendApiKey) {
   const results = await Promise.all(
     estates.map(async (estate) => {
       try {
-        const data = await fetchCentanet(estate.name);
+        const [data, newTxns] = await Promise.all([
+          fetchCentanet(estate.name),
+          fetchNewTransactions(estate.name),
+        ]);
         const listings = data.data || [];
         const changes = await detectChanges(db, estate.id, estate.name, listings);
+        changes.newTransactions = newTxns;
         await saveSearchResults(db, estate.id, listings);
         return { estate: estate.name, count: listings.length, ok: true, changes };
       } catch (err) {
@@ -374,13 +419,15 @@ async function runDailySync(db, resendApiKey) {
   if (resendApiKey) {
     const allChanges = results.filter(r => r.ok && r.changes).map(r => r.changes);
     const hasChanges = allChanges.some(
-      c => c.priceChanges.length || c.newListings.length || c.removedListings.length
+      c => c.priceChanges.length || c.newListings.length || c.removedListings.length || (c.newTransactions || []).length
     );
     if (hasChanges) {
+      const totalTxns  = allChanges.reduce((s, c) => s + (c.newTransactions || []).length, 0);
       const totalPrice = allChanges.reduce((s, c) => s + c.priceChanges.length, 0);
       const totalNew   = allChanges.reduce((s, c) => s + c.newListings.length, 0);
       const totalDel   = allChanges.reduce((s, c) => s + c.removedListings.length, 0);
       const parts = [];
+      if (totalTxns)  parts.push(`${totalTxns} 個新成交`);
       if (totalPrice) parts.push(`${totalPrice} 個價格變動`);
       if (totalNew)   parts.push(`${totalNew} 個新放盤`);
       if (totalDel)   parts.push(`${totalDel} 個已下架`);
@@ -509,6 +556,43 @@ export default {
         return json(200, { trends: results });
       }
 
+      if (method === "GET" && path.match(/^\/api\/estates\/\d+\/transactions$/)) {
+        const estateId = path.split("/")[3];
+        const estate = await db.prepare("SELECT name FROM estates WHERE id = ?").bind(estateId).first();
+        if (!estate) return json(404, { error: "Not found" });
+        const offset = Number(url.searchParams.get("offset") || 0);
+        const res = await fetch(CENTANET_TRANS, {
+          method: "POST",
+          headers: FETCH_HEADERS,
+          body: JSON.stringify({
+            postType: "Sale",
+            size: 50,
+            offset,
+            keyword: estate.name,
+          }),
+          ...CF_OPTIONS,
+        });
+        if (!res.ok) return json(502, { error: `Centanet error ${res.status}` });
+        const raw = await res.json();
+        const txns = (raw.data || []).map(t => ({
+          id: t.id,
+          building: t.buildingName,
+          floor: t.yAxis,
+          unit: t.xAxis,
+          price: t.transactionPrice,
+          size_gross: t.gArea,
+          size_net: t.nArea,
+          price_per_ft_net: t.nUnitPrice,
+          price_per_ft_gross: t.gUnitPrice,
+          reg_date: t.regDate?.slice(0, 10),
+          prev_price: t.prevTransactionPrice,
+          gain_pct: t.gainPercent,
+          held_days: t.heldDay,
+          detail_url: t.detailUrl,
+        }));
+        return json(200, { transactions: txns, total: raw.data?.length ?? 0 });
+      }
+
       if (method === "GET" && path.match(/^\/api\/debug\/.+$/)) {
         const name = decodeURIComponent(path.split("/")[3]);
         const raw = await fetchCentanet(name);
@@ -549,6 +633,7 @@ export default {
           "PropWatch 測試郵件",
           buildEmailHtml([{
             estate: "測試屋苑",
+            newTransactions: [{ building: "D座", floor: "高層", unit: "5室", size_net: 491, price: 7500000, price_per_ft: 15275, gain_pct: 12.5 }],
             priceChanges: [{ building: "A座", floor: "高層", unit: "1室", oldPrice: 5000000, newPrice: 5500000 }],
             newListings: [{ building_name: "B座", floor: "中層", unit: "2室", bedrooms: 2, size_net: 500, price: 6000000, price_per_ft: 12000 }],
             removedListings: [{ building_name: "C座", floor: "低層", unit: "3室", bedrooms: 3, price: 7000000 }],
