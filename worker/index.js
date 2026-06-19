@@ -415,7 +415,8 @@ async function fetchNewTransactions(estateName) {
 }
 
 async function detectChanges(db, estateId, estateName, newListings) {
-  const today = new Date().toISOString().slice(0, 10);
+  const todayHK = new Date(Date.now() + 8 * 3600000).toISOString().slice(0, 10);
+  const today = todayHK;
 
   // Get yesterday's listings
   const { results: oldRows } = await db
@@ -449,9 +450,15 @@ async function detectChanges(db, estateId, estateName, newListings) {
   const newAdded = [];
   const removed = [];
 
+  // Only flag as new if first seen today (HK time) — avoids showing stale listings from previous days
+  const { results: todayFirstSeen } = await db
+    .prepare(`SELECT listing_id FROM listings WHERE estate_id=? AND date(snapshot_date)=? AND listing_id NOT IN (SELECT listing_id FROM listings WHERE estate_id=? AND date(snapshot_date)<?)`)
+    .bind(estateId, todayHK, estateId, todayHK).all();
+  const firstSeenTodaySet = new Set(todayFirstSeen.map(r => r.listing_id));
+
   for (const [ref, nl] of newMap) {
     if (!oldMap.has(ref)) {
-      newAdded.push(nl);
+      if (firstSeenTodaySet.has(ref)) newAdded.push(nl);
     } else {
       const ol = oldMap.get(ref);
       if (ol.price && nl.price && Math.abs(nl.price - ol.price) > 1000) {
@@ -477,9 +484,9 @@ async function runDailySync(db, resendApiKey) {
           fetchNewTransactions(estate.name),
         ]);
         const listings = data.data || [];
+        await saveSearchResults(db, estate.id, listings);
         const changes = await detectChanges(db, estate.id, estate.name, listings);
         changes.newTransactions = newTxns;
-        await saveSearchResults(db, estate.id, listings);
         return { estate: estate.name, count: listings.length, ok: true, changes };
       } catch (err) {
         return { estate: estate.name, error: err.message, ok: false };
