@@ -706,7 +706,13 @@ export default {
           const cached = await db.prepare(
             "SELECT price, saleable_area, valuation_date FROM hangseng_valuations WHERE estate_id=? AND building=? AND floor=? AND flat=?"
           ).bind(estateId, blockNum, floorNum, flatLetter).first();
-          if (cached) return json(200, { price: String(cached.price), saleableArea: String(cached.saleable_area), valuationDate: cached.valuation_date, cached: true });
+          if (cached) {
+            // Log to history even on cache hit so user can track queries over time
+            await db.prepare(
+              "INSERT INTO hangseng_valuation_history (estate_id, building, floor, flat, price, saleable_area, valuation_date) VALUES (?,?,?,?,?,?,?)"
+            ).bind(estateId, blockNum, floorNum, flatLetter, cached.price, cached.saleable_area, cached.valuation_date).run();
+            return json(200, { price: String(cached.price), saleableArea: String(cached.saleable_area), valuationDate: cached.valuation_date, cached: true });
+          }
         }
 
         const result = await getHangSengValuation(estateName, blockNum, floorNum, flatLetter);
