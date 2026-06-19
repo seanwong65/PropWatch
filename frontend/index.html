@@ -1143,7 +1143,7 @@ async function showEstate(id, name, district) {
 
 async function fetchHSVal(rowId, estate, block, floor, flat, estateId) {
   const span = document.getElementById(rowId);
-  const btn = span?.previousElementSibling;
+  const btn = document.getElementById(rowId + '-btn');
   if (!span) return;
   if (btn) { btn.disabled = true; btn.textContent = '查詢中…'; }
   try {
@@ -1272,6 +1272,7 @@ function renderTransactionsTable(estateId, offset, hasMore) {
     { key: "held_days",    label: "持有年期" },
     { key: "gain_annual",  label: "升跌" },
     { key: "hs_price",     label: "恆生估值" },
+    { key: null,           label: "查估值" },
     { key: null,           label: "" },
   ];
   const ths = thCols.map(c => {
@@ -1299,15 +1300,14 @@ function renderTransactionsTable(estateId, offset, hasMore) {
     const flatLetter = (t.unit || '').replace(/[室層樓]/g, '').trim();
     const rowId = `txn-hs-${estateId}-s-${i}`;
     const canQuery = estateName && blockNum && floorNum && flatLetter;
-    let hsCell;
-    if (t.hs_price) {
-      const onclickHist = `showHSHistory('${blockNum}','${floorNum}','${flatLetter.replace(/'/g,"\\'")}','${estateId}')`;
-      hsCell = `<span class="price-cell">$${(t.hs_price/1e4).toFixed(0)}萬</span><div class="unit-price">${t.hs_date || ''}</div><button class="hs-val-btn" style="margin-top:4px" onclick="${onclickHist}">估值歷史</button>`;
-    } else if (canQuery) {
-      hsCell = `<button class="hs-val-btn" onclick="fetchHSVal('${rowId}','${estateName.replace(/'/g,"\\'")}','${blockNum}','${floorNum}','${flatLetter.replace(/'/g,"\\'")}','${estateId}')">查估值</button><span id="${rowId}"></span>`;
-    } else {
-      hsCell = '-';
-    }
+    const hsValCell = t.hs_price
+      ? `<span class="price-cell">$${(t.hs_price/1e4).toFixed(0)}萬</span><div class="unit-price">${t.hs_date || ''}</div>`
+      : `<span id="${rowId}"></span>`;
+    const onclickFetch = `fetchHSVal('${rowId}','${estateName.replace(/'/g,"\\'")}','${blockNum}','${floorNum}','${flatLetter.replace(/'/g,"\\'")}','${estateId}')`;
+    const onclickHist = `showHSHistory('${blockNum}','${floorNum}','${flatLetter.replace(/'/g,"\\'")}','${estateId}')`;
+    const hsQueryCell = canQuery
+      ? `<button class="hs-val-btn" id="${rowId}-btn" onclick="${t.hs_price ? onclickHist : onclickFetch}">${t.hs_price ? '估值歷史' : '查估值'}</button>`
+      : '-';
     return `<tr>
       <td class="txn-date">${t.reg_date || '-'}</td>
       <td>${escHtml(t.building||'')} ${escHtml(t.floor||'')} ${escHtml(t.unit||'')}</td>
@@ -1318,7 +1318,8 @@ function renderTransactionsTable(estateId, offset, hasMore) {
       </td>
       <td>${heldStr}</td>
       <td>${annualHtml}${totalHtml}</td>
-      <td>${hsCell}</td>
+      <td>${hsValCell}</td>
+      <td>${hsQueryCell}</td>
       <td>${t.detail_url ? `<a href="${escHtml(t.detail_url)}" target="_blank" class="detail-link">詳情 ↗</a>` : ''}</td>
     </tr>`;
   }).join('');
