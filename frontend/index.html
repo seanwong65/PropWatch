@@ -1361,6 +1361,7 @@ function renderListingsTable() {
   if (fc) fc.textContent = `顯示 ${visible.length} / ${allListings.length} 個盤`;
 
   const cols = [
+    { key: "first_seen",    label: "上盤日期" },
     { key: "building_name", label: "座" },
     { key: "floor",         label: "樓層/單位" },
     { key: "bedrooms",      label: "房數" },
@@ -1382,7 +1383,11 @@ function renderListingsTable() {
   const rows = visible.length === 0
     ? `<tr><td colspan="${cols.length}" class="no-data" style="padding:2rem;text-align:center">無符合條件的放盤</td></tr>`
     : visible.map(l => `
-      <tr>
+      <tr${l.removed_date ? ' style="opacity:0.45"' : ''}>
+        <td class="txn-date">
+          ${l.first_seen || '-'}
+          ${l.removed_date ? `<div style="color:var(--down);font-size:0.7rem">下架 ${l.removed_date}</div>` : ''}
+        </td>
         <td>${escHtml(l.building_name||'-')}</td>
         <td>
           <span class="floor-badge ${floorClass(l.floor)}">${escHtml(l.floor||'-')}</span>

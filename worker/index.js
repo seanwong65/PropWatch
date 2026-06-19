@@ -580,22 +580,34 @@ export default {
         const estateId = path.split("/")[3];
         const { results } = await db
           .prepare(
-            `SELECT l.*,
+            `WITH latest AS (
+               SELECT MAX(snapshot_date) AS d FROM listings WHERE estate_id = ?
+             ),
+             per_listing AS (
+               SELECT listing_id,
+                 MIN(snapshot_date) AS first_seen,
+                 MAX(snapshot_date) AS last_seen
+               FROM listings WHERE estate_id = ?
+               GROUP BY listing_id
+             )
+             SELECT l.*,
+               pl.first_seen,
+               CASE WHEN pl.last_seen < latest.d THEN pl.last_seen ELSE NULL END AS removed_date,
                prev.price AS prev_price,
                prev.price_per_ft AS prev_price_per_ft
              FROM listings l
+             JOIN per_listing pl ON pl.listing_id = l.listing_id
+             JOIN latest ON 1=1
              LEFT JOIN listing_price_history prev
                ON prev.ref_no = l.ref_no
                AND prev.snapshot_date = (
                  SELECT MAX(snapshot_date) FROM listing_price_history
                  WHERE ref_no = l.ref_no AND snapshot_date < l.snapshot_date
                )
-             WHERE l.estate_id = ? AND l.snapshot_date = (
-               SELECT MAX(snapshot_date) FROM listings WHERE estate_id = ?
-             )
-             ORDER BY l.price ASC`
+             WHERE l.estate_id = ? AND l.snapshot_date = pl.last_seen
+             ORDER BY removed_date IS NOT NULL ASC, l.price ASC`
           )
-          .bind(estateId, estateId)
+          .bind(estateId, estateId, estateId)
           .all();
         return json(200, { listings: results });
       }
