@@ -712,14 +712,30 @@ export default {
         const result = await getHangSengValuation(estateName, blockNum, floorNum, flatLetter);
         if (!result) return json(404, { error: "Not found" });
 
-        // Save to D1
+        // Save to D1 (latest + history)
         if (estateId) {
           await db.prepare(
             "INSERT OR REPLACE INTO hangseng_valuations (estate_id, building, floor, flat, price, saleable_area, valuation_date) VALUES (?,?,?,?,?,?,?)"
           ).bind(estateId, blockNum, floorNum, flatLetter, Number(result.price), Number(result.saleableArea), result.valuationDate).run();
+          await db.prepare(
+            "INSERT INTO hangseng_valuation_history (estate_id, building, floor, flat, price, saleable_area, valuation_date) VALUES (?,?,?,?,?,?,?)"
+          ).bind(estateId, blockNum, floorNum, flatLetter, Number(result.price), Number(result.saleableArea), result.valuationDate).run();
         }
 
         return json(200, result);
+      }
+
+      if (method === "GET" && path === "/api/hangseng-valuation-history") {
+        const estateId   = url.searchParams.get("estateId");
+        const blockNum   = url.searchParams.get("block");
+        const floorNum   = url.searchParams.get("floor");
+        const flatLetter = url.searchParams.get("flat");
+        if (!estateId || !blockNum || !floorNum || !flatLetter)
+          return json(400, { error: "Missing params" });
+        const { results } = await db.prepare(
+          "SELECT price, saleable_area, valuation_date, fetched_at FROM hangseng_valuation_history WHERE estate_id=? AND building=? AND floor=? AND flat=? ORDER BY fetched_at DESC LIMIT 20"
+        ).bind(estateId, blockNum, floorNum, flatLetter).all();
+        return json(200, { history: results });
       }
 
       if (method === "GET" && path.match(/^\/api\/debug\/.+$/)) {

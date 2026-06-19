@@ -1145,16 +1145,46 @@ async function fetchHSVal(rowId, estate, block, floor, flat, estateId) {
   const span = document.getElementById(rowId);
   const btn = span?.previousElementSibling;
   if (!span) return;
-  if (btn) btn.style.display = 'none';
-  span.textContent = '查詢中…';
+  if (btn) { btn.disabled = true; btn.textContent = '查詢中…'; }
   try {
     const params = new URLSearchParams({ estate, block, floor, flat });
     if (estateId) params.set('estateId', estateId);
     const data = await api(`/api/hangseng-valuation?${params}`);
     span.innerHTML = `<span class="price-cell">$${(data.price/1e4).toFixed(0)}萬</span><div class="unit-price">${data.valuationDate}</div>`;
+    if (btn) { btn.disabled = false; btn.textContent = '估值歷史'; btn.onclick = () => showHSHistory(block, floor, flat, estateId); }
   } catch {
     span.textContent = '－';
-    if (btn) { btn.style.display = ''; }
+    if (btn) { btn.disabled = false; btn.textContent = '查估值'; }
+  }
+}
+
+async function showHSHistory(block, floor, flat, estateId) {
+  const overlay = document.createElement("div");
+  overlay.className = "modal-overlay";
+  overlay.innerHTML = `
+    <div class="modal">
+      <button class="modal-close" onclick="this.closest('.modal-overlay').remove()">✕</button>
+      <div class="modal-title">恆生估值歷史</div>
+      <div class="modal-sub">${block}座 ${floor}樓 ${flat}室</div>
+      <div id="hsHistoryContent"><div class="loading"><div class="spinner"></div> 載入中…</div></div>
+    </div>
+  `;
+  overlay.addEventListener("click", e => { if (e.target === overlay) overlay.remove(); });
+  document.body.appendChild(overlay);
+  try {
+    const { history } = await api(`/api/hangseng-valuation-history?estateId=${estateId}&block=${encodeURIComponent(block)}&floor=${encodeURIComponent(floor)}&flat=${encodeURIComponent(flat)}`);
+    const content = document.getElementById("hsHistoryContent");
+    if (!history.length) { content.innerHTML = '<div class="no-data">暫無歷史記錄</div>'; return; }
+    const rows = history.map(h => `
+      <tr>
+        <td>${h.fetched_at?.slice(0,10) || '-'}</td>
+        <td class="price-cell">$${(h.price/1e4).toFixed(0)}萬</td>
+        <td class="unit-price">${h.valuation_date || '-'}</td>
+      </tr>
+    `).join('');
+    content.innerHTML = `<table class="history-table"><thead><tr><th>查詢日期</th><th>估值</th><th>估值日期</th></tr></thead><tbody>${rows}</tbody></table>`;
+  } catch (err) {
+    document.getElementById("hsHistoryContent").innerHTML = `<div class="no-data">載入失敗：${err.message}</div>`;
   }
 }
 
@@ -1271,7 +1301,8 @@ function renderTransactionsTable(estateId, offset, hasMore) {
     const canQuery = estateName && blockNum && floorNum && flatLetter;
     let hsCell;
     if (t.hs_price) {
-      hsCell = `<span class="price-cell">$${(t.hs_price/1e4).toFixed(0)}萬</span><div class="unit-price">${t.hs_date || ''}</div>`;
+      const onclickHist = `showHSHistory('${blockNum}','${floorNum}','${flatLetter.replace(/'/g,"\\'")}','${estateId}')`;
+      hsCell = `<span class="price-cell">$${(t.hs_price/1e4).toFixed(0)}萬</span><div class="unit-price">${t.hs_date || ''}</div><button class="hs-val-btn" style="margin-top:4px" onclick="${onclickHist}">估值歷史</button>`;
     } else if (canQuery) {
       hsCell = `<button class="hs-val-btn" onclick="fetchHSVal('${rowId}','${estateName.replace(/'/g,"\\'")}','${blockNum}','${floorNum}','${flatLetter.replace(/'/g,"\\'")}','${estateId}')">查估值</button><span id="${rowId}"></span>`;
     } else {

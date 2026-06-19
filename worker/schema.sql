@@ -79,3 +79,18 @@ CREATE TABLE IF NOT EXISTS hangseng_valuations (
 );
 
 CREATE INDEX IF NOT EXISTS idx_hsv_estate ON hangseng_valuations(estate_id);
+
+-- 恆生估值歷史（每次查詢都記錄）
+CREATE TABLE IF NOT EXISTS hangseng_valuation_history (
+  id             INTEGER PRIMARY KEY AUTOINCREMENT,
+  estate_id      INTEGER NOT NULL REFERENCES estates(id) ON DELETE CASCADE,
+  building       TEXT    NOT NULL,
+  floor          TEXT    NOT NULL,
+  flat           TEXT    NOT NULL,
+  price          INTEGER,
+  saleable_area  INTEGER,
+  valuation_date TEXT,
+  fetched_at     TEXT    NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_hsvh_lookup ON hangseng_valuation_history(estate_id, building, floor, flat, fetched_at DESC);
