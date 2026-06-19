@@ -568,6 +568,9 @@ export default {
             .prepare("SELECT * FROM estates WHERE bigestcode = ?")
             .bind(bigestcode)
             .first();
+        } else if (estate.is_disabled) {
+          await db.prepare("UPDATE estates SET is_disabled = 0 WHERE id = ?").bind(estate.id).run();
+          estate = { ...estate, is_disabled: 0 };
         }
         const data = await fetchCentanet(name);
         const listings = data.data || [];
