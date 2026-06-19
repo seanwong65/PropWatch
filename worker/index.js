@@ -44,7 +44,9 @@ async function findBlockCode(estateCode, blockNum) {
       for (const estate of dist.estates || []) {
         if (estate.estateCode === String(estateCode)) {
           const block = estate.blocks?.find(b =>
-            b.blockChinesename === `第${blockNum}座` || b.blockName === `Block/Tower ${blockNum}`
+            b.blockChinesename === `第${blockNum}座` ||
+            b.blockChinesename?.includes(`第${blockNum}座`) ||
+            b.blockName === `Block/Tower ${blockNum}`
           );
           return block ? { blockCode: block.blockCode, carpark: block.coveredCarpark || "0" } : null;
         }
