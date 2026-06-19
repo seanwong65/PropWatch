@@ -1070,7 +1070,7 @@ async function showEstate(id, name, district) {
     }
     const avgFtBreakdown = bedBreakdown(ls => {
       const vals = ls.map(l => l.price_per_ft).filter(Boolean);
-      return vals.length ? `$${Math.round(vals.reduce((a,b)=>a+b,0)/vals.length).toLocaleString()}` : null;
+      return vals.length ? `$${Math.round(vals.reduce((a,b)=>a+b,0)/vals.length).toLocaleString()}/呎` : null;
     });
     const minPriceBreakdown = bedBreakdown(ls => {
       const vals = ls.map(l => l.price).filter(Boolean);
