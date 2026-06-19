@@ -231,7 +231,7 @@ async function saveSearchResults(db, estateId, listings) {
   const today = new Date().toISOString().slice(0, 10);
 
   const stmtListing = db.prepare(
-    `INSERT OR IGNORE INTO listings
+    `INSERT OR REPLACE INTO listings
      (estate_id, listing_id, ref_no, estate_name, phase, building_name,
       floor, unit, bedrooms, direction, size_net, size_gross,
       price, price_per_ft, building_age, detail_url, thumbnail, snapshot_date)
