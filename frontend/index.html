@@ -1150,11 +1150,11 @@ async function fetchHSVal(rowId, estate, block, floor, flat, estateId) {
     const params = new URLSearchParams({ estate, block, floor, flat });
     if (estateId) params.set('estateId', estateId);
     const data = await api(`/api/hangseng-valuation?${params}`);
-    span.innerHTML = `<span class="price-cell">$${(data.price/1e4).toFixed(0)}萬</span><div class="unit-price">${data.valuationDate}</div>`;
-    if (btn) { btn.disabled = false; btn.textContent = '估值歷史'; btn.onclick = () => showHSHistory(block, floor, flat, estateId); }
+    span.innerHTML = `<span class="price-cell">$${(data.price/1e4).toFixed(0)}萬</span><div class="unit-price">${data.valuationDate}</div><button class="hs-val-btn" style="margin-top:4px" onclick="showHSHistory('${block}','${floor}','${flat}','${estateId}')">估值歷史</button>`;
+    if (btn) { btn.disabled = false; }
   } catch {
     span.textContent = '－';
-    if (btn) { btn.disabled = false; btn.textContent = '查估值'; }
+    if (btn) { btn.disabled = false; }
   }
 }
 
@@ -1300,13 +1300,14 @@ function renderTransactionsTable(estateId, offset, hasMore) {
     const flatLetter = (t.unit || '').replace(/[室層樓]/g, '').trim();
     const rowId = `txn-hs-${estateId}-s-${i}`;
     const canQuery = estateName && blockNum && floorNum && flatLetter;
-    const hsValCell = t.hs_price
-      ? `<span class="price-cell">$${(t.hs_price/1e4).toFixed(0)}萬</span><div class="unit-price">${t.hs_date || ''}</div>`
-      : `<span id="${rowId}"></span>`;
     const onclickFetch = `fetchHSVal('${rowId}','${estateName.replace(/'/g,"\\'")}','${blockNum}','${floorNum}','${flatLetter.replace(/'/g,"\\'")}','${estateId}')`;
     const onclickHist = `showHSHistory('${blockNum}','${floorNum}','${flatLetter.replace(/'/g,"\\'")}','${estateId}')`;
+    const histBtn = t.hs_price ? `<button class="hs-val-btn" style="margin-top:4px" onclick="${onclickHist}">估值歷史</button>` : '';
+    const hsValCell = t.hs_price
+      ? `<span class="price-cell">$${(t.hs_price/1e4).toFixed(0)}萬</span><div class="unit-price">${t.hs_date || ''}</div>${histBtn}`
+      : `<span id="${rowId}"></span>`;
     const hsQueryCell = canQuery
-      ? `<button class="hs-val-btn" id="${rowId}-btn" onclick="${t.hs_price ? onclickHist : onclickFetch}">${t.hs_price ? '估值歷史' : '查估值'}</button>`
+      ? `<button class="hs-val-btn" id="${rowId}-btn" onclick="${onclickFetch}">查估值</button>`
       : '-';
     return `<tr>
       <td class="txn-date">${t.reg_date || '-'}</td>
