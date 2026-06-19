@@ -1162,7 +1162,7 @@ async function fetchHSVal(rowId, estate, block, floor, flat, estateId, txnPrice)
     const params = new URLSearchParams({ estate, block, floor, flat });
     if (estateId) params.set('estateId', estateId);
     const data = await api(`/api/hangseng-valuation?${params}`);
-    const histBtn = `<button class="hs-val-btn" style="margin-top:4px" onclick="showHSHistory('${block}','${floor}','${flat}','${estateId}')">估值歷史</button>`;
+    const histBtn = `<div style="margin-top:4px"><button class="history-btn" onclick="showHSHistory('${block}','${floor}','${flat}','${estateId}')">歷史</button></div>`;
     span.innerHTML = hsValHtml(Number(data.price)) + histBtn;
     const diffSpan = document.getElementById(rowId + '-diff');
     if (diffSpan) diffSpan.innerHTML = hsDiffHtml(Number(data.price), txnPrice);
@@ -1317,7 +1317,7 @@ function renderTransactionsTable(estateId, offset, hasMore) {
     const canQuery = estateName && blockNum && floorNum && flatLetter;
     const onclickFetch = `fetchHSVal('${rowId}','${estateName.replace(/'/g,"\\'")}','${blockNum}','${floorNum}','${flatLetter.replace(/'/g,"\\'")}','${estateId}',${t.price||0})`;
     const onclickHist = `showHSHistory('${blockNum}','${floorNum}','${flatLetter.replace(/'/g,"\\'")}','${estateId}')`;
-    const histBtn = t.hs_price ? `<button class="hs-val-btn" style="margin-top:4px" onclick="${onclickHist}">估值歷史</button>` : '';
+    const histBtn = t.hs_price ? `<div style="margin-top:4px"><button class="history-btn" onclick="${onclickHist}">歷史</button></div>` : '';
     const hsValCell = t.hs_price
       ? `<span id="${rowId}">${hsValHtml(t.hs_price)}${histBtn}</span>`
       : `<span id="${rowId}"></span>`;
