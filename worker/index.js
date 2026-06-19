@@ -487,9 +487,16 @@ async function runDailySync(db, resendApiKey) {
     })
   );
 
-  // Send email if there are any changes
+  // Send email if there are any changes (exclude estates added today — first sync, no baseline)
   if (resendApiKey) {
-    const allChanges = results.filter(r => r.ok && r.changes).map(r => r.changes);
+    const today = new Date().toISOString().slice(0, 10);
+    const estateMap = Object.fromEntries(estates.map(e => [e.name, e]));
+    const allChanges = results.filter(r => {
+      if (!r.ok || !r.changes) return false;
+      const e = estateMap[r.estate];
+      if (e?.first_seen && e.first_seen.slice(0, 10) === today) return false;
+      return true;
+    }).map(r => r.changes);
     const hasChanges = allChanges.some(
       c => c.priceChanges.length || c.newListings.length || c.removedListings.length || (c.newTransactions || []).length
     );
