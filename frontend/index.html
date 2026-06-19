@@ -1181,7 +1181,7 @@ async function loadTransactions(estateId, offset, append) {
           <div>$${t.price_per_ft_net ? t.price_per_ft_net.toLocaleString() : '-'}/呎</div>
           <div class="unit-price">實${t.size_net ? t.size_net+'呎' : ''}</div>
         </td>
-        <td class="txn-date">${heldStr}</td>
+        <td>${heldStr}</td>
         <td>${annualHtml}${totalHtml}</td>
         <td>${t.detail_url ? `<a href="${escHtml(t.detail_url)}" target="_blank" class="detail-link">詳情 ↗</a>` : ''}</td>
       </tr>`;
