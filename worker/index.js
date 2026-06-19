@@ -707,10 +707,15 @@ export default {
             "SELECT price, saleable_area, valuation_date FROM hangseng_valuations WHERE estate_id=? AND building=? AND floor=? AND flat=?"
           ).bind(estateId, blockNum, floorNum, flatLetter).first();
           if (cached) {
-            // Log to history even on cache hit so user can track queries over time
-            await db.prepare(
-              "INSERT INTO hangseng_valuation_history (estate_id, building, floor, flat, price, saleable_area, valuation_date) VALUES (?,?,?,?,?,?,?)"
-            ).bind(estateId, blockNum, floorNum, flatLetter, cached.price, cached.saleable_area, cached.valuation_date).run();
+            // Log to history once per day
+            const todayEntry = await db.prepare(
+              "SELECT id FROM hangseng_valuation_history WHERE estate_id=? AND building=? AND floor=? AND flat=? AND date(fetched_at)=date('now') LIMIT 1"
+            ).bind(estateId, blockNum, floorNum, flatLetter).first();
+            if (!todayEntry) {
+              await db.prepare(
+                "INSERT INTO hangseng_valuation_history (estate_id, building, floor, flat, price, saleable_area, valuation_date) VALUES (?,?,?,?,?,?,?)"
+              ).bind(estateId, blockNum, floorNum, flatLetter, cached.price, cached.saleable_area, cached.valuation_date).run();
+            }
             return json(200, { price: String(cached.price), saleableArea: String(cached.saleable_area), valuationDate: cached.valuation_date, cached: true });
           }
         }
@@ -718,14 +723,19 @@ export default {
         const result = await getHangSengValuation(estateName, blockNum, floorNum, flatLetter);
         if (!result) return json(404, { error: "Not found" });
 
-        // Save to D1 (latest + history)
+        // Save to D1 (latest + history once per day)
         if (estateId) {
           await db.prepare(
             "INSERT OR REPLACE INTO hangseng_valuations (estate_id, building, floor, flat, price, saleable_area, valuation_date) VALUES (?,?,?,?,?,?,?)"
           ).bind(estateId, blockNum, floorNum, flatLetter, Number(result.price), Number(result.saleableArea), result.valuationDate).run();
-          await db.prepare(
-            "INSERT INTO hangseng_valuation_history (estate_id, building, floor, flat, price, saleable_area, valuation_date) VALUES (?,?,?,?,?,?,?)"
-          ).bind(estateId, blockNum, floorNum, flatLetter, Number(result.price), Number(result.saleableArea), result.valuationDate).run();
+          const todayEntry = await db.prepare(
+            "SELECT id FROM hangseng_valuation_history WHERE estate_id=? AND building=? AND floor=? AND flat=? AND date(fetched_at)=date('now') LIMIT 1"
+          ).bind(estateId, blockNum, floorNum, flatLetter).first();
+          if (!todayEntry) {
+            await db.prepare(
+              "INSERT INTO hangseng_valuation_history (estate_id, building, floor, flat, price, saleable_area, valuation_date) VALUES (?,?,?,?,?,?,?)"
+            ).bind(estateId, blockNum, floorNum, flatLetter, Number(result.price), Number(result.saleableArea), result.valuationDate).run();
+          }
         }
 
         return json(200, result);
