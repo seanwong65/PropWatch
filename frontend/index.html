@@ -1150,8 +1150,8 @@ function hsDiffHtml(hsPrice, txnPrice) {
   if (!hsPrice || !txnPrice) return '';
   const pct = (hsPrice - txnPrice) / txnPrice * 100;
   const absPct = Math.abs(pct).toFixed(1);
-  if (pct >= 0) return `<div class="unit-price"><span class="gain-neg">比估值低 ${absPct}%</span></div>`;
-  return `<div class="unit-price"><span class="gain-pos">比估值高 ${absPct}%</span></div>`;
+  if (pct >= 0) return `<div class="unit-price"><span class="gain-pos">比估值低 ${absPct}%</span></div>`;
+  return `<div class="unit-price"><span class="gain-neg">比估值高 ${absPct}%</span></div>`;
 }
 
 async function fetchHSVal(rowId, estate, block, floor, flat, estateId, txnPrice) {
