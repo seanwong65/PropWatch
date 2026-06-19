@@ -1160,10 +1160,19 @@ async function loadTransactions(estateId, offset, append) {
     const { transactions } = await api(`/api/estates/${estateId}/transactions?offset=${offset}`);
 
     const rows = transactions.map(t => {
-      const gainHtml = t.gain_pct != null
-        ? `<span class="${t.gain_pct >= 0 ? 'gain-pos' : 'gain-neg'}">${t.gain_pct >= 0 ? '▲' : '▼'} ${Math.abs(t.gain_pct).toFixed(1)}%</span>`
-        : '';
-      const heldYears = t.held_days ? (t.held_days / 365).toFixed(1) + '年' : '';
+      const years = t.held_days ? t.held_days / 365 : null;
+      const heldStr = years ? years.toFixed(1) + '年' : '-';
+      let annualHtml = '', totalHtml = '';
+      if (t.gain_pct != null && years) {
+        const annualPct = (Math.pow(1 + t.gain_pct / 100, 1 / years) - 1) * 100;
+        const cls = t.gain_pct >= 0 ? 'gain-pos' : 'gain-neg';
+        const arrow = t.gain_pct >= 0 ? '▲' : '▼';
+        annualHtml = `<span class="${cls}">${arrow} ${Math.abs(annualPct).toFixed(1)}%/年</span>`;
+        totalHtml = `<div class="unit-price">${arrow} ${Math.abs(t.gain_pct).toFixed(1)}%</div>`;
+      } else if (t.gain_pct != null) {
+        const cls = t.gain_pct >= 0 ? 'gain-pos' : 'gain-neg';
+        annualHtml = `<span class="${cls}">${t.gain_pct >= 0 ? '▲' : '▼'} ${Math.abs(t.gain_pct).toFixed(1)}%</span>`;
+      }
       return `<tr>
         <td class="txn-date">${t.reg_date || '-'}</td>
         <td>${escHtml(t.building||'')} ${escHtml(t.floor||'')} ${escHtml(t.unit||'')}</td>
@@ -1172,11 +1181,8 @@ async function loadTransactions(estateId, offset, append) {
           <div>$${t.price_per_ft_net ? t.price_per_ft_net.toLocaleString() : '-'}/呎</div>
           <div class="unit-price">實${t.size_net ? t.size_net+'呎' : ''}</div>
         </td>
-        <td>
-          ${t.prev_price ? `<div class="price-prev">$${(t.prev_price/1e4).toFixed(0)}萬</div>` : ''}
-          ${gainHtml}
-          ${heldYears ? `<div class="unit-price">持有${heldYears}</div>` : ''}
-        </td>
+        <td class="txn-date">${heldStr}</td>
+        <td>${annualHtml}${totalHtml}</td>
         <td>${t.detail_url ? `<a href="${escHtml(t.detail_url)}" target="_blank" class="detail-link">詳情 ↗</a>` : ''}</td>
       </tr>`;
     }).join('');
@@ -1192,7 +1198,7 @@ async function loadTransactions(estateId, offset, append) {
             : `<div style="overflow-x:auto">
                 <table>
                   <thead><tr>
-                    <th>登記日期</th><th>單位</th><th>成交價</th><th>實呎價</th><th>升跌</th><th></th>
+                    <th>登記日期</th><th>單位</th><th>成交價</th><th>實呎價</th><th>持有年期</th><th>升跌</th><th></th>
                   </tr></thead>
                   <tbody>${rows}</tbody>
                 </table>

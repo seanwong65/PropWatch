@@ -246,7 +246,7 @@ function buildEmailHtml(changes) {
     if (newTransactions.length) {
       rows += `<tr><td colspan="4" style="padding:8px 0 4px;font-weight:700;color:#a78bfa">🏠 新成交記錄 (${newTransactions.length})</td></tr>`;
       for (const t of newTransactions) {
-        const gainColor = t.gain_pct > 0 ? "#ef4444" : t.gain_pct < 0 ? "#10b981" : "#64748b";
+        const gainColor = t.gain_pct > 0 ? "#10b981" : t.gain_pct < 0 ? "#ef4444" : "#64748b";
         const gainStr = t.gain_pct != null ? `${t.gain_pct > 0 ? "▲" : "▼"} ${Math.abs(t.gain_pct).toFixed(1)}%` : "-";
         rows += `<tr style="border-bottom:1px solid #1f2d42">
           <td style="padding:6px 8px">${t.building || ""} ${t.floor || ""} ${t.unit || ""}</td>
@@ -261,12 +261,11 @@ function buildEmailHtml(changes) {
       rows += `<tr><td colspan="4" style="padding:8px 0 4px;font-weight:700;color:#f59e0b">💰 售價變動 (${priceChanges.length})</td></tr>`;
       for (const l of priceChanges) {
         const diff = pct(l.newPrice, l.oldPrice);
-        const color = diff > 0 ? "#ef4444" : "#10b981";
         rows += `<tr style="border-bottom:1px solid #1f2d42">
           <td style="padding:6px 8px">${l.building || ""} ${l.floor || ""} ${l.unit || ""}</td>
           <td style="padding:6px 8px;text-decoration:line-through;color:#64748b">${fmt(l.oldPrice)}</td>
           <td style="padding:6px 8px;font-weight:700">${fmt(l.newPrice)}</td>
-          <td style="padding:6px 8px;color:${color}">${diff > 0 ? "▲" : "▼"} ${Math.abs(diff)}%</td>
+          <td style="padding:6px 8px;color:${diff > 0 ? "#10b981" : "#ef4444"}">${diff > 0 ? "▲" : "▼"} ${Math.abs(diff)}%</td>
         </tr>`;
       }
     }
@@ -632,11 +631,18 @@ export default {
           "johnwong777@hotmail.com",
           "PropWatch 測試郵件",
           buildEmailHtml([{
-            estate: "測試屋苑",
-            newTransactions: [{ building: "D座", floor: "高層", unit: "5室", size_net: 491, price: 7500000, price_per_ft: 15275, gain_pct: 12.5 }],
-            priceChanges: [{ building: "A座", floor: "高層", unit: "1室", oldPrice: 5000000, newPrice: 5500000 }],
-            newListings: [{ building_name: "B座", floor: "中層", unit: "2室", bedrooms: 2, size_net: 500, price: 6000000, price_per_ft: 12000 }],
-            removedListings: [{ building_name: "C座", floor: "低層", unit: "3室", bedrooms: 3, price: 7000000 }],
+            estate: "碧海藍天",
+            newTransactions: [
+              { building: "3座", floor: "高層", unit: "A室", size_net: 513, price: 9280000, price_per_ft: 18090, gain_pct: 15.3, held_days: 2738, reg_date: "2026-06-19" },
+              { building: "6座", floor: "中層", unit: "D室", size_net: 491, price: 8080000, price_per_ft: 16456, gain_pct: -3.0, held_days: 2628, reg_date: "2026-06-19" },
+            ],
+            priceChanges: [
+              { building: "2座", floor: "高層", unit: "C室", oldPrice: 8500000, newPrice: 7980000 },
+            ],
+            newListings: [
+              { building_name: "5座", floor: "低層", unit: "B室", bedrooms: 2, size_net: 501, price: 7200000, price_per_ft: 14371 },
+            ],
+            removedListings: [],
           }])
         );
         return json(200, { ok: true, message: "測試郵件已發送至 johnwong777@hotmail.com" });
