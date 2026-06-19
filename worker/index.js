@@ -646,34 +646,67 @@ export default {
         });
         if (!res.ok) return json(502, { error: `Centanet error ${res.status}` });
         const raw = await res.json();
-        const txns = (raw.data || []).map(t => ({
-          id: t.id,
-          building: t.buildingName,
-          floor: t.yAxis,
-          unit: t.xAxis,
-          price: t.transactionPrice,
-          size_gross: t.gArea,
-          size_net: t.nArea,
-          price_per_ft_net: t.nUnitPrice,
-          price_per_ft_gross: t.gUnitPrice,
-          reg_date: t.regDate?.slice(0, 10),
-          prev_price: t.prevTransactionPrice,
-          gain_pct: t.gainPercent,
-          held_days: t.heldDay,
-          detail_url: t.detailUrl,
-        }));
+
+        // Load saved HS valuations for this estate
+        const { results: savedVals } = await db
+          .prepare("SELECT building, floor, flat, price, saleable_area, valuation_date FROM hangseng_valuations WHERE estate_id = ?")
+          .bind(estateId).all();
+        const valMap = new Map(savedVals.map(v => [`${v.building}|${v.floor}|${v.flat}`, v]));
+
+        const txns = (raw.data || []).map(t => {
+          const blockNum   = (t.buildingName || '').match(/\d+/)?.[0] || '';
+          const floorNum   = (t.yAxis || '').match(/\d+/)?.[0] || '';
+          const flatLetter = (t.xAxis || '').replace(/[室層樓]/g, '').trim();
+          const saved = valMap.get(`${blockNum}|${floorNum}|${flatLetter}`);
+          return {
+            id: t.id,
+            building: t.buildingName,
+            floor: t.yAxis,
+            unit: t.xAxis,
+            price: t.transactionPrice,
+            size_gross: t.gArea,
+            size_net: t.nArea,
+            price_per_ft_net: t.nUnitPrice,
+            price_per_ft_gross: t.gUnitPrice,
+            reg_date: t.regDate?.slice(0, 10),
+            prev_price: t.prevTransactionPrice,
+            gain_pct: t.gainPercent,
+            held_days: t.heldDay,
+            detail_url: t.detailUrl,
+            hs_price: saved ? saved.price : null,
+            hs_date: saved ? saved.valuation_date : null,
+          };
+        });
         return json(200, { transactions: txns, total: raw.data?.length ?? 0 });
       }
 
       if (method === "GET" && path === "/api/hangseng-valuation") {
+        const estateId   = url.searchParams.get("estateId");
         const estateName = url.searchParams.get("estate");
         const blockNum   = url.searchParams.get("block");
         const floorNum   = url.searchParams.get("floor");
         const flatLetter = url.searchParams.get("flat");
         if (!estateName || !blockNum || !floorNum || !flatLetter)
           return json(400, { error: "Missing params" });
+
+        // Check D1 cache first
+        if (estateId) {
+          const cached = await db.prepare(
+            "SELECT price, saleable_area, valuation_date FROM hangseng_valuations WHERE estate_id=? AND building=? AND floor=? AND flat=?"
+          ).bind(estateId, blockNum, floorNum, flatLetter).first();
+          if (cached) return json(200, { price: String(cached.price), saleableArea: String(cached.saleable_area), valuationDate: cached.valuation_date, cached: true });
+        }
+
         const result = await getHangSengValuation(estateName, blockNum, floorNum, flatLetter);
         if (!result) return json(404, { error: "Not found" });
+
+        // Save to D1
+        if (estateId) {
+          await db.prepare(
+            "INSERT OR REPLACE INTO hangseng_valuations (estate_id, building, floor, flat, price, saleable_area, valuation_date) VALUES (?,?,?,?,?,?,?)"
+          ).bind(estateId, blockNum, floorNum, flatLetter, Number(result.price), Number(result.saleableArea), result.valuationDate).run();
+        }
+
         return json(200, result);
       }
 

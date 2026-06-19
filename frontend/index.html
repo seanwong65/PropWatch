@@ -1141,14 +1141,16 @@ async function showEstate(id, name, district) {
   }
 }
 
-async function fetchHSVal(rowId, estate, block, floor, flat) {
+async function fetchHSVal(rowId, estate, block, floor, flat, estateId) {
   const span = document.getElementById(rowId);
   const btn = span?.previousElementSibling;
   if (!span) return;
   if (btn) btn.style.display = 'none';
   span.textContent = '查詢中…';
   try {
-    const data = await api(`/api/hangseng-valuation?estate=${estate}&block=${block}&floor=${floor}&flat=${flat}`);
+    const params = new URLSearchParams({ estate, block, floor, flat });
+    if (estateId) params.set('estateId', estateId);
+    const data = await api(`/api/hangseng-valuation?${params}`);
     span.innerHTML = `<span class="price-cell">$${(data.price/1e4).toFixed(0)}萬</span><div class="unit-price">${data.valuationDate}</div>`;
   } catch {
     span.textContent = '－';
@@ -1197,14 +1199,19 @@ async function loadTransactions(estateId, offset, append) {
         annualHtml = `<span class="${cls}">${t.gain_pct >= 0 ? '▲' : '▼'} ${Math.abs(t.gain_pct).toFixed(1)}%</span>`;
       }
       // Parse block number, floor number, flat letter from Centanet strings
-      const blockNum  = (t.building || '').match(/\d+/)?.[0] || '';
-      const floorNum  = (t.floor || '').match(/\d+/)?.[0] || '';
+      const blockNum   = (t.building || '').match(/\d+/)?.[0] || '';
+      const floorNum   = (t.floor || '').match(/\d+/)?.[0] || '';
       const flatLetter = (t.unit || '').replace(/[室層樓]/g, '').trim();
       const rowId = `txn-hs-${estateId}-${offset}-${i}`;
       const canQuery = estateName && blockNum && floorNum && flatLetter;
-      const hsCell = canQuery
-        ? `<button class="hs-val-btn" onclick="fetchHSVal('${rowId}','${encodeURIComponent(estateName)}','${blockNum}','${floorNum}','${encodeURIComponent(flatLetter)}')">查估值</button><span id="${rowId}"></span>`
-        : '-';
+      let hsCell;
+      if (t.hs_price) {
+        hsCell = `<span class="price-cell">$${(t.hs_price/1e4).toFixed(0)}萬</span><div class="unit-price">${t.hs_date || ''}</div>`;
+      } else if (canQuery) {
+        hsCell = `<button class="hs-val-btn" onclick="fetchHSVal('${rowId}','${encodeURIComponent(estateName)}','${blockNum}','${floorNum}','${encodeURIComponent(flatLetter)}','${estateId}')">查估值</button><span id="${rowId}"></span>`;
+      } else {
+        hsCell = '-';
+      }
       return `<tr>
         <td class="txn-date">${t.reg_date || '-'}</td>
         <td>${escHtml(t.building||'')} ${escHtml(t.floor||'')} ${escHtml(t.unit||'')}</td>
