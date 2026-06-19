@@ -1074,6 +1074,7 @@ async function showEstate(id, name, district) {
       <div class="estate-tabs">
         <button class="estate-tab active" onclick="switchTab('listings',${id})">最新放盤</button>
         <button class="estate-tab" onclick="switchTab('transactions',${id})">成交記錄</button>
+        <button class="history-btn" id="batch-hs-btn" style="display:none;margin-left:auto" onclick="batchFetchHSVal()">批量查估值</button>
       </div>
 
       <div class="stats-row">
@@ -1210,7 +1211,22 @@ function switchTab(tab, estateId) {
   });
   document.getElementById("tab-listings").style.display = tab === "listings" ? "" : "none";
   document.getElementById("tab-transactions").style.display = tab === "transactions" ? "" : "none";
+  const batchBtn = document.getElementById("batch-hs-btn");
+  if (batchBtn) batchBtn.style.display = tab === "transactions" ? "" : "none";
   if (tab === "transactions") loadTransactions(estateId, 0, false);
+}
+
+async function batchFetchHSVal() {
+  const btn = document.getElementById("batch-hs-btn");
+  const queryBtns = [...document.querySelectorAll('[id$="-btn"].hs-val-btn')].filter(b => b.textContent === '查估值' && !b.disabled);
+  if (!queryBtns.length) { if (btn) { btn.textContent = '已全部查完'; setTimeout(() => { btn.textContent = '批量查估值'; }, 2000); } return; }
+  if (btn) { btn.disabled = true; btn.textContent = `查詢中 0/${queryBtns.length}`; }
+  for (let i = 0; i < queryBtns.length; i++) {
+    if (btn) btn.textContent = `查詢中 ${i+1}/${queryBtns.length}`;
+    queryBtns[i].click();
+    await new Promise(r => setTimeout(r, 600));
+  }
+  if (btn) { btn.disabled = false; btn.textContent = '批量查估值'; }
 }
 
 let txnOffset = 0;
