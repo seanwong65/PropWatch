@@ -755,7 +755,11 @@ async function showDashboard(estates) {
   const main = document.getElementById("main");
   main.innerHTML = `
     <div class="dashboard">
-      <div class="dashboard-chart-section">
+      <div class="highlights-section" id="highlights-section">
+        <div class="highlights-title">今日動態 <span style="font-weight:400;color:var(--muted);text-transform:none;letter-spacing:0" id="highlights-date"></span></div>
+        <div id="highlights-body" style="color:var(--muted);font-size:0.82rem">載入中…</div>
+      </div>
+      <div class="dashboard-chart-section" style="margin-top:1.25rem">
         <div class="dashboard-chart-header">
           <div style="display:flex;gap:0.4rem">
             <button class="filter-chip ${dashboardMetric==='count'?'active':''}" onclick="setDashboardMetric('count')">放盤數量</button>
@@ -766,10 +770,6 @@ async function showDashboard(estates) {
           </select>
         </div>
         <div class="chart-wrap" style="height:240px"><canvas id="dashboardChart"></canvas></div>
-      </div>
-      <div class="highlights-section" id="highlights-section">
-        <div class="highlights-title">今日動態 <span style="font-weight:400;color:var(--muted);text-transform:none;letter-spacing:0" id="highlights-date"></span></div>
-        <div id="highlights-body" style="color:var(--muted);font-size:0.82rem">載入中…</div>
       </div>
     </div>
   `;
