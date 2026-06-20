@@ -311,22 +311,25 @@
       margin-bottom: 0.35rem;
       padding: 0.2rem 0;
     }
-    .highlights-row {
-      display: flex;
-      justify-content: space-between;
-      align-items: baseline;
-      padding: 0.45rem 0;
-      border-bottom: 1px solid color-mix(in srgb, var(--border) 60%, transparent);
+    .hl-table {
+      width: 100%;
+      border-collapse: collapse;
       font-size: 0.9rem;
       color: var(--text);
-      gap: 1rem;
     }
-    .highlights-row:last-child { border-bottom: none; }
-    .highlights-row-right {
-      white-space: nowrap;
-      font-weight: 600;
-      color: var(--text);
+    .hl-tr td {
+      padding: 0.4rem 0.5rem 0.4rem 0;
+      border-bottom: 1px solid color-mix(in srgb, var(--border) 50%, transparent);
+      vertical-align: middle;
     }
+    .hl-tr:last-child td { border-bottom: none; }
+    .hl-c1 { width: 28%; }
+    .hl-c2 { width: 20%; color: var(--muted); }
+    .hl-c3 { width: 20%; }
+    .hl-c4 { width: 20%; color: var(--muted); }
+    .hl-c5 { width: 12%; text-align: right; }
+    .hl-link { color: #3b82f6; font-size: 0.78rem; white-space: nowrap; text-decoration: none; }
+    .hl-link:hover { text-decoration: underline; }
     .highlights-estate { color: var(--muted); font-size: 0.75rem; }
     .dashboard-chart-header {
       display: flex;
@@ -804,44 +807,75 @@ async function loadTodayHighlights() {
     if (dateEl) dateEl.textContent = data.date || "";
     const fmt = p => p ? `$${(p/1e4).toFixed(0)}萬` : "-";
     const pct = (n, o) => o ? ((n-o)/o*100).toFixed(1) : null;
-    let html = "";
+    // Shared row renderer — mirrors buildEmailHtml columns exactly
+    // Each section returns <tr> rows; caller wraps in <table>
+    const lnk = url => url ? `<a href="${url}" target="_blank" class="hl-link">詳情 ↗</a>` : '';
+    const TR = (c1, c2, c3, c4, c5='') =>
+      `<tr class="hl-tr"><td class="hl-c1">${c1}</td><td class="hl-c2">${c2}</td><td class="hl-c3">${c3}</td><td class="hl-c4">${c4}</td><td class="hl-c5">${c5}</td></tr>`;
+    const tbl = rows => `<table class="hl-table">${rows}</table>`;
 
+    let html = "";
     for (const { estate, newTransactions = [], priceChanges = [], newListings = [], removedListings = [] } of (data.byEstate || [])) {
       let inner = "";
 
       if (newTransactions.length) {
-        inner += `<div class="highlights-subgroup"><div class="highlights-group-label" style="color:#a78bfa">🏠 新成交 (${newTransactions.length})</div>`;
+        let rows = "";
         for (const t of newTransactions) {
-          const g = t.gain_pct != null ? ` <span style="color:${t.gain_pct>=0?'var(--up)':'var(--down)'}">${t.gain_pct>=0?'▲':'▼'} ${Math.abs(t.gain_pct).toFixed(1)}%</span>` : '';
-          inner += `<div class="highlights-row"><span>${escHtml(t.building||'')} ${escHtml(t.floor||'')} ${escHtml(t.unit||'')}</span><span class="highlights-row-right">${fmt(t.price)}${g}</span></div>`;
+          const gainColor = t.gain_pct >= 0 ? 'var(--up)' : 'var(--down)';
+          const gainStr = t.gain_pct != null ? `<span style="color:${gainColor}">${t.gain_pct>=0?'▲':'▼'} ${Math.abs(t.gain_pct).toFixed(1)}%</span>` : '-';
+          rows += TR(
+            `${escHtml(t.building||'')} ${escHtml(t.floor||'')} ${escHtml(t.unit||'')}`,
+            t.size_net ? `${t.size_net}實呎` : '',
+            `<span style="font-weight:700;color:var(--accent)">${t.price ? fmt(t.price) : '-'}</span>`,
+            gainStr,
+            ''
+          );
         }
-        inner += `</div>`;
+        inner += `<div class="highlights-subgroup"><div class="highlights-group-label" style="color:#a78bfa">🏠 新成交 (${newTransactions.length})</div>${tbl(rows)}</div>`;
       }
 
       if (priceChanges.length) {
-        inner += `<div class="highlights-subgroup"><div class="highlights-group-label" style="color:var(--accent)">💰 售價變動 (${priceChanges.length})</div>`;
+        let rows = "";
         for (const c of priceChanges) {
           const d = pct(c.new_price, c.old_price);
           const col = d > 0 ? 'var(--up)' : 'var(--down)';
-          inner += `<div class="highlights-row"><span>${escHtml(c.building_name||'')} ${escHtml(c.floor||'')} ${escHtml(c.unit||'')}</span><span class="highlights-row-right"><span style="color:var(--muted);text-decoration:line-through;font-weight:400">${fmt(c.old_price)}</span> → ${fmt(c.new_price)} <span style="color:${col}">${d>0?'+':''}${d}%</span></span></div>`;
+          rows += TR(
+            `${escHtml(c.building_name||'')} ${escHtml(c.floor||'')} ${escHtml(c.unit||'')}`,
+            `<span style="text-decoration:line-through;color:var(--muted)">${fmt(c.old_price)}</span>`,
+            `<span style="font-weight:700">${fmt(c.new_price)}</span>`,
+            `<span style="color:${col}">${d>0?'▲':'▼'} ${Math.abs(d)}%</span>`,
+            lnk(c.detail_url)
+          );
         }
-        inner += `</div>`;
+        inner += `<div class="highlights-subgroup"><div class="highlights-group-label" style="color:var(--accent)">💰 售價變動 (${priceChanges.length})</div>${tbl(rows)}</div>`;
       }
 
       if (newListings.length) {
-        inner += `<div class="highlights-subgroup"><div class="highlights-group-label" style="color:var(--up)">🆕 新放盤 (${newListings.length})</div>`;
+        let rows = "";
         for (const l of newListings) {
-          inner += `<div class="highlights-row"><span>${escHtml(l.building_name||'')} ${escHtml(l.floor||'')} ${escHtml(l.unit||'')}${l.bedrooms?' '+l.bedrooms+'房':''}</span><span class="highlights-row-right">${fmt(l.price)}</span></div>`;
+          rows += TR(
+            `${escHtml(l.building_name||'')} ${escHtml(l.floor||'')} ${escHtml(l.unit||'')}`,
+            `${l.bedrooms!=null?l.bedrooms+'房':'-'}${l.size_net?' '+l.size_net+'呎':''}`,
+            `<span style="font-weight:700;color:var(--accent)">${fmt(l.price)}</span>`,
+            l.price_per_ft ? `$${Math.round(l.price_per_ft).toLocaleString()}/呎` : '',
+            lnk(l.detail_url)
+          );
         }
-        inner += `</div>`;
+        inner += `<div class="highlights-subgroup"><div class="highlights-group-label" style="color:var(--up)">🆕 新放盤 (${newListings.length})</div>${tbl(rows)}</div>`;
       }
 
       if (removedListings.length) {
-        inner += `<div class="highlights-subgroup"><div class="highlights-group-label" style="color:var(--down)">❌ 已下架 (${removedListings.length})</div>`;
+        let rows = "";
         for (const l of removedListings) {
-          inner += `<div class="highlights-row"><span>${escHtml(l.building_name||'')} ${escHtml(l.floor||'')} ${escHtml(l.unit||'')}${l.bedrooms?' '+l.bedrooms+'房':''}</span><span class="highlights-row-right" style="text-decoration:line-through;color:var(--muted)">${fmt(l.price)}</span></div>`;
+          rows += TR(
+            `${escHtml(l.building_name||'')} ${escHtml(l.floor||'')} ${escHtml(l.unit||'')}`,
+            l.bedrooms!=null ? l.bedrooms+'房' : '-',
+            `<span style="text-decoration:line-through;color:var(--muted)">${fmt(l.price)}</span>`,
+            '',
+            lnk(l.detail_url)
+          );
         }
-        inner += `</div>`;
+        inner += `<div class="highlights-subgroup"><div class="highlights-group-label" style="color:var(--down)">❌ 已下架 (${removedListings.length})</div>${tbl(rows)}</div>`;
       }
 
       if (inner) html += `<div class="highlights-group"><div class="highlights-estate-header">${escHtml(estate)}</div>${inner}</div>`;

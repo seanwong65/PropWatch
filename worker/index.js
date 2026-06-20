@@ -323,7 +323,7 @@ async function getTodayHighlights(db) {
       ORDER BY t.price DESC`).bind(today, hkDateStr(-2)).all(),
     db.prepare(`
       SELECT l.building_name, l.floor, l.unit, l.price as new_price, ph_prev.price as old_price,
-             e.name as estate_name
+             l.detail_url, e.name as estate_name
       FROM listings l
       JOIN estates e ON e.id = l.estate_id
       JOIN listing_price_history ph_prev
@@ -340,7 +340,7 @@ async function getTodayHighlights(db) {
       ORDER BY ABS(l.price - ph_prev.price) DESC`).bind(today, today, yesterday).all(),
     db.prepare(`
       SELECT l.building_name, l.floor, l.unit, l.bedrooms, l.price, l.price_per_ft, l.size_net,
-             e.name as estate_name
+             l.detail_url, e.name as estate_name
       FROM listings l
       JOIN estates e ON e.id = l.estate_id
       WHERE l.snapshot_date = ?
@@ -354,7 +354,7 @@ async function getTodayHighlights(db) {
       ORDER BY l.price ASC`).bind(today, today, yesterday).all(),
     db.prepare(`
       SELECT l.building_name, l.floor, l.unit, l.bedrooms, l.price,
-             e.name as estate_name
+             l.detail_url, e.name as estate_name
       FROM listings l
       JOIN estates e ON e.id = l.estate_id
       WHERE l.snapshot_date = (
@@ -406,8 +406,10 @@ function buildEmailHtml(highlights) {
     if (!newTransactions.length && !priceChanges.length && !newListings.length && !removedListings.length) continue;
     let rows = "";
 
+    const link = (url, label="詳情 ↗") => url ? `<a href="${url}" style="color:#3b82f6;font-size:12px;white-space:nowrap">${label}</a>` : "";
+
     if (newTransactions.length) {
-      rows += `<tr><td colspan="4" style="padding:8px 0 4px;font-weight:700;color:#a78bfa">🏠 新成交 (${newTransactions.length})</td></tr>`;
+      rows += `<tr><td colspan="5" style="padding:8px 0 4px;font-weight:700;color:#a78bfa">🏠 新成交 (${newTransactions.length})</td></tr>`;
       for (const t of newTransactions) {
         const gainColor = t.gain_pct > 0 ? "#10b981" : t.gain_pct < 0 ? "#ef4444" : "#64748b";
         const gainStr = t.gain_pct != null ? `${t.gain_pct > 0 ? "▲" : "▼"} ${Math.abs(t.gain_pct).toFixed(1)}%` : "-";
@@ -416,12 +418,13 @@ function buildEmailHtml(highlights) {
           <td style="padding:6px 8px;color:#64748b">${t.size_net ? t.size_net + "實呎" : ""}</td>
           <td style="padding:6px 8px;font-weight:700;color:#f59e0b">${t.price ? `$${(t.price / 1e4).toFixed(0)}萬` : "-"}</td>
           <td style="padding:6px 8px;color:${gainColor}">${gainStr}</td>
+          <td style="padding:6px 8px"></td>
         </tr>`;
       }
     }
 
     if (priceChanges.length) {
-      rows += `<tr><td colspan="4" style="padding:8px 0 4px;font-weight:700;color:#f59e0b">💰 售價變動 (${priceChanges.length})</td></tr>`;
+      rows += `<tr><td colspan="5" style="padding:8px 0 4px;font-weight:700;color:#f59e0b">💰 售價變動 (${priceChanges.length})</td></tr>`;
       for (const l of priceChanges) {
         const diff = pct(l.new_price, l.old_price);
         rows += `<tr style="border-bottom:1px solid #1f2d42">
@@ -429,30 +432,33 @@ function buildEmailHtml(highlights) {
           <td style="padding:6px 8px;text-decoration:line-through;color:#64748b">${fmt(l.old_price)}</td>
           <td style="padding:6px 8px;font-weight:700">${fmt(l.new_price)}</td>
           <td style="padding:6px 8px;color:${diff > 0 ? "#10b981" : "#ef4444"}">${diff > 0 ? "▲" : "▼"} ${Math.abs(diff)}%</td>
+          <td style="padding:6px 8px">${link(l.detail_url)}</td>
         </tr>`;
       }
     }
 
     if (newListings.length) {
-      rows += `<tr><td colspan="4" style="padding:8px 0 4px;font-weight:700;color:#10b981">🆕 新放盤 (${newListings.length})</td></tr>`;
+      rows += `<tr><td colspan="5" style="padding:8px 0 4px;font-weight:700;color:#10b981">🆕 新放盤 (${newListings.length})</td></tr>`;
       for (const l of newListings) {
         rows += `<tr style="border-bottom:1px solid #1f2d42">
           <td style="padding:6px 8px">${l.building_name || ""} ${l.floor || ""} ${l.unit || ""}</td>
           <td style="padding:6px 8px;color:#64748b">${l.bedrooms ?? "-"}房 ${l.size_net ? l.size_net + "呎" : ""}</td>
           <td style="padding:6px 8px;font-weight:700;color:#f59e0b">${fmt(l.price)}</td>
           <td style="padding:6px 8px;color:#64748b">${l.price_per_ft ? `$${l.price_per_ft.toLocaleString()}/呎` : ""}</td>
+          <td style="padding:6px 8px">${link(l.detail_url)}</td>
         </tr>`;
       }
     }
 
     if (removedListings.length) {
-      rows += `<tr><td colspan="4" style="padding:8px 0 4px;font-weight:700;color:#ef4444">❌ 已下架 (${removedListings.length})</td></tr>`;
+      rows += `<tr><td colspan="5" style="padding:8px 0 4px;font-weight:700;color:#ef4444">❌ 已下架 (${removedListings.length})</td></tr>`;
       for (const l of removedListings) {
         rows += `<tr style="border-bottom:1px solid #1f2d42">
           <td style="padding:6px 8px">${l.building_name || ""} ${l.floor || ""} ${l.unit || ""}</td>
           <td style="padding:6px 8px;color:#64748b">${l.bedrooms ?? "-"}房</td>
           <td style="padding:6px 8px;text-decoration:line-through;color:#64748b">${fmt(l.price)}</td>
           <td></td>
+          <td style="padding:6px 8px">${link(l.detail_url)}</td>
         </tr>`;
       }
     }
