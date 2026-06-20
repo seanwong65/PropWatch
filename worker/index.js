@@ -14,6 +14,10 @@ const HS_HEADERS = {
   "Accept": "application/json",
 };
 
+function hkDateStr(offsetDays = 0) {
+  return new Date(Date.now() + 8 * 3600000 + offsetDays * 86400000).toISOString().slice(0, 10);
+}
+
 // In-memory cache (per Worker instance lifetime)
 let hsBlockListCache = null;
 const hsEstateCache = new Map();
@@ -228,7 +232,7 @@ function parseListing(item) {
 }
 
 async function saveSearchResults(db, estateId, listings) {
-  const today = new Date().toISOString().slice(0, 10);
+  const today = hkDateStr();
 
   const stmtListing = db.prepare(
     `INSERT OR REPLACE INTO listings
@@ -376,12 +380,13 @@ function buildEmailHtml(changes) {
       </div>`;
   }
 
-  const today = new Date().toLocaleDateString("zh-HK", { timeZone: "Asia/Hong_Kong" });
+  const today = new Date(Date.now() + 8 * 3600000).toLocaleDateString("zh-HK", { timeZone: "Asia/Hong_Kong" });
+  const body = sections || `<p style="color:#64748b;font-size:15px">今日無更新</p>`;
   return `
     <div style="background:#0a0f1a;color:#e2e8f0;font-family:-apple-system,sans-serif;padding:24px;max-width:600px;margin:0 auto;border-radius:12px">
       <h1 style="margin:0 0 4px;font-size:22px">🏙️ PropWatch 每日通知</h1>
       <p style="margin:0 0 24px;color:#64748b;font-size:14px">${today}</p>
-      ${sections}
+      ${body}
       <p style="margin-top:24px;font-size:12px;color:#64748b">
         <a href="https://propwatch.pages.dev" style="color:#3b82f6">前往 PropWatch</a>
       </p>
@@ -397,7 +402,7 @@ async function fetchNewTransactions(estateName) {
   });
   if (!res.ok) return [];
   const raw = await res.json();
-  const yesterday = new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+  const yesterday = hkDateStr(-2);
   return (raw.data || [])
     .filter(t => t.regDate && t.regDate.slice(0, 10) >= yesterday)
     .map(t => ({
@@ -415,8 +420,7 @@ async function fetchNewTransactions(estateName) {
 }
 
 async function detectChanges(db, estateId, estateName, newListings) {
-  const todayHK = new Date(Date.now() + 8 * 3600000).toISOString().slice(0, 10);
-  const today = todayHK;
+  const today = hkDateStr();
 
   // Get yesterday's listings
   const { results: oldRows } = await db
@@ -453,7 +457,7 @@ async function detectChanges(db, estateId, estateName, newListings) {
   // Only flag as new if first seen today (HK time) — avoids showing stale listings from previous days
   const { results: todayFirstSeen } = await db
     .prepare(`SELECT listing_id FROM listings WHERE estate_id=? AND date(snapshot_date)=? AND listing_id NOT IN (SELECT listing_id FROM listings WHERE estate_id=? AND date(snapshot_date)<?)`)
-    .bind(estateId, todayHK, estateId, todayHK).all();
+    .bind(estateId, today, estateId, today).all();
   const firstSeenTodaySet = new Set(todayFirstSeen.map(r => r.listing_id));
 
   for (const [ref, nl] of newMap) {
@@ -494,10 +498,9 @@ async function runDailySync(db, resendApiKey) {
     })
   );
 
-  // Send email if there are any changes (exclude estates added today — first sync, no baseline)
+  // Always send email; exclude estates added today (first sync — no baseline to compare)
   if (resendApiKey) {
-    const hkNow = new Date(Date.now() + 8 * 3600 * 1000);
-    const today = hkNow.toISOString().slice(0, 10);
+    const today = hkDateStr();
     const estateMap = Object.fromEntries(estates.map(e => [e.name, e]));
     const allChanges = results.filter(r => {
       if (!r.ok || !r.changes) return false;
@@ -508,23 +511,17 @@ async function runDailySync(db, resendApiKey) {
     const hasChanges = allChanges.some(
       c => c.priceChanges.length || c.newListings.length || c.removedListings.length || (c.newTransactions || []).length
     );
-    if (hasChanges) {
-      const totalTxns  = allChanges.reduce((s, c) => s + (c.newTransactions || []).length, 0);
-      const totalPrice = allChanges.reduce((s, c) => s + c.priceChanges.length, 0);
-      const totalNew   = allChanges.reduce((s, c) => s + c.newListings.length, 0);
-      const totalDel   = allChanges.reduce((s, c) => s + c.removedListings.length, 0);
-      const parts = [];
-      if (totalTxns)  parts.push(`${totalTxns} 個新成交`);
-      if (totalPrice) parts.push(`${totalPrice} 個價格變動`);
-      if (totalNew)   parts.push(`${totalNew} 個新放盤`);
-      if (totalDel)   parts.push(`${totalDel} 個已下架`);
-      await sendEmail(
-        resendApiKey,
-        "johnwong777@hotmail.com",
-        `PropWatch 通知：${parts.join("、")}`,
-        buildEmailHtml(allChanges)
-      );
-    }
+    const totalTxns  = allChanges.reduce((s, c) => s + (c.newTransactions || []).length, 0);
+    const totalPrice = allChanges.reduce((s, c) => s + c.priceChanges.length, 0);
+    const totalNew   = allChanges.reduce((s, c) => s + c.newListings.length, 0);
+    const totalDel   = allChanges.reduce((s, c) => s + c.removedListings.length, 0);
+    const parts = [];
+    if (totalTxns)  parts.push(`${totalTxns} 個新成交`);
+    if (totalPrice) parts.push(`${totalPrice} 個價格變動`);
+    if (totalNew)   parts.push(`${totalNew} 個新放盤`);
+    if (totalDel)   parts.push(`${totalDel} 個已下架`);
+    const subject = hasChanges ? `PropWatch 通知：${parts.join("、")}` : "PropWatch 通知：今日無更新";
+    await sendEmail(resendApiKey, "johnwong777@hotmail.com", subject, buildEmailHtml(allChanges));
   }
 
   return results;
@@ -549,7 +546,7 @@ export default {
           .prepare(
             `SELECT e.*,
                (SELECT COUNT(*) FROM listings l WHERE l.estate_id = e.id
-                AND l.snapshot_date = date('now','localtime')) AS today_count
+                AND l.snapshot_date = date('now','+8 hours')) AS today_count
              FROM estates e WHERE (e.is_disabled = 0 OR e.is_disabled IS NULL) ORDER BY e.is_favourite DESC, e.sort_order ASC`
           )
           .all();
@@ -727,7 +724,7 @@ export default {
           if (cached) {
             // Log to history once per day
             const todayEntry = await db.prepare(
-              "SELECT id FROM hangseng_valuation_history WHERE estate_id=? AND building=? AND floor=? AND flat=? AND date(fetched_at)=date('now') LIMIT 1"
+              "SELECT id FROM hangseng_valuation_history WHERE estate_id=? AND building=? AND floor=? AND flat=? AND date(fetched_at,'+8 hours')=date('now','+8 hours') LIMIT 1"
             ).bind(estateId, blockNum, floorNum, flatLetter).first();
             if (!todayEntry) {
               await db.prepare(
@@ -747,7 +744,7 @@ export default {
             "INSERT OR REPLACE INTO hangseng_valuations (estate_id, building, floor, flat, price, saleable_area, valuation_date) VALUES (?,?,?,?,?,?,?)"
           ).bind(estateId, blockNum, floorNum, flatLetter, Number(result.price), Number(result.saleableArea), result.valuationDate).run();
           const todayEntry = await db.prepare(
-            "SELECT id FROM hangseng_valuation_history WHERE estate_id=? AND building=? AND floor=? AND flat=? AND date(fetched_at)=date('now') LIMIT 1"
+            "SELECT id FROM hangseng_valuation_history WHERE estate_id=? AND building=? AND floor=? AND flat=? AND date(fetched_at,'+8 hours')=date('now','+8 hours') LIMIT 1"
           ).bind(estateId, blockNum, floorNum, flatLetter).first();
           if (!todayEntry) {
             await db.prepare(
