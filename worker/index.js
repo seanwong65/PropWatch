@@ -309,19 +309,105 @@ async function sendEmail(apiKey, to, subject, html) {
   return res.json();
 }
 
-function buildEmailHtml(changes) {
+async function getTodayHighlights(db) {
+  const today = hkDateStr();
+  const yesterday = hkDateStr(-1);
+
+  const [newTxns, priceChanges, newListings, removedListings] = await Promise.all([
+    db.prepare(`
+      SELECT t.*, e.name as estate_name FROM transactions t
+      JOIN estates e ON e.id = t.estate_id
+      WHERE t.first_seen = ?
+        AND date(e.first_seen) <= ?
+        AND (e.is_disabled = 0 OR e.is_disabled IS NULL)
+      ORDER BY t.price DESC`).bind(today, hkDateStr(-2)).all(),
+    db.prepare(`
+      SELECT l.building_name, l.floor, l.unit, l.price as new_price, ph_prev.price as old_price,
+             e.name as estate_name
+      FROM listings l
+      JOIN estates e ON e.id = l.estate_id
+      JOIN listing_price_history ph_prev
+        ON ph_prev.ref_no = l.ref_no
+        AND ph_prev.snapshot_date = (
+          SELECT MAX(snapshot_date) FROM listing_price_history
+          WHERE ref_no = l.ref_no AND snapshot_date < ?
+        )
+      WHERE l.snapshot_date = ?
+        AND l.ref_no IS NOT NULL
+        AND ABS(l.price - ph_prev.price) > 1000
+        AND date(e.first_seen) <= ?
+        AND (e.is_disabled = 0 OR e.is_disabled IS NULL)
+      ORDER BY ABS(l.price - ph_prev.price) DESC`).bind(today, today, yesterday).all(),
+    db.prepare(`
+      SELECT l.building_name, l.floor, l.unit, l.bedrooms, l.price, l.price_per_ft, l.size_net,
+             e.name as estate_name
+      FROM listings l
+      JOIN estates e ON e.id = l.estate_id
+      WHERE l.snapshot_date = ?
+        AND l.ref_no IS NOT NULL
+        AND l.ref_no NOT IN (
+          SELECT ref_no FROM listing_price_history
+          WHERE estate_id = l.estate_id AND snapshot_date < ?
+        )
+        AND date(e.first_seen) <= ?
+        AND (e.is_disabled = 0 OR e.is_disabled IS NULL)
+      ORDER BY l.price ASC`).bind(today, today, yesterday).all(),
+    db.prepare(`
+      SELECT l.building_name, l.floor, l.unit, l.bedrooms, l.price,
+             e.name as estate_name
+      FROM listings l
+      JOIN estates e ON e.id = l.estate_id
+      WHERE l.snapshot_date = (
+          SELECT MAX(snapshot_date) FROM listings
+          WHERE estate_id = l.estate_id AND snapshot_date < ?
+        )
+        AND l.ref_no IS NOT NULL
+        AND l.ref_no NOT IN (
+          SELECT ref_no FROM listings
+          WHERE estate_id = l.estate_id AND snapshot_date = ?
+        )
+        AND date(e.first_seen) <= ?
+        AND (e.is_disabled = 0 OR e.is_disabled IS NULL)`).bind(today, today, yesterday).all(),
+  ]);
+
+  // Fetch estate order
+  const { results: estateOrder } = await db.prepare(
+    "SELECT name, sort_order, is_favourite FROM estates WHERE is_disabled = 0 OR is_disabled IS NULL ORDER BY is_favourite DESC, sort_order ASC"
+  ).all();
+  const orderIndex = new Map(estateOrder.map((e, i) => [e.name, i]));
+
+  // Group by estate
+  const estateMap = new Map();
+  const getEstate = (name) => {
+    if (!estateMap.has(name)) estateMap.set(name, { estate: name, newTransactions: [], priceChanges: [], newListings: [], removedListings: [] });
+    return estateMap.get(name);
+  };
+  for (const t of newTxns.results)         getEstate(t.estate_name).newTransactions.push(t);
+  for (const p of priceChanges.results)    getEstate(p.estate_name).priceChanges.push(p);
+  for (const l of newListings.results)     getEstate(l.estate_name).newListings.push(l);
+  for (const r of removedListings.results) getEstate(r.estate_name).removedListings.push(r);
+
+  const byEstate = [...estateMap.values()].sort((a, b) => {
+    const ia = orderIndex.has(a.estate) ? orderIndex.get(a.estate) : 9999;
+    const ib = orderIndex.has(b.estate) ? orderIndex.get(b.estate) : 9999;
+    return ia - ib;
+  });
+
+  return { date: today, byEstate };
+}
+
+function buildEmailHtml(highlights) {
   const fmt = (p) => p ? `$${(p / 1e4).toFixed(0)}萬` : "-";
   const pct = (n, o) => o ? ((n - o) / o * 100).toFixed(1) : null;
+  const { date, byEstate = [] } = highlights;
 
   let sections = "";
-
-  for (const { estate, newListings, removedListings, priceChanges, newTransactions = [] } of changes) {
-    if (!newListings.length && !removedListings.length && !priceChanges.length && !newTransactions.length) continue;
-
+  for (const { estate, newTransactions = [], priceChanges = [], newListings = [], removedListings = [] } of byEstate) {
+    if (!newTransactions.length && !priceChanges.length && !newListings.length && !removedListings.length) continue;
     let rows = "";
 
     if (newTransactions.length) {
-      rows += `<tr><td colspan="4" style="padding:8px 0 4px;font-weight:700;color:#a78bfa">🏠 新成交記錄 (${newTransactions.length})</td></tr>`;
+      rows += `<tr><td colspan="4" style="padding:8px 0 4px;font-weight:700;color:#a78bfa">🏠 新成交 (${newTransactions.length})</td></tr>`;
       for (const t of newTransactions) {
         const gainColor = t.gain_pct > 0 ? "#10b981" : t.gain_pct < 0 ? "#ef4444" : "#64748b";
         const gainStr = t.gain_pct != null ? `${t.gain_pct > 0 ? "▲" : "▼"} ${Math.abs(t.gain_pct).toFixed(1)}%` : "-";
@@ -337,24 +423,24 @@ function buildEmailHtml(changes) {
     if (priceChanges.length) {
       rows += `<tr><td colspan="4" style="padding:8px 0 4px;font-weight:700;color:#f59e0b">💰 售價變動 (${priceChanges.length})</td></tr>`;
       for (const l of priceChanges) {
-        const diff = pct(l.newPrice, l.oldPrice);
+        const diff = pct(l.new_price, l.old_price);
         rows += `<tr style="border-bottom:1px solid #1f2d42">
-          <td style="padding:6px 8px">${l.building || ""} ${l.floor || ""} ${l.unit || ""}</td>
-          <td style="padding:6px 8px;text-decoration:line-through;color:#64748b">${fmt(l.oldPrice)}</td>
-          <td style="padding:6px 8px;font-weight:700">${fmt(l.newPrice)}</td>
+          <td style="padding:6px 8px">${l.building_name || ""} ${l.floor || ""} ${l.unit || ""}</td>
+          <td style="padding:6px 8px;text-decoration:line-through;color:#64748b">${fmt(l.old_price)}</td>
+          <td style="padding:6px 8px;font-weight:700">${fmt(l.new_price)}</td>
           <td style="padding:6px 8px;color:${diff > 0 ? "#10b981" : "#ef4444"}">${diff > 0 ? "▲" : "▼"} ${Math.abs(diff)}%</td>
         </tr>`;
       }
     }
 
     if (newListings.length) {
-      rows += `<tr><td colspan="4" style="padding:8px 0 4px;font-weight:700;color:#10b981">🆕 新增放盤 (${newListings.length})</td></tr>`;
+      rows += `<tr><td colspan="4" style="padding:8px 0 4px;font-weight:700;color:#10b981">🆕 新放盤 (${newListings.length})</td></tr>`;
       for (const l of newListings) {
         rows += `<tr style="border-bottom:1px solid #1f2d42">
           <td style="padding:6px 8px">${l.building_name || ""} ${l.floor || ""} ${l.unit || ""}</td>
           <td style="padding:6px 8px;color:#64748b">${l.bedrooms ?? "-"}房 ${l.size_net ? l.size_net + "呎" : ""}</td>
           <td style="padding:6px 8px;font-weight:700;color:#f59e0b">${fmt(l.price)}</td>
-          <td style="padding:6px 8px;color:#64748b">$${l.price_per_ft ? l.price_per_ft.toLocaleString() : "-"}/呎</td>
+          <td style="padding:6px 8px;color:#64748b">${l.price_per_ft ? `$${l.price_per_ft.toLocaleString()}/呎` : ""}</td>
         </tr>`;
       }
     }
@@ -374,18 +460,15 @@ function buildEmailHtml(changes) {
     sections += `
       <div style="margin-bottom:24px">
         <h2 style="margin:0 0 12px;font-size:18px;color:#f59e0b">${estate}</h2>
-        <table style="width:100%;border-collapse:collapse;font-size:14px;color:#e2e8f0">
-          ${rows}
-        </table>
+        <table style="width:100%;border-collapse:collapse;font-size:14px;color:#e2e8f0">${rows}</table>
       </div>`;
   }
 
-  const today = new Date(Date.now() + 8 * 3600000).toLocaleDateString("zh-HK", { timeZone: "Asia/Hong_Kong" });
   const body = sections || `<p style="color:#64748b;font-size:15px">今日無更新</p>`;
   return `
     <div style="background:#0a0f1a;color:#e2e8f0;font-family:-apple-system,sans-serif;padding:24px;max-width:600px;margin:0 auto;border-radius:12px">
       <h1 style="margin:0 0 4px;font-size:22px">🏙️ PropWatch 每日通知</h1>
-      <p style="margin:0 0 24px;color:#64748b;font-size:14px">${today}</p>
+      <p style="margin:0 0 24px;color:#64748b;font-size:14px">${date}</p>
       ${body}
       <p style="margin-top:24px;font-size:12px;color:#64748b">
         <a href="https://propwatch.pages.dev" style="color:#3b82f6">前往 PropWatch</a>
@@ -520,30 +603,21 @@ async function runDailySync(db, resendApiKey) {
     })
   );
 
-  // Always send email; exclude estates added today (first sync — no baseline to compare)
   if (resendApiKey) {
-    const today = hkDateStr();
-    const estateMap = Object.fromEntries(estates.map(e => [e.name, e]));
-    const allChanges = results.filter(r => {
-      if (!r.ok || !r.changes) return false;
-      const e = estateMap[r.estate];
-      if (e?.first_seen && e.first_seen.slice(0, 10) === today) return false;
-      return true;
-    }).map(r => r.changes);
-    const hasChanges = allChanges.some(
-      c => c.priceChanges.length || c.newListings.length || c.removedListings.length || (c.newTransactions || []).length
-    );
-    const totalTxns  = allChanges.reduce((s, c) => s + (c.newTransactions || []).length, 0);
-    const totalPrice = allChanges.reduce((s, c) => s + c.priceChanges.length, 0);
-    const totalNew   = allChanges.reduce((s, c) => s + c.newListings.length, 0);
-    const totalDel   = allChanges.reduce((s, c) => s + c.removedListings.length, 0);
+    const highlights = await getTodayHighlights(db);
+    const { byEstate } = highlights;
+    const totalTxns  = byEstate.reduce((s, e) => s + e.newTransactions.length, 0);
+    const totalPrice = byEstate.reduce((s, e) => s + e.priceChanges.length, 0);
+    const totalNew   = byEstate.reduce((s, e) => s + e.newListings.length, 0);
+    const totalDel   = byEstate.reduce((s, e) => s + e.removedListings.length, 0);
+    const hasChanges = totalTxns + totalPrice + totalNew + totalDel > 0;
     const parts = [];
     if (totalTxns)  parts.push(`${totalTxns} 個新成交`);
     if (totalPrice) parts.push(`${totalPrice} 個價格變動`);
     if (totalNew)   parts.push(`${totalNew} 個新放盤`);
     if (totalDel)   parts.push(`${totalDel} 個已下架`);
     const subject = hasChanges ? `PropWatch 通知：${parts.join("、")}` : "PropWatch 通知：今日無更新";
-    await sendEmail(resendApiKey, "johnwong777@hotmail.com", subject, buildEmailHtml(allChanges));
+    await sendEmail(resendApiKey, "johnwong777@hotmail.com", subject, buildEmailHtml(highlights));
   }
 
   return results;
@@ -851,73 +925,7 @@ export default {
       }
 
       if (method === "GET" && path === "/api/today-highlights") {
-        const today = hkDateStr();
-        const yesterday = hkDateStr(-1);
-        const [newTxns, priceChanges, newListings, removedListings] = await Promise.all([
-          // New transactions first seen today
-          db.prepare(`
-            SELECT t.*, e.name as estate_name FROM transactions t
-            JOIN estates e ON e.id = t.estate_id
-            WHERE t.first_seen = ? AND (e.is_disabled = 0 OR e.is_disabled IS NULL)
-            ORDER BY t.price DESC`).bind(today).all(),
-          // Price changes: compare via ref_no, only estates with baseline before today
-          db.prepare(`
-            SELECT l.building_name, l.floor, l.unit, l.price as new_price, ph_prev.price as old_price,
-                   e.name as estate_name
-            FROM listings l
-            JOIN estates e ON e.id = l.estate_id
-            JOIN listing_price_history ph_prev
-              ON ph_prev.ref_no = l.ref_no
-              AND ph_prev.snapshot_date = (
-                SELECT MAX(snapshot_date) FROM listing_price_history
-                WHERE ref_no = l.ref_no AND snapshot_date < ?
-              )
-            WHERE l.snapshot_date = ?
-              AND l.ref_no IS NOT NULL
-              AND ABS(l.price - ph_prev.price) > 1000
-              AND date(e.first_seen) <= ?
-              AND (e.is_disabled = 0 OR e.is_disabled IS NULL)
-            ORDER BY ABS(l.price - ph_prev.price) DESC`).bind(today, today, yesterday).all(),
-          // New listings: use ref_no, only estates with at least 1 day of history
-          db.prepare(`
-            SELECT l.building_name, l.floor, l.unit, l.bedrooms, l.price, l.price_per_ft, l.size_net,
-                   e.name as estate_name
-            FROM listings l
-            JOIN estates e ON e.id = l.estate_id
-            WHERE l.snapshot_date = ?
-              AND l.ref_no IS NOT NULL
-              AND l.ref_no NOT IN (
-                SELECT ref_no FROM listing_price_history
-                WHERE estate_id = l.estate_id AND snapshot_date < ?
-              )
-              AND date(e.first_seen) <= ?
-              AND (e.is_disabled = 0 OR e.is_disabled IS NULL)
-            ORDER BY l.price ASC`).bind(today, today, yesterday).all(),
-          // Removed listings: ref_no in previous snapshot but not today, estates with history
-          db.prepare(`
-            SELECT l.building_name, l.floor, l.unit, l.bedrooms, l.price,
-                   e.name as estate_name
-            FROM listings l
-            JOIN estates e ON e.id = l.estate_id
-            WHERE l.snapshot_date = (
-                SELECT MAX(snapshot_date) FROM listings
-                WHERE estate_id = l.estate_id AND snapshot_date < ?
-              )
-              AND l.ref_no IS NOT NULL
-              AND l.ref_no NOT IN (
-                SELECT ref_no FROM listings
-                WHERE estate_id = l.estate_id AND snapshot_date = ?
-              )
-              AND date(e.first_seen) <= ?
-              AND (e.is_disabled = 0 OR e.is_disabled IS NULL)`).bind(today, today, yesterday).all(),
-        ]);
-        return json(200, {
-          date: today,
-          newTransactions: newTxns.results,
-          priceChanges: priceChanges.results,
-          newListings: newListings.results,
-          removedListings: removedListings.results,
-        });
+        return json(200, await getTodayHighlights(db));
       }
 
       if (method === "POST" && path.match(/^\/api\/estates\/\d+\/favourite$/)) {
