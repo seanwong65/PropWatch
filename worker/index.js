@@ -619,8 +619,8 @@ export default {
              LEFT JOIN listing_price_history prev
                ON prev.ref_no = l.ref_no
                AND prev.snapshot_date = (
-                 SELECT MAX(snapshot_date) FROM listing_price_history
-                 WHERE ref_no = l.ref_no AND snapshot_date < l.snapshot_date
+                 SELECT MIN(snapshot_date) FROM listing_price_history
+                 WHERE ref_no = l.ref_no
                )
              WHERE l.estate_id = ? AND l.snapshot_date = pl.last_seen
              ORDER BY removed_date IS NOT NULL ASC, l.price ASC`
