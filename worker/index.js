@@ -852,6 +852,7 @@ export default {
 
       if (method === "GET" && path === "/api/today-highlights") {
         const today = hkDateStr();
+        const yesterday = hkDateStr(-1);
         const [newTxns, priceChanges, newListings, removedListings] = await Promise.all([
           // New transactions first seen today
           db.prepare(`
@@ -859,36 +860,40 @@ export default {
             JOIN estates e ON e.id = t.estate_id
             WHERE t.first_seen = ? AND (e.is_disabled = 0 OR e.is_disabled IS NULL)
             ORDER BY t.price DESC`).bind(today).all(),
-          // Price changes: today vs previous snapshot
+          // Price changes: compare via ref_no, only estates with baseline before today
           db.prepare(`
-            SELECT l.building_name, l.floor, l.unit, l.price as new_price, prev.price as old_price,
+            SELECT l.building_name, l.floor, l.unit, l.price as new_price, ph_prev.price as old_price,
                    e.name as estate_name
             FROM listings l
             JOIN estates e ON e.id = l.estate_id
-            JOIN listings prev ON prev.listing_id = l.listing_id
-              AND prev.snapshot_date = (
-                SELECT MAX(snapshot_date) FROM listings
-                WHERE listing_id = l.listing_id AND snapshot_date < ?
+            JOIN listing_price_history ph_prev
+              ON ph_prev.ref_no = l.ref_no
+              AND ph_prev.snapshot_date = (
+                SELECT MAX(snapshot_date) FROM listing_price_history
+                WHERE ref_no = l.ref_no AND snapshot_date < ?
               )
             WHERE l.snapshot_date = ?
-              AND ABS(l.price - prev.price) > 1000
+              AND l.ref_no IS NOT NULL
+              AND ABS(l.price - ph_prev.price) > 1000
+              AND date(e.first_seen) <= ?
               AND (e.is_disabled = 0 OR e.is_disabled IS NULL)
-            ORDER BY ABS(l.price - prev.price) DESC`).bind(today, today).all(),
-          // New listings first seen today (exclude estates added today)
+            ORDER BY ABS(l.price - ph_prev.price) DESC`).bind(today, today, yesterday).all(),
+          // New listings: use ref_no, only estates with at least 1 day of history
           db.prepare(`
             SELECT l.building_name, l.floor, l.unit, l.bedrooms, l.price, l.price_per_ft, l.size_net,
                    e.name as estate_name
             FROM listings l
             JOIN estates e ON e.id = l.estate_id
             WHERE l.snapshot_date = ?
-              AND l.listing_id NOT IN (
-                SELECT listing_id FROM listings
+              AND l.ref_no IS NOT NULL
+              AND l.ref_no NOT IN (
+                SELECT ref_no FROM listing_price_history
                 WHERE estate_id = l.estate_id AND snapshot_date < ?
               )
-              AND date(e.first_seen) < ?
+              AND date(e.first_seen) <= ?
               AND (e.is_disabled = 0 OR e.is_disabled IS NULL)
-            ORDER BY l.price ASC`).bind(today, today, today).all(),
-          // Removed listings: in yesterday but not today
+            ORDER BY l.price ASC`).bind(today, today, yesterday).all(),
+          // Removed listings: ref_no in previous snapshot but not today, estates with history
           db.prepare(`
             SELECT l.building_name, l.floor, l.unit, l.bedrooms, l.price,
                    e.name as estate_name
@@ -898,11 +903,13 @@ export default {
                 SELECT MAX(snapshot_date) FROM listings
                 WHERE estate_id = l.estate_id AND snapshot_date < ?
               )
-              AND l.listing_id NOT IN (
-                SELECT listing_id FROM listings
+              AND l.ref_no IS NOT NULL
+              AND l.ref_no NOT IN (
+                SELECT ref_no FROM listings
                 WHERE estate_id = l.estate_id AND snapshot_date = ?
               )
-              AND (e.is_disabled = 0 OR e.is_disabled IS NULL)`).bind(today, today).all(),
+              AND date(e.first_seen) <= ?
+              AND (e.is_disabled = 0 OR e.is_disabled IS NULL)`).bind(today, today, yesterday).all(),
         ]);
         return json(200, {
           date: today,

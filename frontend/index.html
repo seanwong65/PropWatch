@@ -1203,7 +1203,7 @@ async function showEstate(id, name, district) {
         <div>
           <div class="estate-title">${escHtml(name)}</div>
           <div class="estate-sub">${district ? escHtml(district) + ' · ' : ''}共 ${listings.length} 個在售單位</div>
-          <div id="estate-info-bar" style="margin-top:0.4rem;font-size:0.78rem;color:var(--muted);display:flex;flex-wrap:wrap;gap:0.6rem"></div>
+          <div id="estate-info-bar"></div>
         </div>
         ${trendChange}
       </div>
@@ -1294,13 +1294,21 @@ async function loadEstateInfo(estateId) {
   try {
     const info = await api(`/api/estates/${estateId}/estate-info`);
     const currentYear = new Date().getFullYear();
-    const items = [];
-    if (info.completion_year) items.push(`🏗 入伙 ${info.completion_year}年（${currentYear - info.completion_year}年樓齡）`);
-    if (info.phases)      items.push(`${info.phases} 期`);
-    if (info.blocks)      items.push(`${info.blocks} 座`);
-    if (info.total_units) items.push(`${info.total_units.toLocaleString()} 個單位`);
-    if (info.developer)   items.push(`發展商：${info.developer}`);
-    bar.innerHTML = items.map(t => `<span style="background:var(--surface2);border:1px solid var(--border);border-radius:4px;padding:0.15rem 0.5rem">${escHtml(t)}</span>`).join('');
+    const rows = [];
+    if (info.completion_year) rows.push(['樓齡', `${currentYear - info.completion_year} 年`]);
+    if (info.phases)          rows.push(['期數', `${info.phases} 期`]);
+    if (info.blocks)          rows.push(['座數', `${info.blocks} 座`]);
+    if (info.total_units)     rows.push(['單位數目', `${info.total_units.toLocaleString()} 個`]);
+    if (info.developer)       rows.push(['發展商', info.developer]);
+    if (!rows.length) return;
+    bar.innerHTML = `
+      <div style="margin-top:0.75rem;background:var(--surface2);border-radius:var(--radius);padding:0.75rem 1rem;display:inline-flex;flex-wrap:wrap;gap:0.5rem 1.5rem">
+        ${rows.map(([label, val]) => `
+          <div style="display:flex;flex-direction:column;gap:0.1rem">
+            <span style="font-size:0.68rem;color:var(--muted);text-transform:uppercase;letter-spacing:0.04em">${escHtml(label)}</span>
+            <span style="font-size:0.85rem;font-weight:600;color:var(--text)">${escHtml(val)}</span>
+          </div>`).join('')}
+      </div>`;
   } catch { /* silently skip if unavailable */ }
 }
 
