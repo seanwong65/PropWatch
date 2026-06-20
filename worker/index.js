@@ -797,6 +797,69 @@ export default {
         return json(200, { count: raw.data?.length ?? 0, name, sample: raw.data?.slice(0, 1) });
       }
 
+      if (method === "GET" && path === "/api/today-highlights") {
+        const today = hkDateStr();
+        const [newTxns, priceChanges, newListings, removedListings] = await Promise.all([
+          // New transactions first seen today
+          db.prepare(`
+            SELECT t.*, e.name as estate_name FROM transactions t
+            JOIN estates e ON e.id = t.estate_id
+            WHERE t.first_seen = ? AND (e.is_disabled = 0 OR e.is_disabled IS NULL)
+            ORDER BY t.price DESC`).bind(today).all(),
+          // Price changes: today vs previous snapshot
+          db.prepare(`
+            SELECT l.building_name, l.floor, l.unit, l.price as new_price, prev.price as old_price,
+                   e.name as estate_name
+            FROM listings l
+            JOIN estates e ON e.id = l.estate_id
+            JOIN listings prev ON prev.listing_id = l.listing_id
+              AND prev.snapshot_date = (
+                SELECT MAX(snapshot_date) FROM listings
+                WHERE listing_id = l.listing_id AND snapshot_date < ?
+              )
+            WHERE l.snapshot_date = ?
+              AND ABS(l.price - prev.price) > 1000
+              AND (e.is_disabled = 0 OR e.is_disabled IS NULL)
+            ORDER BY ABS(l.price - prev.price) DESC`).bind(today, today).all(),
+          // New listings first seen today (exclude estates added today)
+          db.prepare(`
+            SELECT l.building_name, l.floor, l.unit, l.bedrooms, l.price, l.price_per_ft, l.size_net,
+                   e.name as estate_name
+            FROM listings l
+            JOIN estates e ON e.id = l.estate_id
+            WHERE l.snapshot_date = ?
+              AND l.listing_id NOT IN (
+                SELECT listing_id FROM listings
+                WHERE estate_id = l.estate_id AND snapshot_date < ?
+              )
+              AND date(e.first_seen) < ?
+              AND (e.is_disabled = 0 OR e.is_disabled IS NULL)
+            ORDER BY l.price ASC`).bind(today, today, today).all(),
+          // Removed listings: in yesterday but not today
+          db.prepare(`
+            SELECT l.building_name, l.floor, l.unit, l.bedrooms, l.price,
+                   e.name as estate_name
+            FROM listings l
+            JOIN estates e ON e.id = l.estate_id
+            WHERE l.snapshot_date = (
+                SELECT MAX(snapshot_date) FROM listings
+                WHERE estate_id = l.estate_id AND snapshot_date < ?
+              )
+              AND l.listing_id NOT IN (
+                SELECT listing_id FROM listings
+                WHERE estate_id = l.estate_id AND snapshot_date = ?
+              )
+              AND (e.is_disabled = 0 OR e.is_disabled IS NULL)`).bind(today, today).all(),
+        ]);
+        return json(200, {
+          date: today,
+          newTransactions: newTxns.results,
+          priceChanges: priceChanges.results,
+          newListings: newListings.results,
+          removedListings: removedListings.results,
+        });
+      }
+
       if (method === "POST" && path.match(/^\/api\/estates\/\d+\/favourite$/)) {
         const estateId = path.split("/")[3];
         const estate = await db.prepare("SELECT is_favourite FROM estates WHERE id = ?").bind(estateId).first();
