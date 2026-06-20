@@ -816,24 +816,29 @@ export default {
         // Fetch Centanet estate page and parse
         try {
           const encodedName = encodeURIComponent(estate.name);
-          const url = `https://hk.centanet.com/estate/${encodedName}/3-${estate.bigestcode}`;
-          const res = await fetch(url, { headers: { "User-Agent": FETCH_HEADERS["User-Agent"], "Accept-Language": "zh-HK,zh;q=0.9" } });
+          const headers = { "User-Agent": FETCH_HEADERS["User-Agent"], "Accept-Language": "zh-HK,zh;q=0.9" };
+          let res = await fetch(`https://hk.centanet.com/estate/${encodedName}/3-${estate.bigestcode}`, { headers });
+          if (!res.ok) res = await fetch(`https://hk.centanet.com/estate/${encodedName}/2-${estate.bigestcode}`, { headers });
           if (!res.ok) return json(502, { error: "Centanet fetch failed" });
           const html = await res.text();
 
-          // Parse: "共有X期，X座，提供X,XXX個單位"
-          const phaseMatch = html.match(/共有(\d+)期[，,](\d+)座[，,]提供([\d,]+)個單位/);
-          const phases    = phaseMatch ? Number(phaseMatch[1]) : null;
-          const blocks    = phaseMatch ? Number(phaseMatch[2]) : null;
-          const totalUnits = phaseMatch ? Number(phaseMatch[3].replace(/,/g,'')) : null;
+          // Parse: "共有X期，X座，提供X,XXX個單位" (full form) or just "共有X座"
+          const fullMatch = html.match(/共有(\d+)期[，,](\d+)座[，,]提供([\d,]+)個單位/);
+          const phases     = fullMatch ? Number(fullMatch[1]) : null;
+          const blocks     = fullMatch
+            ? Number(fullMatch[2])
+            : (html.match(/共有(\d+)座/) ? Number(html.match(/共有(\d+)座/)[1]) : null);
+          const totalUnits = fullMatch
+            ? Number(fullMatch[3].replace(/,/g,''))
+            : (html.match(/提供([\d,]+)個單位/) ? Number(html.match(/提供([\d,]+)個單位/)[1].replace(/,/g,'')) : null);
 
           // Parse: "入伙日期由MM/YYYY" or "入伙年份YYYY"
           const yearMatch = html.match(/入伙日期由\d{2}\/(\d{4})/) || html.match(/入伙年份[：:]?\s*(\d{4})/);
           const completionYear = yearMatch ? Number(yearMatch[1]) : null;
 
-          // Parse: "發展商為X" or "發展商：X"
-          const devMatch = html.match(/發展商為([^<\n,，]{2,30})/) || html.match(/發展商[：:]\s*([^<\n]{2,30})/);
-          let developer = devMatch ? devMatch[1].trim().replace(/\s+/g,' ') : null;
+          // Parse developer — stop at first 。or 入伙
+          const devMatch = html.match(/發展商為([^<\n，。]{2,30})/) || html.match(/發展商[：:]\s*([^<\n，。]{2,30})/);
+          let developer = devMatch ? devMatch[1].split(/[。入]/)[0].trim().replace(/\s+/g,' ') : null;
 
           await db.prepare(
             "UPDATE estates SET completion_year=?, phases=?, blocks=?, total_units=?, developer=? WHERE id=?"
