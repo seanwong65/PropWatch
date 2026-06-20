@@ -1109,18 +1109,21 @@ async function showEstate(id, name, district) {
       <div class="stats-row">
         <div class="stat-card">
           <div class="stat-label">平均實呎價</div>
-          <div class="stat-value">$${avgPricePerFt.toLocaleString()} <span class="stat-unit">/呎</span></div>
-          <div class="stat-breakdown">${avgFtBreakdown}</div>
+          ${bedOrder.filter(b => bedGroups[b]?.length).map(b => {
+            const vals = bedGroups[b].map(l => l.price_per_ft).filter(Boolean);
+            const avg = vals.length ? Math.round(vals.reduce((a,v)=>a+v,0)/vals.length) : null;
+            return avg ? `<div style="margin-top:0.35rem"><span style="font-size:0.75rem;color:var(--muted)">${b}房</span> <span class="stat-value" style="font-size:1.25rem">$${avg.toLocaleString()}</span><span class="stat-unit"> /呎</span></div>` : '';
+          }).join('')}
         </div>
         <div class="stat-card">
-          <div class="stat-label">最低售價</div>
-          <div class="stat-value">$${(minPrice/1e6).toFixed(2)} <span class="stat-unit">M</span></div>
-          <div class="stat-breakdown">${minPriceBreakdown}</div>
-        </div>
-        <div class="stat-card">
-          <div class="stat-label">最高售價</div>
-          <div class="stat-value">$${(maxPrice/1e6).toFixed(2)} <span class="stat-unit">M</span></div>
-          <div class="stat-breakdown">${maxPriceBreakdown}</div>
+          <div class="stat-label">售價範圍</div>
+          ${bedOrder.filter(b => bedGroups[b]?.length).map(b => {
+            const prices = bedGroups[b].map(l => l.price).filter(Boolean);
+            if (!prices.length) return '';
+            const lo = (Math.min(...prices)/1e4).toFixed(0);
+            const hi = (Math.max(...prices)/1e4).toFixed(0);
+            return `<div style="margin-top:0.35rem"><span style="font-size:0.75rem;color:var(--muted)">${b}房</span> <span class="stat-value" style="font-size:1.1rem">$${lo}萬</span><span class="stat-unit"> - </span><span class="stat-value" style="font-size:1.1rem">$${hi}萬</span></div>`;
+          }).join('')}
         </div>
         <div class="stat-card">
           <div class="stat-label">追蹤天數</div>
