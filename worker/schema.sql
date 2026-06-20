@@ -95,3 +95,24 @@ CREATE TABLE IF NOT EXISTS hangseng_valuation_history (
 );
 
 CREATE INDEX IF NOT EXISTS idx_hsvh_lookup ON hangseng_valuation_history(estate_id, building, floor, flat, fetched_at DESC);
+
+-- 成交記錄（以 first_seen 追蹤新增，唔依賴登記日期）
+CREATE TABLE IF NOT EXISTS transactions (
+  id             INTEGER PRIMARY KEY AUTOINCREMENT,
+  estate_id      INTEGER NOT NULL REFERENCES estates(id) ON DELETE CASCADE,
+  transaction_id TEXT    NOT NULL,
+  building       TEXT,
+  floor          TEXT,
+  unit           TEXT,
+  price          REAL,
+  size_net       REAL,
+  price_per_ft   REAL,
+  reg_date       TEXT,
+  prev_price     REAL,
+  gain_pct       REAL,
+  held_days      INTEGER,
+  first_seen     TEXT NOT NULL DEFAULT (date('now', '+8 hours')),
+  UNIQUE(transaction_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_txn_estate ON transactions(estate_id, first_seen DESC);

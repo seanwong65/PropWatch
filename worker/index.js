@@ -393,7 +393,7 @@ function buildEmailHtml(changes) {
     </div>`;
 }
 
-async function fetchNewTransactions(estateName) {
+async function fetchAndSaveTransactions(db, estateId, estateName) {
   const res = await fetch(CENTANET_TRANS, {
     method: "POST",
     headers: FETCH_HEADERS,
@@ -402,21 +402,43 @@ async function fetchNewTransactions(estateName) {
   });
   if (!res.ok) return [];
   const raw = await res.json();
-  const yesterday = hkDateStr(-2);
-  return (raw.data || [])
-    .filter(t => t.regDate && t.regDate.slice(0, 10) >= yesterday)
-    .map(t => ({
-      building: t.buildingName,
-      floor: t.yAxis,
-      unit: t.xAxis,
-      price: t.transactionPrice,
-      size_net: t.nArea,
-      price_per_ft: t.nUnitPrice,
-      reg_date: t.regDate?.slice(0, 10),
-      prev_price: t.prevTransactionPrice,
-      gain_pct: t.gainPercent,
-      held_days: t.heldDay,
-    }));
+  const today = hkDateStr();
+
+  const stmt = db.prepare(
+    `INSERT OR IGNORE INTO transactions
+     (estate_id, transaction_id, building, floor, unit, price, size_net, price_per_ft,
+      reg_date, prev_price, gain_pct, held_days, first_seen)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`
+  );
+  const batch = (raw.data || [])
+    .filter(t => t.id)
+    .map(t => stmt.bind(
+      estateId, String(t.id),
+      t.buildingName ?? null, t.yAxis ?? null, t.xAxis ?? null,
+      t.transactionPrice ?? null, t.nArea ?? null, t.nUnitPrice ?? null,
+      t.regDate?.slice(0, 10) ?? null, t.prevTransactionPrice ?? null,
+      t.gainPercent ?? null, t.heldDay ?? null,
+      today
+    ));
+  if (batch.length) await db.batch(batch);
+
+  // Return only records first seen today
+  const { results } = await db
+    .prepare(`SELECT * FROM transactions WHERE estate_id=? AND first_seen=?`)
+    .bind(estateId, today)
+    .all();
+  return results.map(t => ({
+    building: t.building,
+    floor: t.floor,
+    unit: t.unit,
+    price: t.price,
+    size_net: t.size_net,
+    price_per_ft: t.price_per_ft,
+    reg_date: t.reg_date,
+    prev_price: t.prev_price,
+    gain_pct: t.gain_pct,
+    held_days: t.held_days,
+  }));
 }
 
 async function detectChanges(db, estateId, estateName, newListings) {
@@ -485,7 +507,7 @@ async function runDailySync(db, resendApiKey) {
       try {
         const [data, newTxns] = await Promise.all([
           fetchCentanet(estate.name),
-          fetchNewTransactions(estate.name),
+          fetchAndSaveTransactions(db, estate.id, estate.name),
         ]);
         const listings = data.data || [];
         await saveSearchResults(db, estate.id, listings);
