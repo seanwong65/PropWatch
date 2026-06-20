@@ -683,7 +683,7 @@ let chart = null;
 let allListings = [];
 let sortCol = "price";
 let sortDir = "asc";
-let filters = { beds: "all", floor: "all", minPrice: "", maxPrice: "", minSize: "", maxSize: "" };
+let filters = { beds: "all", floor: "all", minPrice: "", maxPrice: "", minSize: "", maxSize: "", priceChanged: "all" };
 
 // ── Toast ──────────────────────────────────────────────────────
 function toast(msg, type = "info") {
@@ -1491,6 +1491,13 @@ function renderFilterBar() {
         <span style="color:var(--muted);font-size:0.75rem">–</span>
         <input class="filter-input" type="number" placeholder="最高" value="${filters.maxSize}" onchange="setRangeFilter('maxSize',this.value)">
       </div>
+      <div class="filter-sep"></div>
+      <span class="filter-label">售價變動</span>
+      <div class="filter-group">
+        <button class="filter-chip ${filters.priceChanged==='all'?'active':''}" onclick="setFilter('priceChanged','all')">全部</button>
+        <button class="filter-chip ${filters.priceChanged==='yes'?'active':''}" onclick="setFilter('priceChanged','yes')">有變動</button>
+        <button class="filter-chip ${filters.priceChanged==='no'?'active':''}" onclick="setFilter('priceChanged','no')">無變動</button>
+      </div>
       <span class="filter-count" id="filterCount"></span>
     </div>
   `;
@@ -1519,6 +1526,9 @@ function applyFilters(listings) {
     if (filters.maxPrice && l.price > filters.maxPrice * 1e4) return false;
     if (filters.minSize && l.size_net < Number(filters.minSize)) return false;
     if (filters.maxSize && l.size_net > Number(filters.maxSize)) return false;
+    const hasChange = l.prev_price && Math.abs(l.price - l.prev_price) > 1000;
+    if (filters.priceChanged === 'yes' && !hasChange) return false;
+    if (filters.priceChanged === 'no' && hasChange) return false;
     return true;
   });
 }
