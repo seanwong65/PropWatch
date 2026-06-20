@@ -797,6 +797,54 @@ export default {
         return json(200, { count: raw.data?.length ?? 0, name, sample: raw.data?.slice(0, 1) });
       }
 
+      if (method === "GET" && path.match(/^\/api\/estates\/\d+\/estate-info$/)) {
+        const estateId = path.split("/")[3];
+        const estate = await db.prepare("SELECT * FROM estates WHERE id = ?").bind(estateId).first();
+        if (!estate) return json(404, { error: "Not found" });
+
+        // Return cached if available
+        if (estate.completion_year || estate.developer) {
+          return json(200, {
+            completion_year: estate.completion_year,
+            phases: estate.phases,
+            blocks: estate.blocks,
+            total_units: estate.total_units,
+            developer: estate.developer,
+          });
+        }
+
+        // Fetch Centanet estate page and parse
+        try {
+          const encodedName = encodeURIComponent(estate.name);
+          const url = `https://hk.centanet.com/estate/${encodedName}/3-${estate.bigestcode}`;
+          const res = await fetch(url, { headers: { "User-Agent": FETCH_HEADERS["User-Agent"], "Accept-Language": "zh-HK,zh;q=0.9" } });
+          if (!res.ok) return json(502, { error: "Centanet fetch failed" });
+          const html = await res.text();
+
+          // Parse: "共有X期，X座，提供X,XXX個單位"
+          const phaseMatch = html.match(/共有(\d+)期[，,](\d+)座[，,]提供([\d,]+)個單位/);
+          const phases    = phaseMatch ? Number(phaseMatch[1]) : null;
+          const blocks    = phaseMatch ? Number(phaseMatch[2]) : null;
+          const totalUnits = phaseMatch ? Number(phaseMatch[3].replace(/,/g,'')) : null;
+
+          // Parse: "入伙日期由MM/YYYY" or "入伙年份YYYY"
+          const yearMatch = html.match(/入伙日期由\d{2}\/(\d{4})/) || html.match(/入伙年份[：:]?\s*(\d{4})/);
+          const completionYear = yearMatch ? Number(yearMatch[1]) : null;
+
+          // Parse: "發展商為X" or "發展商：X"
+          const devMatch = html.match(/發展商為([^<\n,，]{2,30})/) || html.match(/發展商[：:]\s*([^<\n]{2,30})/);
+          let developer = devMatch ? devMatch[1].trim().replace(/\s+/g,' ') : null;
+
+          await db.prepare(
+            "UPDATE estates SET completion_year=?, phases=?, blocks=?, total_units=?, developer=? WHERE id=?"
+          ).bind(completionYear, phases, blocks, totalUnits, developer, estateId).run();
+
+          return json(200, { completion_year: completionYear, phases, blocks, total_units: totalUnits, developer });
+        } catch (e) {
+          return json(502, { error: e.message });
+        }
+      }
+
       if (method === "GET" && path === "/api/today-highlights") {
         const today = hkDateStr();
         const [newTxns, priceChanges, newListings, removedListings] = await Promise.all([

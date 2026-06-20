@@ -8,8 +8,13 @@ CREATE TABLE IF NOT EXISTS estates (
   is_favourite INTEGER NOT NULL DEFAULT 0,
   is_disabled  INTEGER NOT NULL DEFAULT 0,
   sort_order   INTEGER NOT NULL DEFAULT 0,
-  first_seen   TEXT    NOT NULL DEFAULT (datetime('now', '+8 hours')),
-  last_synced  TEXT
+  first_seen       TEXT    NOT NULL DEFAULT (datetime('now', '+8 hours')),
+  last_synced      TEXT,
+  completion_year  INTEGER,
+  phases           INTEGER,
+  blocks           INTEGER,
+  total_units      INTEGER,
+  developer        TEXT
 );
 
 -- 每次搜尋的單位快照

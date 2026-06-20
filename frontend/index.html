@@ -1203,6 +1203,7 @@ async function showEstate(id, name, district) {
         <div>
           <div class="estate-title">${escHtml(name)}</div>
           <div class="estate-sub">${district ? escHtml(district) + ' · ' : ''}共 ${listings.length} 個在售單位</div>
+          <div id="estate-info-bar" style="margin-top:0.4rem;font-size:0.78rem;color:var(--muted);display:flex;flex-wrap:wrap;gap:0.6rem"></div>
         </div>
         ${trendChange}
       </div>
@@ -1279,9 +1280,28 @@ async function showEstate(id, name, district) {
       renderFilterBar();
       renderListingsTable();
     }
+
+    // Load estate info (non-blocking)
+    loadEstateInfo(id);
   } catch (err) {
     main.innerHTML = `<div class="welcome"><p>載入失敗：${err.message}</p></div>`;
   }
+}
+
+async function loadEstateInfo(estateId) {
+  const bar = document.getElementById("estate-info-bar");
+  if (!bar) return;
+  try {
+    const info = await api(`/api/estates/${estateId}/estate-info`);
+    const currentYear = new Date().getFullYear();
+    const items = [];
+    if (info.completion_year) items.push(`🏗 入伙 ${info.completion_year}年（${currentYear - info.completion_year}年樓齡）`);
+    if (info.phases)      items.push(`${info.phases} 期`);
+    if (info.blocks)      items.push(`${info.blocks} 座`);
+    if (info.total_units) items.push(`${info.total_units.toLocaleString()} 個單位`);
+    if (info.developer)   items.push(`發展商：${info.developer}`);
+    bar.innerHTML = items.map(t => `<span style="background:var(--surface2);border:1px solid var(--border);border-radius:4px;padding:0.15rem 0.5rem">${escHtml(t)}</span>`).join('');
+  } catch { /* silently skip if unavailable */ }
 }
 
 function hsValHtml(hsPrice) {
