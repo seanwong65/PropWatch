@@ -1001,7 +1001,13 @@ export default {
               ON first_p.ref_no = changed.ref_no AND first_p.estate_id = changed.estate_id AND first_p.snapshot_date = changed.min_d
             JOIN (SELECT DISTINCT ref_no, estate_id, snapshot_date, price FROM listing_price_history) last_p
               ON last_p.ref_no = changed.ref_no AND last_p.estate_id = changed.estate_id AND last_p.snapshot_date = changed.max_d
-            JOIN listings l ON l.ref_no = changed.ref_no AND l.estate_id = changed.estate_id
+            JOIN (
+              SELECT ref_no, estate_id, building_name, floor, unit, detail_url
+              FROM listings
+              WHERE (ref_no, estate_id, snapshot_date) IN (
+                SELECT ref_no, estate_id, MAX(snapshot_date) FROM listings GROUP BY ref_no, estate_id
+              )
+            ) l ON l.ref_no = changed.ref_no AND l.estate_id = changed.estate_id
             JOIN estates e ON e.id = changed.estate_id
             WHERE first_p.price != last_p.price
               AND (e.is_disabled = 0 OR e.is_disabled IS NULL)
