@@ -985,26 +985,31 @@ export default {
       }
 
       if (method === "POST" && path === "/api/test-email") {
-        await sendEmail(
+        const result = await sendEmail(
           env.RESEND_API_KEY,
           "johnwong777@hotmail.com",
           "PropWatch 測試郵件",
-          buildEmailHtml([{
-            estate: "碧海藍天",
-            newTransactions: [
-              { building: "3座", floor: "高層", unit: "A室", size_net: 513, price: 9280000, price_per_ft: 18090, gain_pct: 15.3, held_days: 2738, reg_date: "2026-06-19" },
-              { building: "6座", floor: "中層", unit: "D室", size_net: 491, price: 8080000, price_per_ft: 16456, gain_pct: -3.0, held_days: 2628, reg_date: "2026-06-19" },
-            ],
-            priceChanges: [
-              { building: "2座", floor: "高層", unit: "C室", oldPrice: 8500000, newPrice: 7980000 },
-            ],
-            newListings: [
-              { building_name: "5座", floor: "低層", unit: "B室", bedrooms: 2, size_net: 501, price: 7200000, price_per_ft: 14371 },
-            ],
-            removedListings: [],
-          }])
+          buildEmailHtml({
+            date: hkDateStr(),
+            byEstate: [{
+              estate: "碧海藍天",
+              newTransactions: [
+                { building: "3座", floor: "高層", unit: "A室", size_net: 513, price: 9280000, gain_pct: 15.3, held_days: 2738, detail_url: "https://hk.centanet.com" },
+                { building: "6座", floor: "中層", unit: "D室", size_net: 491, price: 8080000, gain_pct: -3.0, held_days: 2628, detail_url: "https://hk.centanet.com" },
+              ],
+              priceChanges: [
+                { building_name: "2座", floor: "高層", unit: "C室", old_price: 8500000, new_price: 7980000, detail_url: "https://hk.centanet.com" },
+              ],
+              newListings: [
+                { building_name: "5座", floor: "低層", unit: "B室", bedrooms: 2, size_net: 501, price: 7200000, price_per_ft: 14371, detail_url: "https://hk.centanet.com" },
+              ],
+              removedListings: [
+                { building_name: "1座", floor: "低層", unit: "G室", bedrooms: 3, price: 11800000, detail_url: "https://hk.centanet.com" },
+              ],
+            }],
+          })
         );
-        return json(200, { ok: true, message: "測試郵件已發送至 johnwong777@hotmail.com" });
+        return json(200, { ok: true, message: "測試郵件已發送至 johnwong777@hotmail.com", result });
       }
 
       return json(404, { error: "Not found" });
