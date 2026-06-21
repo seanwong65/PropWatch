@@ -48,14 +48,14 @@
     .sync-btn {
       background: var(--surface2);
       border: 1px solid var(--border);
-      color: var(--muted);
+      color: var(--text);
       padding: 0.4rem 0.9rem;
       border-radius: 6px;
       font-size: 0.8rem;
       cursor: pointer;
       transition: all 0.2s;
     }
-    .sync-btn:hover { color: var(--text); border-color: var(--accent); }
+    .sync-btn:hover { border-color: var(--accent); }
 
     /* Layout */
     .layout {
@@ -467,9 +467,9 @@
     .ref-link:hover { color: var(--accent2); }
     .price-prev { color: var(--muted); font-size: 0.72rem; text-decoration: line-through; }
     .history-btn {
-      background: none;
+      background: var(--surface2);
       border: 1px solid var(--border);
-      color: var(--muted);
+      color: var(--text);
       border-radius: 4px;
       font-size: 0.68rem;
       padding: 0.1rem 0.4rem;
@@ -886,7 +886,7 @@ async function showDashboard(estates) {
       <div class="highlights-section" id="highlights-section">
         <div class="highlights-title" style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:0.4rem">
           <span>今日動態 <span style="font-weight:400;color:var(--muted);text-transform:none;letter-spacing:0" id="highlights-date"></span></span>
-          <button class="history-btn" style="font-size:0.75rem;padding:0.25rem 0.6rem" onclick="showHistoryPage()">歷史動態 →</button>
+          <button class="history-btn" style="font-size:0.88rem;padding:0.35rem 0.85rem" onclick="showHistoryPage()">歷史動態 →</button>
         </div>
         <div id="highlights-body" style="color:var(--muted);font-size:0.75rem">載入中…</div>
       </div>
