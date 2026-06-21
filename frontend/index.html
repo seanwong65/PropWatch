@@ -19,6 +19,8 @@
       --up: #10b981;
       --down: #ef4444;
       --radius: 10px;
+      --btn-bg: #3a5c59;
+      --btn-hover: #4d7a77;
     }
 
     body {
@@ -46,8 +48,8 @@
     .logo h1 { font-size: 1.1rem; font-weight: 700; letter-spacing: -0.02em; }
     .logo span { color: var(--accent); }
     .sync-btn {
-      background: var(--surface2);
-      border: 1px solid var(--border);
+      background: var(--btn-bg);
+      border: 1px solid var(--btn-bg);
       color: var(--text);
       padding: 0.4rem 0.9rem;
       border-radius: 6px;
@@ -55,7 +57,7 @@
       cursor: pointer;
       transition: all 0.2s;
     }
-    .sync-btn:hover { border-color: var(--accent); }
+    .sync-btn:hover { background: var(--btn-hover); border-color: var(--btn-hover); }
 
     /* Layout */
     .layout {
@@ -107,8 +109,8 @@
       right: 0.4rem;
       top: 50%;
       transform: translateY(-50%);
-      background: var(--accent);
-      color: #000;
+      background: var(--btn-bg);
+      color: var(--text);
       border: none;
       border-radius: 6px;
       padding: 0.3rem 0.7rem;
@@ -117,7 +119,7 @@
       cursor: pointer;
       transition: background 0.15s;
     }
-    .search-btn:hover { background: #d97706; }
+    .search-btn:hover { background: var(--btn-hover); }
 
     .autocomplete {
       position: absolute;
@@ -467,8 +469,8 @@
     .ref-link:hover { color: var(--accent2); }
     .price-prev { color: var(--muted); font-size: 0.72rem; text-decoration: line-through; }
     .history-btn {
-      background: var(--surface2);
-      border: 1px solid var(--border);
+      background: var(--btn-bg);
+      border: 1px solid var(--btn-bg);
       color: var(--text);
       border-radius: 4px;
       font-size: 0.68rem;
@@ -477,7 +479,7 @@
       margin-top: 0.2rem;
       display: inline-block;
     }
-    .history-btn:hover { border-color: var(--accent2); color: var(--accent2); }
+    .history-btn:hover { background: var(--btn-hover); border-color: var(--btn-hover); }
 
     /* History modal */
     .modal-overlay {
@@ -594,11 +596,11 @@
     .gain-neg { color: var(--down); font-size: 0.75rem; font-weight: 600; }
     .txn-date { color: var(--muted); font-size: 0.75rem; }
     .hs-val-btn {
-      background: none; border: 1px solid var(--accent); color: var(--accent);
+      background: var(--btn-bg); border: 1px solid var(--btn-bg); color: var(--text);
       border-radius: 4px; padding: 2px 8px; font-size: 0.72rem; cursor: pointer;
       white-space: nowrap;
     }
-    .hs-val-btn:hover { background: rgba(245,158,11,0.1); }
+    .hs-val-btn:hover { background: var(--btn-hover); border-color: var(--btn-hover); }
     .load-more-btn {
       display: block;
       width: 100%;
@@ -725,16 +727,16 @@
       flex-shrink: 0;
     }
     .sidebar-home-btn, .sidebar-close-btn {
-      background: var(--surface2);
-      border: 1px solid var(--border);
+      background: var(--btn-bg);
+      border: 1px solid var(--btn-bg);
       color: var(--text);
       padding: 0.35rem 0.75rem;
       border-radius: 6px;
       font-size: 0.82rem;
       cursor: pointer;
     }
-    .sidebar-home-btn:hover { border-color: var(--accent); color: var(--accent); }
-    .sidebar-close-btn:hover { border-color: var(--down); color: var(--down); }
+    .sidebar-home-btn:hover { background: var(--btn-hover); border-color: var(--btn-hover); }
+    .sidebar-close-btn:hover { background: var(--btn-hover); border-color: var(--btn-hover); }
     @media (max-width: 768px) {
       .sidebar-mobile-bar { display: flex; }
     }
@@ -1502,7 +1504,7 @@ async function showEstate(id, name, district) {
       <div class="estate-tabs">
         <button class="estate-tab active" onclick="switchTab('listings',${id})">最新放盤</button>
         <button class="estate-tab" onclick="switchTab('transactions',${id})">成交記錄</button>
-        <button class="history-btn" id="batch-hs-btn" style="display:none;margin-left:auto;font-size:0.82rem;padding:0.35rem 0.85rem;border-color:var(--accent2);color:var(--accent2)" onclick="batchFetchHSVal()">批量查估值</button>
+        <button class="history-btn" id="batch-hs-btn" style="display:none;margin-left:auto;font-size:0.82rem;padding:0.35rem 0.85rem" onclick="batchFetchHSVal()">批量查估值</button>
       </div>
 
       <div class="stats-row">
