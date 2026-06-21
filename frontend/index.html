@@ -865,7 +865,11 @@
       <label class="vf-label">睇樓日期<span>*</span></label>
       <input class="vf-input" type="date" id="vf-date" required>
 
-      <div class="vf-row2">
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:0.6rem">
+        <div>
+          <label class="vf-label">座數<span>*</span></label>
+          <input class="vf-input" type="text" id="vf-block" placeholder="例：3座" required>
+        </div>
         <div>
           <label class="vf-label">樓層<span>*</span></label>
           <input class="vf-input" type="text" id="vf-floor" placeholder="例：高層" required>
@@ -1840,6 +1844,7 @@ function openViewingModal() {
   // Default date = today (HK)
   const today = new Date(Date.now() + 8*3600000).toISOString().slice(0,10);
   document.getElementById('vf-date').value = today;
+  document.getElementById('vf-block').value = '';
   document.getElementById('vf-floor').value = '';
   document.getElementById('vf-unit').value = '';
   document.getElementById('vf-size').value = '';
@@ -1892,6 +1897,7 @@ async function submitViewing(e) {
     const body = {
       estate_id: _viewingEstateId,
       view_date: document.getElementById('vf-date').value,
+      block: document.getElementById('vf-block').value.trim(),
       floor: document.getElementById('vf-floor').value.trim(),
       unit: document.getElementById('vf-unit').value.trim(),
       size_net: parseInt(document.getElementById('vf-size').value),
@@ -1931,7 +1937,7 @@ async function loadViewings(estateId) {
       const imgs = v.images ? JSON.parse(v.images) : [];
       const imgHtml = imgs.map(src => `<img class="viewing-card-img" src="${src}" onclick="viewImgFull('${src}')">`).join('');
       const fields = [
-        { k:'樓層', v: v.floor }, { k:'室', v: v.unit },
+        { k:'座數', v: v.block||'-' }, { k:'樓層', v: v.floor }, { k:'室', v: v.unit },
         { k:'實用呎數', v: v.size_net ? v.size_net+'呎' : '-' },
         { k:'方向', v: v.direction||'-' },
         { k:'售價', v: fmt(v.price) },
@@ -1941,7 +1947,7 @@ async function loadViewings(estateId) {
       return `<div class="viewing-card">
         <div class="viewing-card-header">
           <div>
-            <div class="viewing-card-title">${escHtml(v.floor)} ${escHtml(v.unit)}</div>
+            <div class="viewing-card-title">${v.block ? escHtml(v.block)+' ' : ''}${escHtml(v.floor)} ${escHtml(v.unit)}</div>
             <div class="viewing-card-date">${v.view_date}</div>
           </div>
           <button class="viewing-del-btn" onclick="deleteViewing(${v.id},${estateId})" title="刪除">🗑</button>

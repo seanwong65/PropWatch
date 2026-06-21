@@ -1132,12 +1132,12 @@ export default {
 
       if (method === "POST" && path === "/api/viewings") {
         const body = await request.json();
-        const { estate_id, view_date, floor, unit, size_net, direction, price, mgmt_fee, images, notes } = body;
+        const { estate_id, view_date, block, floor, unit, size_net, direction, price, mgmt_fee, images, notes } = body;
         if (!estate_id || !view_date || !floor || !unit || !size_net || !price)
           return json(400, { error: "Missing required fields" });
         const result = await db.prepare(
-          "INSERT INTO viewings (estate_id, view_date, floor, unit, size_net, direction, price, mgmt_fee, images, notes) VALUES (?,?,?,?,?,?,?,?,?,?)"
-        ).bind(estate_id, view_date, floor, unit, size_net, direction||null, price, mgmt_fee||null, images||null, notes||null).run();
+          "INSERT INTO viewings (estate_id, view_date, block, floor, unit, size_net, direction, price, mgmt_fee, images, notes) VALUES (?,?,?,?,?,?,?,?,?,?,?)"
+        ).bind(estate_id, view_date, block||null, floor, unit, size_net, direction||null, price, mgmt_fee||null, images||null, notes||null).run();
         return json(200, { ok: true, id: result.meta.last_row_id });
       }
 
