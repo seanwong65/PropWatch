@@ -408,23 +408,38 @@ function buildEmailHtml(highlights) {
 
     const link = (url, label="詳情 ↗") => url ? `<a href="${url}" style="color:#3b82f6;font-size:12px;white-space:nowrap">${label}</a>` : "";
 
+    const TH = (h1, h2, h3, h4, h5='') =>
+      `<tr style="border-bottom:1px solid #334155"><th style="padding:4px 8px;font-size:11px;font-weight:600;color:#64748b;text-transform:uppercase;letter-spacing:0.04em;text-align:left">${h1}</th><th style="padding:4px 8px;font-size:11px;font-weight:600;color:#64748b;text-transform:uppercase;letter-spacing:0.04em;text-align:left">${h2}</th><th style="padding:4px 8px;font-size:11px;font-weight:600;color:#64748b;text-transform:uppercase;letter-spacing:0.04em;text-align:left">${h3}</th><th style="padding:4px 8px;font-size:11px;font-weight:600;color:#64748b;text-transform:uppercase;letter-spacing:0.04em;text-align:left">${h4}</th><th style="padding:4px 8px;font-size:11px;font-weight:600;color:#64748b;text-transform:uppercase;letter-spacing:0.04em;text-align:left">${h5}</th></tr>`;
+
     if (newTransactions.length) {
       rows += `<tr><td colspan="5" style="padding:8px 0 4px;font-weight:700;color:#a78bfa">🏠 新成交 (${newTransactions.length})</td></tr>`;
+      rows += TH('單位', '面積', '成交價', '持有 / 升跌', '');
       for (const t of newTransactions) {
-        const gainColor = t.gain_pct > 0 ? "#10b981" : t.gain_pct < 0 ? "#ef4444" : "#64748b";
-        const gainStr = t.gain_pct != null ? `${t.gain_pct > 0 ? "▲" : "▼"} ${Math.abs(t.gain_pct).toFixed(1)}%` : "-";
+        const years = t.held_days ? t.held_days / 365 : null;
+        const heldStr = years ? years.toFixed(1) + '年' : '-';
+        let gainHtml = '-';
+        if (t.gain_pct != null && years) {
+          const annualPct = (Math.pow(1 + t.gain_pct / 100, 1 / years) - 1) * 100;
+          const col = t.gain_pct >= 0 ? '#10b981' : '#ef4444';
+          const arrow = t.gain_pct >= 0 ? '▲' : '▼';
+          gainHtml = `<span style="color:${col}">${arrow} ${Math.abs(annualPct).toFixed(1)}%/年</span><br><span style="color:#64748b;font-size:12px">${arrow} ${Math.abs(t.gain_pct).toFixed(1)}%</span>`;
+        } else if (t.gain_pct != null) {
+          const col = t.gain_pct >= 0 ? '#10b981' : '#ef4444';
+          gainHtml = `<span style="color:${col}">${t.gain_pct >= 0 ? '▲' : '▼'} ${Math.abs(t.gain_pct).toFixed(1)}%</span>`;
+        }
         rows += `<tr style="border-bottom:1px solid #1f2d42">
           <td style="padding:6px 8px">${t.building || ""} ${t.floor || ""} ${t.unit || ""}</td>
           <td style="padding:6px 8px;color:#64748b">${t.size_net ? t.size_net + "實呎" : ""}</td>
           <td style="padding:6px 8px;font-weight:700;color:#f59e0b">${t.price ? `$${(t.price / 1e4).toFixed(0)}萬` : "-"}</td>
-          <td style="padding:6px 8px;color:${gainColor}">${gainStr}</td>
-          <td style="padding:6px 8px"></td>
+          <td style="padding:6px 8px">${heldStr}<br>${gainHtml}</td>
+          <td style="padding:6px 8px">${link(t.detail_url)}</td>
         </tr>`;
       }
     }
 
     if (priceChanges.length) {
       rows += `<tr><td colspan="5" style="padding:8px 0 4px;font-weight:700;color:#f59e0b">💰 售價變動 (${priceChanges.length})</td></tr>`;
+      rows += TH('單位', '原價', '新價', '變動', '');
       for (const l of priceChanges) {
         const diff = pct(l.new_price, l.old_price);
         rows += `<tr style="border-bottom:1px solid #1f2d42">
@@ -439,6 +454,7 @@ function buildEmailHtml(highlights) {
 
     if (newListings.length) {
       rows += `<tr><td colspan="5" style="padding:8px 0 4px;font-weight:700;color:#10b981">🆕 新放盤 (${newListings.length})</td></tr>`;
+      rows += TH('單位', '房間 / 面積', '價格', '呎價', '');
       for (const l of newListings) {
         rows += `<tr style="border-bottom:1px solid #1f2d42">
           <td style="padding:6px 8px">${l.building_name || ""} ${l.floor || ""} ${l.unit || ""}</td>
@@ -452,6 +468,7 @@ function buildEmailHtml(highlights) {
 
     if (removedListings.length) {
       rows += `<tr><td colspan="5" style="padding:8px 0 4px;font-weight:700;color:#ef4444">❌ 已下架 (${removedListings.length})</td></tr>`;
+      rows += TH('單位', '房間', '原價', '', '');
       for (const l of removedListings) {
         rows += `<tr style="border-bottom:1px solid #1f2d42">
           <td style="padding:6px 8px">${l.building_name || ""} ${l.floor || ""} ${l.unit || ""}</td>
