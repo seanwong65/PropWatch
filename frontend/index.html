@@ -516,6 +516,69 @@
       font-size: 1.1rem;
       margin-top: -0.2rem;
     }
+    /* Viewing modal form */
+    .vf-label { display: block; font-size: 0.75rem; color: var(--muted); margin-bottom: 0.3rem; margin-top: 0.75rem; }
+    .vf-label span { color: var(--down); margin-left: 2px; }
+    .vf-input, .vf-select {
+      width: 100%; background: var(--surface2); border: 1px solid var(--border);
+      color: var(--text); border-radius: 6px; padding: 0.45rem 0.65rem;
+      font-size: 0.82rem; outline: none; box-sizing: border-box;
+    }
+    .vf-input:focus, .vf-select:focus { border-color: var(--accent2); }
+    .vf-row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 0.6rem; }
+    .vf-upload-label {
+      display: flex; align-items: center; gap: 0.5rem; cursor: pointer;
+      background: var(--surface2); border: 1px dashed var(--border); border-radius: 6px;
+      padding: 0.6rem 0.75rem; font-size: 0.8rem; color: var(--muted);
+      transition: border-color 0.2s;
+    }
+    .vf-upload-label:hover { border-color: var(--accent2); color: var(--text); }
+    .vf-img-preview { display: flex; flex-wrap: wrap; gap: 0.4rem; margin-top: 0.5rem; }
+    .vf-img-thumb {
+      position: relative; width: 64px; height: 64px;
+      border-radius: 4px; overflow: hidden; background: var(--surface2);
+    }
+    .vf-img-thumb img { width: 100%; height: 100%; object-fit: cover; }
+    .vf-img-rm {
+      position: absolute; top: 1px; right: 2px; background: rgba(0,0,0,0.6);
+      border: none; color: #fff; font-size: 0.7rem; cursor: pointer;
+      border-radius: 2px; padding: 0 3px; line-height: 14px;
+    }
+    .vf-submit {
+      margin-top: 1.1rem; width: 100%; background: var(--btn-bg);
+      border: none; color: var(--text); border-radius: 6px;
+      padding: 0.55rem; font-size: 0.88rem; font-weight: 600; cursor: pointer;
+    }
+    .vf-submit:hover { background: var(--btn-hover); }
+    /* Viewings tab */
+    .viewings-list { padding: 0.75rem 0; }
+    .viewing-card {
+      background: var(--surface2); border: 1px solid var(--border);
+      border-radius: 8px; padding: 0.85rem 1rem; margin-bottom: 0.75rem;
+    }
+    .viewing-card-header {
+      display: flex; align-items: center; justify-content: space-between;
+      margin-bottom: 0.5rem;
+    }
+    .viewing-card-title { font-weight: 700; font-size: 0.88rem; }
+    .viewing-card-date { color: var(--muted); font-size: 0.75rem; }
+    .viewing-card-grid {
+      display: grid; grid-template-columns: repeat(3, 1fr); gap: 0.3rem 0.75rem;
+      font-size: 0.78rem; margin-bottom: 0.5rem;
+    }
+    .viewing-card-kv { display: flex; flex-direction: column; }
+    .viewing-card-k { color: var(--muted); font-size: 0.68rem; margin-bottom: 1px; }
+    .viewing-card-imgs { display: flex; flex-wrap: wrap; gap: 0.4rem; margin-top: 0.4rem; }
+    .viewing-card-img {
+      width: 72px; height: 72px; object-fit: cover; border-radius: 4px;
+      cursor: pointer; border: 1px solid var(--border);
+    }
+    .viewing-del-btn {
+      background: none; border: none; color: var(--muted); cursor: pointer;
+      font-size: 0.78rem; padding: 0.1rem 0.35rem; border-radius: 4px;
+    }
+    .viewing-del-btn:hover { color: var(--down); }
+
     .history-table { width: 100%; border-collapse: collapse; font-size: 0.82rem; }
     .history-table th {
       color: var(--muted);
@@ -789,8 +852,70 @@
       <h1>Prop<span>Watch</span></h1>
     </div>
   </div>
-  <button class="sync-btn" onclick="syncAll()">↻ 立即同步</button>
+  <div style="display:flex;align-items:center;gap:0.5rem">
+    <button class="sync-btn" id="add-viewing-btn" style="background:var(--down);border-color:var(--down);display:none" onclick="openViewingModal()">＋ 新增睇樓</button>
+    <button class="sync-btn" onclick="syncAll()">↻ 立即同步</button>
+  </div>
 </header>
+
+<!-- Viewing Modal -->
+<div class="modal-overlay" id="viewingModalOverlay" style="display:none" onclick="if(event.target===this)closeViewingModal()">
+  <div class="modal" style="max-width:520px;max-height:90vh;overflow-y:auto">
+    <button class="modal-close" onclick="closeViewingModal()">✕</button>
+    <div class="modal-title">＋ 新增睇樓記錄</div>
+    <div class="modal-sub" id="viewing-modal-estate-name"></div>
+    <form id="viewingForm" onsubmit="submitViewing(event)">
+      <label class="vf-label">睇樓日期<span>*</span></label>
+      <input class="vf-input" type="date" id="vf-date" required>
+
+      <div class="vf-row2">
+        <div>
+          <label class="vf-label">樓層<span>*</span></label>
+          <input class="vf-input" type="text" id="vf-floor" placeholder="例：高層" required>
+        </div>
+        <div>
+          <label class="vf-label">室<span>*</span></label>
+          <input class="vf-input" type="text" id="vf-unit" placeholder="例：A室" required>
+        </div>
+      </div>
+
+      <div class="vf-row2">
+        <div>
+          <label class="vf-label">實用呎數<span>*</span></label>
+          <input class="vf-input" type="number" id="vf-size" placeholder="呎" min="1" required>
+        </div>
+        <div>
+          <label class="vf-label">方向</label>
+          <select class="vf-select" id="vf-direction">
+            <option value="">-- 不選 --</option>
+            <option>東</option><option>南</option><option>西</option><option>北</option>
+            <option>東南</option><option>東北</option><option>西南</option><option>西北</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="vf-row2">
+        <div>
+          <label class="vf-label">售價（萬）<span>*</span></label>
+          <input class="vf-input" type="number" id="vf-price" placeholder="例：880" min="1" step="0.01" required>
+        </div>
+        <div>
+          <label class="vf-label">管理費（月）<span>*</span></label>
+          <input class="vf-input" type="number" id="vf-mgmt" placeholder="$" min="0" required>
+        </div>
+      </div>
+
+      <label class="vf-label">圖片（可選）</label>
+      <label class="vf-upload-label">
+        <span>📷</span> 上傳圖片
+        <input type="file" id="vf-images" multiple accept="image/*" style="display:none" onchange="previewImages(this)">
+      </label>
+      <div class="vf-img-preview" id="vf-img-preview"></div>
+
+      <button type="submit" class="vf-submit">儲存記錄</button>
+    </form>
+  </div>
+</div>
 <div class="sidebar-overlay" id="sidebarOverlay" onclick="closeSidebar()"></div>
 
 <div class="layout">
@@ -870,6 +995,9 @@ function closeSidebar() {
 
 function goHome() {
   activeEstateId = null;
+  _viewingEstateId = null;
+  const addBtn = document.getElementById('add-viewing-btn');
+  if (addBtn) addBtn.style.display = 'none';
   document.querySelectorAll(".estate-card").forEach(c => c.classList.remove("active"));
   if (dashboardEstates.length) showDashboard(dashboardEstates);
   else loadEstates();
@@ -1459,6 +1587,10 @@ async function trackEstate(name, bigestcode, district, isBigest) {
 // ── Estate detail ──────────────────────────────────────────────
 async function showEstate(id, name, district) {
   activeEstateId = id;
+  _viewingEstateId = id;
+  _viewingEstateName = name;
+  const addBtn = document.getElementById('add-viewing-btn');
+  if (addBtn) addBtn.style.display = '';
   document.querySelectorAll(".estate-card").forEach(c => {
     c.classList.toggle("active", Number(c.getAttribute("data-id")) === id);
   });
@@ -1518,6 +1650,7 @@ async function showEstate(id, name, district) {
       <div class="estate-tabs">
         <button class="estate-tab active" onclick="switchTab('listings',${id})">最新放盤</button>
         <button class="estate-tab" onclick="switchTab('transactions',${id})">成交記錄</button>
+        <button class="estate-tab" onclick="switchTab('viewings',${id})">睇樓記錄</button>
         <button class="history-btn" id="batch-hs-btn" style="display:none;margin-left:auto;font-size:0.82rem;padding:0.35rem 0.85rem" onclick="batchFetchHSVal()">批量查估值</button>
       </div>
 
@@ -1569,6 +1702,12 @@ async function showEstate(id, name, district) {
       <div id="tab-transactions" style="display:none">
         <div class="listings-section">
           <div class="loading"><div class="spinner"></div> 載入成交記錄…</div>
+        </div>
+      </div>
+
+      <div id="tab-viewings" style="display:none">
+        <div class="listings-section">
+          <div class="loading"><div class="spinner"></div> 載入睇樓記錄…</div>
         </div>
       </div>
     `;
@@ -1688,10 +1827,155 @@ function switchTab(tab, estateId) {
   });
   document.getElementById("tab-listings").style.display = tab === "listings" ? "" : "none";
   document.getElementById("tab-transactions").style.display = tab === "transactions" ? "" : "none";
+  document.getElementById("tab-viewings").style.display = tab === "viewings" ? "" : "none";
   const batchBtn = document.getElementById("batch-hs-btn");
   if (batchBtn) batchBtn.style.display = tab === "transactions" ? "" : "none";
   if (tab === "transactions") loadTransactions(estateId, 0, false);
+  if (tab === "viewings") loadViewings(estateId);
 }
+
+// ── Viewing modal ──────────────────────────────────────────────
+let _viewingEstateId = null;
+let _viewingEstateName = '';
+let _viewingImages = []; // [{dataUrl, file}]
+
+function openViewingModal() {
+  if (!_viewingEstateId) return;
+  document.getElementById('viewingModalOverlay').style.display = 'flex';
+  document.getElementById('viewing-modal-estate-name').textContent = _viewingEstateName;
+  // Default date = today (HK)
+  const today = new Date(Date.now() + 8*3600000).toISOString().slice(0,10);
+  document.getElementById('vf-date').value = today;
+  document.getElementById('vf-floor').value = '';
+  document.getElementById('vf-unit').value = '';
+  document.getElementById('vf-size').value = '';
+  document.getElementById('vf-direction').value = '';
+  document.getElementById('vf-price').value = '';
+  document.getElementById('vf-mgmt').value = '';
+  document.getElementById('vf-img-preview').innerHTML = '';
+  _viewingImages = [];
+  // Auto-fill last mgmt fee
+  api(`/api/viewings/last-mgmt-fee?estate_id=${_viewingEstateId}`).then(r => {
+    if (r?.mgmt_fee) document.getElementById('vf-mgmt').value = r.mgmt_fee;
+  }).catch(() => {});
+}
+
+function closeViewingModal() {
+  document.getElementById('viewingModalOverlay').style.display = 'none';
+}
+
+function previewImages(input) {
+  const files = [...input.files];
+  const preview = document.getElementById('vf-img-preview');
+  for (const file of files) {
+    const reader = new FileReader();
+    reader.onload = e => {
+      const idx = _viewingImages.length;
+      _viewingImages.push({ dataUrl: e.target.result, file });
+      const thumb = document.createElement('div');
+      thumb.className = 'vf-img-thumb';
+      thumb.innerHTML = `<img src="${e.target.result}"><button type="button" class="vf-img-rm" onclick="removeViewingImg(${idx})">✕</button>`;
+      preview.appendChild(thumb);
+    };
+    reader.readAsDataURL(file);
+  }
+  input.value = '';
+}
+
+function removeViewingImg(idx) {
+  _viewingImages[idx] = null;
+  const thumbs = document.querySelectorAll('.vf-img-thumb');
+  if (thumbs[idx]) thumbs[idx].remove();
+}
+
+async function submitViewing(e) {
+  e.preventDefault();
+  const btn = e.target.querySelector('.vf-submit');
+  btn.disabled = true; btn.textContent = '儲存中…';
+  try {
+    const images = _viewingImages.filter(Boolean).map(i => i.dataUrl);
+    const price = Math.round(parseFloat(document.getElementById('vf-price').value) * 10000);
+    const body = {
+      estate_id: _viewingEstateId,
+      view_date: document.getElementById('vf-date').value,
+      floor: document.getElementById('vf-floor').value.trim(),
+      unit: document.getElementById('vf-unit').value.trim(),
+      size_net: parseInt(document.getElementById('vf-size').value),
+      direction: document.getElementById('vf-direction').value || null,
+      price,
+      mgmt_fee: parseInt(document.getElementById('vf-mgmt').value) || null,
+      images: images.length ? JSON.stringify(images) : null,
+    };
+    const res = await fetch(`${API_BASE}/api/viewings`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body)
+    });
+    if (!res.ok) throw new Error('Save failed');
+    closeViewingModal();
+    // If viewing tab is open, reload it
+    if (document.getElementById('tab-viewings')?.style.display !== 'none') {
+      loadViewings(_viewingEstateId);
+    }
+  } catch(err) {
+    alert('儲存失敗，請再試');
+  } finally {
+    btn.disabled = false; btn.textContent = '儲存記錄';
+  }
+}
+
+async function loadViewings(estateId) {
+  const panel = document.getElementById('tab-viewings');
+  if (!panel) return;
+  panel.innerHTML = '<div class="listings-section"><div class="loading"><div class="spinner"></div> 載入睇樓記錄…</div></div>';
+  try {
+    const { viewings } = await api(`/api/viewings?estate_id=${estateId}`);
+    if (!viewings?.length) {
+      panel.innerHTML = '<div class="listings-section" style="padding:1.5rem;color:var(--muted);text-align:center">未有睇樓記錄<br><small>按「新增睇樓」新增第一個記錄</small></div>';
+      return;
+    }
+    const fmt = p => p ? `$${(p/1e4).toFixed(p%10000===0?0:1)}萬` : '-';
+    const cards = viewings.map(v => {
+      const imgs = v.images ? JSON.parse(v.images) : [];
+      const imgHtml = imgs.map(src => `<img class="viewing-card-img" src="${src}" onclick="viewImgFull('${src}')">`).join('');
+      const fields = [
+        { k:'樓層', v: v.floor }, { k:'室', v: v.unit },
+        { k:'實用呎數', v: v.size_net ? v.size_net+'呎' : '-' },
+        { k:'方向', v: v.direction||'-' },
+        { k:'售價', v: fmt(v.price) },
+        { k:'管理費', v: v.mgmt_fee ? '$'+v.mgmt_fee+'/月' : '-' },
+      ];
+      const kvHtml = fields.map(f => `<div class="viewing-card-kv"><span class="viewing-card-k">${f.k}</span><span>${escHtml(String(f.v))}</span></div>`).join('');
+      return `<div class="viewing-card">
+        <div class="viewing-card-header">
+          <div>
+            <div class="viewing-card-title">${escHtml(v.floor)} ${escHtml(v.unit)}</div>
+            <div class="viewing-card-date">${v.view_date}</div>
+          </div>
+          <button class="viewing-del-btn" onclick="deleteViewing(${v.id},${estateId})" title="刪除">🗑</button>
+        </div>
+        <div class="viewing-card-grid">${kvHtml}</div>
+        ${imgHtml ? `<div class="viewing-card-imgs">${imgHtml}</div>` : ''}
+      </div>`;
+    }).join('');
+    panel.innerHTML = `<div class="listings-section" style="padding:0.75rem 1rem">${cards}</div>`;
+  } catch {
+    panel.innerHTML = '<div class="listings-section" style="padding:1.5rem;color:var(--muted);text-align:center">載入失敗</div>';
+  }
+}
+
+async function deleteViewing(id, estateId) {
+  if (!confirm('確定刪除這個睇樓記錄？')) return;
+  await fetch(`${API_BASE}/api/viewings/${id}`, { method: 'DELETE' });
+  loadViewings(estateId);
+}
+
+function viewImgFull(src) {
+  const ov = document.createElement('div');
+  ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.85);z-index:9999;display:flex;align-items:center;justify-content:center;cursor:pointer';
+  ov.innerHTML = `<img src="${src}" style="max-width:92vw;max-height:92vh;border-radius:8px;box-shadow:0 8px 32px rgba(0,0,0,0.6)">`;
+  ov.onclick = () => ov.remove();
+  document.body.appendChild(ov);
+}
+
 
 async function batchFetchHSVal() {
   const btn = document.getElementById("batch-hs-btn");
