@@ -1330,7 +1330,7 @@ async function trackEstate(name, bigestcode, district, isBigest) {
 async function showEstate(id, name, district) {
   activeEstateId = id;
   document.querySelectorAll(".estate-card").forEach(c => {
-    c.classList.toggle("active", c.getAttribute("onclick")?.includes(`${id},`));
+    c.classList.toggle("active", Number(c.getAttribute("data-id")) === id);
   });
   if (window.innerWidth <= 768) closeSidebar();
 
