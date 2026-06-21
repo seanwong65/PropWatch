@@ -1111,6 +1111,42 @@ export default {
         return json(200, { ok: true, message: "測試郵件已發送至 johnwong777@hotmail.com", result });
       }
 
+      // Viewings
+      if (method === "GET" && path === "/api/viewings") {
+        const estateId = url.searchParams.get("estate_id");
+        if (!estateId) return json(400, { error: "estate_id required" });
+        const { results } = await db.prepare(
+          "SELECT * FROM viewings WHERE estate_id = ? ORDER BY view_date DESC, created_at DESC"
+        ).bind(estateId).all();
+        return json(200, { viewings: results });
+      }
+
+      if (method === "GET" && path === "/api/viewings/last-mgmt-fee") {
+        const estateId = url.searchParams.get("estate_id");
+        if (!estateId) return json(400, { error: "estate_id required" });
+        const row = await db.prepare(
+          "SELECT mgmt_fee FROM viewings WHERE estate_id = ? AND mgmt_fee IS NOT NULL ORDER BY created_at DESC LIMIT 1"
+        ).bind(estateId).first();
+        return json(200, { mgmt_fee: row?.mgmt_fee ?? null });
+      }
+
+      if (method === "POST" && path === "/api/viewings") {
+        const body = await request.json();
+        const { estate_id, view_date, floor, unit, size_net, direction, price, mgmt_fee, images, notes } = body;
+        if (!estate_id || !view_date || !floor || !unit || !size_net || !price)
+          return json(400, { error: "Missing required fields" });
+        const result = await db.prepare(
+          "INSERT INTO viewings (estate_id, view_date, floor, unit, size_net, direction, price, mgmt_fee, images, notes) VALUES (?,?,?,?,?,?,?,?,?,?)"
+        ).bind(estate_id, view_date, floor, unit, size_net, direction||null, price, mgmt_fee||null, images||null, notes||null).run();
+        return json(200, { ok: true, id: result.meta.last_row_id });
+      }
+
+      if (method === "DELETE" && path.startsWith("/api/viewings/")) {
+        const viewingId = path.split("/").pop();
+        await db.prepare("DELETE FROM viewings WHERE id = ?").bind(viewingId).run();
+        return json(200, { ok: true });
+      }
+
       return json(404, { error: "Not found" });
     } catch (err) {
       console.error(err);
