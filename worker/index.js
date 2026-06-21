@@ -957,6 +957,78 @@ export default {
         return json(200, await getTodayHighlights(db));
       }
 
+      if (method === "GET" && path === "/api/history-highlights") {
+        const months = Math.min(12, Math.max(1, parseInt(url.searchParams.get("months") || "1")));
+        const cutoff = new Date(Date.now() + 8*3600000);
+        cutoff.setMonth(cutoff.getMonth() - months);
+        const cutoffStr = cutoff.toISOString().slice(0, 10);
+        const today = hkDateStr();
+
+        const [newTxns, newListings, priceChanges] = await Promise.all([
+          db.prepare(`
+            SELECT t.*, e.name as estate_name FROM transactions t
+            JOIN estates e ON e.id = t.estate_id
+            WHERE t.first_seen >= ? AND t.first_seen <= ?
+              AND date(e.first_seen) < ?
+              AND (e.is_disabled = 0 OR e.is_disabled IS NULL)
+            ORDER BY t.first_seen DESC, t.price DESC
+          `).bind(cutoffStr, today, cutoffStr).all(),
+
+          db.prepare(`
+            SELECT l.building_name, l.floor, l.unit, l.bedrooms, l.price, l.price_per_ft, l.size_net,
+                   l.detail_url, e.name as estate_name, MIN(lph.snapshot_date) as first_seen_date
+            FROM listing_price_history lph
+            JOIN listings l ON l.ref_no = lph.ref_no AND l.estate_id = lph.estate_id
+            JOIN estates e ON e.id = lph.estate_id
+            WHERE (e.is_disabled = 0 OR e.is_disabled IS NULL)
+            GROUP BY lph.ref_no, lph.estate_id
+            HAVING MIN(lph.snapshot_date) >= ?
+            ORDER BY first_seen_date DESC, l.price ASC
+          `).bind(cutoffStr).all(),
+
+          db.prepare(`
+            SELECT l.building_name, l.floor, l.unit, l.detail_url, e.name as estate_name,
+                   first_p.price as old_price, last_p.price as new_price,
+                   first_p.snapshot_date as old_date, last_p.snapshot_date as new_date
+            FROM (
+              SELECT ref_no, estate_id, MIN(snapshot_date) as min_d, MAX(snapshot_date) as max_d
+              FROM listing_price_history
+              WHERE snapshot_date >= ?
+              GROUP BY ref_no, estate_id
+              HAVING COUNT(DISTINCT price) > 1 AND MIN(price) != MAX(price)
+            ) changed
+            JOIN listing_price_history first_p ON first_p.ref_no = changed.ref_no AND first_p.estate_id = changed.estate_id AND first_p.snapshot_date = changed.min_d
+            JOIN listing_price_history last_p  ON last_p.ref_no = changed.ref_no  AND last_p.estate_id = changed.estate_id  AND last_p.snapshot_date = changed.max_d
+            JOIN listings l ON l.ref_no = changed.ref_no AND l.estate_id = changed.estate_id
+            JOIN estates e ON e.id = changed.estate_id
+            WHERE first_p.price != last_p.price
+              AND (e.is_disabled = 0 OR e.is_disabled IS NULL)
+            ORDER BY ABS(last_p.price - first_p.price) DESC
+          `).bind(cutoffStr).all(),
+        ]);
+
+        const { results: estateOrder } = await db.prepare(
+          "SELECT name, sort_order, is_favourite FROM estates WHERE is_disabled = 0 OR is_disabled IS NULL ORDER BY is_favourite DESC, sort_order ASC"
+        ).all();
+        const orderIndex = new Map(estateOrder.map((e, i) => [e.name, i]));
+
+        const estateMap = new Map();
+        const getEstate = name => {
+          if (!estateMap.has(name)) estateMap.set(name, { estate: name, newTransactions: [], priceChanges: [], newListings: [] });
+          return estateMap.get(name);
+        };
+        for (const t of newTxns.results)      getEstate(t.estate_name).newTransactions.push(t);
+        for (const l of newListings.results)   getEstate(l.estate_name).newListings.push(l);
+        for (const p of priceChanges.results)  getEstate(p.estate_name).priceChanges.push(p);
+
+        const byEstate = [...estateMap.values()].sort((a, b) => {
+          const ia = orderIndex.has(a.estate) ? orderIndex.get(a.estate) : 9999;
+          const ib = orderIndex.has(b.estate) ? orderIndex.get(b.estate) : 9999;
+          return ia - ib;
+        });
+        return json(200, { months, cutoff: cutoffStr, byEstate });
+      }
+
       if (method === "POST" && path.match(/^\/api\/estates\/\d+\/favourite$/)) {
         const estateId = path.split("/")[3];
         const estate = await db.prepare("SELECT is_favourite FROM estates WHERE id = ?").bind(estateId).first();

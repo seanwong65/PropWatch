@@ -884,7 +884,10 @@ async function showDashboard(estates) {
   main.innerHTML = `
     <div class="dashboard">
       <div class="highlights-section" id="highlights-section">
-        <div class="highlights-title">今日動態 <span style="font-weight:400;color:var(--muted);text-transform:none;letter-spacing:0" id="highlights-date"></span></div>
+        <div class="highlights-title" style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:0.4rem">
+          <span>今日動態 <span style="font-weight:400;color:var(--muted);text-transform:none;letter-spacing:0" id="highlights-date"></span></span>
+          <button class="history-btn" style="font-size:0.75rem;padding:0.25rem 0.6rem" onclick="showHistoryPage()">歷史動態 →</button>
+        </div>
         <div id="highlights-body" style="color:var(--muted);font-size:0.75rem">載入中…</div>
       </div>
       <div class="dashboard-chart-section" style="margin-top:1.25rem">
@@ -1028,6 +1031,117 @@ async function loadTodayHighlights() {
         } catch {}
       })();
     }
+  } catch(e) {
+    if (body) body.innerHTML = `<span style="color:var(--muted)">載入失敗</span>`;
+  }
+}
+
+function showHistoryPage() {
+  activeEstateId = null;
+  const main = document.getElementById("main");
+  main.innerHTML = `
+    <div class="dashboard">
+      <div class="highlights-section" id="history-section">
+        <div class="highlights-title" style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:0.4rem">
+          <span>歷史動態</span>
+          <div style="display:flex;align-items:center;gap:0.5rem">
+            <select class="filter-select" id="historyMonthsSel" onchange="loadHistoryHighlights(this.value)" style="font-size:0.78rem;padding:0.2rem 0.5rem">
+              <option value="1">最近 1 個月</option>
+              <option value="3">最近 3 個月</option>
+              <option value="6">最近 6 個月</option>
+              <option value="12">最近 12 個月</option>
+            </select>
+            <button class="history-btn" style="font-size:0.75rem;padding:0.25rem 0.6rem" onclick="showDashboard(dashboardEstates)">← 返回</button>
+          </div>
+        </div>
+        <div id="history-body" style="color:var(--muted);font-size:0.75rem;margin-top:0.75rem">載入中…</div>
+      </div>
+    </div>`;
+  loadHistoryHighlights(1);
+}
+
+async function loadHistoryHighlights(months) {
+  const body = document.getElementById("history-body");
+  if (!body) return;
+  body.innerHTML = `<span style="color:var(--muted)">載入中…</span>`;
+  try {
+    const data = await api(`/api/history-highlights?months=${months}`);
+    const fmt = p => p ? `$${(p/1e4).toFixed(0)}萬` : "-";
+    const pct = (n, o) => o ? ((n-o)/o*100).toFixed(1) : null;
+    const lnk = url => url ? `<a href="${url}" target="_blank" class="hl-link">詳情 ↗</a>` : '';
+    const TR = (c1, c2, c3, c4, c5='') =>
+      `<tr class="hl-tr"><td class="hl-c1">${c1}</td><td class="hl-c2">${c2}</td><td class="hl-c3">${c3}</td><td class="hl-c4">${c4}</td><td class="hl-c5">${c5}</td></tr>`;
+    const TH = (h1, h2, h3, h4, h5='') =>
+      `<thead><tr class="hl-th"><th class="hl-c1">${h1}</th><th class="hl-c2">${h2}</th><th class="hl-c3">${h3}</th><th class="hl-c4">${h4}</th><th class="hl-c5">${h5}</th></tr></thead>`;
+    const tbl = (headers, rows) => `<table class="hl-table">${headers}<tbody>${rows}</tbody></table>`;
+
+    let html = "";
+    for (const { estate, newTransactions = [], priceChanges = [], newListings = [] } of (data.byEstate || [])) {
+      let inner = "";
+
+      if (newTransactions.length) {
+        let rows = "";
+        for (const t of newTransactions) {
+          const years = t.held_days ? t.held_days / 365 : null;
+          const heldStr = years ? years.toFixed(1) + '年' : '-';
+          let gainHtml = '-';
+          if (t.gain_pct != null && years) {
+            const annualPct = (Math.pow(1 + t.gain_pct / 100, 1 / years) - 1) * 100;
+            const cls = t.gain_pct >= 0 ? 'gain-pos' : 'gain-neg';
+            const arrow = t.gain_pct >= 0 ? '▲' : '▼';
+            gainHtml = `<span class="${cls}">${arrow} ${Math.abs(annualPct).toFixed(1)}%/年</span><div class="unit-price">${arrow} ${Math.abs(t.gain_pct).toFixed(1)}%</div>`;
+          }
+          rows += TR(
+            `${escHtml(t.building||'')} ${escHtml(t.floor||'')} ${escHtml(t.unit||'')}`,
+            `${t.size_net ? t.size_net+'實呎' : ''}<div class="unit-price">${t.first_seen||''}</div>`,
+            `<span style="font-weight:700;color:var(--accent)">${t.price ? fmt(t.price) : '-'}</span>`,
+            `${heldStr}<div class="unit-price">${gainHtml}</div>`,
+            lnk(t.detail_url)
+          );
+        }
+        inner += `<div class="highlights-subgroup"><div class="highlights-group-label" style="color:#a78bfa">🏠 新成交 (${newTransactions.length})</div>${tbl(TH('單位','面積 / 日期','成交價','持有 / 升跌',''), rows)}</div>`;
+      }
+
+      if (priceChanges.length) {
+        let rows = "";
+        for (const c of priceChanges) {
+          const d = pct(c.new_price, c.old_price);
+          const col = d > 0 ? 'var(--up)' : 'var(--down)';
+          rows += TR(
+            `${escHtml(c.building_name||'')} ${escHtml(c.floor||'')} ${escHtml(c.unit||'')}`,
+            `<span style="text-decoration:line-through;color:var(--muted)">${fmt(c.old_price)}</span>`,
+            `<span style="font-weight:700">${fmt(c.new_price)}</span>`,
+            `<span style="color:${col}">${d>0?'▲':'▼'} ${Math.abs(d)}%</span>`,
+            lnk(c.detail_url)
+          );
+        }
+        inner += `<div class="highlights-subgroup"><div class="highlights-group-label" style="color:var(--accent)">💰 售價變動 (${priceChanges.length})</div>${tbl(TH('單位','原價','新價','變動',''), rows)}</div>`;
+      }
+
+      if (newListings.length) {
+        let rows = "";
+        for (const l of newListings) {
+          rows += TR(
+            `${escHtml(l.building_name||'')} ${escHtml(l.floor||'')} ${escHtml(l.unit||'')}`,
+            `${l.bedrooms!=null?l.bedrooms+'房':'-'}${l.size_net?' '+l.size_net+'呎':''}`,
+            `<span style="font-weight:700;color:var(--accent)">${fmt(l.price)}</span>`,
+            l.price_per_ft ? `$${Math.round(l.price_per_ft).toLocaleString()}/呎` : '',
+            lnk(l.detail_url)
+          );
+        }
+        inner += `<div class="highlights-subgroup"><div class="highlights-group-label" style="color:var(--up)">🆕 新放盤 (${newListings.length})</div>${tbl(TH('單位','房間 / 面積','價格','呎價',''), rows)}</div>`;
+      }
+
+      if (inner) {
+        const estateObj = dashboardEstates.find(e => e.name === estate);
+        const hdr = estateObj
+          ? `<div class="highlights-estate-header" style="cursor:pointer" onclick="showEstate(${estateObj.id},'${escHtml(estate).replace(/'/g,"\\'")}','${escHtml(estateObj.district||'').replace(/'/g,"\\'")}');closeSidebar()">${escHtml(estate)} <span style="font-size:0.72rem;color:var(--accent2);vertical-align:middle">↗</span></div>`
+          : `<div class="highlights-estate-header">${escHtml(estate)}</div>`;
+        html += `<div class="highlights-group">${hdr}${inner}</div>`;
+      }
+    }
+    if (!html) html = `<span style="color:var(--muted)">所選時段內暫無動態</span>`;
+    body.innerHTML = html;
   } catch(e) {
     if (body) body.innerHTML = `<span style="color:var(--muted)">載入失敗</span>`;
   }
