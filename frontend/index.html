@@ -323,6 +323,7 @@
       vertical-align: middle;
     }
     .hl-tr:last-child td { border-bottom: none; }
+    .hl-th th { padding: 0.25rem 0.5rem 0.25rem 0; font-size: 0.72rem; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; border-bottom: 1px solid var(--border); }
     .hl-c1 { width: 28%; }
     .hl-c2 { width: 20%; color: var(--muted); }
     .hl-c3 { width: 20%; }
@@ -824,7 +825,9 @@ async function loadTodayHighlights() {
     const lnk = url => url ? `<a href="${url}" target="_blank" class="hl-link">詳情 ↗</a>` : '';
     const TR = (c1, c2, c3, c4, c5='') =>
       `<tr class="hl-tr"><td class="hl-c1">${c1}</td><td class="hl-c2">${c2}</td><td class="hl-c3">${c3}</td><td class="hl-c4">${c4}</td><td class="hl-c5">${c5}</td></tr>`;
-    const tbl = rows => `<table class="hl-table">${rows}</table>`;
+    const TH = (h1, h2, h3, h4, h5='') =>
+      `<thead><tr class="hl-th"><th class="hl-c1">${h1}</th><th class="hl-c2">${h2}</th><th class="hl-c3">${h3}</th><th class="hl-c4">${h4}</th><th class="hl-c5">${h5}</th></tr></thead>`;
+    const tbl = (headers, rows) => `<table class="hl-table">${headers}<tbody>${rows}</tbody></table>`;
 
     const hlTxnQueue = [];
     let html = "";
@@ -857,7 +860,7 @@ async function loadTodayHighlights() {
           </tr>`;
           hlTxnQueue.push({ rowId, estate, t });
         }
-        inner += `<div class="highlights-subgroup"><div class="highlights-group-label" style="color:#a78bfa">🏠 新成交 (${newTransactions.length})</div>${tbl(rows)}</div>`;
+        inner += `<div class="highlights-subgroup"><div class="highlights-group-label" style="color:#a78bfa">🏠 新成交 (${newTransactions.length})</div>${tbl(TH('單位','面積','成交價','持有 / 升跌',''), rows)}</div>`;
       }
 
       if (priceChanges.length) {
@@ -873,7 +876,7 @@ async function loadTodayHighlights() {
             lnk(c.detail_url)
           );
         }
-        inner += `<div class="highlights-subgroup"><div class="highlights-group-label" style="color:var(--accent)">💰 售價變動 (${priceChanges.length})</div>${tbl(rows)}</div>`;
+        inner += `<div class="highlights-subgroup"><div class="highlights-group-label" style="color:var(--accent)">💰 售價變動 (${priceChanges.length})</div>${tbl(TH('單位','原價','新價','變動',''), rows)}</div>`;
       }
 
       if (newListings.length) {
@@ -887,7 +890,7 @@ async function loadTodayHighlights() {
             lnk(l.detail_url)
           );
         }
-        inner += `<div class="highlights-subgroup"><div class="highlights-group-label" style="color:var(--up)">🆕 新放盤 (${newListings.length})</div>${tbl(rows)}</div>`;
+        inner += `<div class="highlights-subgroup"><div class="highlights-group-label" style="color:var(--up)">🆕 新放盤 (${newListings.length})</div>${tbl(TH('單位','房間 / 面積','價格','呎價',''), rows)}</div>`;
       }
 
       if (removedListings.length) {
@@ -901,7 +904,7 @@ async function loadTodayHighlights() {
             lnk(l.detail_url)
           );
         }
-        inner += `<div class="highlights-subgroup"><div class="highlights-group-label" style="color:var(--down)">❌ 已下架 (${removedListings.length})</div>${tbl(rows)}</div>`;
+        inner += `<div class="highlights-subgroup"><div class="highlights-group-label" style="color:var(--down)">❌ 已下架 (${removedListings.length})</div>${tbl(TH('單位','房間','原價','',''), rows)}</div>`;
       }
 
       if (inner) html += `<div class="highlights-group"><div class="highlights-estate-header">${escHtml(estate)}</div>${inner}</div>`;
