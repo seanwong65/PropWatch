@@ -993,13 +993,14 @@ export default {
                    first_p.snapshot_date as old_date, last_p.snapshot_date as new_date
             FROM (
               SELECT ref_no, estate_id, MIN(snapshot_date) as min_d, MAX(snapshot_date) as max_d
-              FROM listing_price_history
-              WHERE snapshot_date >= ?
+              FROM (SELECT DISTINCT ref_no, estate_id, snapshot_date, price FROM listing_price_history WHERE snapshot_date >= ?)
               GROUP BY ref_no, estate_id
               HAVING COUNT(DISTINCT price) > 1 AND MIN(price) != MAX(price)
             ) changed
-            JOIN listing_price_history first_p ON first_p.ref_no = changed.ref_no AND first_p.estate_id = changed.estate_id AND first_p.snapshot_date = changed.min_d
-            JOIN listing_price_history last_p  ON last_p.ref_no = changed.ref_no  AND last_p.estate_id = changed.estate_id  AND last_p.snapshot_date = changed.max_d
+            JOIN (SELECT DISTINCT ref_no, estate_id, snapshot_date, price FROM listing_price_history) first_p
+              ON first_p.ref_no = changed.ref_no AND first_p.estate_id = changed.estate_id AND first_p.snapshot_date = changed.min_d
+            JOIN (SELECT DISTINCT ref_no, estate_id, snapshot_date, price FROM listing_price_history) last_p
+              ON last_p.ref_no = changed.ref_no AND last_p.estate_id = changed.estate_id AND last_p.snapshot_date = changed.max_d
             JOIN listings l ON l.ref_no = changed.ref_no AND l.estate_id = changed.estate_id
             JOIN estates e ON e.id = changed.estate_id
             WHERE first_p.price != last_p.price
