@@ -694,9 +694,52 @@
       white-space: nowrap;
     }
 
+    /* Hamburger button — hidden on desktop */
+    .hamburger {
+      display: none;
+      background: none;
+      border: none;
+      cursor: pointer;
+      padding: 0.3rem 0.5rem;
+      flex-direction: column;
+      gap: 5px;
+      margin-right: 0.6rem;
+    }
+    .hamburger span {
+      display: block;
+      width: 22px;
+      height: 2px;
+      background: var(--text);
+      border-radius: 2px;
+      transition: background 0.2s;
+    }
+    .hamburger:hover span { background: var(--accent); }
+
+    /* Mobile drawer overlay */
+    .sidebar-overlay {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,0.55);
+      z-index: 199;
+    }
+    .sidebar-overlay.open { display: block; }
+
     @media (max-width: 768px) {
       .layout { grid-template-columns: 1fr; height: auto; }
-      .sidebar { max-height: 40vh; border-right: none; border-bottom: 1px solid var(--border); }
+      .sidebar {
+        position: fixed;
+        top: 0; left: 0; bottom: 0;
+        width: 80vw; max-width: 300px;
+        border-right: 1px solid var(--border);
+        border-bottom: none;
+        transform: translateX(-100%);
+        transition: transform 0.25s ease;
+        z-index: 200;
+        background: var(--surface);
+      }
+      .sidebar.open { transform: translateX(0); }
+      .hamburger { display: flex; }
       .stats-row { grid-template-columns: repeat(2, 1fr); }
       .main { padding: 1rem; }
     }
@@ -705,12 +748,18 @@
 <body>
 
 <header>
-  <div class="logo" onclick="goHome()" style="cursor:pointer">
-    <span class="logo-icon">🏙️</span>
-    <h1>Prop<span>Watch</span></h1>
+  <div style="display:flex;align-items:center">
+    <button class="hamburger" onclick="toggleSidebar()" aria-label="屋苑列表">
+      <span></span><span></span><span></span>
+    </button>
+    <div class="logo" onclick="goHome()" style="cursor:pointer">
+      <span class="logo-icon">🏙️</span>
+      <h1>Prop<span>Watch</span></h1>
+    </div>
   </div>
   <button class="sync-btn" onclick="syncAll()">↻ 立即同步</button>
 </header>
+<div class="sidebar-overlay" id="sidebarOverlay" onclick="closeSidebar()"></div>
 
 <div class="layout">
   <!-- Sidebar -->
@@ -770,6 +819,17 @@ async function api(path, opts = {}) {
   const data = await res.json();
   if (!res.ok) throw new Error(data.error || "請求失敗");
   return data;
+}
+
+function toggleSidebar() {
+  const sidebar = document.querySelector('.sidebar');
+  const overlay = document.getElementById('sidebarOverlay');
+  const isOpen = sidebar.classList.contains('open');
+  isOpen ? closeSidebar() : (sidebar.classList.add('open'), overlay.classList.add('open'));
+}
+function closeSidebar() {
+  document.querySelector('.sidebar').classList.remove('open');
+  document.getElementById('sidebarOverlay').classList.remove('open');
 }
 
 function goHome() {
@@ -1232,6 +1292,7 @@ async function showEstate(id, name, district) {
   document.querySelectorAll(".estate-card").forEach(c => {
     c.classList.toggle("active", c.getAttribute("onclick")?.includes(`${id},`));
   });
+  if (window.innerWidth <= 768) closeSidebar();
 
   const main = document.getElementById("main");
   main.innerHTML = '<div class="loading"><div class="spinner"></div> 載入中…</div>';
