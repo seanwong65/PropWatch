@@ -964,7 +964,7 @@ export default {
         const cutoffStr = cutoff.toISOString().slice(0, 10);
         const today = hkDateStr();
 
-        const [newTxns, newListings, priceChanges] = await Promise.all([
+        const [newTxns, newListings, priceChanges, removedListings] = await Promise.all([
           db.prepare(`
             SELECT t.*, e.name as estate_name FROM transactions t
             JOIN estates e ON e.id = t.estate_id
@@ -1013,6 +1013,24 @@ export default {
               AND (e.is_disabled = 0 OR e.is_disabled IS NULL)
             ORDER BY ABS(last_p.price - first_p.price) DESC
           `).bind(cutoffStr).all(),
+
+          db.prepare(`
+            SELECT l.building_name, l.floor, l.unit, l.bedrooms, l.price,
+                   l.detail_url, e.name as estate_name, l.snapshot_date as last_seen_date
+            FROM listings l
+            JOIN estates e ON e.id = l.estate_id
+            WHERE l.snapshot_date >= ?
+              AND l.snapshot_date < ?
+              AND l.ref_no IS NOT NULL
+              AND l.ref_no NOT IN (
+                SELECT ref_no FROM listings
+                WHERE estate_id = l.estate_id AND snapshot_date = ?
+              )
+              AND date(e.first_seen) <= l.snapshot_date
+              AND (e.is_disabled = 0 OR e.is_disabled IS NULL)
+            GROUP BY l.ref_no, l.estate_id
+            ORDER BY l.snapshot_date DESC
+          `).bind(cutoffStr, today, today).all(),
         ]);
 
         const { results: estateOrder } = await db.prepare(
@@ -1022,12 +1040,13 @@ export default {
 
         const estateMap = new Map();
         const getEstate = name => {
-          if (!estateMap.has(name)) estateMap.set(name, { estate: name, newTransactions: [], priceChanges: [], newListings: [] });
+          if (!estateMap.has(name)) estateMap.set(name, { estate: name, newTransactions: [], priceChanges: [], newListings: [], removedListings: [] });
           return estateMap.get(name);
         };
-        for (const t of newTxns.results)      getEstate(t.estate_name).newTransactions.push(t);
-        for (const l of newListings.results)   getEstate(l.estate_name).newListings.push(l);
-        for (const p of priceChanges.results)  getEstate(p.estate_name).priceChanges.push(p);
+        for (const t of newTxns.results)        getEstate(t.estate_name).newTransactions.push(t);
+        for (const l of newListings.results)     getEstate(l.estate_name).newListings.push(l);
+        for (const p of priceChanges.results)    getEstate(p.estate_name).priceChanges.push(p);
+        for (const r of removedListings.results) getEstate(r.estate_name).removedListings.push(r);
 
         const byEstate = [...estateMap.values()].sort((a, b) => {
           const ia = orderIndex.has(a.estate) ? orderIndex.get(a.estate) : 9999;

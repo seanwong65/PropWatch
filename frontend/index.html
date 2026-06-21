@@ -1078,7 +1078,7 @@ async function loadHistoryHighlights(months) {
     const tbl = (headers, rows) => `<table class="hl-table">${headers}<tbody>${rows}</tbody></table>`;
 
     let html = "";
-    for (const { estate, newTransactions = [], priceChanges = [], newListings = [] } of (data.byEstate || [])) {
+    for (const { estate, newTransactions = [], priceChanges = [], newListings = [], removedListings = [] } of (data.byEstate || [])) {
       let inner = "";
 
       if (newTransactions.length) {
@@ -1132,6 +1132,20 @@ async function loadHistoryHighlights(months) {
           );
         }
         inner += `<div class="highlights-subgroup"><div class="highlights-group-label" style="color:var(--up)">🆕 新放盤 (${newListings.length})</div>${tbl(TH('上盤日期','單位','房間 / 面積','價格','呎價'), rows)}</div>`;
+      }
+
+      if (removedListings.length) {
+        let rows = "";
+        for (const r of removedListings) {
+          rows += TR(
+            `<span style="color:var(--muted)">${r.last_seen_date||''}</span>`,
+            `${escHtml(r.building_name||'')} ${escHtml(r.floor||'')} ${escHtml(r.unit||'')}`,
+            r.bedrooms != null ? `${r.bedrooms}房` : '-',
+            `<span style="text-decoration:line-through;color:var(--muted)">${fmt(r.price)}</span>`,
+            lnk(r.detail_url)
+          );
+        }
+        inner += `<div class="highlights-subgroup"><div class="highlights-group-label" style="color:var(--down)">❌ 已下架 (${removedListings.length})</div>${tbl(TH('下架日期','單位','房間','原價',''), rows)}</div>`;
       }
 
       if (inner) {
