@@ -826,22 +826,36 @@ async function loadTodayHighlights() {
       `<tr class="hl-tr"><td class="hl-c1">${c1}</td><td class="hl-c2">${c2}</td><td class="hl-c3">${c3}</td><td class="hl-c4">${c4}</td><td class="hl-c5">${c5}</td></tr>`;
     const tbl = rows => `<table class="hl-table">${rows}</table>`;
 
+    const hlTxnQueue = [];
     let html = "";
     for (const { estate, newTransactions = [], priceChanges = [], newListings = [], removedListings = [] } of (data.byEstate || [])) {
       let inner = "";
 
       if (newTransactions.length) {
         let rows = "";
-        for (const t of newTransactions) {
-          const gainColor = t.gain_pct >= 0 ? 'var(--up)' : 'var(--down)';
-          const gainStr = t.gain_pct != null ? `<span style="color:${gainColor}">${t.gain_pct>=0?'▲':'▼'} ${Math.abs(t.gain_pct).toFixed(1)}%</span>` : '-';
-          rows += TR(
-            `${escHtml(t.building||'')} ${escHtml(t.floor||'')} ${escHtml(t.unit||'')}`,
-            t.size_net ? `${t.size_net}實呎` : '',
-            `<span style="font-weight:700;color:var(--accent)">${t.price ? fmt(t.price) : '-'}</span>`,
-            gainStr,
-            ''
-          );
+        for (let ti = 0; ti < newTransactions.length; ti++) {
+          const t = newTransactions[ti];
+          const years = t.held_days ? t.held_days / 365 : null;
+          const heldStr = years ? years.toFixed(1) + '年' : '-';
+          let gainHtml = '-';
+          if (t.gain_pct != null && years) {
+            const annualPct = (Math.pow(1 + t.gain_pct / 100, 1 / years) - 1) * 100;
+            const cls = t.gain_pct >= 0 ? 'gain-pos' : 'gain-neg';
+            const arrow = t.gain_pct >= 0 ? '▲' : '▼';
+            gainHtml = `<span class="${cls}">${arrow} ${Math.abs(annualPct).toFixed(1)}%/年</span><div class="unit-price">${arrow} ${Math.abs(t.gain_pct).toFixed(1)}%</div>`;
+          } else if (t.gain_pct != null) {
+            const cls = t.gain_pct >= 0 ? 'gain-pos' : 'gain-neg';
+            gainHtml = `<span class="${cls}">${t.gain_pct>=0?'▲':'▼'} ${Math.abs(t.gain_pct).toFixed(1)}%</span>`;
+          }
+          const rowId = `hl-txn-${estate.replace(/\s/g,'')}-${ti}`;
+          rows += `<tr class="hl-tr">
+            <td class="hl-c1">${escHtml(t.building||'')} ${escHtml(t.floor||'')} ${escHtml(t.unit||'')}</td>
+            <td class="hl-c2">${t.size_net ? t.size_net+'實呎' : ''}</td>
+            <td class="hl-c3"><span style="font-weight:700;color:var(--accent)">${t.price ? fmt(t.price) : '-'}</span><span id="${rowId}-diff"></span></td>
+            <td class="hl-c4">${heldStr}<div class="unit-price">${gainHtml}</div></td>
+            <td class="hl-c5">${lnk(t.detail_url)}</td>
+          </tr>`;
+          hlTxnQueue.push({ rowId, estate, t });
         }
         inner += `<div class="highlights-subgroup"><div class="highlights-group-label" style="color:#a78bfa">🏠 新成交 (${newTransactions.length})</div>${tbl(rows)}</div>`;
       }
@@ -895,6 +909,22 @@ async function loadTodayHighlights() {
 
     if (!html) html = `<span style="color:var(--muted)">今日暫無更新</span>`;
     body.innerHTML = html;
+
+    // Auto-fetch HS valuation for new transactions
+    for (const { rowId, estate: estateName, t } of hlTxnQueue) {
+      const blockNum   = (t.building || '').match(/\d+/)?.[0] || '';
+      const floorNum   = (t.floor || '').match(/\d+/)?.[0] || '';
+      const flatLetter = (t.unit || '').replace(/[室層樓]/g, '').trim();
+      if (!estateName || !blockNum || !floorNum || !flatLetter) continue;
+      (async () => {
+        try {
+          const params = new URLSearchParams({ estate: estateName, block: blockNum, floor: floorNum, flat: flatLetter });
+          const hsData = await api(`/api/hangseng-valuation?${params}`);
+          const diffSpan = document.getElementById(rowId + '-diff');
+          if (diffSpan && hsData?.price) diffSpan.innerHTML = hsDiffHtml(Number(hsData.price), t.price);
+        } catch {}
+      })();
+    }
   } catch(e) {
     if (body) body.innerHTML = `<span style="color:var(--muted)">載入失敗</span>`;
   }
@@ -1242,16 +1272,6 @@ async function showEstate(id, name, district) {
       return vals.length ? `$${(Math.max(...vals)/1e4).toFixed(0)}萬` : null;
     });
 
-    // Trend change
-    let trendChange = "";
-    if (trends.length >= 2) {
-      const last = trends[trends.length-1].avg_price_ft;
-      const prev = trends[trends.length-2].avg_price_ft;
-      const pct = ((last-prev)/prev*100).toFixed(1);
-      const color = pct >= 0 ? "var(--up)" : "var(--down)";
-      trendChange = `<span style="color:${color};font-size:0.8rem">${pct>=0?'▲':'▼'} ${Math.abs(pct)}%</span>`;
-    }
-
     main.innerHTML = `
       <div class="estate-header">
         <div>
@@ -1259,7 +1279,6 @@ async function showEstate(id, name, district) {
           <div class="estate-sub">${district ? escHtml(district) + ' · ' : ''}共 ${listings.length} 個在售單位</div>
           <div id="estate-info-bar"></div>
         </div>
-        ${trendChange}
       </div>
 
       <div class="estate-tabs">
