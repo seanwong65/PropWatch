@@ -668,6 +668,18 @@
       outline: none;
     }
     .filter-input:focus { border-color: var(--accent2); }
+    .filter-select {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      color: var(--text);
+      border-radius: 6px;
+      padding: 0.25rem 0.4rem;
+      font-size: 0.75rem;
+      outline: none;
+      cursor: pointer;
+      max-width: 120px;
+    }
+    .filter-select:focus { border-color: var(--accent2); }
     .filter-sep {
       width: 1px;
       height: 18px;
@@ -737,7 +749,7 @@ let chart = null;
 let allListings = [];
 let sortCol = "price";
 let sortDir = "asc";
-let filters = { beds: "all", floor: "all", minPrice: "", maxPrice: "", minSize: "", maxSize: "", priceChanged: "all" };
+let filters = { beds: "all", floor: "all", building: "all", unit: "all", minPrice: "", maxPrice: "", minSize: "", maxSize: "", priceChanged: "all" };
 
 // ── Toast ──────────────────────────────────────────────────────
 function toast(msg, type = "info") {
@@ -1318,7 +1330,7 @@ async function showEstate(id, name, district) {
       allListings = listings;
       sortCol = "price";
       sortDir = "asc";
-      filters = { beds: "all", floor: "all", minPrice: "", maxPrice: "", minSize: "", maxSize: "" };
+      filters = { beds: "all", floor: "all", building: "all", unit: "all", minPrice: "", maxPrice: "", minSize: "", maxSize: "", priceChanged: "all" };
       renderFilterBar();
       renderListingsTable();
     }
@@ -1446,7 +1458,7 @@ let txnEstateId = null;
 let allTransactions = [];
 let txnSortCol = "reg_date";
 let txnSortDir = "desc";
-let txnFilters = { dateMonths: 0, heldMin: '', heldMax: '' };
+let txnFilters = { dateMonths: 0, heldMin: '', heldMax: '', building: 'all', unit: 'all' };
 
 function setTxnFilter(key, val) {
   txnFilters[key] = val;
@@ -1469,6 +1481,8 @@ function applyTxnFilters(txns) {
     const years = t.held_days ? t.held_days / 365 : null;
     if (txnFilters.heldMin !== '' && (years === null || years < Number(txnFilters.heldMin))) return false;
     if (txnFilters.heldMax !== '' && (years === null || years > Number(txnFilters.heldMax))) return false;
+    if (txnFilters.building !== 'all' && t.building !== txnFilters.building) return false;
+    if (txnFilters.unit !== 'all' && t.unit !== txnFilters.unit) return false;
     return true;
   });
 }
@@ -1481,7 +1495,7 @@ async function loadTransactions(estateId, offset, append) {
     panel.innerHTML = '<div class="listings-section"><div class="loading"><div class="spinner"></div> 載入中…</div></div>';
   }
 
-  if (!append) txnFilters = { dateMonths: 0, heldMin: '', heldMax: '' };
+  if (!append) txnFilters = { dateMonths: 0, heldMin: '', heldMax: '', building: 'all', unit: 'all' };
 
   try {
     const { transactions } = await api(`/api/estates/${estateId}/transactions?offset=${offset}`);
@@ -1610,12 +1624,22 @@ function renderTransactionsTable(estateId, offset, hasMore) {
     { label: '3年', months: 36 },
     { label: '5年', months: 60 },
   ];
+  const txnBuildings = ["all", ...Array.from(new Set(allTransactions.map(t=>t.building).filter(Boolean))).sort()];
+  const txnUnits = ["all", ...Array.from(new Set(allTransactions.map(t=>t.unit).filter(Boolean))).sort()];
+  const txnSel = (key, opts) =>
+    `<select class="filter-select" onchange="setTxnFilter('${key}',this.value)">${opts.map(o=>`<option value="${o}"${txnFilters[key]===o?'selected':''}>${o==='all'?'全部':o}</option>`).join('')}</select>`;
   const filterBar = `
     <div class="filter-bar">
       <span class="filter-label">登記日期</span>
       <div class="filter-group">
         ${datePresets.map(p => `<button class="filter-chip ${txnFilters.dateMonths===p.months?'active':''}" onclick="setTxnFilter('dateMonths',${p.months})">${p.label}</button>`).join('')}
       </div>
+      <div class="filter-sep"></div>
+      <span class="filter-label">座</span>
+      <div class="filter-group">${txnSel('building', txnBuildings)}</div>
+      <div class="filter-sep"></div>
+      <span class="filter-label">單位</span>
+      <div class="filter-group">${txnSel('unit', txnUnits)}</div>
       <div class="filter-sep"></div>
       <span class="filter-label">持有年期</span>
       <div class="filter-group">
@@ -1646,6 +1670,11 @@ function renderFilterBar() {
   if (!bar) return;
   const bedOptions = ["all","1","2","3","4+"];
   const floorOptions = ["all","高層","中層","低層"];
+  // Dynamic options from current listings
+  const buildings = ["all", ...Array.from(new Set((allListings||[]).map(l=>l.building_name).filter(Boolean))).sort()];
+  const units = ["all", ...Array.from(new Set((allListings||[]).map(l=>l.unit).filter(Boolean))).sort()];
+  const sel = (key, opts, labelFn) =>
+    `<select class="filter-select" onchange="setFilter('${key}',this.value)">${opts.map(o=>`<option value="${o}"${filters[key]===o?'selected':''}>${labelFn(o)}</option>`).join('')}</select>`;
   bar.innerHTML = `
     <div class="filter-bar">
       <span class="filter-label">房數</span>
@@ -1656,6 +1685,16 @@ function renderFilterBar() {
       <span class="filter-label">樓層</span>
       <div class="filter-group">
         ${floorOptions.map(f => `<button class="filter-chip ${filters.floor===f?'active':''}" onclick="setFilter('floor','${f}')">${f==='all'?'全部':f}</button>`).join('')}
+      </div>
+      <div class="filter-sep"></div>
+      <span class="filter-label">座</span>
+      <div class="filter-group">
+        ${sel('building', buildings, o => o==='all'?'全部':o)}
+      </div>
+      <div class="filter-sep"></div>
+      <span class="filter-label">單位</span>
+      <div class="filter-group">
+        ${sel('unit', units, o => o==='all'?'全部':o)}
       </div>
       <div class="filter-sep"></div>
       <span class="filter-label">售價(萬)</span>
@@ -1702,6 +1741,8 @@ function applyFilters(listings) {
       if (filters.beds !== "4+" && String(b) !== filters.beds) return false;
     }
     if (filters.floor !== "all" && l.floor && !l.floor.includes(filters.floor)) return false;
+    if (filters.building !== "all" && l.building_name !== filters.building) return false;
+    if (filters.unit !== "all" && l.unit !== filters.unit) return false;
     if (filters.minPrice && l.price < filters.minPrice * 1e4) return false;
     if (filters.maxPrice && l.price > filters.maxPrice * 1e4) return false;
     if (filters.minSize && l.size_net < Number(filters.minSize)) return false;

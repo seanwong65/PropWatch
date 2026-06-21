@@ -609,24 +609,30 @@ async function runDailySync(db, resendApiKey) {
     })
   );
 
+  let emailResult = null;
   if (resendApiKey) {
-    const highlights = await getTodayHighlights(db);
-    const { byEstate } = highlights;
-    const totalTxns  = byEstate.reduce((s, e) => s + e.newTransactions.length, 0);
-    const totalPrice = byEstate.reduce((s, e) => s + e.priceChanges.length, 0);
-    const totalNew   = byEstate.reduce((s, e) => s + e.newListings.length, 0);
-    const totalDel   = byEstate.reduce((s, e) => s + e.removedListings.length, 0);
-    const hasChanges = totalTxns + totalPrice + totalNew + totalDel > 0;
-    const parts = [];
-    if (totalTxns)  parts.push(`${totalTxns} 個新成交`);
-    if (totalPrice) parts.push(`${totalPrice} 個價格變動`);
-    if (totalNew)   parts.push(`${totalNew} 個新放盤`);
-    if (totalDel)   parts.push(`${totalDel} 個已下架`);
-    const subject = hasChanges ? `PropWatch 通知：${parts.join("、")}` : "PropWatch 通知：今日無更新";
-    await sendEmail(resendApiKey, "johnwong777@hotmail.com", subject, buildEmailHtml(highlights));
+    try {
+      const highlights = await getTodayHighlights(db);
+      const { byEstate } = highlights;
+      const totalTxns  = byEstate.reduce((s, e) => s + e.newTransactions.length, 0);
+      const totalPrice = byEstate.reduce((s, e) => s + e.priceChanges.length, 0);
+      const totalNew   = byEstate.reduce((s, e) => s + e.newListings.length, 0);
+      const totalDel   = byEstate.reduce((s, e) => s + e.removedListings.length, 0);
+      const hasChanges = totalTxns + totalPrice + totalNew + totalDel > 0;
+      const parts = [];
+      if (totalTxns)  parts.push(`${totalTxns} 個新成交`);
+      if (totalPrice) parts.push(`${totalPrice} 個價格變動`);
+      if (totalNew)   parts.push(`${totalNew} 個新放盤`);
+      if (totalDel)   parts.push(`${totalDel} 個已下架`);
+      const subject = hasChanges ? `PropWatch 通知：${parts.join("、")}` : "PropWatch 通知：今日無更新";
+      emailResult = await sendEmail(resendApiKey, "johnwong777@hotmail.com", subject, buildEmailHtml(highlights));
+    } catch (err) {
+      console.error("Email send failed:", err.message);
+      emailResult = { error: err.message };
+    }
   }
 
-  return results;
+  return { results, email: emailResult };
 }
 
 export default {
