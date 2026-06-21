@@ -1001,7 +1001,13 @@ async function loadTodayHighlights() {
         inner += `<div class="highlights-subgroup"><div class="highlights-group-label" style="color:var(--down)">❌ 已下架 (${removedListings.length})</div>${tbl(TH('單位','房間','原價','',''), rows)}</div>`;
       }
 
-      if (inner) html += `<div class="highlights-group"><div class="highlights-estate-header">${escHtml(estate)}</div>${inner}</div>`;
+      if (inner) {
+        const estateObj = dashboardEstates.find(e => e.name === estate);
+        const hdr = estateObj
+          ? `<div class="highlights-estate-header" style="cursor:pointer" onclick="showEstate(${estateObj.id},'${escHtml(estate).replace(/'/g,"\\'")}','${escHtml(estateObj.district||'').replace(/'/g,"\\'")}');closeSidebar()">${escHtml(estate)} <span style="font-size:0.72rem;color:var(--accent2);vertical-align:middle">↗</span></div>`
+          : `<div class="highlights-estate-header">${escHtml(estate)}</div>`;
+        html += `<div class="highlights-group">${hdr}${inner}</div>`;
+      }
     }
 
     if (!html) html = `<span style="color:var(--muted)">今日暫無更新</span>`;
