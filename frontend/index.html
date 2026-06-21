@@ -279,9 +279,9 @@
     }
     .highlights-section {
       background: var(--surface2);
-      border: 1px solid var(--border);
+      border: 1px solid color-mix(in srgb, var(--border) 60%, transparent);
       border-radius: var(--radius);
-      padding: 1.5rem;
+      padding: 1rem;
       margin-top: 1.25rem;
     }
     .highlights-title {
@@ -314,7 +314,7 @@
     .hl-table {
       width: 100%;
       border-collapse: collapse;
-      font-size: 0.9rem;
+      font-size: 0.78rem;
       color: var(--text);
     }
     .hl-tr td {
@@ -885,7 +885,7 @@ async function showDashboard(estates) {
     <div class="dashboard">
       <div class="highlights-section" id="highlights-section">
         <div class="highlights-title">今日動態 <span style="font-weight:400;color:var(--muted);text-transform:none;letter-spacing:0" id="highlights-date"></span></div>
-        <div id="highlights-body" style="color:var(--muted);font-size:0.82rem">載入中…</div>
+        <div id="highlights-body" style="color:var(--muted);font-size:0.75rem">載入中…</div>
       </div>
       <div class="dashboard-chart-section" style="margin-top:1.25rem">
         <div class="dashboard-chart-header">
