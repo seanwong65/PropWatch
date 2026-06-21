@@ -983,6 +983,7 @@ export default {
             WHERE (e.is_disabled = 0 OR e.is_disabled IS NULL)
             GROUP BY lph.ref_no, lph.estate_id
             HAVING MIN(lph.snapshot_date) >= ?
+              AND MIN(lph.snapshot_date) > date(e.first_seen)
             ORDER BY first_seen_date DESC, l.price ASC
           `).bind(cutoffStr).all(),
 
