@@ -2003,6 +2003,7 @@ async function loadViewings(estateId) {
         <td style="color:var(--accent)"><strong>${fmt(v.price)}</strong><br><span style="color:var(--muted);font-size:0.75rem">${psfStr}</span></td>
         <td>${mgmtMonthly ? `$${mgmtMonthly.toLocaleString()}/月` : '-'}</td>
         <td id="vhs-${v.id}">${hsCell}</td>
+        <td>${v.txn_price ? `<span style="color:var(--accent)"><strong>${fmt(v.txn_price)}</strong></span><br><span style="color:var(--muted);font-size:0.75rem">${v.txn_reg_date || ''}</span>` : '-'}</td>
         <td>${imgHtml || '-'}</td>
         <td style="white-space:nowrap">
           <button class="viewing-del-btn" onclick='openViewingModal(JSON.parse(decodeURIComponent("${vData}")))' title="更改" style="background:var(--surface2);margin-right:0.3rem">✏️</button>
@@ -2013,7 +2014,7 @@ async function loadViewings(estateId) {
     panel.innerHTML = `<div class="listings-section" style="overflow-x:auto">
       <table class="history-table" style="min-width:600px">
         <thead><tr>
-          <th>睇樓日期</th><th>單位</th><th>實用面積</th><th>售價</th><th>管理費(每月)</th><th>恒生估值</th><th>圖片</th><th></th>
+          <th>睇樓日期</th><th>單位</th><th>實用面積</th><th>售價</th><th>管理費(每月)</th><th>恒生估值</th><th>成交記錄</th><th>圖片</th><th></th>
         </tr></thead>
         <tbody>${rows}</tbody>
       </table>

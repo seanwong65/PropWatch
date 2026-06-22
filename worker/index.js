@@ -1115,9 +1115,23 @@ export default {
       if (method === "GET" && path === "/api/viewings") {
         const estateId = url.searchParams.get("estate_id");
         if (!estateId) return json(400, { error: "estate_id required" });
-        const { results } = await db.prepare(
-          "SELECT * FROM viewings WHERE estate_id = ? ORDER BY view_date DESC, created_at DESC"
-        ).bind(estateId).all();
+        const { results } = await db.prepare(`
+          SELECT v.*,
+            t.price AS txn_price,
+            t.reg_date AS txn_reg_date
+          FROM viewings v
+          LEFT JOIN (
+            SELECT estate_id, building, floor, unit, price, reg_date,
+                   ROW_NUMBER() OVER (PARTITION BY estate_id, building, floor, unit ORDER BY reg_date DESC) AS rn
+            FROM transactions
+          ) t ON t.estate_id = v.estate_id
+            AND t.building = v.block
+            AND t.floor = v.floor
+            AND t.unit = v.unit
+            AND t.rn = 1
+          WHERE v.estate_id = ?
+          ORDER BY v.view_date DESC, v.created_at DESC
+        `).bind(estateId).all();
         return json(200, { viewings: results });
       }
 
