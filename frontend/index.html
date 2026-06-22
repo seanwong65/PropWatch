@@ -1057,7 +1057,7 @@ async function loadTodayHighlights() {
 
     const hlTxnQueue = [];
     let html = "";
-    for (const { estate, newTransactions = [], priceChanges = [], newListings = [], removedListings = [] } of (data.byEstate || [])) {
+    for (const { estate, newTransactions = [], priceChanges = [], newListings = [], removedListings = [], viewedTxns = [] } of (data.byEstate || [])) {
       let inner = "";
 
       if (newTransactions.length) {
@@ -1131,6 +1131,24 @@ async function loadTodayHighlights() {
           );
         }
         inner += `<div class="highlights-subgroup"><div class="highlights-group-label" style="color:var(--down)">❌ 已下架 (${removedListings.length})</div>${tbl(TH('單位','房間','原價','',''), rows)}</div>`;
+      }
+
+      if (viewedTxns.length) {
+        let rows = "";
+        for (const v of viewedTxns) {
+          const diff = v.view_price && v.txn_price ? v.txn_price - v.view_price : null;
+          const diffHtml = diff != null
+            ? `<span style="color:${diff<=0?'var(--up)':'var(--down)'}">${diff<=0?'▼':'▲'} ${fmt(Math.abs(diff))}</span>`
+            : '-';
+          rows += TR(
+            `${escHtml(v.building||'')} ${escHtml(v.floor||'')} ${escHtml(v.unit||'')}`,
+            v.view_price ? fmt(v.view_price) : '-',
+            `<span style="font-weight:700;color:var(--accent)">${v.txn_price ? fmt(v.txn_price) : '-'}</span>`,
+            diffHtml,
+            `<span style="color:var(--muted);font-size:0.72rem">${v.view_date||''}</span>`
+          );
+        }
+        inner = `<div class="highlights-subgroup" style="border:1px solid rgba(248,113,113,0.3);border-radius:6px;padding:0.5rem;background:rgba(248,113,113,0.05)"><div class="highlights-group-label" style="color:#f87171">👀 睇過嘅單位成交 (${viewedTxns.length})</div>${tbl(TH('單位','睇樓價','成交價','差價','睇樓日期'), rows)}</div>` + inner;
       }
 
       if (inner) {
