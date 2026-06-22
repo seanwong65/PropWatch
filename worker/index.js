@@ -1008,7 +1008,7 @@ export default {
         const cutoffStr = cutoff.toISOString().slice(0, 10);
         const today = hkDateStr();
 
-        const [newTxns, newListings, priceChanges, removedListings] = await Promise.all([
+        const [newTxns, newListings, priceChanges, removedListings, viewedTxns] = await Promise.all([
           db.prepare(`
             SELECT t.*, e.name as estate_name FROM transactions t
             JOIN estates e ON e.id = t.estate_id
@@ -1075,6 +1075,21 @@ export default {
             GROUP BY l.ref_no, l.estate_id
             ORDER BY l.snapshot_date DESC
           `).bind(cutoffStr, today, today).all(),
+
+          db.prepare(`
+            SELECT t.building, t.floor, t.unit, t.price AS txn_price, t.size_net, t.reg_date, t.first_seen,
+                   v.price AS view_price, v.view_date, v.id AS viewing_id,
+                   e.name AS estate_name
+            FROM transactions t
+            JOIN estates e ON e.id = t.estate_id
+            JOIN viewings v ON v.estate_id = t.estate_id
+              AND t.building = CASE WHEN v.block LIKE '%座' THEN v.block ELSE v.block || '座' END
+              AND t.floor    = CASE WHEN v.floor LIKE '%樓' OR v.floor LIKE '%層' THEN v.floor ELSE v.floor || '樓' END
+              AND t.unit     = CASE WHEN v.unit LIKE '%室' OR v.unit LIKE '%號' THEN v.unit ELSE v.unit || '室' END
+            WHERE t.first_seen >= ? AND t.first_seen <= ?
+              AND (e.is_disabled = 0 OR e.is_disabled IS NULL)
+            ORDER BY t.first_seen DESC, e.name
+          `).bind(cutoffStr, today).all(),
         ]);
 
         const { results: estateOrder } = await db.prepare(
@@ -1097,7 +1112,8 @@ export default {
           const ib = orderIndex.has(b.estate) ? orderIndex.get(b.estate) : 9999;
           return ia - ib;
         });
-        return json(200, { months, cutoff: cutoffStr, byEstate });
+        const allViewedTxns = viewedTxns.results.map(v => ({ ...v }));
+        return json(200, { months, cutoff: cutoffStr, byEstate, allViewedTxns });
       }
 
       if (method === "POST" && path.match(/^\/api\/estates\/\d+\/favourite$/)) {
