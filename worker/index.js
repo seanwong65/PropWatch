@@ -1,6 +1,6 @@
 const CORS = {
   "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
+  "Access-Control-Allow-Methods": "GET, POST, PUT, PATCH, DELETE, OPTIONS",
   "Access-Control-Allow-Headers": "Content-Type",
 };
 
@@ -1145,8 +1145,15 @@ export default {
         const viewingId = path.split("/").pop();
         const { view_date, block, floor, unit, size_net, direction, price, mgmt_fee, images, notes } = await request.json();
         await db.prepare(
-          "UPDATE viewings SET view_date=?, block=?, floor=?, unit=?, size_net=?, direction=?, price=?, mgmt_fee=?, images=?, notes=? WHERE id=?"
+          "UPDATE viewings SET view_date=?, block=?, floor=?, unit=?, size_net=?, direction=?, price=?, mgmt_fee=?, images=?, notes=?, hs_price=NULL WHERE id=?"
         ).bind(view_date, block||null, floor, unit, size_net, direction||null, price, mgmt_fee||null, images||null, notes||null, viewingId).run();
+        return json(200, { ok: true });
+      }
+
+      if (method === "PATCH" && path.startsWith("/api/viewings/")) {
+        const viewingId = path.split("/").pop();
+        const { hs_price } = await request.json();
+        await db.prepare("UPDATE viewings SET hs_price=? WHERE id=?").bind(hs_price||null, viewingId).run();
         return json(200, { ok: true });
       }
 

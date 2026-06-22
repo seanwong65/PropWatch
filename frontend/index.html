@@ -1909,19 +1909,59 @@ async function submitViewing(e) {
       mgmt_fee: parseFloat(document.getElementById('vf-mgmt').value) || null,
       images: images.length ? JSON.stringify(images) : null,
     };
+    let savedId;
     if (_viewingEditId) {
       await api(`/api/viewings/${_viewingEditId}`, { method: 'PUT', body: JSON.stringify(body) });
+      savedId = _viewingEditId;
     } else {
-      await api('/api/viewings', { method: 'POST', body: JSON.stringify(body) });
+      const res = await api('/api/viewings', { method: 'POST', body: JSON.stringify(body) });
+      savedId = res.id;
     }
     closeViewingModal();
     if (document.getElementById('tab-viewings')?.style.display !== 'none') {
-      loadViewings(_viewingEstateId);
+      await loadViewings(_viewingEstateId);
     }
+    // Auto-fetch HS valuation in background
+    fetchViewingHSVal(savedId, body.block, body.floor, body.unit, body.price);
   } catch(err) {
     alert('儲存失敗，請再試');
   } finally {
     btn.disabled = false; btn.textContent = '儲存記錄';
+  }
+}
+
+async function fetchViewingHSVal(viewingId, block, floor, unit, price) {
+  if (!viewingId || !_viewingEstateName || !block || !floor || !unit) return;
+  try {
+    const floorNum = String(floor).replace(/[^0-9]/g, '');
+    const flatLetter = String(unit).replace(/[^A-Za-z0-9]/g, '');
+    if (!floorNum || !flatLetter) return;
+    const params = new URLSearchParams({ estate: _viewingEstateName, block, floor: floorNum, flat: flatLetter, estateId: _viewingEstateId });
+    const data = await api(`/api/hangseng-valuation?${params}`);
+    if (data.price) {
+      await api(`/api/viewings/${viewingId}`, { method: 'PATCH', body: JSON.stringify({ hs_price: Number(data.price) }) });
+      const cell = document.getElementById(`vhs-${viewingId}`);
+      if (cell) cell.innerHTML = hsValHtml(Number(data.price)) + hsDiffHtml(Number(data.price), price);
+    }
+  } catch {}
+}
+
+async function manualFetchViewingHSVal(viewingId, estateId, block, floor, unit, price) {
+  const cell = document.getElementById(`vhs-${viewingId}`);
+  if (cell) cell.innerHTML = '<span style="color:var(--muted);font-size:0.75rem">查詢中…</span>';
+  const prevEstateId = _viewingEstateId;
+  const prevName = _viewingEstateName;
+  // Temporarily set estate context if needed
+  if (!_viewingEstateId) _viewingEstateId = estateId;
+  if (!_viewingEstateName) {
+    const titleEl = document.querySelector('.estate-title');
+    if (titleEl) _viewingEstateName = titleEl.textContent.trim();
+  }
+  await fetchViewingHSVal(viewingId, block, floor, unit, price);
+  if (!prevEstateId) _viewingEstateId = null;
+  if (!prevName) _viewingEstateName = '';
+  if (cell && !cell.innerHTML.includes('萬')) {
+    cell.innerHTML = '<span style="color:var(--muted);font-size:0.75rem">查無資料</span>';
   }
 }
 
@@ -1946,12 +1986,16 @@ async function loadViewings(estateId) {
       const mgmtMonthly = (v.mgmt_fee && v.size_net) ? Math.round(v.mgmt_fee * v.size_net) : null;
       const psfStr = v.price && v.size_net ? `$${Math.round(v.price/v.size_net).toLocaleString()}/呎` : '-';
       const vData = encodeURIComponent(JSON.stringify(v));
+      const hsCell = v.hs_price
+        ? hsValHtml(v.hs_price) + hsDiffHtml(v.hs_price, v.price)
+        : `<button class="hs-val-btn" onclick="manualFetchViewingHSVal(${v.id},${estateId},'${escHtml(v.block||'')}','${escHtml(v.floor)}','${escHtml(v.unit)}',${v.price||0})">查估值</button>`;
       return `<tr>
         <td>${v.view_date}</td>
         <td><strong>${unitStr}</strong>${v.direction ? `<br><span style="color:var(--muted);font-size:0.75rem">向${escHtml(v.direction)}</span>` : ''}</td>
         <td>${v.size_net ? v.size_net+'呎' : '-'}</td>
         <td style="color:var(--accent)"><strong>${fmt(v.price)}</strong><br><span style="color:var(--muted);font-size:0.75rem">${psfStr}</span></td>
         <td>${mgmtMonthly ? `$${mgmtMonthly.toLocaleString()}/月` : '-'}</td>
+        <td id="vhs-${v.id}">${hsCell}</td>
         <td>${imgHtml || '-'}</td>
         <td style="white-space:nowrap">
           <button class="viewing-del-btn" onclick='openViewingModal(JSON.parse(decodeURIComponent("${vData}")))' title="更改" style="background:var(--surface2);margin-right:0.3rem">✏️</button>
@@ -1962,7 +2006,7 @@ async function loadViewings(estateId) {
     panel.innerHTML = `<div class="listings-section" style="overflow-x:auto">
       <table class="history-table" style="min-width:600px">
         <thead><tr>
-          <th>睇樓日期</th><th>單位</th><th>實用面積</th><th>售價</th><th>管理費(每月)</th><th>圖片</th><th></th>
+          <th>睇樓日期</th><th>單位</th><th>實用面積</th><th>售價</th><th>管理費(每月)</th><th>恒生估值</th><th>圖片</th><th></th>
         </tr></thead>
         <tbody>${rows}</tbody>
       </table>
