@@ -1143,7 +1143,7 @@ export default {
 
       if (method === "PUT" && path.startsWith("/api/viewings/")) {
         const viewingId = path.split("/").pop();
-        const { view_date, block, floor, unit, size_net, direction, price, mgmt_fee, images, notes } = await req.json();
+        const { view_date, block, floor, unit, size_net, direction, price, mgmt_fee, images, notes } = await request.json();
         await db.prepare(
           "UPDATE viewings SET view_date=?, block=?, floor=?, unit=?, size_net=?, direction=?, price=?, mgmt_fee=?, images=?, notes=? WHERE id=?"
         ).bind(view_date, block||null, floor, unit, size_net, direction||null, price, mgmt_fee||null, images||null, notes||null, viewingId).run();
