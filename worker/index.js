@@ -649,20 +649,21 @@ async function detectChanges(db, estateId, estateName, newListings) {
   return { estate: estateName, priceChanges, newListings: newAdded, removedListings: removed };
 }
 
-async function runDailySync(db, resendApiKey) {
+async function runDailySync(db, resendApiKey, { persist = true } = {}) {
   const { results: estates } = await db.prepare("SELECT * FROM estates WHERE is_disabled = 0 OR is_disabled IS NULL").all();
   const results = await Promise.all(
     estates.map(async (estate) => {
       try {
-        const [data, newTxns] = await Promise.all([
-          fetchCentanet(estate.name),
-          fetchAndSaveTransactions(db, estate.id, estate.name),
-        ]);
-        const listings = data.data || [];
-        await saveSearchResults(db, estate.id, listings);
-        const changes = await detectChanges(db, estate.id, estate.name, listings);
-        changes.newTransactions = newTxns;
-        return { estate: estate.name, count: listings.length, ok: true, changes };
+        const newTxns = await fetchAndSaveTransactions(db, estate.id, estate.name);
+        if (persist) {
+          const data = await fetchCentanet(estate.name);
+          const listings = data.data || [];
+          await saveSearchResults(db, estate.id, listings);
+          const changes = await detectChanges(db, estate.id, estate.name, listings);
+          changes.newTransactions = newTxns;
+          return { estate: estate.name, count: listings.length, ok: true, changes };
+        }
+        return { estate: estate.name, ok: true };
       } catch (err) {
         return { estate: estate.name, error: err.message, ok: false };
       }
@@ -1140,7 +1141,7 @@ export default {
       }
 
       if (method === "POST" && path === "/api/sync") {
-        const { results, email } = await runDailySync(db, env.RESEND_API_KEY);
+        const { results, email } = await runDailySync(db, env.RESEND_API_KEY, { persist: false });
         return json(200, { ok: true, results, email });
       }
 
