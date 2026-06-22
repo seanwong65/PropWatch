@@ -1858,8 +1858,20 @@ function openViewingModal(viewing = null) {
   document.getElementById('vf-direction').value = viewing ? (viewing.direction || '') : '';
   document.getElementById('vf-price').value = viewing ? (viewing.price / 10000) : '';
   document.getElementById('vf-mgmt').value = viewing ? (viewing.mgmt_fee || '') : '';
-  document.getElementById('vf-img-preview').innerHTML = '';
+  const preview = document.getElementById('vf-img-preview');
+  preview.innerHTML = '';
   _viewingImages = [];
+  if (viewing?.images) {
+    const existing = JSON.parse(viewing.images);
+    existing.forEach(dataUrl => {
+      const idx = _viewingImages.length;
+      _viewingImages.push({ dataUrl });
+      const thumb = document.createElement('div');
+      thumb.className = 'vf-img-thumb';
+      thumb.innerHTML = `<img src="${dataUrl}"><button type="button" class="vf-img-rm" onclick="removeViewingImg(${idx})">✕</button>`;
+      preview.appendChild(thumb);
+    });
+  }
   if (!viewing) {
     api(`/api/viewings/last-mgmt-fee?estate_id=${_viewingEstateId}`).then(r => {
       if (r?.mgmt_fee) document.getElementById('vf-mgmt').value = r.mgmt_fee;
