@@ -242,8 +242,9 @@ async function saveSearchResults(db, estateId, listings) {
      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
   );
   const stmtHistory = db.prepare(
-    `INSERT OR IGNORE INTO listing_price_history (ref_no, estate_id, price, price_per_ft, snapshot_date)
-     VALUES (?,?,?,?,?)`
+    `INSERT INTO listing_price_history (ref_no, estate_id, price, price_per_ft, snapshot_date)
+     VALUES (?,?,?,?,?)
+     ON CONFLICT(ref_no, estate_id, snapshot_date) DO UPDATE SET price=excluded.price, price_per_ft=excluded.price_per_ft`
   );
 
   const batch = [];
