@@ -1652,6 +1652,7 @@ async function showEstate(id, name, district) {
         <button class="history-btn" id="batch-hs-btn" style="display:none;margin-left:auto;font-size:0.82rem;padding:0.35rem 0.85rem" onclick="batchFetchHSVal()">批量查估值</button>
       </div>
 
+      <div id="tab-listings">
       <div class="stats-row">
         <div class="stat-card">
           <div class="stat-label">平均實呎價</div>
@@ -1676,8 +1677,6 @@ async function showEstate(id, name, district) {
           <div class="stat-value">${trends.length} <span class="stat-unit">天</span></div>
         </div>
       </div>
-
-      <div id="tab-listings">
         <div class="chart-section">
           <div class="section-title">實用呎價趨勢</div>
           ${trends.length < 2
