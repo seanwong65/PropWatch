@@ -407,17 +407,45 @@ async function getTodayHighlights(db) {
     return ia - ib;
   });
 
-  return { date: today, byEstate };
+  // Also expose flat list of all viewedTxns for top-of-email placement
+  const allViewedTxns = [...estateMap.values()].flatMap(e => e.viewedTxns.map(v => ({ ...v, estate_name: e.estate })));
+  return { date: today, byEstate, allViewedTxns };
 }
 
 function buildEmailHtml(highlights) {
   const fmt = (p) => p ? `$${(p / 1e4).toFixed(0)}萬` : "-";
   const pct = (n, o) => o ? ((n - o) / o * 100).toFixed(1) : null;
-  const { date, byEstate = [] } = highlights;
+  const { date, byEstate = [], allViewedTxns = [] } = highlights;
 
   let sections = "";
-  for (const { estate, newTransactions = [], priceChanges = [], newListings = [], removedListings = [], viewedTxns = [] } of byEstate) {
-    if (!newTransactions.length && !priceChanges.length && !newListings.length && !removedListings.length && !viewedTxns.length) continue;
+
+  // 睇過嘅單位成交 — at the very top
+  if (allViewedTxns.length) {
+    let rows = "";
+    for (const v of allViewedTxns) {
+      const diff = v.view_price && v.txn_price ? v.txn_price - v.view_price : null;
+      const diffStr = diff != null
+        ? `<span style="color:${diff<=0?'#10b981':'#ef4444'}">${diff<=0?'▼':'▲'} ${fmt(Math.abs(diff))}</span>`
+        : '-';
+      rows += `<tr style="border-bottom:1px solid #1f2d42;background:rgba(248,113,113,0.06)">
+        <td style="padding:6px 8px"><strong>${v.estate_name||''}</strong> ${v.building||''} ${v.floor||''} ${v.unit||''}</td>
+        <td style="padding:6px 8px;color:#64748b">${v.view_price ? fmt(v.view_price) : '-'}</td>
+        <td style="padding:6px 8px;font-weight:700;color:#f59e0b">${v.txn_price ? fmt(v.txn_price) : '-'}</td>
+        <td style="padding:6px 8px">${diffStr}</td>
+        <td style="padding:6px 8px;color:#64748b;font-size:12px">${v.view_date||''}</td>
+      </tr>`;
+    }
+    const TH = (...hs) => `<tr style="border-bottom:1px solid #334155">${hs.map(h=>`<th style="padding:4px 8px;font-size:11px;font-weight:600;color:#64748b;text-transform:uppercase;letter-spacing:0.04em;text-align:left">${h}</th>`).join('')}</tr>`;
+    sections += `<div style="margin-bottom:24px;border:1px solid rgba(248,113,113,0.4);border-radius:8px;padding:16px;background:rgba(248,113,113,0.06)">
+      <h2 style="margin:0 0 12px;font-size:18px;color:#f87171">👀 睇過嘅單位成交 (${allViewedTxns.length})</h2>
+      <table style="width:100%;border-collapse:collapse;font-size:14px;color:#e2e8f0">
+        <thead>${TH('屋苑 / 單位','睇樓價','成交價','差價','睇樓日期')}</thead>
+        <tbody>${rows}</tbody>
+      </table>
+    </div>`;
+  }
+  for (const { estate, newTransactions = [], priceChanges = [], newListings = [], removedListings = [] } of byEstate) {
+    if (!newTransactions.length && !priceChanges.length && !newListings.length && !removedListings.length) continue;
     let rows = "";
 
     const link = (url, label="詳情 ↗") => url ? `<a href="${url}" style="color:#3b82f6;font-size:12px;white-space:nowrap">${label}</a>` : "";
@@ -490,24 +518,6 @@ function buildEmailHtml(highlights) {
           <td style="padding:6px 8px;text-decoration:line-through;color:#64748b">${fmt(l.price)}</td>
           <td></td>
           <td style="padding:6px 8px">${link(l.detail_url)}</td>
-        </tr>`;
-      }
-    }
-
-    if (viewedTxns.length) {
-      rows += `<tr><td colspan="5" style="padding:8px 0 4px;font-weight:700;color:#f87171">👀 睇過嘅單位成交 (${viewedTxns.length})</td></tr>`;
-      rows += TH('單位', '睇樓價', '成交價', '差價', '');
-      for (const v of viewedTxns) {
-        const diff = v.view_price && v.txn_price ? v.txn_price - v.view_price : null;
-        const diffStr = diff != null
-          ? `<span style="color:${diff<=0?'#10b981':'#ef4444'}">${diff<=0?'▼':'▲'} ${fmt(Math.abs(diff))}</span>`
-          : '-';
-        rows += `<tr style="border-bottom:1px solid #1f2d42;background:rgba(248,113,113,0.06)">
-          <td style="padding:6px 8px">${v.building || ""} ${v.floor || ""} ${v.unit || ""}</td>
-          <td style="padding:6px 8px;color:#64748b">${v.view_price ? fmt(v.view_price) : '-'}</td>
-          <td style="padding:6px 8px;font-weight:700;color:#f59e0b">${v.txn_price ? fmt(v.txn_price) : '-'}</td>
-          <td style="padding:6px 8px">${diffStr}</td>
-          <td style="padding:6px 8px;color:#64748b;font-size:12px">${v.view_date || ''}</td>
         </tr>`;
       }
     }
