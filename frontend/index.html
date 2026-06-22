@@ -1646,9 +1646,9 @@ async function showEstate(id, name, district) {
       </div>
 
       <div class="estate-tabs">
-        <button class="estate-tab active" onclick="switchTab('listings',${id})">最新放盤</button>
+        <button class="estate-tab active" onclick="switchTab('listings',${id})">最新放盤(${listings.length})</button>
         <button class="estate-tab" onclick="switchTab('transactions',${id})">成交記錄</button>
-        <button class="estate-tab" onclick="switchTab('viewings',${id})">睇樓記錄</button>
+        <button class="estate-tab" id="tab-btn-viewings" onclick="switchTab('viewings',${id})">睇樓記錄</button>
         <button class="history-btn" id="batch-hs-btn" style="display:none;margin-left:auto;font-size:0.82rem;padding:0.35rem 0.85rem" onclick="batchFetchHSVal()">批量查估值</button>
       </div>
 
@@ -1971,6 +1971,8 @@ async function loadViewings(estateId) {
   panel.innerHTML = '<div class="listings-section"><div class="loading"><div class="spinner"></div> 載入睇樓記錄…</div></div>';
   try {
     const { viewings } = await api(`/api/viewings?estate_id=${estateId}`);
+    const tabBtn = document.getElementById('tab-btn-viewings');
+    if (tabBtn) tabBtn.textContent = `睇樓記錄${viewings?.length ? `(${viewings.length})` : ''}`;
     if (!viewings?.length) {
       panel.innerHTML = '<div class="listings-section" style="padding:1.5rem;color:var(--muted);text-align:center">未有睇樓記錄<br><small>按「新增睇樓」新增第一個記錄</small></div>';
       return;
