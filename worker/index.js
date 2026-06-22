@@ -313,7 +313,7 @@ async function getTodayHighlights(db) {
   const today = hkDateStr();
   const yesterday = hkDateStr(-1);
 
-  const [newTxns, priceChanges, newListings, removedListings] = await Promise.all([
+  const [newTxns, priceChanges, newListings, removedListings, viewedTxns] = await Promise.all([
     db.prepare(`
       SELECT t.*, e.name as estate_name FROM transactions t
       JOIN estates e ON e.id = t.estate_id
@@ -368,6 +368,19 @@ async function getTodayHighlights(db) {
         )
         AND date(e.first_seen) <= ?
         AND (e.is_disabled = 0 OR e.is_disabled IS NULL)`).bind(today, today, yesterday).all(),
+    db.prepare(`
+      SELECT t.building, t.floor, t.unit, t.price AS txn_price, t.size_net, t.reg_date,
+             v.price AS view_price, v.view_date, v.id AS viewing_id,
+             e.name AS estate_name
+      FROM transactions t
+      JOIN estates e ON e.id = t.estate_id
+      JOIN viewings v ON v.estate_id = t.estate_id
+        AND t.building = CASE WHEN v.block LIKE '%座' THEN v.block ELSE v.block || '座' END
+        AND t.floor    = CASE WHEN v.floor LIKE '%樓' OR v.floor LIKE '%層' THEN v.floor ELSE v.floor || '樓' END
+        AND t.unit     = CASE WHEN v.unit LIKE '%室' OR v.unit LIKE '%號' THEN v.unit ELSE v.unit || '室' END
+      WHERE t.first_seen = ?
+        AND (e.is_disabled = 0 OR e.is_disabled IS NULL)
+      ORDER BY e.name, t.price DESC`).bind(today).all(),
   ]);
 
   // Fetch estate order
@@ -379,13 +392,14 @@ async function getTodayHighlights(db) {
   // Group by estate
   const estateMap = new Map();
   const getEstate = (name) => {
-    if (!estateMap.has(name)) estateMap.set(name, { estate: name, newTransactions: [], priceChanges: [], newListings: [], removedListings: [] });
+    if (!estateMap.has(name)) estateMap.set(name, { estate: name, newTransactions: [], priceChanges: [], newListings: [], removedListings: [], viewedTxns: [] });
     return estateMap.get(name);
   };
   for (const t of newTxns.results)         getEstate(t.estate_name).newTransactions.push(t);
   for (const p of priceChanges.results)    getEstate(p.estate_name).priceChanges.push(p);
   for (const l of newListings.results)     getEstate(l.estate_name).newListings.push(l);
   for (const r of removedListings.results) getEstate(r.estate_name).removedListings.push(r);
+  for (const v of viewedTxns.results)      getEstate(v.estate_name).viewedTxns.push(v);
 
   const byEstate = [...estateMap.values()].sort((a, b) => {
     const ia = orderIndex.has(a.estate) ? orderIndex.get(a.estate) : 9999;
@@ -402,8 +416,8 @@ function buildEmailHtml(highlights) {
   const { date, byEstate = [] } = highlights;
 
   let sections = "";
-  for (const { estate, newTransactions = [], priceChanges = [], newListings = [], removedListings = [] } of byEstate) {
-    if (!newTransactions.length && !priceChanges.length && !newListings.length && !removedListings.length) continue;
+  for (const { estate, newTransactions = [], priceChanges = [], newListings = [], removedListings = [], viewedTxns = [] } of byEstate) {
+    if (!newTransactions.length && !priceChanges.length && !newListings.length && !removedListings.length && !viewedTxns.length) continue;
     let rows = "";
 
     const link = (url, label="詳情 ↗") => url ? `<a href="${url}" style="color:#3b82f6;font-size:12px;white-space:nowrap">${label}</a>` : "";
@@ -476,6 +490,24 @@ function buildEmailHtml(highlights) {
           <td style="padding:6px 8px;text-decoration:line-through;color:#64748b">${fmt(l.price)}</td>
           <td></td>
           <td style="padding:6px 8px">${link(l.detail_url)}</td>
+        </tr>`;
+      }
+    }
+
+    if (viewedTxns.length) {
+      rows += `<tr><td colspan="5" style="padding:8px 0 4px;font-weight:700;color:#f87171">👀 睇過嘅單位成交 (${viewedTxns.length})</td></tr>`;
+      rows += TH('單位', '睇樓價', '成交價', '差價', '');
+      for (const v of viewedTxns) {
+        const diff = v.view_price && v.txn_price ? v.txn_price - v.view_price : null;
+        const diffStr = diff != null
+          ? `<span style="color:${diff<=0?'#10b981':'#ef4444'}">${diff<=0?'▼':'▲'} ${fmt(Math.abs(diff))}</span>`
+          : '-';
+        rows += `<tr style="border-bottom:1px solid #1f2d42;background:rgba(248,113,113,0.06)">
+          <td style="padding:6px 8px">${v.building || ""} ${v.floor || ""} ${v.unit || ""}</td>
+          <td style="padding:6px 8px;color:#64748b">${v.view_price ? fmt(v.view_price) : '-'}</td>
+          <td style="padding:6px 8px;font-weight:700;color:#f59e0b">${v.txn_price ? fmt(v.txn_price) : '-'}</td>
+          <td style="padding:6px 8px">${diffStr}</td>
+          <td style="padding:6px 8px;color:#64748b;font-size:12px">${v.view_date || ''}</td>
         </tr>`;
       }
     }
@@ -631,16 +663,18 @@ async function runDailySync(db, resendApiKey) {
     try {
       const highlights = await getTodayHighlights(db);
       const { byEstate } = highlights;
-      const totalTxns  = byEstate.reduce((s, e) => s + e.newTransactions.length, 0);
-      const totalPrice = byEstate.reduce((s, e) => s + e.priceChanges.length, 0);
-      const totalNew   = byEstate.reduce((s, e) => s + e.newListings.length, 0);
-      const totalDel   = byEstate.reduce((s, e) => s + e.removedListings.length, 0);
-      const hasChanges = totalTxns + totalPrice + totalNew + totalDel > 0;
+      const totalTxns    = byEstate.reduce((s, e) => s + e.newTransactions.length, 0);
+      const totalPrice   = byEstate.reduce((s, e) => s + e.priceChanges.length, 0);
+      const totalNew     = byEstate.reduce((s, e) => s + e.newListings.length, 0);
+      const totalDel     = byEstate.reduce((s, e) => s + e.removedListings.length, 0);
+      const totalViewed  = byEstate.reduce((s, e) => s + e.viewedTxns.length, 0);
+      const hasChanges = totalTxns + totalPrice + totalNew + totalDel + totalViewed > 0;
       const parts = [];
-      if (totalTxns)  parts.push(`${totalTxns} 個新成交`);
-      if (totalPrice) parts.push(`${totalPrice} 個價格變動`);
-      if (totalNew)   parts.push(`${totalNew} 個新放盤`);
-      if (totalDel)   parts.push(`${totalDel} 個已下架`);
+      if (totalViewed) parts.push(`${totalViewed} 個睇過嘅單位成交`);
+      if (totalTxns)   parts.push(`${totalTxns} 個新成交`);
+      if (totalPrice)  parts.push(`${totalPrice} 個價格變動`);
+      if (totalNew)    parts.push(`${totalNew} 個新放盤`);
+      if (totalDel)    parts.push(`${totalDel} 個已下架`);
       const subject = hasChanges ? `PropWatch 通知：${parts.join("、")}` : "PropWatch 通知：今日無更新";
       emailResult = await sendEmail(resendApiKey, "johnwong777@hotmail.com", subject, buildEmailHtml(highlights));
     } catch (err) {
