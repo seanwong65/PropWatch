@@ -1125,9 +1125,9 @@ export default {
                    ROW_NUMBER() OVER (PARTITION BY estate_id, building, floor, unit ORDER BY reg_date DESC) AS rn
             FROM transactions
           ) t ON t.estate_id = v.estate_id
-            AND t.building = v.block
-            AND t.floor = v.floor
-            AND t.unit = v.unit
+            AND t.building = CASE WHEN v.block LIKE '%座' THEN v.block ELSE v.block || '座' END
+            AND t.floor = CASE WHEN v.floor LIKE '%樓' OR v.floor LIKE '%層' THEN v.floor ELSE v.floor || '樓' END
+            AND t.unit = CASE WHEN v.unit LIKE '%室' OR v.unit LIKE '%號' THEN v.unit ELSE v.unit || '室' END
             AND t.rn = 1
           WHERE v.estate_id = ?
           ORDER BY v.view_date DESC, v.created_at DESC
