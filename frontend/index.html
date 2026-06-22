@@ -1936,33 +1936,34 @@ async function loadViewings(estateId) {
       return;
     }
     const fmt = p => p ? `$${(p/1e4).toFixed(p%10000===0?0:1)}萬` : '-';
-    const cards = viewings.map(v => {
+    const rows = viewings.map(v => {
       const imgs = v.images ? JSON.parse(v.images) : [];
-      const imgHtml = imgs.map(src => `<img class="viewing-card-img" src="${src}" onclick="viewImgFull('${src}')">`).join('');
+      const imgHtml = imgs.map(src => `<img class="viewing-card-img" src="${src}" onclick="viewImgFull('${src}')" style="height:56px;border-radius:4px;cursor:pointer;margin-top:0.3rem">`).join('');
       const unitStr = [v.block, v.floor, v.unit].filter(Boolean).map(s => escHtml(s)).join(' ');
-      const infoStr = [
-        v.size_net ? v.size_net+'呎' : null,
-        v.direction || null,
-        fmt(v.price),
-        v.mgmt_fee ? '管理費 $'+v.mgmt_fee+'/呎' : null,
-      ].filter(Boolean).join(' · ');
+      const mgmtMonthly = (v.mgmt_fee && v.size_net) ? Math.round(v.mgmt_fee * v.size_net) : null;
+      const psfStr = v.price && v.size_net ? `$${Math.round(v.price/v.size_net).toLocaleString()}/呎` : '-';
       const vData = encodeURIComponent(JSON.stringify(v));
-      return `<div class="viewing-card">
-        <div class="viewing-card-header">
-          <div style="flex:1;min-width:0">
-            <span class="viewing-card-title">${unitStr}</span>
-            <span style="color:var(--muted);font-size:0.78rem;margin-left:0.5rem">${v.view_date}</span>
-            <div style="font-size:0.78rem;color:var(--text-2,var(--muted));margin-top:0.2rem">${infoStr}</div>
-          </div>
-          <div style="display:flex;gap:0.4rem;flex-shrink:0">
-            <button class="viewing-del-btn" onclick='openViewingModal(JSON.parse(decodeURIComponent("${vData}")))' title="更改" style="background:var(--surface3,var(--border))">✏️</button>
-            <button class="viewing-del-btn" onclick="deleteViewing(${v.id},${estateId})" title="刪除">🗑</button>
-          </div>
-        </div>
-        ${imgHtml ? `<div class="viewing-card-imgs">${imgHtml}</div>` : ''}
-      </div>`;
+      return `<tr>
+        <td>${v.view_date}</td>
+        <td><strong>${unitStr}</strong>${v.direction ? `<br><span style="color:var(--muted);font-size:0.75rem">${escHtml(v.direction)}</span>` : ''}</td>
+        <td>${v.size_net ? v.size_net+'呎' : '-'}</td>
+        <td style="color:var(--accent)"><strong>${fmt(v.price)}</strong><br><span style="color:var(--muted);font-size:0.75rem">${psfStr}</span></td>
+        <td>${mgmtMonthly ? `$${mgmtMonthly.toLocaleString()}/月` : '-'}</td>
+        <td>${imgHtml || '-'}</td>
+        <td style="white-space:nowrap">
+          <button class="viewing-del-btn" onclick='openViewingModal(JSON.parse(decodeURIComponent("${vData}")))' title="更改" style="background:var(--surface2);margin-right:0.3rem">✏️</button>
+          <button class="viewing-del-btn" onclick="deleteViewing(${v.id},${estateId})" title="刪除">🗑</button>
+        </td>
+      </tr>`;
     }).join('');
-    panel.innerHTML = `<div class="listings-section" style="padding:0.75rem 1rem">${cards}</div>`;
+    panel.innerHTML = `<div class="listings-section" style="overflow-x:auto">
+      <table class="history-table" style="min-width:600px">
+        <thead><tr>
+          <th>睇樓日期</th><th>單位</th><th>實用面積</th><th>售價</th><th>管理費(每月)</th><th>圖片</th><th></th>
+        </tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+    </div>`;
   } catch {
     panel.innerHTML = '<div class="listings-section" style="padding:1.5rem;color:var(--muted);text-align:center">載入失敗</div>';
   }
