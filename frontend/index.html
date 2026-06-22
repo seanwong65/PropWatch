@@ -1983,9 +1983,11 @@ async function loadViewings(estateId) {
       return;
     }
     const fmt = p => p ? `$${(p/1e4).toFixed(p%10000===0?0:1)}萬` : '-';
+    window._viewingImgsMap = {};
     const rows = viewings.map(v => {
       const imgs = v.images ? JSON.parse(v.images) : [];
-      const imgHtml = imgs.map(src => `<img class="viewing-card-img" src="${src}" onclick="viewImgFull('${src}')" style="height:56px;border-radius:4px;cursor:pointer;margin-top:0.3rem">`).join('');
+      window._viewingImgsMap[v.id] = imgs;
+      const imgHtml = imgs.map((src, i) => `<img class="viewing-card-img" src="${src}" onclick="viewImgFull(${v.id},${i})" style="height:56px;border-radius:4px;cursor:pointer;margin-top:0.3rem">`).join('');
       const fmtBlock = v.block ? ((/座$/.test(v.block) ? v.block : v.block+'座')) : null;
       const fmtFloor = v.floor ? ((/樓$/.test(v.floor)||/層$/.test(v.floor) ? v.floor : v.floor+'樓')) : null;
       const fmtUnit = v.unit ? ((/室$/.test(v.unit)||/號$/.test(v.unit) ? v.unit : v.unit+'室')) : null;
@@ -2030,12 +2032,46 @@ async function deleteViewing(id, estateId) {
   loadViewings(estateId);
 }
 
-function viewImgFull(src) {
+function viewImgFull(viewingId, startIdx) {
+  const images = window._viewingImgsMap[viewingId] || [];
+  if (!images.length) return;
+  let cur = startIdx || 0;
+
   const ov = document.createElement('div');
-  ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.85);z-index:9999;display:flex;align-items:center;justify-content:center;cursor:pointer';
-  ov.innerHTML = `<img src="${src}" style="max-width:92vw;max-height:92vh;border-radius:8px;box-shadow:0 8px 32px rgba(0,0,0,0.6)">`;
-  ov.onclick = () => ov.remove();
+  ov.id = 'img-lightbox';
+  ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.92);z-index:9999;display:flex;flex-direction:column;align-items:center;justify-content:center';
+
+  const render = () => {
+    const thumbs = images.map((src, i) => `<img src="${src}" data-i="${i}" style="height:64px;width:64px;object-fit:cover;border-radius:4px;cursor:pointer;flex-shrink:0;border:2.5px solid ${i===cur?'#e53e3e':'transparent'};opacity:${i===cur?1:0.6};transition:border 0.15s,opacity 0.15s">`).join('');
+    ov.innerHTML = `
+      <button onclick="document.getElementById('img-lightbox').remove()" style="position:absolute;top:1rem;right:1.2rem;background:none;border:none;color:#fff;font-size:2rem;cursor:pointer;line-height:1;z-index:1">✕</button>
+      <div style="position:relative;display:flex;align-items:center;justify-content:center;width:100%;max-height:78vh">
+        ${images.length>1?`<button onclick="event.stopPropagation();_lbNav(-1)" style="position:absolute;left:1rem;background:rgba(255,255,255,0.15);border:none;color:#fff;font-size:2rem;padding:0.4rem 0.8rem;border-radius:6px;cursor:pointer;z-index:1">‹</button>`:''}
+        <img id="lb-main" src="${images[cur]}" style="max-width:88vw;max-height:76vh;border-radius:6px;box-shadow:0 8px 32px rgba(0,0,0,0.7);object-fit:contain">
+        ${images.length>1?`<button onclick="event.stopPropagation();_lbNav(1)" style="position:absolute;right:1rem;background:rgba(255,255,255,0.15);border:none;color:#fff;font-size:2rem;padding:0.4rem 0.8rem;border-radius:6px;cursor:pointer;z-index:1">›</button>`:''}
+      </div>
+      ${images.length>1?`<div id="lb-thumbs" style="display:flex;gap:0.5rem;margin-top:1rem;overflow-x:auto;max-width:92vw;padding:0.3rem 0.5rem">${thumbs}</div>`:''}
+      <div style="color:rgba(255,255,255,0.5);font-size:0.8rem;margin-top:0.5rem">${cur+1} / ${images.length}</div>`;
+    ov.querySelector('#lb-thumbs')?.querySelectorAll('img').forEach(el => {
+      el.addEventListener('click', e => { e.stopPropagation(); cur = +el.dataset.i; render(); });
+    });
+  };
+
+  window._lbNav = (dir) => {
+    cur = (cur + dir + images.length) % images.length;
+    render();
+  };
+
+  ov.addEventListener('click', e => { if (e.target === ov) ov.remove(); });
+  document.addEventListener('keydown', function lbKey(e) {
+    if (!document.getElementById('img-lightbox')) { document.removeEventListener('keydown', lbKey); return; }
+    if (e.key === 'ArrowLeft') window._lbNav(-1);
+    if (e.key === 'ArrowRight') window._lbNav(1);
+    if (e.key === 'Escape') ov.remove();
+  });
+
   document.body.appendChild(ov);
+  render();
 }
 
 
