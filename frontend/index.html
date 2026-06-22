@@ -1727,6 +1727,12 @@ async function showEstate(id, name, district) {
 
     // Load estate info (non-blocking)
     loadEstateInfo(id);
+
+    // Load viewings count for tab label (non-blocking)
+    api(`/api/viewings?estate_id=${id}`).then(r => {
+      const btn = document.getElementById('tab-btn-viewings');
+      if (btn && r?.viewings?.length) btn.textContent = `睇樓記錄(${r.viewings.length})`;
+    }).catch(() => {});
   } catch (err) {
     main.innerHTML = `<div class="welcome"><p>載入失敗：${err.message}</p></div>`;
   }
