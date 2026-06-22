@@ -1141,6 +1141,15 @@ export default {
         return json(200, { ok: true, id: result.meta.last_row_id });
       }
 
+      if (method === "PUT" && path.startsWith("/api/viewings/")) {
+        const viewingId = path.split("/").pop();
+        const { view_date, block, floor, unit, size_net, direction, price, mgmt_fee, images, notes } = await req.json();
+        await db.prepare(
+          "UPDATE viewings SET view_date=?, block=?, floor=?, unit=?, size_net=?, direction=?, price=?, mgmt_fee=?, images=?, notes=? WHERE id=?"
+        ).bind(view_date, block||null, floor, unit, size_net, direction||null, price, mgmt_fee||null, images||null, notes||null, viewingId).run();
+        return json(200, { ok: true });
+      }
+
       if (method === "DELETE" && path.startsWith("/api/viewings/")) {
         const viewingId = path.split("/").pop();
         await db.prepare("DELETE FROM viewings WHERE id = ?").bind(viewingId).run();

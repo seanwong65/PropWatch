@@ -1836,27 +1836,30 @@ function switchTab(tab, estateId) {
 let _viewingEstateId = null;
 let _viewingEstateName = '';
 let _viewingImages = []; // [{dataUrl, file}]
+let _viewingEditId = null;
 
-function openViewingModal() {
+function openViewingModal(viewing = null) {
   if (!_viewingEstateId) return;
+  _viewingEditId = viewing ? viewing.id : null;
   document.getElementById('viewingModalOverlay').style.display = 'flex';
   document.getElementById('viewing-modal-estate-name').textContent = _viewingEstateName;
-  // Default date = today (HK)
+  document.querySelector('#viewingModalOverlay .modal-title').textContent = viewing ? '✏️ 更改睇樓記錄' : '＋ 新增睇樓記錄';
   const today = new Date(Date.now() + 8*3600000).toISOString().slice(0,10);
-  document.getElementById('vf-date').value = today;
-  document.getElementById('vf-block').value = '';
-  document.getElementById('vf-floor').value = '';
-  document.getElementById('vf-unit').value = '';
-  document.getElementById('vf-size').value = '';
-  document.getElementById('vf-direction').value = '';
-  document.getElementById('vf-price').value = '';
-  document.getElementById('vf-mgmt').value = '';
+  document.getElementById('vf-date').value = viewing ? viewing.view_date : today;
+  document.getElementById('vf-block').value = viewing ? (viewing.block || '') : '';
+  document.getElementById('vf-floor').value = viewing ? viewing.floor : '';
+  document.getElementById('vf-unit').value = viewing ? viewing.unit : '';
+  document.getElementById('vf-size').value = viewing ? viewing.size_net : '';
+  document.getElementById('vf-direction').value = viewing ? (viewing.direction || '') : '';
+  document.getElementById('vf-price').value = viewing ? (viewing.price / 10000) : '';
+  document.getElementById('vf-mgmt').value = viewing ? (viewing.mgmt_fee || '') : '';
   document.getElementById('vf-img-preview').innerHTML = '';
   _viewingImages = [];
-  // Auto-fill last mgmt fee
-  api(`/api/viewings/last-mgmt-fee?estate_id=${_viewingEstateId}`).then(r => {
-    if (r?.mgmt_fee) document.getElementById('vf-mgmt').value = r.mgmt_fee;
-  }).catch(() => {});
+  if (!viewing) {
+    api(`/api/viewings/last-mgmt-fee?estate_id=${_viewingEstateId}`).then(r => {
+      if (r?.mgmt_fee) document.getElementById('vf-mgmt').value = r.mgmt_fee;
+    }).catch(() => {});
+  }
 }
 
 function closeViewingModal() {
@@ -1906,9 +1909,12 @@ async function submitViewing(e) {
       mgmt_fee: parseFloat(document.getElementById('vf-mgmt').value) || null,
       images: images.length ? JSON.stringify(images) : null,
     };
-    await api('/api/viewings', { method: 'POST', body: JSON.stringify(body) });
+    if (_viewingEditId) {
+      await api(`/api/viewings/${_viewingEditId}`, { method: 'PUT', body: JSON.stringify(body) });
+    } else {
+      await api('/api/viewings', { method: 'POST', body: JSON.stringify(body) });
+    }
     closeViewingModal();
-    // If viewing tab is open, reload it
     if (document.getElementById('tab-viewings')?.style.display !== 'none') {
       loadViewings(_viewingEstateId);
     }
@@ -1933,23 +1939,26 @@ async function loadViewings(estateId) {
     const cards = viewings.map(v => {
       const imgs = v.images ? JSON.parse(v.images) : [];
       const imgHtml = imgs.map(src => `<img class="viewing-card-img" src="${src}" onclick="viewImgFull('${src}')">`).join('');
-      const fields = [
-        { k:'座數', v: v.block||'-' }, { k:'樓層', v: v.floor }, { k:'室', v: v.unit },
-        { k:'實用呎數', v: v.size_net ? v.size_net+'呎' : '-' },
-        { k:'方向', v: v.direction||'-' },
-        { k:'售價', v: fmt(v.price) },
-        { k:'管理費/呎', v: v.mgmt_fee ? '$'+v.mgmt_fee+'/呎' : '-' },
-      ];
-      const kvHtml = fields.map(f => `<div class="viewing-card-kv"><span class="viewing-card-k">${f.k}</span><span>${escHtml(String(f.v))}</span></div>`).join('');
+      const unitStr = [v.block, v.floor, v.unit].filter(Boolean).map(s => escHtml(s)).join(' ');
+      const infoStr = [
+        v.size_net ? v.size_net+'呎' : null,
+        v.direction || null,
+        fmt(v.price),
+        v.mgmt_fee ? '管理費 $'+v.mgmt_fee+'/呎' : null,
+      ].filter(Boolean).join(' · ');
+      const vData = encodeURIComponent(JSON.stringify(v));
       return `<div class="viewing-card">
         <div class="viewing-card-header">
-          <div>
-            <div class="viewing-card-title">${v.block ? escHtml(v.block)+' ' : ''}${escHtml(v.floor)} ${escHtml(v.unit)}</div>
-            <div class="viewing-card-date">${v.view_date}</div>
+          <div style="flex:1;min-width:0">
+            <span class="viewing-card-title">${unitStr}</span>
+            <span style="color:var(--muted);font-size:0.78rem;margin-left:0.5rem">${v.view_date}</span>
+            <div style="font-size:0.78rem;color:var(--text-2,var(--muted));margin-top:0.2rem">${infoStr}</div>
           </div>
-          <button class="viewing-del-btn" onclick="deleteViewing(${v.id},${estateId})" title="刪除">🗑</button>
+          <div style="display:flex;gap:0.4rem;flex-shrink:0">
+            <button class="viewing-del-btn" onclick='openViewingModal(JSON.parse(decodeURIComponent("${vData}")))' title="更改" style="background:var(--surface3,var(--border))">✏️</button>
+            <button class="viewing-del-btn" onclick="deleteViewing(${v.id},${estateId})" title="刪除">🗑</button>
+          </div>
         </div>
-        <div class="viewing-card-grid">${kvHtml}</div>
         ${imgHtml ? `<div class="viewing-card-imgs">${imgHtml}</div>` : ''}
       </div>`;
     }).join('');
