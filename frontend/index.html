@@ -1906,10 +1906,7 @@ async function submitViewing(e) {
       mgmt_fee: parseInt(document.getElementById('vf-mgmt').value) || null,
       images: images.length ? JSON.stringify(images) : null,
     };
-    const res = await fetch(`${API_BASE}/api/viewings`, {
-      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body)
-    });
-    if (!res.ok) throw new Error('Save failed');
+    await api('/api/viewings', { method: 'POST', body: JSON.stringify(body) });
     closeViewingModal();
     // If viewing tab is open, reload it
     if (document.getElementById('tab-viewings')?.style.display !== 'none') {
@@ -1964,7 +1961,7 @@ async function loadViewings(estateId) {
 
 async function deleteViewing(id, estateId) {
   if (!confirm('確定刪除這個睇樓記錄？')) return;
-  await fetch(`${API_BASE}/api/viewings/${id}`, { method: 'DELETE' });
+  await api(`/api/viewings/${id}`, { method: 'DELETE' });
   loadViewings(estateId);
 }
 
