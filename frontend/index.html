@@ -1731,7 +1731,7 @@ async function showEstate(id, name, district) {
     // Load viewings count for tab label (non-blocking)
     api(`/api/viewings?estate_id=${id}`).then(r => {
       const btn = document.getElementById('tab-btn-viewings');
-      if (btn && r?.viewings?.length) btn.textContent = `睇樓記錄(${r.viewings.length})`;
+      if (btn) btn.textContent = `睇樓記錄(${r?.viewings?.length || 0})`;
     }).catch(() => {});
   } catch (err) {
     main.innerHTML = `<div class="welcome"><p>載入失敗：${err.message}</p></div>`;
@@ -1978,7 +1978,7 @@ async function loadViewings(estateId) {
   try {
     const { viewings } = await api(`/api/viewings?estate_id=${estateId}`);
     const tabBtn = document.getElementById('tab-btn-viewings');
-    if (tabBtn) tabBtn.textContent = `睇樓記錄${viewings?.length ? `(${viewings.length})` : ''}`;
+    if (tabBtn) tabBtn.textContent = `睇樓記錄(${viewings?.length || 0})`;
     if (!viewings?.length) {
       panel.innerHTML = '<div class="listings-section" style="padding:1.5rem;color:var(--muted);text-align:center">未有睇樓記錄<br><small>按「新增睇樓」新增第一個記錄</small></div>';
       return;
