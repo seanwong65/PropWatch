@@ -1113,8 +1113,8 @@ export default {
       }
 
       if (method === "POST" && path === "/api/sync") {
-        const results = await runDailySync(db, env.RESEND_API_KEY);
-        return json(200, { ok: true, results });
+        const { results, email } = await runDailySync(db, env.RESEND_API_KEY);
+        return json(200, { ok: true, results, email });
       }
 
       if (method === "POST" && path === "/api/test-email") {
