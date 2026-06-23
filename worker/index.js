@@ -6,6 +6,54 @@ const CORS = {
 
 const CENTANET_SEARCH = "https://hk.centanet.com/findproperty/api/Post/Search";
 const CENTANET_TRANS  = "https://hk.centanet.com/findproperty/api/Transaction/Search";
+const CENTANET_DETAIL = "https://hk.centanet.com/CentaEstimate/api/Transaction/DetailByUnitCode";
+
+// Static cuntcode lookup: "estate|building" -> { typeCode, units: { "floor_unit" -> cuntcode } }
+// Populated from ConsumptionTableGrpByFlat (requires browser session to fetch, so captured manually)
+const ESTATE_UNIT_MAP = {
+  "昇悅居|8座": {
+    typeCode: "1-EGPPWDPXPK",
+    units: {
+      "45樓_A室":"EGPPWDPXPKPPAD","45樓_B室":"EGPPWDPXPKPPYA","45樓_C室":"EGPPWDPXPKPSEW","45樓_D室":"EGPPWDPXPKPSDB","45樓_E室":"EGPPWDPXPKPEES","45樓_F室":"EGPPWDPXPKPEGD","45樓_G室":"EGPPWDPXPKPASA","45樓_H室":"EGPPWDPXPKPABW",
+      "43樓_A室":"EGPPWDPXPKPPAG","43樓_B室":"EGPPWDPXPKPPYE","43樓_C室":"EGPPWDPXPKPSEY","43樓_D室":"EGPPWDPXPKPSDK","43樓_E室":"EGPPWDPXPKPEEP","43樓_F室":"EGPPWDPXPKPEGG","43樓_G室":"EGPPWDPXPKPASE","43樓_H室":"EGPPWDPXPKPABY",
+      "42樓_A室":"EGPPWDPXPKPPAB","42樓_B室":"EGPPWDPXPKPPYS","42樓_C室":"EGPPWDPXPKPSED","42樓_D室":"EGPPWDPXPKPSDA","42樓_E室":"EGPPWDPXPKPESW","42樓_F室":"EGPPWDPXPKPEGB","42樓_G室":"EGPPWDPXPKPASS","42樓_H室":"EGPPWDPXPKPABD",
+      "41樓_A室":"EGPPWDPXPKPPAK","41樓_B室":"EGPPWDPXPKPPYP","41樓_C室":"EGPPWDPXPKPSEG","41樓_D室":"EGPPWDPXPKPSDE","41樓_E室":"EGPPWDPXPKPESY","41樓_F室":"EGPPWDPXPKPEGK","41樓_G室":"EGPPWDPXPKPASP","41樓_H室":"EGPPWDPXPKPABG",
+      "40樓_A室":"EGPPWDPXPKPPAA","40樓_B室":"EGPPWDPXPKPPDW","40樓_C室":"EGPPWDPXPKPSEB","40樓_D室":"EGPPWDPXPKPSDS","40樓_E室":"EGPPWDPXPKPESD","40樓_F室":"EGPPWDPXPKPEGA","40樓_G室":"EGPPWDPXPKPAPW","40樓_H室":"EGPPWDPXPKPABB",
+      "39樓_A室":"EGPPWDPXPKPPAE","39樓_B室":"EGPPWDPXPKPPDY","39樓_C室":"EGPPWDPXPKPSEK","39樓_D室":"EGPPWDPXPKPSDP","39樓_E室":"EGPPWDPXPKPESG","39樓_F室":"EGPPWDPXPKPEGE","39樓_G室":"EGPPWDPXPKPAPY","39樓_H室":"EGPPWDPXPKPABK",
+      "38樓_A室":"EGPPWDPXPKPPAS","38樓_B室":"EGPPWDPXPKPPDD","38樓_C室":"EGPPWDPXPKPSEA","38樓_D室":"EGPPWDPXPKPSGW","38樓_E室":"EGPPWDPXPKPESB","38樓_F室":"EGPPWDPXPKPEGS","38樓_G室":"EGPPWDPXPKPAPD","38樓_H室":"EGPPWDPXPKPABA",
+      "37樓_A室":"EGPPWDPXPKPPAP","37樓_B室":"EGPPWDPXPKPPDG","37樓_C室":"EGPPWDPXPKPSEE","37樓_D室":"EGPPWDPXPKPSGY","37樓_E室":"EGPPWDPXPKPESK","37樓_F室":"EGPPWDPXPKPEGP","37樓_G室":"EGPPWDPXPKPAPG","37樓_H室":"EGPPWDPXPKPABE",
+      "36樓_A室":"EGPPWDPXPKPPEW","36樓_B室":"EGPPWDPXPKPPDB","36樓_C室":"EGPPWDPXPKPSES","36樓_D室":"EGPPWDPXPKPSGD","36樓_E室":"EGPPWDPXPKPESA","36樓_F室":"EGPPWDPXPKPEBW","36樓_G室":"EGPPWDPXPKPAPB","36樓_H室":"EGPPWDPXPKPABS",
+      "35樓_A室":"EGPPWDPXPKPPEY","35樓_B室":"EGPPWDPXPKPPDK","35樓_C室":"EGPPWDPXPKPSEP","35樓_D室":"EGPPWDPXPKPSGG","35樓_E室":"EGPPWDPXPKPESE","35樓_F室":"EGPPWDPXPKPEBY","35樓_G室":"EGPPWDPXPKPAPK","35樓_H室":"EGPPWDPXPKPABP",
+      "33樓_A室":"EGPPWDPXPKPPED","33樓_B室":"EGPPWDPXPKPPDA","33樓_C室":"EGPPWDPXPKPSSW","33樓_D室":"EGPPWDPXPKPSGB","33樓_E室":"EGPPWDPXPKPESS","33樓_F室":"EGPPWDPXPKPEBD","33樓_G室":"EGPPWDPXPKPAPA","33樓_H室":"EGPPWDPXPKPAKW",
+      "32樓_A室":"EGPPWDPXPKPPEG","32樓_B室":"EGPPWDPXPKPPDE","32樓_C室":"EGPPWDPXPKPSSY","32樓_D室":"EGPPWDPXPKPSGK","32樓_E室":"EGPPWDPXPKPESP","32樓_F室":"EGPPWDPXPKPEBG","32樓_G室":"EGPPWDPXPKPAPE","32樓_H室":"EGPPWDPXPKPAKY",
+      "31樓_A室":"EGPPWDPXPKPPEB","31樓_B室":"EGPPWDPXPKPPDS","31樓_C室":"EGPPWDPXPKPSSD","31樓_D室":"EGPPWDPXPKPSGA","31樓_E室":"EGPPWDPXPKPEPW","31樓_F室":"EGPPWDPXPKPEBB","31樓_G室":"EGPPWDPXPKPAPS","31樓_H室":"EGPPWDPXPKPAKD",
+      "30樓_A室":"EGPPWDPXPKPPEK","30樓_B室":"EGPPWDPXPKPPDP","30樓_C室":"EGPPWDPXPKPSSG","30樓_D室":"EGPPWDPXPKPSGE","30樓_E室":"EGPPWDPXPKPEPY","30樓_F室":"EGPPWDPXPKPEBK","30樓_G室":"EGPPWDPXPKPAPP","30樓_H室":"EGPPWDPXPKPAKG",
+      "29樓_A室":"EGPPWDPXPKPPEA","29樓_B室":"EGPPWDPXPKPPGW","29樓_C室":"EGPPWDPXPKPSSB","29樓_D室":"EGPPWDPXPKPSGS","29樓_E室":"EGPPWDPXPKPEPD","29樓_F室":"EGPPWDPXPKPEBA","29樓_G室":"EGPPWDPXPKPEWW","29樓_H室":"EGPPWDPXPKPAKB",
+      "28樓_A室":"EGPPWDPXPKPPEE","28樓_B室":"EGPPWDPXPKPPGY","28樓_C室":"EGPPWDPXPKPSSK","28樓_D室":"EGPPWDPXPKPSGP","28樓_E室":"EGPPWDPXPKPEPG","28樓_F室":"EGPPWDPXPKPEBE","28樓_G室":"EGPPWDPXPKPEWY","28樓_H室":"EGPPWDPXPKPAKK",
+      "27樓_A室":"EGPPWDPXPKPPES","27樓_B室":"EGPPWDPXPKPPGD","27樓_C室":"EGPPWDPXPKPSSA","27樓_D室":"EGPPWDPXPKPSBW","27樓_E室":"EGPPWDPXPKPEPB","27樓_F室":"EGPPWDPXPKPEBS","27樓_G室":"EGPPWDPXPKPEWD","27樓_H室":"EGPPWDPXPKPAKA",
+      "26樓_A室":"EGPPWDPXPKPPEP","26樓_B室":"EGPPWDPXPKPPGG","26樓_C室":"EGPPWDPXPKPSSE","26樓_D室":"EGPPWDPXPKPSBY","26樓_E室":"EGPPWDPXPKPEPK","26樓_F室":"EGPPWDPXPKPEBP","26樓_G室":"EGPPWDPXPKPEWG","26樓_H室":"EGPPWDPXPKPAKE",
+      "25樓_A室":"EGPPWDPXPKPPSW","25樓_B室":"EGPPWDPXPKPPGB","25樓_C室":"EGPPWDPXPKPSSS","25樓_D室":"EGPPWDPXPKPSBD","25樓_E室":"EGPPWDPXPKPEPA","25樓_F室":"EGPPWDPXPKPEKW","25樓_G室":"EGPPWDPXPKPEWB","25樓_H室":"EGPPWDPXPKPAKS",
+      "23樓_A室":"EGPPWDPXPKPPSY","23樓_B室":"EGPPWDPXPKPPGK","23樓_C室":"EGPPWDPXPKPSSP","23樓_D室":"EGPPWDPXPKPSBG","23樓_E室":"EGPPWDPXPKPEPE","23樓_F室":"EGPPWDPXPKPEKY","23樓_G室":"EGPPWDPXPKPEWK","23樓_H室":"EGPPWDPXPKPAKP",
+      "22樓_A室":"EGPPWDPXPKPPSD","22樓_B室":"EGPPWDPXPKPPGA","22樓_C室":"EGPPWDPXPKPSPW","22樓_D室":"EGPPWDPXPKPSBB","22樓_E室":"EGPPWDPXPKPEPS","22樓_F室":"EGPPWDPXPKPEKD","22樓_G室":"EGPPWDPXPKPEWA","22樓_H室":"EGPPWDPXPKPAAW",
+      "21樓_A室":"EGPPWDPXPKPPSG","21樓_B室":"EGPPWDPXPKPPGE","21樓_C室":"EGPPWDPXPKPSPY","21樓_D室":"EGPPWDPXPKPSBK","21樓_E室":"EGPPWDPXPKPEPP","21樓_F室":"EGPPWDPXPKPEKG","21樓_G室":"EGPPWDPXPKPEWE","21樓_H室":"EGPPWDPXPKPAAY",
+      "20樓_A室":"EGPPWDPXPKPPSB","20樓_B室":"EGPPWDPXPKPPGS","20樓_C室":"EGPPWDPXPKPSPD","20樓_D室":"EGPPWDPXPKPSBA","20樓_E室":"EGPPWDPXPKPSWW","20樓_F室":"EGPPWDPXPKPEKB","20樓_G室":"EGPPWDPXPKPEWS","20樓_H室":"EGPPWDPXPKPAAD",
+      "19樓_A室":"EGPPWDPXPKPPSK","19樓_B室":"EGPPWDPXPKPPGP","19樓_C室":"EGPPWDPXPKPSPG","19樓_D室":"EGPPWDPXPKPSBE","19樓_E室":"EGPPWDPXPKPSWY","19樓_F室":"EGPPWDPXPKPEKK","19樓_G室":"EGPPWDPXPKPEWP","19樓_H室":"EGPPWDPXPKPAAG",
+      "18樓_A室":"EGPPWDPXPKPPSA","18樓_B室":"EGPPWDPXPKPPBW","18樓_C室":"EGPPWDPXPKPSPB","18樓_D室":"EGPPWDPXPKPSBS","18樓_E室":"EGPPWDPXPKPSWD","18樓_F室":"EGPPWDPXPKPEKA","18樓_G室":"EGPPWDPXPKPEYW","18樓_H室":"EGPPWDPXPKPAAB",
+      "17樓_A室":"EGPPWDPXPKPPSE","17樓_B室":"EGPPWDPXPKPPBY","17樓_C室":"EGPPWDPXPKPSPK","17樓_D室":"EGPPWDPXPKPSBP","17樓_E室":"EGPPWDPXPKPSWG","17樓_F室":"EGPPWDPXPKPEKE","17樓_G室":"EGPPWDPXPKPEYY","17樓_H室":"EGPPWDPXPKPAAK",
+      "16樓_A室":"EGPPWDPXPKPPSS","16樓_B室":"EGPPWDPXPKPPBD","16樓_C室":"EGPPWDPXPKPSPA","16樓_D室":"EGPPWDPXPKPSKW","16樓_E室":"EGPPWDPXPKPSWB","16樓_F室":"EGPPWDPXPKPEKS","16樓_G室":"EGPPWDPXPKPEYD","16樓_H室":"EGPPWDPXPKPAAA",
+      "15樓_A室":"EGPPWDPXPKPPSP","15樓_B室":"EGPPWDPXPKPPBG","15樓_C室":"EGPPWDPXPKPSPE","15樓_D室":"EGPPWDPXPKPSKY","15樓_E室":"EGPPWDPXPKPSWK","15樓_F室":"EGPPWDPXPKPEKP","15樓_G室":"EGPPWDPXPKPEYG","15樓_H室":"EGPPWDPXPKPAAE",
+      "13樓_A室":"EGPPWDPXPKPPPW","13樓_B室":"EGPPWDPXPKPPBB","13樓_C室":"EGPPWDPXPKPSPS","13樓_D室":"EGPPWDPXPKPSKD","13樓_E室":"EGPPWDPXPKPSWA","13樓_F室":"EGPPWDPXPKPEAW","13樓_G室":"EGPPWDPXPKPEYB","13樓_H室":"EGPPWDPXPKPAAS",
+      "12樓_A室":"EGPPWDPXPKPPPY","12樓_B室":"EGPPWDPXPKPPBK","12樓_C室":"EGPPWDPXPKPSPP","12樓_D室":"EGPPWDPXPKPSKG","12樓_E室":"EGPPWDPXPKPSWE","12樓_F室":"EGPPWDPXPKPEAY","12樓_G室":"EGPPWDPXPKPEYK","12樓_H室":"EGPPWDPXPKPAAP",
+      "11樓_A室":"EGPPWDPXPKPPPD","11樓_B室":"EGPPWDPXPKPPBA","11樓_C室":"EGPPWDPXPKPPWW","11樓_D室":"EGPPWDPXPKPSKB","11樓_E室":"EGPPWDPXPKPSWS","11樓_F室":"EGPPWDPXPKPEAD","11樓_G室":"EGPPWDPXPKPEYA","11樓_H室":"EGPPWDPXPKPAEW",
+      "10樓_A室":"EGPPWDPXPKPPPG","10樓_B室":"EGPPWDPXPKPPBE","10樓_C室":"EGPPWDPXPKPPWY","10樓_D室":"EGPPWDPXPKPSKK","10樓_E室":"EGPPWDPXPKPSWP","10樓_F室":"EGPPWDPXPKPEAG","10樓_G室":"EGPPWDPXPKPEYE","10樓_H室":"EGPPWDPXPKPAEY",
+      "9樓_A室":"EGPPWDPXPKPPPB","9樓_B室":"EGPPWDPXPKPPBS","9樓_C室":"EGPPWDPXPKPPWD","9樓_D室":"EGPPWDPXPKPSKA","9樓_E室":"EGPPWDPXPKPSYW","9樓_F室":"EGPPWDPXPKPEAB","9樓_G室":"EGPPWDPXPKPEYS","9樓_H室":"EGPPWDPXPKPAED",
+      "8樓_A室":"EGPPWDPXPKPPPK","8樓_B室":"EGPPWDPXPKPPBP","8樓_C室":"EGPPWDPXPKPPWG","8樓_D室":"EGPPWDPXPKPSKE","8樓_E室":"EGPPWDPXPKPSYY","8樓_F室":"EGPPWDPXPKPEAK","8樓_G室":"EGPPWDPXPKPEYP","8樓_H室":"EGPPWDPXPKPAEG",
+      "7樓_A室":"EGPPWDPXPKPPPA","7樓_B室":"EGPPWDPXPKPPKW","7樓_C室":"EGPPWDPXPKPPWB","7樓_D室":"EGPPWDPXPKPSKS","7樓_E室":"EGPPWDPXPKPSYD","7樓_F室":"EGPPWDPXPKPEAA","7樓_G室":"EGPPWDPXPKPEDW","7樓_H室":"EGPPWDPXPKPAEB",
+      "6樓_A室":"EGPPWDPXPKPPPE","6樓_B室":"EGPPWDPXPKPPKY","6樓_C室":"EGPPWDPXPKPPWK","6樓_D室":"EGPPWDPXPKPSKP","6樓_E室":"EGPPWDPXPKPSYG","6樓_F室":"EGPPWDPXPKPEAE","6樓_G室":"EGPPWDPXPKPEDY","6樓_H室":"EGPPWDPXPKPAEK",
+      "5樓_A室":"EGPPWDPXPKPPPS","5樓_B室":"EGPPWDPXPKPPKD","5樓_C室":"EGPPWDPXPKPPWA","5樓_D室":"EGPPWDPXPKPSAW","5樓_E室":"EGPPWDPXPKPSYB","5樓_F室":"EGPPWDPXPKPEAS","5樓_G室":"EGPPWDPXPKPEDD","5樓_H室":"EGPPWDPXPKPAEA",
+    }
+  }
+};
 const HS_API = "https://rbwm-api.hsbc.com.hk/pws-hk-hase-mortgage-eapi-prod-proxy/v1/property";
 const HS_HEADERS = {
   "Content-Type": "application/json",
@@ -1207,7 +1255,38 @@ export default {
         const viewDate   = url.searchParams.get("view_date");
         if (!estateName || !building || !floor || !unit) return json(400, { error: "missing params" });
 
-        // Search building-level (no yAxis/xAxis) to always get typeCode for the estate link
+        const mapKey = `${estateName}|${building}`;
+        const staticData = ESTATE_UNIT_MAP[mapKey];
+
+        if (staticData) {
+          // Fast path: use static cuntcode to get full transaction history via DetailByUnitCode
+          const unitKey = `${floor}_${unit}`;
+          const cuntcode = staticData.units[unitKey];
+          const typeCode = staticData.typeCode;
+          const estateUrl = `https://hk.centanet.com/CentaEstimate/estate-${encodeURIComponent(estateName)}-${encodeURIComponent(building)}_${typeCode}?tab=history`;
+
+          if (cuntcode) {
+            const detailRes = await fetch(`${CENTANET_DETAIL}?cuntcode=${cuntcode}`, { ...CF_OPTIONS });
+            if (detailRes.ok) {
+              const detail = await detailRes.json();
+              const txns = (detail.recentTransactions || [])
+                .filter(t => t.transactionType === "Sale" || !t.transactionType)
+                .sort((a, b) => b.regDate?.localeCompare(a.regDate));
+              const target = viewDate ? txns.find(t => t.regDate?.slice(0,10) < viewDate) : txns[0];
+              if (!target) return json(200, { txn: null, estateUrl });
+              return json(200, { txn: {
+                price: target.transactionPrice,
+                reg_date: target.regDate?.slice(0, 10),
+                prev_price: target.prevTransactionPrice || null,
+                held_days: target.heldDay || null,
+              }, estateUrl });
+            }
+          }
+          // cuntcode not in map or API failed — return link only
+          return json(200, { txn: null, estateUrl });
+        }
+
+        // Fallback: search building-level to get typeCode and recent transactions
         const searchRes = await fetch(CENTANET_TRANS, {
           method: "POST",
           headers: FETCH_HEADERS,
@@ -1219,16 +1298,12 @@ export default {
         const raw = await searchRes.json();
         const allData = raw.data || [];
 
-        // Filter to the specific unit client-side
         const results = allData.filter(t => t.buildingName === building && t.yAxis === floor && t.xAxis === unit);
-
-        // Pick the most recent transaction before viewDate
         const sorted = results.sort((a, b) => b.regDate?.localeCompare(a.regDate));
         const target = viewDate ? sorted.find(t => t.regDate?.slice(0,10) < viewDate) : sorted[0];
 
-        // Build Centanet estate floor plan link from any building-level result's typeCode
         const anyResult = allData.find(t => t.buildingName === building && t.typeCode);
-        const typeCode = anyResult?.typeCode; // e.g. "1-EGPPWAPXPK"
+        const typeCode = anyResult?.typeCode;
         const estateUrl = typeCode
           ? `https://hk.centanet.com/CentaEstimate/estate-${encodeURIComponent(estateName)}-${encodeURIComponent(building)}_${typeCode}?tab=history`
           : null;
