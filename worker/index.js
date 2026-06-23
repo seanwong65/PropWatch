@@ -1207,23 +1207,27 @@ export default {
         const viewDate   = url.searchParams.get("view_date");
         if (!estateName || !building || !floor || !unit) return json(400, { error: "missing params" });
 
+        // Search building-level (no yAxis/xAxis) to always get typeCode for the estate link
         const searchRes = await fetch(CENTANET_TRANS, {
           method: "POST",
           headers: FETCH_HEADERS,
           body: JSON.stringify({ postType: "Sale", size: 50, offset: 0, keyword: estateName,
-            buildingName: building, yAxis: floor, xAxis: unit }),
+            buildingName: building }),
           ...CF_OPTIONS,
         });
         if (!searchRes.ok) return json(502, { error: "centanet error" });
         const raw = await searchRes.json();
-        const results = (raw.data || []).filter(t => t.buildingName === building && t.yAxis === floor && t.xAxis === unit);
+        const allData = raw.data || [];
+
+        // Filter to the specific unit client-side
+        const results = allData.filter(t => t.buildingName === building && t.yAxis === floor && t.xAxis === unit);
 
         // Pick the most recent transaction before viewDate
         const sorted = results.sort((a, b) => b.regDate?.localeCompare(a.regDate));
         const target = viewDate ? sorted.find(t => t.regDate?.slice(0,10) < viewDate) : sorted[0];
 
-        // Build Centanet estate floor plan link from any result's typeCode (for fallback display)
-        const anyResult = (raw.data || []).find(t => t.buildingName === building && t.typeCode);
+        // Build Centanet estate floor plan link from any building-level result's typeCode
+        const anyResult = allData.find(t => t.buildingName === building && t.typeCode);
         const typeCode = anyResult?.typeCode; // e.g. "1-EGPPWAPXPK"
         const estateUrl = typeCode
           ? `https://hk.centanet.com/CentaEstimate/estate-${encodeURIComponent(estateName)}-${encodeURIComponent(building)}_${typeCode}?tab=history`
