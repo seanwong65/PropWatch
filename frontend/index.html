@@ -2166,7 +2166,7 @@ function viewImgFull(viewingId, startIdx) {
 
 async function batchFetchHSVal() {
   const btn = document.getElementById("batch-hs-btn");
-  const queryBtns = [...document.querySelectorAll('[id$="-btn"].hs-val-btn')].filter(b => b.textContent === '查估值' && !b.disabled);
+  const queryBtns = [...document.querySelectorAll('.hs-val-btn')].filter(b => b.textContent === '查估值' && !b.disabled);
   if (!queryBtns.length) { if (btn) { btn.textContent = '已全部查完'; setTimeout(() => { btn.textContent = '批量查估值'; }, 2000); } return; }
   if (btn) { btn.disabled = true; btn.textContent = `查詢中 0/${queryBtns.length}`; }
   for (let i = 0; i < queryBtns.length; i++) {
