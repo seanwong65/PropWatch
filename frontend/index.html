@@ -1874,7 +1874,7 @@ function switchTab(tab, estateId) {
   document.getElementById("tab-transactions").style.display = tab === "transactions" ? "" : "none";
   document.getElementById("tab-viewings").style.display = tab === "viewings" ? "" : "none";
   const batchBtn = document.getElementById("batch-hs-btn");
-  if (batchBtn) batchBtn.style.display = tab === "transactions" ? "" : "none";
+  if (batchBtn) batchBtn.style.display = (tab === "transactions" || tab === "viewings") ? "" : "none";
   if (tab === "transactions") loadTransactions(estateId, 0, false);
   if (tab === "viewings") loadViewings(estateId);
 }
