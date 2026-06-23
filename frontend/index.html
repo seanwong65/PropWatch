@@ -2062,7 +2062,7 @@ async function loadViewings(estateId) {
         <td>${mgmtMonthly ? `$${mgmtMonthly.toLocaleString()}/月` : '-'}</td>
         <td id="vhs-${v.id}">${hsCell}</td>
         <td>${v.txn_price && v.txn_reg_date >= v.view_date ? `<span style="color:var(--accent)"><strong>${fmt(v.txn_price)}</strong></span><br><span style="color:var(--muted);font-size:0.75rem">${v.txn_reg_date}</span>` : '-'}</td>
-        <td id="vprev-${v.id}">${(() => { if (!v.txn_prev_price) return `<span style="color:var(--muted);font-size:0.72rem;cursor:pointer" onclick="fetchUnitTxn(${v.id})">查詢</span>`; const buyDate = v.txn_reg_date && v.txn_held_days ? new Date(new Date(v.txn_reg_date).getTime() - v.txn_held_days*86400000).toISOString().slice(0,7) : null; return `<span style="color:var(--muted)"><strong>${fmt(v.txn_prev_price)}</strong></span>${buyDate ? `<br><span style="color:var(--muted);font-size:0.75rem">${buyDate}</span>` : ''}`; })()}</td>
+        <td id="vprev-${v.id}"><span style="color:var(--muted);font-size:0.72rem;cursor:pointer" onclick="fetchUnitTxn(${v.id})">查詢</span></td>
         <td>${imgHtml || '-'}</td>
         <td style="white-space:nowrap">
           <button class="viewing-del-btn" onclick='openViewingModal(JSON.parse(decodeURIComponent("${vData}")))' title="更改" style="background:var(--surface2);margin-right:0.3rem">✏️</button>
@@ -2079,9 +2079,8 @@ async function loadViewings(estateId) {
       </table>
     </div>`;
 
-    // Auto-fetch 上次購買 for rows missing prev_price
-    const missingPrev = viewings.filter(v => !v.txn_prev_price);
-    for (const v of missingPrev) {
+    // Auto-fetch 上次購買 for all rows using DetailByUnitCode
+    for (const v of viewings) {
       fetchUnitTxn(v.id);
       await new Promise(r => setTimeout(r, 300));
     }
@@ -2100,14 +2099,12 @@ async function fetchUnitTxn(viewingId) {
   const floor    = /[樓層]$/.test(v.floor||'') ? v.floor : (v.floor||'') + '樓';
   const unit     = /[室號]$/.test(v.unit||'') ? v.unit : (v.unit||'') + '室';
   try {
-    const params = new URLSearchParams({ estate: _viewingEstateName, building, floor, unit });
+    const params = new URLSearchParams({ estate: _viewingEstateName, building, floor, unit, view_date: v.view_date || '' });
     const data = await api(`/api/viewings/unit-txn?${params}`);
     const t = data.txn;
-    if (!t?.prev_price) { cell.innerHTML = '-'; return; }
-    const buyDate = t.reg_date && t.held_days
-      ? new Date(new Date(t.reg_date).getTime() - t.held_days*86400000).toISOString().slice(0,7)
-      : null;
-    cell.innerHTML = `<span style="color:var(--muted)"><strong>${fmt(t.prev_price)}</strong></span>${buyDate ? `<br><span style="color:var(--muted);font-size:0.75rem">${buyDate}</span>` : ''}`;
+    if (!t?.price) { cell.innerHTML = '-'; return; }
+    const dateStr = t.reg_date ? t.reg_date.slice(0, 7) : null;
+    cell.innerHTML = `<span style="color:var(--muted)"><strong>${fmt(t.price)}</strong></span>${dateStr ? `<br><span style="color:var(--muted);font-size:0.75rem">${dateStr}</span>` : ''}`;
   } catch { cell.innerHTML = '-'; }
 }
 
