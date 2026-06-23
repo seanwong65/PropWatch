@@ -238,11 +238,11 @@ const CF_OPTIONS = {
 };
 
 function getEstateCode(item) {
-  return item.bigestcode || item.cestcode || "";
+  return item.bigestcode || item.cestcode || item.cblgcode || "";
 }
 
 function getEstateName(item) {
-  return item.bigEstateName || item.estateName || "";
+  return item.bigEstateName || item.estateName || item.buildingName || "";
 }
 
 const PAGE_SIZE = 100;
