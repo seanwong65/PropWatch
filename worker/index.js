@@ -1384,7 +1384,7 @@ export default {
           return json(200, { txn: null, estateUrl });
         }
 
-        // Fallback: search building-level to get typeCode and recent transactions
+        // Fallback: search building-level to get typeCode + recent transactions
         const searchRes = await fetch(CENTANET_TRANS, {
           method: "POST",
           headers: FETCH_HEADERS,
@@ -1396,23 +1396,64 @@ export default {
         const raw = await searchRes.json();
         const allData = raw.data || [];
 
-        const results = allData.filter(t => t.buildingName === building && t.yAxis === floor && t.xAxis === unit);
-        const sorted = results.sort((a, b) => b.regDate?.localeCompare(a.regDate));
-        const target = viewDate ? sorted.find(t => t.regDate?.slice(0,10) < viewDate) : sorted[0];
-
         const anyResult = allData.find(t => t.buildingName === building && t.typeCode);
         const typeCode = anyResult?.typeCode;
         const estateUrl = typeCode
           ? `https://hk.centanet.com/CentaEstimate/estate-${encodeURIComponent(estateName)}-${encodeURIComponent(building)}_${typeCode}?tab=history`
           : null;
 
-        if (!target) return json(200, { txn: null, estateUrl });
-        return json(200, { txn: {
-          price: target.transactionPrice,
-          reg_date: target.regDate?.slice(0, 10),
-          prev_price: target.prevTransactionPrice || null,
-          held_days: target.heldDay || null,
-        }, estateUrl });
+        // Also keep shallow fallback from transaction search
+        const results = allData.filter(t => t.buildingName === building && t.yAxis === floor && t.xAxis === unit);
+        const sorted = results.sort((a, b) => b.regDate?.localeCompare(a.regDate));
+        const shallowTarget = viewDate ? sorted.find(t => t.regDate?.slice(0,10) < viewDate) : sorted[0];
+        const shallowTxn = shallowTarget ? {
+          price: shallowTarget.transactionPrice,
+          reg_date: shallowTarget.regDate?.slice(0, 10),
+          prev_price: shallowTarget.prevTransactionPrice || null,
+          held_days: shallowTarget.heldDay || null,
+        } : null;
+
+        // Dynamic cuntcode lookup via BuildingValuation — works for any estate, any number of phases
+        if (typeCode) {
+          try {
+            const bvRes = await fetch(
+              `https://hk.centanet.com/CentaEstimate/api/PropertyValuation/BuildingValuation?typecode=${typeCode}`,
+              CF_OPTIONS
+            );
+            if (bvRes.ok) {
+              const bvData = await bvRes.json();
+              let cuntcode = null;
+              for (const f of bvData.floors || []) {
+                if (f.valuationFloorType !== "Floor") continue;
+                if (f.yAxis.split("\n")[0].trim() !== floor) continue;
+                for (const u of f.units || []) {
+                  if (u.xAxis === unit && u.cuntcode && u.valuationUnitState !== "NotExist") {
+                    cuntcode = u.cuntcode; break;
+                  }
+                }
+                if (cuntcode) break;
+              }
+              if (cuntcode) {
+                const detailRes = await fetch(`${CENTANET_DETAIL}?cuntcode=${cuntcode}`, CF_OPTIONS);
+                if (detailRes.ok) {
+                  const detail = await detailRes.json();
+                  const txns = (detail.recentTransactions || [])
+                    .filter(t => t.transactionType === "Sale" || !t.transactionType)
+                    .sort((a, b) => b.regDate?.localeCompare(a.regDate));
+                  const target = viewDate ? txns.find(t => t.regDate?.slice(0,10) < viewDate) : txns[0];
+                  if (target) return json(200, { txn: {
+                    price: target.transactionPrice,
+                    reg_date: target.regDate?.slice(0, 10),
+                    prev_price: target.prevTransactionPrice || null,
+                    held_days: target.heldDay || null,
+                  }, estateUrl });
+                }
+              }
+            }
+          } catch (_) {}
+        }
+
+        return json(200, { txn: shallowTxn, estateUrl });
       }
 
       if (method === "GET" && path === "/api/viewings/last-mgmt-fee") {
