@@ -189,15 +189,22 @@ async function hsBlockList() {
 async function findBlockCode(estateCode, blockNum) {
   const list = await hsBlockList();
   if (!list) return null;
+  const isNumeric = /^\d+$/.test(blockNum);
   for (const area of list.areas || []) {
     for (const dist of area.districts || []) {
       for (const estate of dist.estates || []) {
         if (estate.estateCode === String(estateCode)) {
-          const block = estate.blocks?.find(b =>
-            b.blockChinesename === `第${blockNum}座` ||
-            b.blockChinesename?.includes(`第${blockNum}座`) ||
-            b.blockName === `Block/Tower ${blockNum}`
-          );
+          const blocks = estate.blocks || [];
+          const block = isNumeric
+            ? blocks.find(b =>
+                b.blockChinesename === `第${blockNum}座` ||
+                b.blockChinesename?.includes(`第${blockNum}座`) ||
+                b.blockName === `Block/Tower ${blockNum}`
+              )
+            : blocks.find(b =>
+                b.blockChinesename === blockNum ||
+                b.blockName === blockNum
+              ) || (blocks.length === 1 ? blocks[0] : null);
           return block ? { blockCode: block.blockCode, carpark: block.coveredCarpark || "0" } : null;
         }
       }
