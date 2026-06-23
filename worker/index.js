@@ -1199,6 +1199,33 @@ export default {
         return json(200, { viewings: results });
       }
 
+      if (method === "GET" && path === "/api/viewings/unit-txn") {
+        // Fetch most recent transaction for a specific unit from Centanet
+        const estateName = url.searchParams.get("estate");
+        const building   = url.searchParams.get("building");  // e.g. "3座"
+        const floor      = url.searchParams.get("floor");      // e.g. "28樓"
+        const unit       = url.searchParams.get("unit");       // e.g. "E室"
+        if (!estateName || !building || !floor || !unit) return json(400, { error: "missing params" });
+        const res = await fetch(CENTANET_TRANS, {
+          method: "POST",
+          headers: FETCH_HEADERS,
+          body: JSON.stringify({ postType: "Sale", size: 5, offset: 0, keyword: estateName,
+            buildingName: building, yAxis: floor, xAxis: unit }),
+          ...CF_OPTIONS,
+        });
+        if (!res.ok) return json(502, { error: "centanet error" });
+        const raw = await res.json();
+        const t = (raw.data || []).find(t => t.buildingName === building && t.yAxis === floor && t.xAxis === unit);
+        if (!t) return json(200, { txn: null });
+        return json(200, { txn: {
+          price: t.transactionPrice,
+          reg_date: t.regDate?.slice(0, 10),
+          prev_price: t.prevTransactionPrice,
+          held_days: t.heldDay,
+          gain_pct: t.gainPercent,
+        }});
+      }
+
       if (method === "GET" && path === "/api/viewings/last-mgmt-fee") {
         const estateId = url.searchParams.get("estate_id");
         if (!estateId) return json(400, { error: "estate_id required" });

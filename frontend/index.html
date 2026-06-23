@@ -2038,9 +2038,11 @@ async function loadViewings(estateId) {
     }
     const fmt = p => p ? `$${(p/1e4).toFixed(p%10000===0?0:1)}萬` : '-';
     window._viewingImgsMap = {};
+    window._viewingMap = {};
     const rows = viewings.map(v => {
       const imgs = v.images ? JSON.parse(v.images) : [];
       window._viewingImgsMap[v.id] = imgs;
+      window._viewingMap[v.id] = v;
       const imgHtml = imgs.length ? `<img class="viewing-card-img" src="${imgs[0]}" onclick="viewImgFull(${v.id},0)" style="height:56px;border-radius:4px;cursor:pointer;margin-top:0.3rem">${imgs.length>1?`<span style="font-size:0.72rem;color:var(--muted);display:block;margin-top:2px">+${imgs.length-1} 張</span>`:''}` : '';
       const fmtBlock = v.block ? ((/座$/.test(v.block) ? v.block : v.block+'座')) : null;
       const fmtFloor = v.floor ? ((/樓$/.test(v.floor)||/層$/.test(v.floor) ? v.floor : v.floor+'樓')) : null;
@@ -2060,7 +2062,7 @@ async function loadViewings(estateId) {
         <td>${mgmtMonthly ? `$${mgmtMonthly.toLocaleString()}/月` : '-'}</td>
         <td id="vhs-${v.id}">${hsCell}</td>
         <td>${v.txn_price && v.txn_reg_date >= v.view_date ? `<span style="color:var(--accent)"><strong>${fmt(v.txn_price)}</strong></span><br><span style="color:var(--muted);font-size:0.75rem">${v.txn_reg_date}</span>` : '-'}</td>
-        <td>${(() => { if (!v.txn_prev_price) return '-'; const buyDate = v.txn_reg_date && v.txn_held_days ? new Date(new Date(v.txn_reg_date).getTime() - v.txn_held_days*86400000).toISOString().slice(0,7) : null; return `<span style="color:var(--muted)"><strong>${fmt(v.txn_prev_price)}</strong></span>${buyDate ? `<br><span style="color:var(--muted);font-size:0.75rem">${buyDate}</span>` : ''}`; })()}</td>
+        <td id="vprev-${v.id}">${(() => { if (!v.txn_prev_price) return `<span style="color:var(--muted);font-size:0.72rem;cursor:pointer" onclick="fetchUnitTxn(${v.id})">查詢</span>`; const buyDate = v.txn_reg_date && v.txn_held_days ? new Date(new Date(v.txn_reg_date).getTime() - v.txn_held_days*86400000).toISOString().slice(0,7) : null; return `<span style="color:var(--muted)"><strong>${fmt(v.txn_prev_price)}</strong></span>${buyDate ? `<br><span style="color:var(--muted);font-size:0.75rem">${buyDate}</span>` : ''}`; })()}</td>
         <td>${imgHtml || '-'}</td>
         <td style="white-space:nowrap">
           <button class="viewing-del-btn" onclick='openViewingModal(JSON.parse(decodeURIComponent("${vData}")))' title="更改" style="background:var(--surface2);margin-right:0.3rem">✏️</button>
@@ -2076,9 +2078,37 @@ async function loadViewings(estateId) {
         <tbody>${rows}</tbody>
       </table>
     </div>`;
+
+    // Auto-fetch 上次購買 for rows missing prev_price
+    const missingPrev = viewings.filter(v => !v.txn_prev_price);
+    for (const v of missingPrev) {
+      fetchUnitTxn(v.id);
+      await new Promise(r => setTimeout(r, 300));
+    }
   } catch {
     panel.innerHTML = '<div class="listings-section" style="padding:1.5rem;color:var(--muted);text-align:center">載入失敗</div>';
   }
+}
+
+async function fetchUnitTxn(viewingId) {
+  const v = window._viewingMap?.[viewingId];
+  if (!v) return;
+  const cell = document.getElementById(`vprev-${viewingId}`);
+  if (!cell) return;
+  const fmt = p => p ? `$${(p/1e4).toFixed(0)}萬` : '-';
+  const building = /座$/.test(v.block||'') ? v.block : (v.block||'') + '座';
+  const floor    = /[樓層]$/.test(v.floor||'') ? v.floor : (v.floor||'') + '樓';
+  const unit     = /[室號]$/.test(v.unit||'') ? v.unit : (v.unit||'') + '室';
+  try {
+    const params = new URLSearchParams({ estate: _viewingEstateName, building, floor, unit });
+    const data = await api(`/api/viewings/unit-txn?${params}`);
+    const t = data.txn;
+    if (!t?.prev_price) { cell.innerHTML = '-'; return; }
+    const buyDate = t.reg_date && t.held_days
+      ? new Date(new Date(t.reg_date).getTime() - t.held_days*86400000).toISOString().slice(0,7)
+      : null;
+    cell.innerHTML = `<span style="color:var(--muted)"><strong>${fmt(t.prev_price)}</strong></span>${buyDate ? `<br><span style="color:var(--muted);font-size:0.75rem">${buyDate}</span>` : ''}`;
+  } catch { cell.innerHTML = '-'; }
 }
 
 async function deleteViewing(id, estateId) {
