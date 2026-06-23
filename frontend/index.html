@@ -2102,9 +2102,16 @@ async function fetchUnitTxn(viewingId) {
     const params = new URLSearchParams({ estate: _viewingEstateName, building, floor, unit, view_date: v.view_date || '' });
     const data = await api(`/api/viewings/unit-txn?${params}`);
     const t = data.txn;
-    if (!t?.price) { cell.innerHTML = '-'; return; }
+    if (!t?.price) {
+      cell.innerHTML = data.estateUrl
+        ? `<a href="${data.estateUrl}" target="_blank" style="color:var(--muted);font-size:0.72rem">查歷史↗</a>`
+        : '-';
+      return;
+    }
     const dateStr = t.reg_date ? t.reg_date.slice(0, 7) : null;
-    cell.innerHTML = `<span style="color:var(--muted)"><strong>${fmt(t.price)}</strong></span>${dateStr ? `<br><span style="color:var(--muted);font-size:0.75rem">${dateStr}</span>` : ''}`;
+    const linkStart = data.estateUrl ? `<a href="${data.estateUrl}" target="_blank" style="text-decoration:none">` : '';
+    const linkEnd = data.estateUrl ? '</a>' : '';
+    cell.innerHTML = `${linkStart}<span style="color:var(--muted)"><strong>${fmt(t.price)}</strong></span>${dateStr ? `<br><span style="color:var(--muted);font-size:0.75rem">${dateStr}</span>` : ''}${linkEnd}`;
   } catch { cell.innerHTML = '-'; }
 }
 

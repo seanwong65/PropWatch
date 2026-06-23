@@ -1204,67 +1204,38 @@ export default {
         const building   = url.searchParams.get("building");
         const floor      = url.searchParams.get("floor");
         const unit       = url.searchParams.get("unit");
-        const viewDate   = url.searchParams.get("view_date"); // find txn before this date
+        const viewDate   = url.searchParams.get("view_date");
         if (!estateName || !building || !floor || !unit) return json(400, { error: "missing params" });
 
-        // Step 1a: try Transaction/Search to get cuntcode
-        let cuntcode = null;
-        const txnSearchRes = await fetch(CENTANET_TRANS, {
+        const searchRes = await fetch(CENTANET_TRANS, {
           method: "POST",
           headers: FETCH_HEADERS,
-          body: JSON.stringify({ postType: "Sale", size: 10, offset: 0, keyword: estateName,
+          body: JSON.stringify({ postType: "Sale", size: 50, offset: 0, keyword: estateName,
             buildingName: building, yAxis: floor, xAxis: unit }),
           ...CF_OPTIONS,
         });
-        if (txnSearchRes.ok) {
-          const txnRaw = await txnSearchRes.json();
-          const txnMatch = (txnRaw.data || []).find(t => t.buildingName === building && t.yAxis === floor && t.xAxis === unit);
-          cuntcode = txnMatch?.cuntcode || null;
-        }
+        if (!searchRes.ok) return json(502, { error: "centanet error" });
+        const raw = await searchRes.json();
+        const results = (raw.data || []).filter(t => t.buildingName === building && t.yAxis === floor && t.xAxis === unit);
 
-        // Step 1b: fallback — use listing search (Post/Search) to get cuntcode
-        if (!cuntcode) {
-          const postSearchRes = await fetch(CENTANET_SEARCH, {
-            method: "POST",
-            headers: FETCH_HEADERS,
-            body: JSON.stringify({ postType: "Sale", size: 5, offset: 0, keyword: estateName,
-              buildingName: building, yAxis: floor, xAxis: unit }),
-            ...CF_OPTIONS,
-          });
-          if (postSearchRes.ok) {
-            const postRaw = await postSearchRes.json();
-            const postMatch = (postRaw.data || []).find(p =>
-              p.buildingName === building && p.yAxis === floor && p.xAxis === unit);
-            cuntcode = postMatch?.cuntcode || null;
-          }
-        }
+        // Pick the most recent transaction before viewDate
+        const sorted = results.sort((a, b) => b.regDate?.localeCompare(a.regDate));
+        const target = viewDate ? sorted.find(t => t.regDate?.slice(0,10) < viewDate) : sorted[0];
 
-        if (!cuntcode) return json(200, { txn: null });
+        // Build Centanet estate floor plan link from any result's typeCode (for fallback display)
+        const anyResult = (raw.data || []).find(t => t.buildingName === building && t.typeCode);
+        const typeCode = anyResult?.typeCode; // e.g. "1-EGPPWAPXPK"
+        const estateUrl = typeCode
+          ? `https://hk.centanet.com/CentaEstimate/estate-${encodeURIComponent(estateName)}-${encodeURIComponent(building)}_${typeCode}?tab=history`
+          : null;
 
-        // Step 2: get full unit history via DetailByUnitCode
-        const detailRes = await fetch(
-          `https://hk.centanet.com/CentaEstimate/api/Transaction/DetailByUnitCode?cuntcode=${cuntcode}`,
-          { headers: FETCH_HEADERS, ...CF_OPTIONS }
-        );
-        if (!detailRes.ok) return json(502, { error: "centanet detail error" });
-        const detail = await detailRes.json();
-        const allTxns = (detail.recentTransactions || [])
-          .filter(t => t.transactionPrice > 0)
-          .sort((a, b) => b.regDate?.localeCompare(a.regDate));
-
-        // Most recent txn before viewDate (or just latest if no viewDate)
-        const target = viewDate
-          ? allTxns.find(t => t.regDate?.slice(0,10) < viewDate)
-          : allTxns[0];
-
-        if (!target) return json(200, { txn: null });
+        if (!target) return json(200, { txn: null, estateUrl });
         return json(200, { txn: {
           price: target.transactionPrice,
           reg_date: target.regDate?.slice(0, 10),
           prev_price: target.prevTransactionPrice || null,
           held_days: target.heldDay || null,
-          gain_pct: target.gainPercent || null,
-        }});
+        }, estateUrl });
       }
 
       if (method === "GET" && path === "/api/viewings/last-mgmt-fee") {
