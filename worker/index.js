@@ -1207,22 +1207,43 @@ export default {
         const viewDate   = url.searchParams.get("view_date"); // find txn before this date
         if (!estateName || !building || !floor || !unit) return json(400, { error: "missing params" });
 
-        // Step 1: get cuntcode via Transaction/Search
-        const searchRes = await fetch(CENTANET_TRANS, {
+        // Step 1a: try Transaction/Search to get cuntcode
+        let cuntcode = null;
+        const txnSearchRes = await fetch(CENTANET_TRANS, {
           method: "POST",
           headers: FETCH_HEADERS,
-          body: JSON.stringify({ postType: "Sale", size: 5, offset: 0, keyword: estateName,
+          body: JSON.stringify({ postType: "Sale", size: 10, offset: 0, keyword: estateName,
             buildingName: building, yAxis: floor, xAxis: unit }),
           ...CF_OPTIONS,
         });
-        if (!searchRes.ok) return json(502, { error: "centanet search error" });
-        const searchRaw = await searchRes.json();
-        const match = (searchRaw.data || []).find(t => t.buildingName === building && t.yAxis === floor && t.xAxis === unit);
-        if (!match?.cuntcode) return json(200, { txn: null });
+        if (txnSearchRes.ok) {
+          const txnRaw = await txnSearchRes.json();
+          const txnMatch = (txnRaw.data || []).find(t => t.buildingName === building && t.yAxis === floor && t.xAxis === unit);
+          cuntcode = txnMatch?.cuntcode || null;
+        }
+
+        // Step 1b: fallback — use listing search (Post/Search) to get cuntcode
+        if (!cuntcode) {
+          const postSearchRes = await fetch(CENTANET_SEARCH, {
+            method: "POST",
+            headers: FETCH_HEADERS,
+            body: JSON.stringify({ postType: "Sale", size: 5, offset: 0, keyword: estateName,
+              buildingName: building, yAxis: floor, xAxis: unit }),
+            ...CF_OPTIONS,
+          });
+          if (postSearchRes.ok) {
+            const postRaw = await postSearchRes.json();
+            const postMatch = (postRaw.data || []).find(p =>
+              p.buildingName === building && p.yAxis === floor && p.xAxis === unit);
+            cuntcode = postMatch?.cuntcode || null;
+          }
+        }
+
+        if (!cuntcode) return json(200, { txn: null });
 
         // Step 2: get full unit history via DetailByUnitCode
         const detailRes = await fetch(
-          `https://hk.centanet.com/CentaEstimate/api/Transaction/DetailByUnitCode?cuntcode=${match.cuntcode}`,
+          `https://hk.centanet.com/CentaEstimate/api/Transaction/DetailByUnitCode?cuntcode=${cuntcode}`,
           { headers: FETCH_HEADERS, ...CF_OPTIONS }
         );
         if (!detailRes.ok) return json(502, { error: "centanet detail error" });
