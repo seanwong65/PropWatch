@@ -1200,29 +1200,49 @@ export default {
       }
 
       if (method === "GET" && path === "/api/viewings/unit-txn") {
-        // Fetch most recent transaction for a specific unit from Centanet
         const estateName = url.searchParams.get("estate");
-        const building   = url.searchParams.get("building");  // e.g. "3座"
-        const floor      = url.searchParams.get("floor");      // e.g. "28樓"
-        const unit       = url.searchParams.get("unit");       // e.g. "E室"
+        const building   = url.searchParams.get("building");
+        const floor      = url.searchParams.get("floor");
+        const unit       = url.searchParams.get("unit");
+        const viewDate   = url.searchParams.get("view_date"); // find txn before this date
         if (!estateName || !building || !floor || !unit) return json(400, { error: "missing params" });
-        const res = await fetch(CENTANET_TRANS, {
+
+        // Step 1: get cuntcode via Transaction/Search
+        const searchRes = await fetch(CENTANET_TRANS, {
           method: "POST",
           headers: FETCH_HEADERS,
           body: JSON.stringify({ postType: "Sale", size: 5, offset: 0, keyword: estateName,
             buildingName: building, yAxis: floor, xAxis: unit }),
           ...CF_OPTIONS,
         });
-        if (!res.ok) return json(502, { error: "centanet error" });
-        const raw = await res.json();
-        const t = (raw.data || []).find(t => t.buildingName === building && t.yAxis === floor && t.xAxis === unit);
-        if (!t) return json(200, { txn: null });
+        if (!searchRes.ok) return json(502, { error: "centanet search error" });
+        const searchRaw = await searchRes.json();
+        const match = (searchRaw.data || []).find(t => t.buildingName === building && t.yAxis === floor && t.xAxis === unit);
+        if (!match?.cuntcode) return json(200, { txn: null });
+
+        // Step 2: get full unit history via DetailByUnitCode
+        const detailRes = await fetch(
+          `https://hk.centanet.com/CentaEstimate/api/Transaction/DetailByUnitCode?cuntcode=${match.cuntcode}`,
+          { headers: FETCH_HEADERS, ...CF_OPTIONS }
+        );
+        if (!detailRes.ok) return json(502, { error: "centanet detail error" });
+        const detail = await detailRes.json();
+        const allTxns = (detail.recentTransactions || [])
+          .filter(t => t.transactionPrice > 0)
+          .sort((a, b) => b.regDate?.localeCompare(a.regDate));
+
+        // Most recent txn before viewDate (or just latest if no viewDate)
+        const target = viewDate
+          ? allTxns.find(t => t.regDate?.slice(0,10) < viewDate)
+          : allTxns[0];
+
+        if (!target) return json(200, { txn: null });
         return json(200, { txn: {
-          price: t.transactionPrice,
-          reg_date: t.regDate?.slice(0, 10),
-          prev_price: t.prevTransactionPrice,
-          held_days: t.heldDay,
-          gain_pct: t.gainPercent,
+          price: target.transactionPrice,
+          reg_date: target.regDate?.slice(0, 10),
+          prev_price: target.prevTransactionPrice || null,
+          held_days: target.heldDay || null,
+          gain_pct: target.gainPercent || null,
         }});
       }
 
