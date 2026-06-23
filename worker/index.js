@@ -1423,11 +1423,15 @@ export default {
             if (bvRes.ok) {
               const bvData = await bvRes.json();
               let cuntcode = null;
+              const floorNum = floor.replace(/[樓層]/g, "");
+              const unitNorm = unit.replace(/[室號]/g, "");
               for (const f of bvData.floors || []) {
                 if (f.valuationFloorType !== "Floor") continue;
-                if (f.yAxis.split("\n")[0].trim() !== floor) continue;
+                const fNum = f.yAxis.split("\n")[0].trim().replace(/[樓層]/g, "");
+                if (fNum !== floorNum) continue;
                 for (const u of f.units || []) {
-                  if (u.xAxis === unit && u.cuntcode && u.valuationUnitState !== "NotExist") {
+                  const uNorm = (u.xAxis || "").replace(/[室號]/g, "");
+                  if (uNorm === unitNorm && u.cuntcode && u.valuationUnitState !== "NotExist") {
                     cuntcode = u.cuntcode; break;
                   }
                 }
