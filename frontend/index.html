@@ -2305,7 +2305,7 @@ function renderTransactionsTable(estateId, offset, hasMore) {
       const cls = t.gain_pct >= 0 ? 'gain-pos' : 'gain-neg';
       annualHtml = `<span class="${cls}">${t.gain_pct >= 0 ? '▲' : '▼'} ${Math.abs(t.gain_pct).toFixed(1)}%</span>`;
     }
-    const blockNum   = (t.building || '').match(/\d+/)?.[0] || '';
+    const blockNum   = (t.building || '').match(/\d+/)?.[0] || t.building || '';
     const floorNum   = (t.floor || '').match(/\d+/)?.[0] || '';
     const flatLetter = (t.unit || '').replace(/[室層樓]/g, '').trim();
     const rowId = `txn-hs-${estateId}-s-${i}`;
