@@ -1180,10 +1180,12 @@ export default {
         const { results } = await db.prepare(`
           SELECT v.*,
             t.price AS txn_price,
-            t.reg_date AS txn_reg_date
+            t.reg_date AS txn_reg_date,
+            t.prev_price AS txn_prev_price,
+            t.held_days AS txn_held_days
           FROM viewings v
           LEFT JOIN (
-            SELECT estate_id, building, floor, unit, price, reg_date,
+            SELECT estate_id, building, floor, unit, price, reg_date, prev_price, held_days,
                    ROW_NUMBER() OVER (PARTITION BY estate_id, building, floor, unit ORDER BY reg_date DESC) AS rn
             FROM transactions
           ) t ON t.estate_id = v.estate_id
