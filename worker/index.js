@@ -358,6 +358,33 @@ async function searchEstateName(keyword) {
       });
     }
   }
+
+  // Fallback: try transaction search for estates with no active listings
+  if (estates.length === 0) {
+    const txnRes = await fetch(CENTANET_TRANS, {
+      method: "POST",
+      headers: FETCH_HEADERS,
+      body: JSON.stringify({ postType: "Sale", size: 10, offset: 0, keyword }),
+      ...CF_OPTIONS,
+    });
+    if (txnRes.ok) {
+      const txnData = await txnRes.json();
+      for (const item of (txnData.data || [])) {
+        const name = item.buildingName || "";
+        const code = item.bigestcode || item.cblgcode || item.typeCode || "";
+        if (name && code && !seen.has(code)) {
+          seen.add(code);
+          estates.push({
+            bigEstateName: name,
+            bigestcode: code,
+            isBigest: false,
+            districtName: item.districtName || item.scope?.hma || "",
+          });
+        }
+      }
+    }
+  }
+
   return { estates };
 }
 
