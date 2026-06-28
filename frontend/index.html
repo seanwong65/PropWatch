@@ -330,7 +330,8 @@
     .hl-c2 { width: 20%; color: var(--muted); }
     .hl-c3 { width: 20%; }
     .hl-c4 { width: 20%; color: var(--muted); }
-    .hl-c5 { width: 12%; text-align: right; }
+    .hl-c5 { width: 14%; }
+    .hl-c6 { width: 10%; text-align: right; }
     .hl-link { color: #3b82f6; font-size: 0.78rem; white-space: nowrap; text-decoration: none; }
     .hl-link:hover { text-decoration: underline; }
     .highlights-estate { color: var(--muted); font-size: 0.75rem; }
@@ -544,6 +545,8 @@
       border: none; color: #fff; font-size: 0.7rem; cursor: pointer;
       border-radius: 2px; padding: 0 3px; line-height: 14px;
     }
+    .notes-chip { background:var(--surface2);border:1px solid var(--border);color:var(--muted);border-radius:20px;padding:0.25rem 0.7rem;font-size:0.78rem;cursor:pointer;transition:all 0.15s; }
+    .notes-chip.active { background:var(--accent2);border-color:var(--accent2);color:#fff; }
     .vf-submit {
       margin-top: 1.1rem; width: 100%; background: var(--btn-bg);
       border: none; color: var(--text); border-radius: 6px;
@@ -696,6 +699,12 @@
       flex-wrap: wrap;
       gap: 0.6rem;
       align-items: center;
+    }
+    .filter-pair {
+      display: flex;
+      align-items: center;
+      gap: 0.35rem;
+      flex-shrink: 0;
     }
     .filter-label {
       font-size: 0.72rem;
@@ -852,8 +861,42 @@
       <h1>Prop<span>Watch</span></h1>
     </div>
   </div>
-  <button class="sync-btn" onclick="syncAll()">↻ 立即同步</button>
+  <div style="display:flex;align-items:center;gap:0.5rem">
+    <button class="sync-btn" onclick="syncAll()">↻ 立即同步</button>
+    <button class="sync-btn" onclick="openSettingsModal()" style="background:var(--surface2);border-color:var(--border);font-size:1rem;padding:0.35rem 0.6rem" title="設定">⚙️</button>
+    <button class="sync-btn" id="logout-btn" onclick="doLogout()" style="background:var(--surface2);border-color:var(--border);display:none" title="登出">登出</button>
+  </div>
 </header>
+
+<!-- Login Screen -->
+<div id="login-screen" style="display:none;position:fixed;inset:0;background:var(--bg);z-index:9999;align-items:center;justify-content:center">
+  <div style="background:var(--surface1);border:1px solid var(--border);border-radius:16px;padding:2rem;width:100%;max-width:340px;box-shadow:0 8px 32px rgba(0,0,0,0.4)">
+    <div style="text-align:center;margin-bottom:1.5rem">
+      <div style="font-size:2rem">🏙️</div>
+      <div style="font-size:1.4rem;font-weight:700;color:var(--accent)">PropWatch</div>
+    </div>
+    <div id="login-error" style="color:#e57373;font-size:0.85rem;margin-bottom:0.75rem;display:none"></div>
+    <input id="login-username" type="text" placeholder="用戶名" autocomplete="username"
+      style="width:100%;padding:0.65rem 0.8rem;background:var(--surface2);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:0.95rem;box-sizing:border-box;margin-bottom:0.75rem"
+      onkeydown="if(event.key==='Enter')document.getElementById('login-password').focus()">
+    <input id="login-password" type="password" placeholder="密碼" autocomplete="current-password"
+      style="width:100%;padding:0.65rem 0.8rem;background:var(--surface2);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:0.95rem;box-sizing:border-box;margin-bottom:1rem"
+      onkeydown="if(event.key==='Enter')doLogin()">
+    <button onclick="doLogin()" style="width:100%;padding:0.75rem;background:var(--accent);border:none;border-radius:8px;color:#fff;font-size:1rem;font-weight:600;cursor:pointer">登入</button>
+  </div>
+</div>
+
+<!-- Settings Modal -->
+<div class="modal-overlay" id="settingsModalOverlay" style="display:none" onclick="if(event.target===this)closeSettingsModal()">
+  <div class="modal" style="max-width:420px">
+    <button class="modal-close" onclick="closeSettingsModal()">✕</button>
+    <div class="modal-title">⚙️ 設定</div>
+    <div class="modal-sub">備注選項</div>
+    <p style="font-size:0.78rem;color:var(--muted);margin:0.25rem 0 0.75rem">每行一個選項，儲存後即時生效</p>
+    <textarea id="settings-notes-options" style="width:100%;min-height:140px;background:var(--surface2);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:0.9rem;padding:0.6rem;box-sizing:border-box;resize:vertical;font-family:inherit" placeholder="例：&#10;心水&#10;一般&#10;唔考慮&#10;太貴"></textarea>
+    <button class="vf-submit" onclick="saveSettings()" style="margin-top:0.75rem">儲存設定</button>
+  </div>
+</div>
 
 <!-- Viewing Modal -->
 <div class="modal-overlay" id="viewingModalOverlay" style="display:none" onclick="if(event.target===this)closeViewingModal()">
@@ -880,7 +923,7 @@
         </div>
       </div>
 
-      <div class="vf-row2">
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:0.6rem">
         <div>
           <label class="vf-label">實用呎數<span>*</span></label>
           <input class="vf-input" type="number" id="vf-size" placeholder="呎" min="1" required>
@@ -891,6 +934,14 @@
             <option value="">-- 不選 --</option>
             <option>東</option><option>南</option><option>西</option><option>北</option>
             <option>東南</option><option>東北</option><option>西南</option><option>西北</option>
+          </select>
+        </div>
+        <div>
+          <label class="vf-label">房數<span>*</span></label>
+          <select class="vf-select" id="vf-bedrooms">
+            <option value="1">1房</option>
+            <option value="2" selected>2房</option>
+            <option value="3">3房</option>
           </select>
         </div>
       </div>
@@ -905,6 +956,10 @@
           <input class="vf-input" type="number" id="vf-mgmt" placeholder="$" min="0" step="0.01" required>
         </div>
       </div>
+
+      <label class="vf-label">備注</label>
+      <div id="vf-notes-chips" style="display:flex;flex-wrap:wrap;gap:0.4rem;margin-bottom:0.45rem"></div>
+      <textarea class="vf-input" id="vf-notes-text" placeholder="自由輸入備注…" rows="2" style="margin-bottom:0.6rem;resize:vertical;font-family:inherit;font-size:inherit"></textarea>
 
       <label class="vf-label">圖片（可選）</label>
       <label class="vf-upload-label">
@@ -973,14 +1028,55 @@ function toast(msg, type = "info") {
 }
 
 // ── API calls ──────────────────────────────────────────────────
+function getToken() { return localStorage.getItem("propwatch_token"); }
+
 async function api(path, opts = {}) {
+  const token = getToken();
   const res = await fetch(API + path, {
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", ...(token ? { "Authorization": "Bearer " + token } : {}) },
     ...opts,
   });
+  if (res.status === 401) { showLoginScreen(); throw new Error("請先登入"); }
   const data = await res.json();
   if (!res.ok) throw new Error(data.error || "請求失敗");
   return data;
+}
+
+function showLoginScreen() {
+  localStorage.removeItem("propwatch_token");
+  document.getElementById("login-screen").style.display = "flex";
+  document.getElementById("logout-btn").style.display = "none";
+}
+
+function hideLoginScreen() {
+  document.getElementById("login-screen").style.display = "none";
+  document.getElementById("logout-btn").style.display = "";
+}
+
+async function doLogin() {
+  const username = document.getElementById("login-username").value.trim();
+  const password = document.getElementById("login-password").value;
+  const errEl = document.getElementById("login-error");
+  errEl.style.display = "none";
+  try {
+    const data = await fetch(API + "/api/login", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ username, password }),
+    }).then(async r => { const d = await r.json(); if (!r.ok) throw new Error(d.error); return d; });
+    localStorage.setItem("propwatch_token", data.token);
+    hideLoginScreen();
+    loadEstates();
+    loadNotesOptions();
+  } catch (e) {
+    errEl.textContent = e.message;
+    errEl.style.display = "block";
+  }
+}
+
+async function doLogout() {
+  try { await api("/api/logout", { method: "POST" }); } catch (_) {}
+  showLoginScreen();
 }
 
 function toggleSidebar() {
@@ -1013,11 +1109,15 @@ async function showDashboard(estates) {
   main.innerHTML = `
     <div class="dashboard">
       <div class="highlights-section" id="highlights-section">
-        <div class="highlights-title" style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:0.4rem">
-          <span>今日動態 <span style="font-weight:400;color:var(--muted);text-transform:none;letter-spacing:0" id="highlights-date"></span></span>
+        <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:0.4rem;margin-bottom:0.75rem">
+          <div style="display:flex;gap:0;border-bottom:2px solid var(--border)">
+            <button id="dash-tab-today" onclick="switchDashTab('today')" style="background:none;border:none;border-bottom:2px solid var(--accent);margin-bottom:-2px;color:var(--text);font-size:0.9rem;font-weight:600;padding:0.35rem 0.85rem;cursor:pointer">今日動態 <span id="highlights-date" style="font-weight:400;color:var(--muted);font-size:0.8rem"></span></button>
+            <button id="dash-tab-unsold" onclick="switchDashTab('unsold')" style="background:none;border:none;border-bottom:2px solid transparent;margin-bottom:-2px;color:var(--muted);font-size:0.9rem;padding:0.35rem 0.85rem;cursor:pointer">追蹤中放盤</button>
+          </div>
           <button class="history-btn" style="font-size:0.88rem;padding:0.35rem 0.85rem" onclick="showHistoryPage()">歷史動態 →</button>
         </div>
-        <div id="highlights-body" style="color:var(--muted);font-size:0.75rem">載入中…</div>
+        <div id="dash-panel-today"><div id="highlights-body" style="color:var(--muted);font-size:0.75rem">載入中…</div></div>
+        <div id="dash-panel-unsold" style="display:none"><div id="unsold-body" style="color:var(--muted);font-size:0.75rem">載入中…</div></div>
       </div>
       <div class="dashboard-chart-section" style="margin-top:1.25rem">
         <div class="dashboard-chart-header">
@@ -1035,6 +1135,66 @@ async function showDashboard(estates) {
   `;
   if (estates.length) loadDashboardChart(estates[0].id);
   loadTodayHighlights();
+  loadUnsoldViewings();
+}
+
+function switchDashTab(tab) {
+  const isToday = tab === 'today';
+  document.getElementById('dash-panel-today').style.display = isToday ? '' : 'none';
+  document.getElementById('dash-panel-unsold').style.display = isToday ? 'none' : '';
+  document.getElementById('dash-tab-today').style.borderBottomColor = isToday ? 'var(--accent)' : 'transparent';
+  document.getElementById('dash-tab-today').style.color = isToday ? 'var(--text)' : 'var(--muted)';
+  document.getElementById('dash-tab-today').style.fontWeight = isToday ? '600' : '400';
+  document.getElementById('dash-tab-unsold').style.borderBottomColor = isToday ? 'transparent' : 'var(--accent)';
+  document.getElementById('dash-tab-unsold').style.color = isToday ? 'var(--muted)' : 'var(--text)';
+  document.getElementById('dash-tab-unsold').style.fontWeight = isToday ? '400' : '600';
+}
+
+async function loadUnsoldViewings() {
+  const body = document.getElementById("unsold-body");
+  if (!body) return;
+  try {
+    const { viewings } = await api("/api/viewings/unsold");
+    if (!viewings.length) { body.innerHTML = '<span style="color:var(--muted)">未有追蹤中放盤</span>'; return; }
+
+    // Fetch listings for each unique estate so buildMatchCell works
+    const estateIds = [...new Set(viewings.map(v => v.estate_id).filter(Boolean))];
+    const listingsByEstate = {};
+    await Promise.all(estateIds.map(async eid => {
+      try {
+        const { listings } = await api(`/api/estates/${eid}/listings`);
+        listingsByEstate[eid] = listings || [];
+      } catch(_) { listingsByEstate[eid] = []; }
+    }));
+
+    const savedAllListings = allListings;
+    const fmt = p => p ? `$${(p/1e4).toFixed(0)}萬` : '-';
+    const rows = viewings.map(v => {
+      const fmtBlock = v.block ? (/座$/.test(v.block) ? v.block : v.block+'座') : null;
+      const fmtFloor = v.floor ? (/樓$|層$/.test(v.floor) ? v.floor : v.floor+'樓') : null;
+      const fmtUnit  = v.unit  ? (/室$|號$/.test(v.unit)  ? v.unit  : v.unit+'室')  : null;
+      const unitStr = [fmtBlock, fmtFloor, fmtUnit].filter(Boolean).join(' ');
+      const psfStr = v.price && v.size_net ? `$${Math.round(v.price/v.size_net).toLocaleString()}/呎` : '';
+      const estateId = v.estate_id || (dashboardEstates.find(e => e.name === v.estate_name)||{}).id || '';
+      allListings = listingsByEstate[v.estate_id] || [];
+      const matchCell = buildMatchCell(v);
+      return `<tr class="hl-tr">
+        <td class="hl-c1"><strong>${escHtml(v.estate_name)}</strong><br><span style="color:var(--muted);font-size:0.72rem">${escHtml(unitStr)}</span></td>
+        <td class="hl-c2"><span style="font-weight:700;color:var(--accent)">${fmt(v.price)}</span>${psfStr ? `<br><span style="color:var(--muted);font-size:0.72rem">${psfStr}</span>` : ''}</td>
+        <td class="hl-c3" id="umatch-${v.id}">${matchCell}</td>
+        <td class="hl-c4">${v.notes ? `<span style="background:var(--surface2);border-radius:4px;padding:0.1rem 0.35rem">${escHtml(v.notes)}</span>` : '-'}</td>
+        <td class="hl-c5"><span style="color:var(--muted);font-size:0.72rem">${v.view_date}</span></td>
+        <td class="hl-c6">${estateId ? `<button class="history-btn" style="font-size:0.72rem;padding:0.15rem 0.5rem" onclick="showEstate(${estateId})">詳情</button>` : ''}</td>
+      </tr>`;
+    }).join('');
+    allListings = savedAllListings;
+
+    body.innerHTML = `<table class="hl-table"><thead><tr class="hl-th">
+      <th class="hl-c1">屋苑 / 單位</th><th class="hl-c2">售價</th><th class="hl-c3">對應放盤</th><th class="hl-c4">備注</th><th class="hl-c5">睇樓日期</th><th class="hl-c6"></th>
+    </tr></thead><tbody>${rows}</tbody></table>`;
+  } catch(e) {
+    if (body) body.innerHTML = `<span style="color:var(--muted)">載入失敗</span>`;
+  }
 }
 
 async function loadTodayHighlights() {
@@ -1049,14 +1209,34 @@ async function loadTodayHighlights() {
     // Shared row renderer — mirrors buildEmailHtml columns exactly
     // Each section returns <tr> rows; caller wraps in <table>
     const lnk = url => url ? `<a href="${url}" target="_blank" class="hl-link">詳情 ↗</a>` : '';
-    const TR = (c1, c2, c3, c4, c5='') =>
-      `<tr class="hl-tr"><td class="hl-c1">${c1}</td><td class="hl-c2">${c2}</td><td class="hl-c3">${c3}</td><td class="hl-c4">${c4}</td><td class="hl-c5">${c5}</td></tr>`;
-    const TH = (h1, h2, h3, h4, h5='') =>
-      `<thead><tr class="hl-th"><th class="hl-c1">${h1}</th><th class="hl-c2">${h2}</th><th class="hl-c3">${h3}</th><th class="hl-c4">${h4}</th><th class="hl-c5">${h5}</th></tr></thead>`;
+    const srcBadge = `<span style="font-size:0.72rem;color:var(--muted);background:var(--surface2);border-radius:4px;padding:0.1rem 0.4rem">中原</span>`;
+    const TR = (c1, c2, c3, c4, c5='', c6='') =>
+      `<tr class="hl-tr"><td class="hl-c1">${c1}</td><td class="hl-c2">${c2}</td><td class="hl-c3">${c3}</td><td class="hl-c4">${c4}</td><td class="hl-c5">${c5}</td><td class="hl-c6">${c6}</td></tr>`;
+    const TH = (h1, h2, h3, h4, h5='', h6='') =>
+      `<thead><tr class="hl-th"><th class="hl-c1">${h1}</th><th class="hl-c2">${h2}</th><th class="hl-c3">${h3}</th><th class="hl-c4">${h4}</th><th class="hl-c5">${h5}</th><th class="hl-c6">${h6}</th></tr></thead>`;
     const tbl = (headers, rows) => `<table class="hl-table">${headers}<tbody>${rows}</tbody></table>`;
 
     const hlTxnQueue = [];
     let html = "";
+
+    // 對應放盤售價變動
+    const linkedChanges = data.linkedPriceChanges || [];
+    if (linkedChanges.length) {
+      let rows = "";
+      for (const c of linkedChanges) {
+        const diff = c.new_price - c.old_price;
+        const diffHtml = `<span style="color:${diff<=0?'var(--up)':'var(--down)'}">${diff<=0?'▼':'▲'} ${fmt(Math.abs(diff))}</span>`;
+        const link = c.detail_url ? `<a href="${escHtml(c.detail_url)}" target="_blank" style="color:var(--accent2);text-decoration:none">↗</a>` : '';
+        rows += TR(
+          `<strong>${escHtml(c.estate_name||'')}</strong> ${escHtml(c.building_name||'')} ${escHtml(c.floor||'')} ${escHtml(c.l_unit||'')} ${link}`,
+          c.view_price ? fmt(c.view_price) : '-',
+          `<span style="text-decoration:line-through;color:var(--muted)">${fmt(c.old_price)}</span>`,
+          `<span style="font-weight:700;color:var(--accent)">${fmt(c.new_price)}</span>`,
+          diffHtml
+        );
+      }
+      html += `<div class="highlights-group" style="border:1px solid rgba(251,191,36,0.35);border-radius:8px;padding:0.75rem;background:rgba(251,191,36,0.06);margin-bottom:1rem"><div class="highlights-group-label" style="color:#fbbf24;font-size:0.9rem;margin-bottom:0.5rem">🏷️ 睇過嘅放盤售價變動 (${linkedChanges.length})</div>${tbl(TH('屋苑 / 單位','睇樓價','原價','新價','變動'), rows)}</div>`;
+    }
 
     // 睇過嘅單位成交 — consolidated at top across all estates
     const allViewedTxns = (data.byEstate || []).flatMap(e => (e.viewedTxns || []).map(v => ({ ...v, estate_name: e.estate })));
@@ -1103,11 +1283,12 @@ async function loadTodayHighlights() {
             <td class="hl-c2">${t.size_net ? t.size_net+'實呎' : ''}</td>
             <td class="hl-c3"><span style="font-weight:700;color:var(--accent)">${t.price ? fmt(t.price) : '-'}</span><span id="${rowId}-diff"></span></td>
             <td class="hl-c4">${heldStr}<div class="unit-price">${gainHtml}</div></td>
-            <td class="hl-c5">${lnk(t.detail_url)}</td>
+            <td class="hl-c5"><span id="${rowId}-val" style="color:var(--accent)"></span></td>
+            <td class="hl-c6">${lnk(t.detail_url)}</td>
           </tr>`;
           hlTxnQueue.push({ rowId, estate, t });
         }
-        inner += `<div class="highlights-subgroup"><div class="highlights-group-label" style="color:#a78bfa">🏠 新成交 (${newTransactions.length})</div>${tbl(TH('單位','面積','成交價','持有 / 升跌',''), rows)}</div>`;
+        inner += `<div class="highlights-subgroup"><div class="highlights-group-label" style="color:#a78bfa">🏠 新成交 (${newTransactions.length})</div>${tbl(TH('單位','面積','成交價','持有 / 升跌','恆生估值',''), rows)}</div>`;
       }
 
       if (priceChanges.length) {
@@ -1120,10 +1301,11 @@ async function loadTodayHighlights() {
             `<span style="text-decoration:line-through;color:var(--muted)">${fmt(c.old_price)}</span>`,
             `<span style="font-weight:700">${fmt(c.new_price)}</span>`,
             `<span style="color:${col}">${d>0?'▲':'▼'} ${Math.abs(d)}%</span>`,
-            lnk(c.detail_url)
+            lnk(c.detail_url),
+            srcBadge
           );
         }
-        inner += `<div class="highlights-subgroup"><div class="highlights-group-label" style="color:var(--accent)">💰 售價變動 (${priceChanges.length})</div>${tbl(TH('單位','原價','新價','變動',''), rows)}</div>`;
+        inner += `<div class="highlights-subgroup"><div class="highlights-group-label" style="color:var(--accent)">💰 售價變動 (${priceChanges.length})</div>${tbl(TH('單位','原價','新價','變動','','來源'), rows)}</div>`;
       }
 
       if (newListings.length) {
@@ -1134,10 +1316,11 @@ async function loadTodayHighlights() {
             `${l.bedrooms!=null?l.bedrooms+'房':'-'}${l.size_net?' '+l.size_net+'呎':''}`,
             `<span style="font-weight:700;color:var(--accent)">${fmt(l.price)}</span>`,
             l.price_per_ft ? `$${Math.round(l.price_per_ft).toLocaleString()}/呎` : '',
-            lnk(l.detail_url)
+            lnk(l.detail_url),
+            srcBadge
           );
         }
-        inner += `<div class="highlights-subgroup"><div class="highlights-group-label" style="color:var(--up)">🆕 新放盤 (${newListings.length})</div>${tbl(TH('單位','房間 / 面積','價格','呎價',''), rows)}</div>`;
+        inner += `<div class="highlights-subgroup"><div class="highlights-group-label" style="color:var(--up)">🆕 新放盤 (${newListings.length})</div>${tbl(TH('單位','房間 / 面積','價格','呎價','','來源'), rows)}</div>`;
       }
 
       if (removedListings.length) {
@@ -1148,10 +1331,11 @@ async function loadTodayHighlights() {
             l.bedrooms!=null ? l.bedrooms+'房' : '-',
             `<span style="text-decoration:line-through;color:var(--muted)">${fmt(l.price)}</span>`,
             '',
-            lnk(l.detail_url)
+            lnk(l.detail_url),
+            srcBadge
           );
         }
-        inner += `<div class="highlights-subgroup"><div class="highlights-group-label" style="color:var(--down)">❌ 已下架 (${removedListings.length})</div>${tbl(TH('單位','房間','原價','',''), rows)}</div>`;
+        inner += `<div class="highlights-subgroup"><div class="highlights-group-label" style="color:var(--down)">❌ 已下架 (${removedListings.length})</div>${tbl(TH('單位','房間','原價','','','來源'), rows)}</div>`;
       }
 
       if (inner) {
@@ -1176,8 +1360,16 @@ async function loadTodayHighlights() {
         try {
           const params = new URLSearchParams({ estate: estateName, block: blockNum, floor: floorNum, flat: flatLetter });
           const hsData = await api(`/api/hangseng-valuation?${params}`);
-          const diffSpan = document.getElementById(rowId + '-diff');
-          if (diffSpan && hsData?.price) diffSpan.innerHTML = hsDiffHtml(Number(hsData.price), t.price);
+          if (hsData?.price) {
+            const hp = Number(hsData.price);
+            const diffSpan = document.getElementById(rowId + '-diff');
+            if (diffSpan) diffSpan.innerHTML = hsDiffHtml(hp, t.price);
+            const valSpan = document.getElementById(rowId + '-val');
+            if (valSpan) {
+              const eid = (dashboardEstates.find(e => e.name === estateName) || {}).id || '';
+              valSpan.innerHTML = `${hsValHtml(hp)}<button class="history-btn" style="display:block;margin-top:3px" onclick="showHSHistory('${blockNum}','${floorNum}','${flatLetter}','${eid}')">歷史</button>`;
+            }
+          }
         } catch {}
       })();
     }
@@ -1227,6 +1419,25 @@ async function loadHistoryHighlights(months) {
 
     let html = "";
 
+    // 對應放盤售價變動
+    const linkedChanges = data.linkedPriceChanges || [];
+    if (linkedChanges.length) {
+      let rows = "";
+      for (const c of linkedChanges) {
+        const diff = c.new_price - c.old_price;
+        const diffHtml = `<span style="color:${diff<=0?'var(--up)':'var(--down)'}">${diff<=0?'▼':'▲'} ${fmt(Math.abs(diff))}</span>`;
+        const link = c.detail_url ? `<a href="${escHtml(c.detail_url)}" target="_blank" style="color:var(--accent2);text-decoration:none">↗</a>` : '';
+        rows += TR(
+          `<strong>${escHtml(c.estate_name||'')}</strong> ${escHtml(c.building_name||'')} ${escHtml(c.floor||'')} ${escHtml(c.l_unit||'')} ${link}`,
+          c.view_price ? fmt(c.view_price) : '-',
+          `<span style="text-decoration:line-through;color:var(--muted)">${fmt(c.old_price)}</span>`,
+          `<span style="font-weight:700;color:var(--accent)">${fmt(c.new_price)}</span>`,
+          diffHtml
+        );
+      }
+      html += `<div class="highlights-group" style="border:1px solid rgba(251,191,36,0.35);border-radius:8px;padding:0.75rem;background:rgba(251,191,36,0.06);margin-bottom:1rem"><div class="highlights-group-label" style="color:#fbbf24;font-size:0.9rem;margin-bottom:0.5rem">🏷️ 睇過嘅放盤售價變動 (${linkedChanges.length})</div>${tbl(TH('屋苑 / 單位','睇樓價','原價','新價','變動'), rows)}</div>`;
+    }
+
     // 睇過嘅單位成交 — at top
     const allViewedTxns = data.allViewedTxns || [];
     if (allViewedTxns.length) {
@@ -1237,8 +1448,8 @@ async function loadHistoryHighlights(months) {
           ? `<span style="color:${diff<=0?'var(--up)':'var(--down)'}">${diff<=0?'▼':'▲'} ${fmt(Math.abs(diff))}</span>`
           : '-';
         rows += TR(
-          `<span style="color:var(--muted)">${v.first_seen||''}</span>`,
-          `<strong>${escHtml(v.estate_name||'')}</strong> ${escHtml(v.building||'')} ${escHtml(v.floor||'')} ${escHtml(v.unit||'')}`,
+          `${v.reg_date||v.first_seen||''}`,
+          `<span style="color:var(--text)"><strong>${escHtml(v.estate_name||'')}</strong> ${escHtml(v.building||'')} ${escHtml(v.floor||'')} ${escHtml(v.unit||'')}</span>`,
           v.view_price ? fmt(v.view_price) : '-',
           `<span style="font-weight:700;color:var(--accent)">${v.txn_price ? fmt(v.txn_price) : '-'}</span>`,
           diffHtml
@@ -1469,9 +1680,7 @@ async function loadEstates() {
         <button class="estate-card-delete" onclick="deleteEstate(event,${e.id})">✕</button>
         <div class="estate-card-name">${e.is_favourite ? '★ ' : ''}${escHtml(e.name)}</div>
         <div class="estate-card-meta">
-          ${e.district ? escHtml(e.district) + ' · ' : ''}
-          ${e.today_count ?? 0} 個盤
-          ${e.first_seen ? ' · 加入 ' + e.first_seen.slice(0,10) : ''}
+          ${e.district ? escHtml(e.district) + '．' : ''}${e.today_count ?? 0}個盤．最近3個月${e.txn_3m_count ?? 0}宗成交
         </div>
       </div>
     `).join('');
@@ -1682,7 +1891,7 @@ async function showEstate(id, name, district) {
         <div>
           <div class="estate-title">${escHtml(name)}</div>
           <div class="estate-sub">${district ? escHtml(district) + ' · ' : ''}共 ${listings.length} 個在售單位</div>
-          <div id="estate-info-bar"></div>
+          <div id="estate-info-bar" data-tracking="${trends.length}"></div>
         </div>
         <button class="sync-btn" style="background:var(--down);border-color:var(--down);white-space:nowrap;flex-shrink:0;margin-top:0.2rem" onclick="openViewingModal()">＋ 新增睇樓</button>
       </div>
@@ -1697,11 +1906,13 @@ async function showEstate(id, name, district) {
       <div id="tab-listings">
       <div class="stats-row">
         <div class="stat-card">
-          <div class="stat-label">平均實呎價</div>
+          <div class="stat-label">實呎價範圍</div>
           ${bedOrder.filter(b => bedGroups[b]?.length).map(b => {
-            const vals = bedGroups[b].map(l => l.price_per_ft).filter(Boolean);
-            const avg = vals.length ? Math.round(vals.reduce((a,v)=>a+v,0)/vals.length) : null;
-            return avg ? `<div style="margin-top:0.35rem"><span style="font-size:0.75rem;color:var(--muted)">${b}房</span> <span class="stat-value" style="font-size:1.25rem">$${avg.toLocaleString()}</span><span class="stat-unit"> /呎</span></div>` : '';
+            const grp = bedGroups[b];
+            const vals = grp.map(l => l.price_per_ft).filter(Boolean);
+            if (!vals.length) return '';
+            const lo = Math.min(...vals), hi = Math.max(...vals);
+            return `<div style="margin-top:0.35rem"><span style="font-size:0.75rem;color:var(--muted)">${b}房</span> <span class="stat-value" style="font-size:1.1rem">$${Math.round(lo).toLocaleString()}</span><span class="stat-unit"> - </span><span class="stat-value" style="font-size:1.1rem">$${Math.round(hi).toLocaleString()}</span><span class="stat-unit"> /呎</span> <span style="font-size:0.72rem;color:var(--muted)">(${grp.length}個)</span></div>`;
           }).join('')}
         </div>
         <div class="stat-card">
@@ -1713,10 +1924,6 @@ async function showEstate(id, name, district) {
             const hi = (Math.max(...prices)/1e4).toFixed(0);
             return `<div style="margin-top:0.35rem"><span style="font-size:0.75rem;color:var(--muted)">${b}房</span> <span class="stat-value" style="font-size:1.1rem">$${lo}萬</span><span class="stat-unit"> - </span><span class="stat-value" style="font-size:1.1rem">$${hi}萬</span></div>`;
           }).join('')}
-        </div>
-        <div class="stat-card">
-          <div class="stat-label">追蹤天數</div>
-          <div class="stat-value">${trends.length} <span class="stat-unit">天</span></div>
         </div>
       </div>
         <div class="chart-section">
@@ -1791,6 +1998,8 @@ async function loadEstateInfo(estateId) {
     if (info.blocks)          rows.push(['座數', `${info.blocks} 座`]);
     if (info.total_units)     rows.push(['單位數目', `${info.total_units.toLocaleString()} 個`]);
     if (info.developer)       rows.push(['發展商', info.developer]);
+    const tracking = bar.dataset.tracking;
+    if (tracking) rows.push(['追蹤天數', `${tracking} 天`]);
     if (!rows.length) return;
     bar.innerHTML = `
       <div style="margin-top:0.75rem;background:var(--surface2);border-radius:var(--radius);padding:0.75rem 1rem;display:inline-flex;flex-wrap:wrap;gap:0.5rem 1.5rem">
@@ -1881,9 +2090,154 @@ function switchTab(tab, estateId) {
 
 // ── Viewing modal ──────────────────────────────────────────────
 let _viewingEstateId = null;
+let _lastViewings = [];
 let _viewingEstateName = '';
 let _viewingImages = []; // [{dataUrl, file}]
 let _viewingEditId = null;
+
+let _notesOptions = [];
+
+async function loadNotesOptions() {
+  try {
+    const r = await api('/api/settings');
+    _notesOptions = (r.notes_options || '').split('\n').map(s => s.trim()).filter(Boolean);
+  } catch(_) {}
+}
+
+function findMatchingListings(viewing) {
+  if (!viewing.block || !viewing.unit) return [];
+  const blockNum = String(viewing.block).replace(/[座]/g, '').trim().toUpperCase();
+  const unitNorm = String(viewing.unit).replace(/[室號]/g, '').trim().toUpperCase();
+  const beds = Number(viewing.bedrooms) || 0;
+  return (allListings || []).filter(l => {
+    if (l.removed_date) return false;
+    const lBlockRaw = String(l.building_name || '').replace(/[座]/g, '').trim().toUpperCase();
+    const lBlock = lBlockRaw.match(/\d+/)?.[0] || lBlockRaw;
+    const lUnit = String(l.unit || '').replace(/[室號]/g, '').trim().toUpperCase();
+    const lBeds = Number(l.bedrooms) || 0;
+    return lBlock === blockNum && lUnit === unitNorm && (!beds || !lBeds || lBeds === beds);
+  });
+}
+
+function buildMatchCell(v) {
+  if (!v.block || !v.unit) return '-';
+  const matches = findMatchingListings(v);
+  const confirmed = v.linked_ref_no;
+  if (!matches.length && !confirmed) return '<span style="color:var(--muted);font-size:0.75rem">冇匹配</span>';
+
+  // If confirmed but listing no longer in allListings, show fallback
+  if (confirmed && !matches.find(l => l.ref_no === confirmed)) {
+    return `<span style="color:var(--muted);font-size:0.75rem">已確認 (已下架)</span>
+      <button onclick="confirmViewingListing(${v.id},null)" style="font-size:0.68rem;background:none;border:none;color:var(--muted);cursor:pointer;padding:0">✕ 取消</button>`;
+  }
+
+  const dismissed = new Set(JSON.parse(v.dismissed_refs || '[]'));
+  if (!matches.length && !confirmed) return '<span style="color:var(--muted);font-size:0.75rem">冇匹配</span>';
+
+  return matches.map(l => {
+    const isConfirmed = confirmed && l.ref_no === confirmed;
+    const isDismissed = !isConfirmed && dismissed.has(l.ref_no);
+    const price = l.price ? `$${(l.price/1e4).toFixed(0)}萬` : '';
+    const floorLabel = escHtml(l.floor || '');
+    const linkStyle = `color:var(--accent2);text-decoration:${isDismissed ? 'line-through' : 'none'};opacity:${isDismissed ? '0.4' : '1'}`;
+    const link = l.detail_url ? `<a href="${escHtml(l.detail_url)}" target="_blank" style="${linkStyle}">${floorLabel} ${price} ↗</a>` : `<span style="${linkStyle}">${floorLabel} ${price}</span>`;
+    const confirmOnclick = isConfirmed ? `confirmViewingListing(${v.id},null)` : `confirmViewingListing(${v.id},'${escHtml(l.ref_no||'')}')`;
+    const confirmStyle = isConfirmed
+      ? `font-size:0.68rem;background:var(--accent2);border:none;border-radius:4px;color:#fff;cursor:pointer;padding:1px 5px`
+      : `font-size:0.68rem;background:var(--surface2);border:1px solid var(--border);border-radius:4px;color:var(--text);cursor:pointer;padding:1px 5px;display:${(confirmed || isDismissed) ? 'none' : ''}`;
+    const rowOpacity = confirmed && !isConfirmed ? '0.3' : '1';
+    const xBtn = !isConfirmed && !confirmed
+      ? isDismissed
+        ? `<button onclick="dismissViewingListing(${v.id},'${escHtml(l.ref_no||'')}',true)" style="font-size:0.68rem;background:none;border:none;color:var(--muted);cursor:pointer;padding:1px 3px" title="取消刪除線">✕</button>`
+        : `<button onclick="dismissViewingListing(${v.id},'${escHtml(l.ref_no||'')}')" style="font-size:0.68rem;background:none;border:none;color:var(--muted);cursor:pointer;padding:1px 3px" title="唔係呢個">✕</button>`
+      : '';
+    return `<div style="font-size:0.78rem;display:flex;align-items:center;gap:0.3rem;opacity:${rowOpacity}">${link}
+      <button onclick="${confirmOnclick}" style="${confirmStyle}" ${isConfirmed ? 'title="取消"' : ''}>✓</button>${xBtn}
+    </div>`;
+  }).join('');
+}
+
+async function dismissViewingListing(viewingId, refNo, reverse = false) {
+  const v = _lastViewings?.find(v => v.id === viewingId);
+  if (!v) return;
+  const dismissed = new Set(JSON.parse(v.dismissed_refs || '[]'));
+  reverse ? dismissed.delete(refNo) : dismissed.add(refNo);
+  v.dismissed_refs = dismissed.size ? JSON.stringify([...dismissed]) : null;
+  api(`/api/viewings/${viewingId}`, { method: 'PATCH', body: JSON.stringify({ dismissed_refs: v.dismissed_refs }) }).catch(() => {});
+  const cell = document.getElementById(`vmatch-${viewingId}`);
+  if (cell) cell.innerHTML = buildMatchCell(v);
+}
+
+async function confirmViewingListing(viewingId, refNo) {
+  api(`/api/viewings/${viewingId}`, { method: 'PATCH', body: JSON.stringify({ linked_ref_no: refNo }) }).catch(() => {});
+  const cell = document.getElementById(`vmatch-${viewingId}`);
+  if (!cell) return;
+  if (!refNo) {
+    const v = _lastViewings?.find(v => v.id === viewingId);
+    if (v) { v.linked_ref_no = null; cell.innerHTML = buildMatchCell(v); }
+    return;
+  }
+  // highlight confirmed, grey out others, add unlink button
+  cell.querySelectorAll('div').forEach(div => {
+    const btn = div.querySelector('button');
+    if (btn && btn.getAttribute('onclick')?.includes(`'${refNo}'`)) {
+      div.style.opacity = '1';
+      btn.textContent = '✓';
+      btn.style.background = 'var(--accent2)';
+      btn.style.color = '#fff';
+      btn.style.border = 'none';
+      btn.setAttribute('onclick', `confirmViewingListing(${viewingId},null)`);
+      btn.title = '取消';
+    } else {
+      div.style.opacity = '0.3';
+      if (btn) btn.style.display = 'none';
+    }
+  });
+}
+
+function getNotesOptions() {
+  return _notesOptions;
+}
+
+function populateNotesSelect(currentValue) {
+  const opts = getNotesOptions();
+  const selected = new Set((currentValue || '').split(',').map(s => s.trim()).filter(Boolean));
+  // find the "free text" part — anything not in preset opts
+  const presetSelected = [...selected].filter(s => opts.includes(s));
+  const freeText = [...selected].filter(s => !opts.includes(s)).join(', ');
+  const container = document.getElementById('vf-notes-chips');
+  container.innerHTML = opts.map(o => {
+    const active = presetSelected.includes(o);
+    return `<button type="button" class="notes-chip${active ? ' active' : ''}" onclick="toggleNotesChip(this,'${escHtml(o)}')">${escHtml(o)}</button>`;
+  }).join('');
+  document.getElementById('vf-notes-text').value = freeText;
+}
+
+function toggleNotesChip(btn, val) {
+  btn.classList.toggle('active');
+}
+
+function getNotesValue() {
+  const chips = [...document.querySelectorAll('#vf-notes-chips .notes-chip.active')].map(b => b.textContent.trim());
+  const text = document.getElementById('vf-notes-text').value.trim();
+  return [...chips, ...(text ? [text] : [])].join(', ') || null;
+}
+
+function openSettingsModal() {
+  document.getElementById('settingsModalOverlay').style.display = 'flex';
+  document.getElementById('settings-notes-options').value = _notesOptions.join('\n');
+}
+
+function closeSettingsModal() {
+  document.getElementById('settingsModalOverlay').style.display = 'none';
+}
+
+async function saveSettings() {
+  const val = document.getElementById('settings-notes-options').value;
+  await api('/api/settings', { method: 'PUT', body: JSON.stringify({ notes_options: val }) });
+  _notesOptions = val.split('\n').map(s => s.trim()).filter(Boolean);
+  closeSettingsModal();
+}
 
 function openViewingModal(viewing = null) {
   if (!_viewingEstateId) return;
@@ -1897,9 +2251,11 @@ function openViewingModal(viewing = null) {
   document.getElementById('vf-floor').value = viewing ? viewing.floor : '';
   document.getElementById('vf-unit').value = viewing ? viewing.unit : '';
   document.getElementById('vf-size').value = viewing ? viewing.size_net : '';
+  document.getElementById('vf-bedrooms').value = viewing ? (viewing.bedrooms || 2) : 2;
   document.getElementById('vf-direction').value = viewing ? (viewing.direction || '') : '';
   document.getElementById('vf-price').value = viewing ? (viewing.price / 10000) : '';
   document.getElementById('vf-mgmt').value = viewing ? (viewing.mgmt_fee || '') : '';
+  populateNotesSelect(viewing ? (viewing.notes || '') : '');
   const preview = document.getElementById('vf-img-preview');
   preview.innerHTML = '';
   _viewingImages = [];
@@ -1963,10 +2319,12 @@ async function submitViewing(e) {
       floor: document.getElementById('vf-floor').value.trim(),
       unit: document.getElementById('vf-unit').value.trim(),
       size_net: parseInt(document.getElementById('vf-size').value),
+      bedrooms: parseInt(document.getElementById('vf-bedrooms').value) || 2,
       direction: document.getElementById('vf-direction').value || null,
       price,
       mgmt_fee: parseFloat(document.getElementById('vf-mgmt').value) || null,
       images: images.length ? JSON.stringify(images) : null,
+      notes: getNotesValue(),
     };
     let savedId;
     if (_viewingEditId) {
@@ -2030,6 +2388,7 @@ async function loadViewings(estateId) {
   panel.innerHTML = '<div class="listings-section"><div class="loading"><div class="spinner"></div> 載入睇樓記錄…</div></div>';
   try {
     const { viewings } = await api(`/api/viewings?estate_id=${estateId}`);
+    _lastViewings = viewings;
     const tabBtn = document.getElementById('tab-btn-viewings');
     if (tabBtn) tabBtn.textContent = `睇樓記錄(${viewings?.length || 0})`;
     if (!viewings?.length) {
@@ -2048,7 +2407,7 @@ async function loadViewings(estateId) {
       const fmtFloor = v.floor ? ((/樓$/.test(v.floor)||/層$/.test(v.floor) ? v.floor : v.floor+'樓')) : null;
       const fmtUnit = v.unit ? ((/室$/.test(v.unit)||/號$/.test(v.unit) ? v.unit : v.unit+'室')) : null;
       const unitStr = [fmtBlock, fmtFloor, fmtUnit].filter(Boolean).map(s => escHtml(s)).join(' ');
-      const mgmtMonthly = (v.mgmt_fee && v.size_net) ? Math.round(v.mgmt_fee * v.size_net) : null;
+      const mgmtMonthly = v.mgmt_fee ? (v.mgmt_fee > 100 ? Math.round(v.mgmt_fee) : (v.size_net ? Math.round(v.mgmt_fee * v.size_net) : null)) : null;
       const psfStr = v.price && v.size_net ? `$${Math.round(v.price/v.size_net).toLocaleString()}/呎` : '-';
       const vData = encodeURIComponent(JSON.stringify(v));
       const hsCell = v.hs_price
@@ -2057,12 +2416,15 @@ async function loadViewings(estateId) {
       return `<tr>
         <td>${v.view_date}</td>
         <td><strong>${unitStr}</strong>${v.direction ? `<br><span style="color:var(--muted);font-size:0.75rem">向${escHtml(v.direction)}</span>` : ''}</td>
+        <td>${v.bedrooms ? v.bedrooms+'房' : '-'}</td>
         <td>${v.size_net ? v.size_net+'呎' : '-'}</td>
         <td style="color:var(--accent)"><strong>${fmt(v.price)}</strong><br><span style="color:var(--muted);font-size:0.75rem">${psfStr}</span></td>
-        <td>${mgmtMonthly ? `$${mgmtMonthly.toLocaleString()}/月` : '-'}</td>
         <td id="vhs-${v.id}">${hsCell}</td>
-        <td>${v.txn_price && v.txn_reg_date >= v.view_date ? `<span style="color:var(--accent)"><strong>${fmt(v.txn_price)}</strong></span><br><span style="color:var(--muted);font-size:0.75rem">${v.txn_reg_date}</span>` : '-'}</td>
         <td id="vprev-${v.id}"><span style="color:var(--muted);font-size:0.72rem;cursor:pointer" onclick="fetchUnitTxn(${v.id})">查詢</span></td>
+        <td>${v.txn_price && v.txn_reg_date >= v.view_date ? `<span style="color:var(--accent)"><strong>${fmt(v.txn_price)}</strong></span><br><span style="color:var(--muted);font-size:0.75rem">${v.txn_reg_date}</span>` : '-'}</td>
+        <td>${mgmtMonthly ? `$${mgmtMonthly.toLocaleString()}/月` : '-'}</td>
+        <td id="vmatch-${v.id}">${buildMatchCell(v)}</td>
+        <td>${v.notes ? `<span style="font-size:0.78rem;background:var(--surface2);border-radius:4px;padding:0.15rem 0.4rem">${escHtml(v.notes)}</span>` : '-'}</td>
         <td>${imgHtml || '-'}</td>
         <td style="white-space:nowrap">
           <button class="viewing-del-btn" onclick='openViewingModal(JSON.parse(decodeURIComponent("${vData}")))' title="更改" style="background:var(--surface2);margin-right:0.3rem">✏️</button>
@@ -2071,9 +2433,9 @@ async function loadViewings(estateId) {
       </tr>`;
     }).join('');
     panel.innerHTML = `<div class="listings-section" style="overflow-x:auto">
-      <table class="history-table" style="min-width:600px">
+      <table class="history-table" style="min-width:700px;white-space:nowrap">
         <thead><tr>
-          <th>睇樓日期</th><th>單位</th><th>實用面積</th><th>售價</th><th>管理費(每月)</th><th>恒生估值</th><th>成交記錄</th><th>上次購買</th><th>圖片</th><th></th>
+          <th>睇樓日期</th><th>單位</th><th>房數</th><th>實用面積</th><th>售價</th><th>恒生估值</th><th>上次購買</th><th>成交記錄</th><th>管理費(每月)</th><th>對應放盤</th><th>備注</th><th>圖片</th><th></th>
         </tr></thead>
         <tbody>${rows}</tbody>
       </table>
@@ -2215,11 +2577,14 @@ async function loadTransactions(estateId, offset, append) {
   txnEstateId = estateId;
   txnOffset = offset;
   const panel = document.getElementById("tab-transactions");
+
   if (!append) {
     panel.innerHTML = '<div class="listings-section"><div class="loading"><div class="spinner"></div> 載入中…</div></div>';
+    txnFilters = { dateMonths: 0, heldMin: '', heldMax: '', building: 'all', unit: 'all' };
+  } else {
+    const btn = document.querySelector(".load-more-btn");
+    if (btn) { btn.disabled = true; btn.textContent = '載入中…'; }
   }
-
-  if (!append) txnFilters = { dateMonths: 0, heldMin: '', heldMax: '', building: 'all', unit: 'all' };
 
   try {
     const { transactions } = await api(`/api/estates/${estateId}/transactions?offset=${offset}`);
@@ -2235,16 +2600,19 @@ async function loadTransactions(estateId, offset, append) {
     const hasMore = transactions.length >= 50;
     renderTransactionsTable(estateId, offset, hasMore);
 
-    // Update load-more button after append
-    if (append) {
-      const btn = document.querySelector(".load-more-btn");
-      if (btn) {
-        if (hasMore) btn.setAttribute("onclick", `loadTransactions(${estateId}, ${offset+50}, true)`);
-        else btn.remove();
-      }
+    if (append && transactions.length === 0) {
+      toast('已載入全部成交記錄', 'success');
+    } else if (append) {
+      toast(`已載入 ${transactions.length} 條記錄`, 'success');
     }
   } catch (err) {
-    panel.innerHTML = `<div class="listings-section"><div class="no-data">載入失敗：${err.message}</div></div>`;
+    if (append) {
+      const btn = document.querySelector(".load-more-btn");
+      if (btn) { btn.disabled = false; btn.textContent = '載入更多…'; }
+      toast(`載入失敗：${err.message}`, 'error');
+    } else {
+      panel.innerHTML = `<div class="listings-section"><div class="no-data">載入失敗：${err.message}</div></div>`;
+    }
   }
 }
 
@@ -2354,24 +2722,32 @@ function renderTransactionsTable(estateId, offset, hasMore) {
     `<select class="filter-select" onchange="setTxnFilter('${key}',this.value)">${opts.map(o=>`<option value="${o}"${txnFilters[key]===o?'selected':''}>${o==='all'?'全部':o}</option>`).join('')}</select>`;
   const filterBar = `
     <div class="filter-bar">
-      <span class="filter-label">登記日期</span>
-      <div class="filter-group">
-        ${datePresets.map(p => `<button class="filter-chip ${txnFilters.dateMonths===p.months?'active':''}" onclick="setTxnFilter('dateMonths',${p.months})">${p.label}</button>`).join('')}
+      <div class="filter-pair">
+        <span class="filter-label">登記日期</span>
+        <div class="filter-group">
+          ${datePresets.map(p => `<button class="filter-chip ${txnFilters.dateMonths===p.months?'active':''}" onclick="setTxnFilter('dateMonths',${p.months})">${p.label}</button>`).join('')}
+        </div>
       </div>
       <div class="filter-sep"></div>
-      <span class="filter-label">座</span>
-      <div class="filter-group">${txnSel('building', txnBuildings)}</div>
+      <div class="filter-pair">
+        <span class="filter-label">座</span>
+        <div class="filter-group">${txnSel('building', txnBuildings)}</div>
+      </div>
       <div class="filter-sep"></div>
-      <span class="filter-label">單位</span>
-      <div class="filter-group">${txnSel('unit', txnUnits)}</div>
+      <div class="filter-pair">
+        <span class="filter-label">單位</span>
+        <div class="filter-group">${txnSel('unit', txnUnits)}</div>
+      </div>
       <div class="filter-sep"></div>
-      <span class="filter-label">持有年期</span>
-      <div class="filter-group">
-        <input class="filter-input" id="txnHeldMin" type="text" inputmode="decimal" placeholder="最少" value="${txnFilters.heldMin}" style="width:52px">
-        <span style="color:var(--muted);font-size:0.75rem">–</span>
-        <input class="filter-input" id="txnHeldMax" type="text" inputmode="decimal" placeholder="最多" value="${txnFilters.heldMax}" style="width:52px">
-        <span class="filter-label">年</span>
-        <button class="filter-chip" onclick="applyHeldFilter()">搜尋</button>
+      <div class="filter-pair">
+        <span class="filter-label">持有年期</span>
+        <div class="filter-group">
+          <input class="filter-input" id="txnHeldMin" type="text" inputmode="decimal" placeholder="最少" value="${txnFilters.heldMin}" style="width:52px">
+          <span style="color:var(--muted);font-size:0.75rem">–</span>
+          <input class="filter-input" id="txnHeldMax" type="text" inputmode="decimal" placeholder="最多" value="${txnFilters.heldMax}" style="width:52px">
+          <span class="filter-label">年</span>
+          <button class="filter-chip" onclick="applyHeldFilter()">搜尋</button>
+        </div>
       </div>
       <span class="filter-count">${filtered.length !== allTransactions.length ? `${filtered.length} / ${allTransactions.length} 條` : `${allTransactions.length} 條`}</span>
     </div>`;
@@ -2401,45 +2777,55 @@ function renderFilterBar() {
     `<select class="filter-select" onchange="setFilter('${key}',this.value)">${opts.map(o=>`<option value="${o}"${filters[key]===o?'selected':''}>${labelFn(o)}</option>`).join('')}</select>`;
   bar.innerHTML = `
     <div class="filter-bar">
-      <span class="filter-label">房數</span>
-      <div class="filter-group">
-        ${bedOptions.map(b => `<button class="filter-chip ${filters.beds===b?'active':''}" onclick="setFilter('beds','${b}')">${b==='all'?'全部':b+'房'}</button>`).join('')}
+      <div class="filter-pair">
+        <span class="filter-label">房數</span>
+        <div class="filter-group">
+          ${bedOptions.map(b => `<button class="filter-chip ${filters.beds===b?'active':''}" onclick="setFilter('beds','${b}')">${b==='all'?'全部':b+'房'}</button>`).join('')}
+        </div>
       </div>
       <div class="filter-sep"></div>
-      <span class="filter-label">樓層</span>
-      <div class="filter-group">
-        ${floorOptions.map(f => `<button class="filter-chip ${filters.floor===f?'active':''}" onclick="setFilter('floor','${f}')">${f==='all'?'全部':f}</button>`).join('')}
+      <div class="filter-pair">
+        <span class="filter-label">樓層</span>
+        <div class="filter-group">
+          ${floorOptions.map(f => `<button class="filter-chip ${filters.floor===f?'active':''}" onclick="setFilter('floor','${f}')">${f==='all'?'全部':f}</button>`).join('')}
+        </div>
       </div>
       <div class="filter-sep"></div>
-      <span class="filter-label">座</span>
-      <div class="filter-group">
-        ${sel('building', buildings, o => o==='all'?'全部':o)}
+      <div class="filter-pair">
+        <span class="filter-label">座</span>
+        <div class="filter-group">${sel('building', buildings, o => o==='all'?'全部':o)}</div>
       </div>
       <div class="filter-sep"></div>
-      <span class="filter-label">單位</span>
-      <div class="filter-group">
-        ${sel('unit', units, o => o==='all'?'全部':o)}
+      <div class="filter-pair">
+        <span class="filter-label">單位</span>
+        <div class="filter-group">${sel('unit', units, o => o==='all'?'全部':o)}</div>
       </div>
       <div class="filter-sep"></div>
-      <span class="filter-label">售價(萬)</span>
-      <div class="filter-group">
-        <input class="filter-input" type="number" placeholder="最低" value="${filters.minPrice}" onchange="setRangeFilter('minPrice',this.value)">
-        <span style="color:var(--muted);font-size:0.75rem">–</span>
-        <input class="filter-input" type="number" placeholder="最高" value="${filters.maxPrice}" onchange="setRangeFilter('maxPrice',this.value)">
+      <div class="filter-pair">
+        <span class="filter-label">售價(萬)</span>
+        <div class="filter-group">
+          <input class="filter-input" type="number" placeholder="最低" value="${filters.minPrice}" onchange="setRangeFilter('minPrice',this.value)">
+          <span style="color:var(--muted);font-size:0.75rem">–</span>
+          <input class="filter-input" type="number" placeholder="最高" value="${filters.maxPrice}" onchange="setRangeFilter('maxPrice',this.value)">
+        </div>
       </div>
       <div class="filter-sep"></div>
-      <span class="filter-label">實呎</span>
-      <div class="filter-group">
-        <input class="filter-input" type="number" placeholder="最低" value="${filters.minSize}" onchange="setRangeFilter('minSize',this.value)">
-        <span style="color:var(--muted);font-size:0.75rem">–</span>
-        <input class="filter-input" type="number" placeholder="最高" value="${filters.maxSize}" onchange="setRangeFilter('maxSize',this.value)">
+      <div class="filter-pair">
+        <span class="filter-label">實呎</span>
+        <div class="filter-group">
+          <input class="filter-input" type="number" placeholder="最低" value="${filters.minSize}" onchange="setRangeFilter('minSize',this.value)">
+          <span style="color:var(--muted);font-size:0.75rem">–</span>
+          <input class="filter-input" type="number" placeholder="最高" value="${filters.maxSize}" onchange="setRangeFilter('maxSize',this.value)">
+        </div>
       </div>
       <div class="filter-sep"></div>
-      <span class="filter-label">售價變動</span>
-      <div class="filter-group">
-        <button class="filter-chip ${filters.priceChanged==='all'?'active':''}" onclick="setFilter('priceChanged','all')">全部</button>
-        <button class="filter-chip ${filters.priceChanged==='yes'?'active':''}" onclick="setFilter('priceChanged','yes')">有變動</button>
-        <button class="filter-chip ${filters.priceChanged==='no'?'active':''}" onclick="setFilter('priceChanged','no')">無變動</button>
+      <div class="filter-pair">
+        <span class="filter-label">售價變動</span>
+        <div class="filter-group">
+          <button class="filter-chip ${filters.priceChanged==='all'?'active':''}" onclick="setFilter('priceChanged','all')">全部</button>
+          <button class="filter-chip ${filters.priceChanged==='yes'?'active':''}" onclick="setFilter('priceChanged','yes')">有變動</button>
+          <button class="filter-chip ${filters.priceChanged==='no'?'active':''}" onclick="setFilter('priceChanged','no')">無變動</button>
+        </div>
       </div>
       <span class="filter-count" id="filterCount"></span>
     </div>
@@ -2522,6 +2908,7 @@ function renderListingsTable() {
     { key: "price",         label: "售價" },
     { key: "price_per_ft",  label: "實呎價" },
     { key: "direction",     label: "座向" },
+    { key: null,            label: "來源" },
     { key: null,            label: "" },
   ];
 
@@ -2558,11 +2945,12 @@ function renderListingsTable() {
           <div class="unit-price">/呎</div>
         </td>
         <td>${escHtml(l.direction||'-')}</td>
+        <td><span style="font-size:0.72rem;color:var(--muted);background:var(--surface2);border-radius:4px;padding:0.1rem 0.4rem">中原</span></td>
         <td>${l.detail_url ? `<a href="${escHtml(l.detail_url)}" target="_blank" class="detail-link">詳情 ↗</a>` : ''}</td>
       </tr>
     `).join('');
 
-  el.innerHTML = `<div style="overflow-x:auto"><table><thead><tr>${ths}</tr></thead><tbody>${rows}</tbody></table></div>`;
+  el.innerHTML = `<div style="overflow-x:auto"><table style="min-width:700px;white-space:nowrap"><thead><tr>${ths}</tr></thead><tbody>${rows}</tbody></table></div>`;
 }
 
 function floorClass(floor) {
@@ -2667,7 +3055,8 @@ function drawChart(trends) {
 async function syncAll() {
   toast("同步中…");
   try {
-    const { results } = await api("/api/sync", { method: "POST" });
+    const endpoint = activeEstateId ? `/api/sync?estateId=${activeEstateId}` : "/api/sync";
+    const { results } = await api(endpoint, { method: "POST" });
     const ok = results.filter(r => r.ok).length;
     toast(`同步完成：${ok}/${results.length} 個屋苑`, "success");
     await loadEstates();
@@ -2735,7 +3124,13 @@ function escHtml(s) {
 }
 
 // Init
-loadEstates();
+if (getToken()) {
+  hideLoginScreen();
+  loadEstates();
+  loadNotesOptions();
+} else {
+  showLoginScreen();
+}
 </script>
 </body>
 </html>
