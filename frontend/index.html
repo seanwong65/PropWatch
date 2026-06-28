@@ -315,10 +315,12 @@
     }
     .hl-table {
       width: 100%;
+      min-width: 480px;
       border-collapse: collapse;
       font-size: 0.78rem;
       color: var(--text);
     }
+    .hl-scroll { overflow-x: auto; }
     .hl-tr td {
       padding: 0.4rem 0.5rem 0.4rem 0;
       border-bottom: 1px solid color-mix(in srgb, var(--border) 50%, transparent);
@@ -1214,7 +1216,7 @@ async function loadTodayHighlights() {
       `<tr class="hl-tr"><td class="hl-c1">${c1}</td><td class="hl-c2">${c2}</td><td class="hl-c3">${c3}</td><td class="hl-c4">${c4}</td><td class="hl-c5">${c5}</td><td class="hl-c6">${c6}</td></tr>`;
     const TH = (h1, h2, h3, h4, h5='', h6='') =>
       `<thead><tr class="hl-th"><th class="hl-c1">${h1}</th><th class="hl-c2">${h2}</th><th class="hl-c3">${h3}</th><th class="hl-c4">${h4}</th><th class="hl-c5">${h5}</th><th class="hl-c6">${h6}</th></tr></thead>`;
-    const tbl = (headers, rows) => `<table class="hl-table">${headers}<tbody>${rows}</tbody></table>`;
+    const tbl = (headers, rows) => `<div class="hl-scroll"><table class="hl-table">${headers}<tbody>${rows}</tbody></table></div>`;
 
     const hlTxnQueue = [];
     let html = "";
@@ -1415,7 +1417,7 @@ async function loadHistoryHighlights(months) {
       `<tr class="hl-tr"><td class="hl-c1">${c1}</td><td class="hl-c2">${c2}</td><td class="hl-c3">${c3}</td><td class="hl-c4">${c4}</td><td class="hl-c5">${c5}</td></tr>`;
     const TH = (h1, h2, h3, h4, h5='') =>
       `<thead><tr class="hl-th"><th class="hl-c1">${h1}</th><th class="hl-c2">${h2}</th><th class="hl-c3">${h3}</th><th class="hl-c4">${h4}</th><th class="hl-c5">${h5}</th></tr></thead>`;
-    const tbl = (headers, rows) => `<table class="hl-table">${headers}<tbody>${rows}</tbody></table>`;
+    const tbl = (headers, rows) => `<div class="hl-scroll"><table class="hl-table">${headers}<tbody>${rows}</tbody></table></div>`;
 
     let html = "";
 
