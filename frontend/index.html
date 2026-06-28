@@ -333,7 +333,7 @@
     .hl-c3 { width: 20%; }
     .hl-c4 { width: 20%; color: var(--muted); }
     .hl-c5 { width: 14%; }
-    .hl-c6 { width: 10%; text-align: right; }
+    .hl-c6 { width: 10%; text-align: right; white-space: nowrap; }
     .hl-link { color: #3b82f6; font-size: 0.78rem; white-space: nowrap; text-decoration: none; }
     .hl-link:hover { text-decoration: underline; }
     .highlights-estate { color: var(--muted); font-size: 0.75rem; }
@@ -1211,7 +1211,7 @@ async function loadTodayHighlights() {
     // Shared row renderer — mirrors buildEmailHtml columns exactly
     // Each section returns <tr> rows; caller wraps in <table>
     const lnk = url => url ? `<a href="${url}" target="_blank" class="hl-link">詳情 ↗</a>` : '';
-    const srcBadge = `<span style="font-size:0.72rem;color:var(--muted);background:var(--surface2);border-radius:4px;padding:0.1rem 0.4rem">中原</span>`;
+    const srcBadge = `<span style="font-size:0.72rem;color:var(--muted);background:var(--surface2);border-radius:4px;padding:0.1rem 0.4rem;white-space:nowrap">中原</span>`;
     const TR = (c1, c2, c3, c4, c5='', c6='') =>
       `<tr class="hl-tr"><td class="hl-c1">${c1}</td><td class="hl-c2">${c2}</td><td class="hl-c3">${c3}</td><td class="hl-c4">${c4}</td><td class="hl-c5">${c5}</td><td class="hl-c6">${c6}</td></tr>`;
     const TH = (h1, h2, h3, h4, h5='', h6='') =>
