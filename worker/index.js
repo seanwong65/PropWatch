@@ -201,10 +201,19 @@ async function findBlockCode(estateCode, blockNum) {
                 b.blockChinesename?.includes(`第${blockNum}座`) ||
                 b.blockName === `Block/Tower ${blockNum}`
               )
-            : blocks.find(b =>
-                b.blockChinesename === blockNum ||
-                b.blockName === blockNum
-              ) || (blocks.length === 1 ? blocks[0] : null);
+            : blocks.find(b => {
+                const cn = b.blockChinesename || '';
+                const en = b.blockName || '';
+                // Exact match or stripped 座 suffix
+                if (cn === blockNum || cn === blockNum + '座' || cn.replace(/座$/, '') === blockNum) return true;
+                if (en === blockNum || en === blockNum + '座') return true;
+                // Multi-phase format: "I期--B座" or "Phase I--Block/Tower B"
+                const cnLast = cn.split('--').pop() || '';
+                const enLast = en.split('--').pop() || '';
+                if (cnLast === blockNum + '座' || cnLast.replace(/座$/, '') === blockNum) return true;
+                if (enLast === `Block/Tower ${blockNum}` || enLast === blockNum) return true;
+                return false;
+              }) || (blocks.length === 1 ? blocks[0] : null);
           return block ? { blockCode: block.blockCode, carpark: block.coveredCarpark || "0" } : null;
         }
       }
@@ -242,6 +251,54 @@ function json(status, data) {
     status,
     headers: { "Content-Type": "application/json", ...CORS },
   });
+}
+
+async function sha256(text) {
+  const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text));
+  return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, "0")).join("");
+}
+
+function randomToken() {
+  const arr = new Uint8Array(32);
+  crypto.getRandomValues(arr);
+  return Array.from(arr).map(b => b.toString(16).padStart(2, "0")).join("");
+}
+
+async function ensureAuthTables(db) {
+  await db.prepare(`CREATE TABLE IF NOT EXISTS accounts (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    username TEXT UNIQUE NOT NULL,
+    password_hash TEXT NOT NULL,
+    expiry_date TEXT NOT NULL,
+    failed_attempts INTEGER NOT NULL DEFAULT 0,
+    locked_until TEXT
+  )`).run();
+  await db.prepare(`CREATE TABLE IF NOT EXISTS sessions (
+    token TEXT PRIMARY KEY,
+    account_id INTEGER NOT NULL,
+    created_at TEXT NOT NULL,
+    expires_at TEXT NOT NULL
+  )`).run();
+  // Seed seanwong account if not exists
+  const existing = await db.prepare("SELECT id FROM accounts WHERE username = 'seanwong'").first();
+  if (!existing) {
+    const hash = await sha256("123456");
+    await db.prepare("INSERT INTO accounts (username, password_hash, expiry_date) VALUES ('seanwong', ?, '2099-12-31')")
+      .bind(hash).run();
+  }
+}
+
+async function authenticate(db, request) {
+  const auth = request.headers.get("Authorization") || "";
+  const token = auth.startsWith("Bearer ") ? auth.slice(7) : null;
+  if (!token) return null;
+  const now = new Date().toISOString();
+  const session = await db.prepare(
+    "SELECT s.*, a.username, a.expiry_date FROM sessions s JOIN accounts a ON a.id = s.account_id WHERE s.token = ? AND s.expires_at > ?"
+  ).bind(token, now).first();
+  if (!session) return null;
+  if (session.expiry_date < now.slice(0, 10)) return null;
+  return session;
 }
 
 const FETCH_HEADERS = {
@@ -392,7 +449,7 @@ const N = (v) => (v == null ? null : v);
 
 function parseListing(item) {
   return {
-    listing_id: item.id,
+    listing_id: N(item.id),
     ref_no: N(item.refNo),
     estate_name: getEstateName(item),
     phase: item.estateName !== getEstateName(item) ? item.estateName : "",
@@ -400,10 +457,10 @@ function parseListing(item) {
     floor: N(item.yAxis),
     unit: N(item.xAxis),
     bedrooms: N(item.bedroomCount),
-    direction: N(item.direction),
+    direction: N(item.direction) || null,
     size_net: item.nSize || null,
     size_gross: item.size || null,
-    price: item.salePrice,
+    price: N(item.salePrice),
     price_per_ft: N(item.nUnitPrice),
     building_age: N(item.buildingAge),
     detail_url: N(item.detailUrl),
@@ -450,8 +507,8 @@ async function saveSearchResults(db, estateId, listings) {
     const avg = prices.reduce((s, p) => s + p, 0) / prices.length;
     const median = prices[Math.floor(prices.length / 2)];
     const allPrices = listings.map((l) => l.salePrice).filter(Boolean);
-    const minPrice = Math.min(...allPrices);
-    const maxPrice = Math.max(...allPrices);
+    const minPrice = allPrices.length ? Math.min(...allPrices) : null;
+    const maxPrice = allPrices.length ? Math.max(...allPrices) : null;
 
     await db
       .prepare(
@@ -494,7 +551,7 @@ async function getTodayHighlights(db) {
   const today = hkDateStr();
   const yesterday = hkDateStr(-1);
 
-  const [newTxns, priceChanges, newListings, removedListings, viewedTxns] = await Promise.all([
+  const [newTxns, priceChanges, newListings, removedListings, viewedTxns, linkedPriceChanges] = await Promise.all([
     db.prepare(`
       SELECT t.*, e.name as estate_name FROM transactions t
       JOIN estates e ON e.id = t.estate_id
@@ -542,13 +599,14 @@ async function getTodayHighlights(db) {
           SELECT MAX(snapshot_date) FROM listings
           WHERE estate_id = l.estate_id AND snapshot_date < ?
         )
+        AND l.snapshot_date < ?
         AND l.ref_no IS NOT NULL
         AND l.ref_no NOT IN (
           SELECT ref_no FROM listings
-          WHERE estate_id = l.estate_id AND snapshot_date = ?
+          WHERE estate_id = l.estate_id AND snapshot_date >= ?
         )
         AND date(e.first_seen) <= ?
-        AND (e.is_disabled = 0 OR e.is_disabled IS NULL)`).bind(today, today, yesterday).all(),
+        AND (e.is_disabled = 0 OR e.is_disabled IS NULL)`).bind(today, yesterday, yesterday, yesterday).all(),
     db.prepare(`
       SELECT t.building, t.floor, t.unit, t.price AS txn_price, t.size_net, t.reg_date,
              v.price AS view_price, v.view_date, v.id AS viewing_id,
@@ -562,6 +620,24 @@ async function getTodayHighlights(db) {
       WHERE t.first_seen = ?
         AND (e.is_disabled = 0 OR e.is_disabled IS NULL)
       ORDER BY e.name, t.price DESC`).bind(today).all(),
+    db.prepare(`
+      SELECT v.id AS viewing_id, v.price AS view_price, v.view_date,
+             v.block, v.floor AS view_floor, v.unit AS view_unit,
+             l.building_name, l.floor, l.unit AS l_unit, l.price AS new_price,
+             l.detail_url, ph_prev.price AS old_price, e.name AS estate_name
+      FROM viewings v
+      JOIN listings l ON l.ref_no = v.linked_ref_no AND l.snapshot_date = ?
+      JOIN estates e ON e.id = v.estate_id
+      JOIN listing_price_history ph_prev
+        ON ph_prev.ref_no = v.linked_ref_no
+        AND ph_prev.snapshot_date = (
+          SELECT MAX(snapshot_date) FROM listing_price_history
+          WHERE ref_no = v.linked_ref_no AND snapshot_date < ?
+        )
+      WHERE v.linked_ref_no IS NOT NULL
+        AND ABS(l.price - ph_prev.price) > 1000
+        AND (e.is_disabled = 0 OR e.is_disabled IS NULL)
+      ORDER BY ABS(l.price - ph_prev.price) DESC`).bind(today, today).all(),
   ]);
 
   // Fetch estate order
@@ -590,7 +666,7 @@ async function getTodayHighlights(db) {
 
   // Also expose flat list of all viewedTxns for top-of-email placement
   const allViewedTxns = [...estateMap.values()].flatMap(e => e.viewedTxns.map(v => ({ ...v, estate_name: e.estate })));
-  return { date: today, byEstate, allViewedTxns };
+  return { date: today, byEstate, allViewedTxns, linkedPriceChanges: linkedPriceChanges.results || [] };
 }
 
 function buildEmailHtml(highlights) {
@@ -892,12 +968,67 @@ export default {
     if (method === "OPTIONS") return new Response(null, { headers: CORS });
 
     try {
+      await ensureAuthTables(db);
+
+      // Login endpoint — public
+      if (method === "POST" && path === "/api/login") {
+        const { username, password } = await request.json();
+        if (!username || !password) return json(400, { error: "請輸入用戶名及密碼" });
+        const account = await db.prepare("SELECT * FROM accounts WHERE username = ?").bind(username).first();
+        if (!account) return json(401, { error: "用戶名或密碼錯誤" });
+
+        const now = new Date().toISOString();
+        if (account.locked_until && account.locked_until > now) {
+          return json(403, { error: "帳戶已被鎖定，請稍後再試" });
+        }
+        if (account.expiry_date < now.slice(0, 10)) {
+          return json(403, { error: "帳戶已過期" });
+        }
+
+        const hash = await sha256(password);
+        if (hash !== account.password_hash) {
+          const attempts = (account.failed_attempts || 0) + 1;
+          if (attempts >= 5) {
+            const lockUntil = new Date(Date.now() + 30 * 60 * 1000).toISOString();
+            await db.prepare("UPDATE accounts SET failed_attempts = ?, locked_until = ? WHERE id = ?")
+              .bind(attempts, lockUntil, account.id).run();
+            return json(403, { error: "密碼錯誤次數過多，帳戶已鎖定30分鐘" });
+          }
+          await db.prepare("UPDATE accounts SET failed_attempts = ? WHERE id = ?")
+            .bind(attempts, account.id).run();
+          return json(401, { error: `用戶名或密碼錯誤（${attempts}/5次）` });
+        }
+
+        // Success — reset attempts, create session
+        await db.prepare("UPDATE accounts SET failed_attempts = 0, locked_until = NULL WHERE id = ?")
+          .bind(account.id).run();
+        const token = randomToken();
+        const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
+        await db.prepare("INSERT INTO sessions (token, account_id, created_at, expires_at) VALUES (?, ?, ?, ?)")
+          .bind(token, account.id, now, expiresAt).run();
+        return json(200, { token, username: account.username });
+      }
+
+      // Logout endpoint
+      if (method === "POST" && path === "/api/logout") {
+        const auth = request.headers.get("Authorization") || "";
+        const token = auth.startsWith("Bearer ") ? auth.slice(7) : null;
+        if (token) await db.prepare("DELETE FROM sessions WHERE token = ?").bind(token).run();
+        return json(200, { ok: true });
+      }
+
+      // Auth guard for all other routes
+      const session = await authenticate(db, request);
+      if (!session) return json(401, { error: "請先登入" });
+
       if (method === "GET" && path === "/api/estates") {
         const { results } = await db
           .prepare(
             `SELECT e.*,
                (SELECT COUNT(*) FROM listings l WHERE l.estate_id = e.id
-                AND l.snapshot_date = date('now','+8 hours')) AS today_count
+                AND l.snapshot_date = (SELECT MAX(snapshot_date) FROM listings WHERE estate_id = e.id)) AS today_count,
+               (SELECT COUNT(*) FROM transactions t WHERE t.estate_id = e.id
+                AND t.reg_date >= date('now','+8 hours','-3 months')) AS txn_3m_count
              FROM estates e WHERE (e.is_disabled = 0 OR e.is_disabled IS NULL) ORDER BY e.is_favourite DESC, e.sort_order ASC`
           )
           .all();
@@ -958,7 +1089,7 @@ export default {
              )
              SELECT l.*,
                pl.first_seen,
-               CASE WHEN pl.last_seen < latest.d THEN pl.last_seen ELSE NULL END AS removed_date,
+               CASE WHEN pl.last_seen < latest.d AND pl.last_seen < date('now','+8 hours','-1 day') THEN pl.last_seen ELSE NULL END AS removed_date,
                prev.price AS prev_price,
                prev.price_per_ft AS prev_price_per_ft
              FROM listings l
@@ -1295,7 +1426,33 @@ export default {
           return ia - ib;
         });
         const allViewedTxns = viewedTxns.results.map(v => ({ ...v }));
-        return json(200, { months, cutoff: cutoffStr, byEstate, allViewedTxns });
+
+        // Linked listing price changes over the period
+        const linkedPriceChangesRes = await db.prepare(`
+          SELECT v.id AS viewing_id, v.price AS view_price, v.view_date,
+                 v.block, v.floor AS view_floor, v.unit AS view_unit,
+                 l.building_name, l.floor, l.unit AS l_unit, l.price AS new_price,
+                 l.detail_url, first_p.price AS old_price, e.name AS estate_name,
+                 first_p.snapshot_date AS old_date, last_p.snapshot_date AS new_date
+          FROM viewings v
+          JOIN estates e ON e.id = v.estate_id
+          JOIN (
+            SELECT ref_no, MIN(snapshot_date) as min_d, MAX(snapshot_date) as max_d
+            FROM listing_price_history WHERE snapshot_date >= ?
+            GROUP BY ref_no HAVING COUNT(DISTINCT price) > 1
+          ) changed ON changed.ref_no = v.linked_ref_no
+          JOIN listing_price_history first_p ON first_p.ref_no = v.linked_ref_no AND first_p.snapshot_date = changed.min_d
+          JOIN listing_price_history last_p  ON last_p.ref_no  = v.linked_ref_no AND last_p.snapshot_date  = changed.max_d
+          JOIN (
+            SELECT ref_no, building_name, floor, unit, price, detail_url
+            FROM listings WHERE (ref_no, snapshot_date) IN (SELECT ref_no, MAX(snapshot_date) FROM listings GROUP BY ref_no)
+          ) l ON l.ref_no = v.linked_ref_no
+          WHERE v.linked_ref_no IS NOT NULL AND first_p.price != last_p.price
+            AND (e.is_disabled = 0 OR e.is_disabled IS NULL)
+          ORDER BY ABS(last_p.price - first_p.price) DESC
+        `).bind(cutoffStr).all();
+
+        return json(200, { months, cutoff: cutoffStr, byEstate, allViewedTxns, linkedPriceChanges: linkedPriceChangesRes.results || [] });
       }
 
       if (method === "POST" && path.match(/^\/api\/estates\/\d+\/favourite$/)) {
@@ -1321,8 +1478,24 @@ export default {
       }
 
       if (method === "POST" && path === "/api/sync") {
-        const { results, email } = await runDailySync(db, env.RESEND_API_KEY, { persist: false });
-        return json(200, { ok: true, results, email });
+        const estateId = url.searchParams.get("estateId");
+        if (estateId) {
+          const estate = await db.prepare("SELECT * FROM estates WHERE id = ?").bind(estateId).first();
+          if (!estate) return json(404, { error: "Not found" });
+          try {
+            const newTxns = await fetchAndSaveTransactions(db, estate.id, estate.name);
+            const data = await fetchCentanet(estate.name);
+            const listings = data.data || [];
+            await saveSearchResults(db, estate.id, listings);
+            const changes = await detectChanges(db, estate.id, estate.name, listings);
+            changes.newTransactions = newTxns;
+            return json(200, { ok: true, results: [{ estate: estate.name, count: listings.length, ok: true, changes }] });
+          } catch (err) {
+            return json(200, { ok: true, results: [{ estate: estate.name, error: err.message, ok: false }] });
+          }
+        }
+        const { results } = await runDailySync(db, null, { persist: true });
+        return json(200, { ok: true, results });
       }
 
       if (method === "POST" && path === "/api/test-email") {
@@ -1430,14 +1603,18 @@ export default {
         const raw = await searchRes.json();
         const allData = raw.data || [];
 
-        const anyResult = allData.find(t => t.buildingName === building && t.typeCode);
+        // Match building name flexibly — Centanet may return without 座 suffix for single-building estates
+        const buildingAlt = building.replace(/座$/, '');
+        const matchBuilding = b => b === building || b === buildingAlt;
+        const anyResult = allData.find(t => matchBuilding(t.buildingName) && t.typeCode);
+        const matchedBuilding = anyResult?.buildingName || building;
         const typeCode = anyResult?.typeCode;
         const estateUrl = typeCode
-          ? `https://hk.centanet.com/CentaEstimate/estate-${encodeURIComponent(estateName)}-${encodeURIComponent(building)}_${typeCode}?tab=history`
+          ? `https://hk.centanet.com/CentaEstimate/estate-${encodeURIComponent(estateName)}-${encodeURIComponent(matchedBuilding)}_${typeCode}?tab=history`
           : null;
 
         // Also keep shallow fallback from transaction search
-        const results = allData.filter(t => t.buildingName === building && t.yAxis === floor && t.xAxis === unit);
+        const results = allData.filter(t => matchBuilding(t.buildingName) && t.yAxis === floor && t.xAxis === unit);
         const sorted = results.sort((a, b) => b.regDate?.localeCompare(a.regDate));
         const shallowTarget = viewDate ? sorted.find(t => t.regDate?.slice(0,10) < viewDate) : sorted[0];
         const shallowTxn = shallowTarget ? {
@@ -1505,34 +1682,58 @@ export default {
 
       if (method === "POST" && path === "/api/viewings") {
         const body = await request.json();
-        const { estate_id, view_date, block, floor, unit, size_net, direction, price, mgmt_fee, images, notes } = body;
+        const { estate_id, view_date, block, floor, unit, size_net, direction, price, mgmt_fee, images, notes, bedrooms } = body;
         if (!estate_id || !view_date || !floor || !unit || !size_net || !price)
           return json(400, { error: "Missing required fields" });
+        await db.prepare("ALTER TABLE viewings ADD COLUMN bedrooms INTEGER").run().catch(() => {});
         const result = await db.prepare(
-          "INSERT INTO viewings (estate_id, view_date, block, floor, unit, size_net, direction, price, mgmt_fee, images, notes) VALUES (?,?,?,?,?,?,?,?,?,?,?)"
-        ).bind(estate_id, view_date, block||null, floor, unit, size_net, direction||null, price, mgmt_fee||null, images||null, notes||null).run();
+          "INSERT INTO viewings (estate_id, view_date, block, floor, unit, size_net, direction, price, mgmt_fee, images, notes, bedrooms) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)"
+        ).bind(estate_id, view_date, block||null, floor, unit, size_net, direction||null, price, mgmt_fee||null, images||null, notes||null, bedrooms||2).run();
         return json(200, { ok: true, id: result.meta.last_row_id });
       }
 
       if (method === "PUT" && path.startsWith("/api/viewings/")) {
         const viewingId = path.split("/").pop();
-        const { view_date, block, floor, unit, size_net, direction, price, mgmt_fee, images, notes } = await request.json();
+        const { view_date, block, floor, unit, size_net, direction, price, mgmt_fee, images, notes, bedrooms } = await request.json();
+        await db.prepare("ALTER TABLE viewings ADD COLUMN bedrooms INTEGER").run().catch(() => {});
         await db.prepare(
-          "UPDATE viewings SET view_date=?, block=?, floor=?, unit=?, size_net=?, direction=?, price=?, mgmt_fee=?, images=?, notes=?, hs_price=NULL WHERE id=?"
-        ).bind(view_date, block||null, floor, unit, size_net, direction||null, price, mgmt_fee||null, images||null, notes||null, viewingId).run();
+          "UPDATE viewings SET view_date=?, block=?, floor=?, unit=?, size_net=?, direction=?, price=?, mgmt_fee=?, images=?, notes=?, bedrooms=?, hs_price=NULL WHERE id=?"
+        ).bind(view_date, block||null, floor, unit, size_net, direction||null, price, mgmt_fee||null, images||null, notes||null, bedrooms||2, viewingId).run();
         return json(200, { ok: true });
       }
 
       if (method === "PATCH" && path.startsWith("/api/viewings/")) {
         const viewingId = path.split("/").pop();
-        const { hs_price } = await request.json();
-        await db.prepare("UPDATE viewings SET hs_price=? WHERE id=?").bind(hs_price||null, viewingId).run();
+        const body = await request.json();
+        if ("linked_ref_no" in body) {
+          await db.prepare("ALTER TABLE viewings ADD COLUMN linked_ref_no TEXT").run().catch(() => {});
+          await db.prepare("UPDATE viewings SET linked_ref_no=? WHERE id=?").bind(body.linked_ref_no||null, viewingId).run();
+        } else if ("dismissed_refs" in body) {
+          await db.prepare("ALTER TABLE viewings ADD COLUMN dismissed_refs TEXT").run().catch(() => {});
+          await db.prepare("UPDATE viewings SET dismissed_refs=? WHERE id=?").bind(body.dismissed_refs||null, viewingId).run();
+        } else {
+          await db.prepare("UPDATE viewings SET hs_price=? WHERE id=?").bind(body.hs_price||null, viewingId).run();
+        }
         return json(200, { ok: true });
       }
 
       if (method === "DELETE" && path.startsWith("/api/viewings/")) {
         const viewingId = path.split("/").pop();
         await db.prepare("DELETE FROM viewings WHERE id = ?").bind(viewingId).run();
+        return json(200, { ok: true });
+      }
+
+      if (method === "GET" && path === "/api/settings") {
+        await db.prepare("CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT)").run();
+        const row = await db.prepare("SELECT value FROM settings WHERE key = 'notes_options'").first();
+        return json(200, { notes_options: row?.value || "" });
+      }
+
+      if (method === "PUT" && path === "/api/settings") {
+        await db.prepare("CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT)").run();
+        const { notes_options } = await request.json();
+        await db.prepare("INSERT INTO settings (key, value) VALUES ('notes_options', ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value")
+          .bind(notes_options ?? "").run();
         return json(200, { ok: true });
       }
 
