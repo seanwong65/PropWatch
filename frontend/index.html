@@ -2142,7 +2142,8 @@ function buildMatchCell(v) {
     const price = l.price ? `$${(l.price/1e4).toFixed(0)}萬` : '';
     const floorLabel = escHtml(l.floor || '');
     const linkStyle = `color:var(--accent2);text-decoration:${isDismissed ? 'line-through' : 'none'};opacity:${isDismissed ? '0.4' : '1'}`;
-    const link = l.detail_url ? `<a href="${escHtml(l.detail_url)}" target="_blank" style="${linkStyle}">${floorLabel} ${price} ↗</a>` : `<span style="${linkStyle}">${floorLabel} ${price}</span>`;
+    const src = `<span style="font-size:0.68rem;color:var(--muted)"> (中原)</span>`;
+    const link = l.detail_url ? `<a href="${escHtml(l.detail_url)}" target="_blank" style="${linkStyle}">${floorLabel} ${price} ↗</a>${src}` : `<span style="${linkStyle}">${floorLabel} ${price}</span>${src}`;
     const confirmOnclick = isConfirmed ? `confirmViewingListing(${v.id},null)` : `confirmViewingListing(${v.id},'${escHtml(l.ref_no||'')}')`;
     const confirmStyle = isConfirmed
       ? `font-size:0.68rem;background:var(--accent2);border:none;border-radius:4px;color:#fff;cursor:pointer;padding:1px 5px`
