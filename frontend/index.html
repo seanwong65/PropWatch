@@ -2915,7 +2915,7 @@ function renderListingsTable() {
   ];
 
   const ths = cols.map(c => {
-    if (!c.key) return `<th></th>`;
+    if (!c.key) return `<th>${c.label||''}</th>`;
     const cls = c.key === sortCol
       ? `sortable sort-${sortDir}`
       : "sortable";
