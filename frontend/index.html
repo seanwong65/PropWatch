@@ -959,7 +959,7 @@
 
       <label class="vf-label">備注</label>
       <div id="vf-notes-chips" style="display:flex;flex-wrap:wrap;gap:0.4rem;margin-bottom:0.45rem"></div>
-      <input class="vf-input" type="text" id="vf-notes-text" placeholder="自由輸入備注…" style="margin-bottom:0.6rem">
+      <textarea class="vf-input" id="vf-notes-text" placeholder="自由輸入備注…" rows="2" style="margin-bottom:0.6rem;resize:vertical;font-family:inherit;font-size:inherit"></textarea>
 
       <label class="vf-label">圖片（可選）</label>
       <label class="vf-upload-label">
@@ -1109,11 +1109,15 @@ async function showDashboard(estates) {
   main.innerHTML = `
     <div class="dashboard">
       <div class="highlights-section" id="highlights-section">
-        <div class="highlights-title" style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:0.4rem">
-          <span>今日動態 <span style="font-weight:400;color:var(--muted);text-transform:none;letter-spacing:0" id="highlights-date"></span></span>
+        <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:0.4rem;margin-bottom:0.75rem">
+          <div style="display:flex;gap:0;border-bottom:2px solid var(--border)">
+            <button id="dash-tab-today" onclick="switchDashTab('today')" style="background:none;border:none;border-bottom:2px solid var(--accent);margin-bottom:-2px;color:var(--text);font-size:0.9rem;font-weight:600;padding:0.35rem 0.85rem;cursor:pointer">今日動態 <span id="highlights-date" style="font-weight:400;color:var(--muted);font-size:0.8rem"></span></button>
+            <button id="dash-tab-unsold" onclick="switchDashTab('unsold')" style="background:none;border:none;border-bottom:2px solid transparent;margin-bottom:-2px;color:var(--muted);font-size:0.9rem;padding:0.35rem 0.85rem;cursor:pointer">追蹤中放盤</button>
+          </div>
           <button class="history-btn" style="font-size:0.88rem;padding:0.35rem 0.85rem" onclick="showHistoryPage()">歷史動態 →</button>
         </div>
-        <div id="highlights-body" style="color:var(--muted);font-size:0.75rem">載入中…</div>
+        <div id="dash-panel-today"><div id="highlights-body" style="color:var(--muted);font-size:0.75rem">載入中…</div></div>
+        <div id="dash-panel-unsold" style="display:none"><div id="unsold-body" style="color:var(--muted);font-size:0.75rem">載入中…</div></div>
       </div>
       <div class="dashboard-chart-section" style="margin-top:1.25rem">
         <div class="dashboard-chart-header">
@@ -1131,6 +1135,66 @@ async function showDashboard(estates) {
   `;
   if (estates.length) loadDashboardChart(estates[0].id);
   loadTodayHighlights();
+  loadUnsoldViewings();
+}
+
+function switchDashTab(tab) {
+  const isToday = tab === 'today';
+  document.getElementById('dash-panel-today').style.display = isToday ? '' : 'none';
+  document.getElementById('dash-panel-unsold').style.display = isToday ? 'none' : '';
+  document.getElementById('dash-tab-today').style.borderBottomColor = isToday ? 'var(--accent)' : 'transparent';
+  document.getElementById('dash-tab-today').style.color = isToday ? 'var(--text)' : 'var(--muted)';
+  document.getElementById('dash-tab-today').style.fontWeight = isToday ? '600' : '400';
+  document.getElementById('dash-tab-unsold').style.borderBottomColor = isToday ? 'transparent' : 'var(--accent)';
+  document.getElementById('dash-tab-unsold').style.color = isToday ? 'var(--muted)' : 'var(--text)';
+  document.getElementById('dash-tab-unsold').style.fontWeight = isToday ? '400' : '600';
+}
+
+async function loadUnsoldViewings() {
+  const body = document.getElementById("unsold-body");
+  if (!body) return;
+  try {
+    const { viewings } = await api("/api/viewings/unsold");
+    if (!viewings.length) { body.innerHTML = '<span style="color:var(--muted)">未有追蹤中放盤</span>'; return; }
+
+    // Fetch listings for each unique estate so buildMatchCell works
+    const estateIds = [...new Set(viewings.map(v => v.estate_id).filter(Boolean))];
+    const listingsByEstate = {};
+    await Promise.all(estateIds.map(async eid => {
+      try {
+        const { listings } = await api(`/api/estates/${eid}/listings`);
+        listingsByEstate[eid] = listings || [];
+      } catch(_) { listingsByEstate[eid] = []; }
+    }));
+
+    const savedAllListings = allListings;
+    const fmt = p => p ? `$${(p/1e4).toFixed(0)}萬` : '-';
+    const rows = viewings.map(v => {
+      const fmtBlock = v.block ? (/座$/.test(v.block) ? v.block : v.block+'座') : null;
+      const fmtFloor = v.floor ? (/樓$|層$/.test(v.floor) ? v.floor : v.floor+'樓') : null;
+      const fmtUnit  = v.unit  ? (/室$|號$/.test(v.unit)  ? v.unit  : v.unit+'室')  : null;
+      const unitStr = [fmtBlock, fmtFloor, fmtUnit].filter(Boolean).join(' ');
+      const psfStr = v.price && v.size_net ? `$${Math.round(v.price/v.size_net).toLocaleString()}/呎` : '';
+      const estateId = v.estate_id || (dashboardEstates.find(e => e.name === v.estate_name)||{}).id || '';
+      allListings = listingsByEstate[v.estate_id] || [];
+      const matchCell = buildMatchCell(v);
+      return `<tr class="hl-tr">
+        <td class="hl-c1"><strong>${escHtml(v.estate_name)}</strong><br><span style="color:var(--muted);font-size:0.72rem">${escHtml(unitStr)}</span></td>
+        <td class="hl-c2"><span style="font-weight:700;color:var(--accent)">${fmt(v.price)}</span>${psfStr ? `<br><span style="color:var(--muted);font-size:0.72rem">${psfStr}</span>` : ''}</td>
+        <td class="hl-c3" id="umatch-${v.id}">${matchCell}</td>
+        <td class="hl-c4">${v.notes ? `<span style="background:var(--surface2);border-radius:4px;padding:0.1rem 0.35rem">${escHtml(v.notes)}</span>` : '-'}</td>
+        <td class="hl-c5"><span style="color:var(--muted);font-size:0.72rem">${v.view_date}</span></td>
+        <td class="hl-c6">${estateId ? `<button class="history-btn" style="font-size:0.72rem;padding:0.15rem 0.5rem" onclick="showEstate(${estateId})">詳情</button>` : ''}</td>
+      </tr>`;
+    }).join('');
+    allListings = savedAllListings;
+
+    body.innerHTML = `<table class="hl-table"><thead><tr class="hl-th">
+      <th class="hl-c1">屋苑 / 單位</th><th class="hl-c2">售價</th><th class="hl-c3">對應放盤</th><th class="hl-c4">備注</th><th class="hl-c5">睇樓日期</th><th class="hl-c6"></th>
+    </tr></thead><tbody>${rows}</tbody></table>`;
+  } catch(e) {
+    if (body) body.innerHTML = `<span style="color:var(--muted)">載入失敗</span>`;
+  }
 }
 
 async function loadTodayHighlights() {
@@ -1145,6 +1209,7 @@ async function loadTodayHighlights() {
     // Shared row renderer — mirrors buildEmailHtml columns exactly
     // Each section returns <tr> rows; caller wraps in <table>
     const lnk = url => url ? `<a href="${url}" target="_blank" class="hl-link">詳情 ↗</a>` : '';
+    const srcBadge = `<span style="font-size:0.72rem;color:var(--muted);background:var(--surface2);border-radius:4px;padding:0.1rem 0.4rem">中原</span>`;
     const TR = (c1, c2, c3, c4, c5='', c6='') =>
       `<tr class="hl-tr"><td class="hl-c1">${c1}</td><td class="hl-c2">${c2}</td><td class="hl-c3">${c3}</td><td class="hl-c4">${c4}</td><td class="hl-c5">${c5}</td><td class="hl-c6">${c6}</td></tr>`;
     const TH = (h1, h2, h3, h4, h5='', h6='') =>
@@ -1236,10 +1301,11 @@ async function loadTodayHighlights() {
             `<span style="text-decoration:line-through;color:var(--muted)">${fmt(c.old_price)}</span>`,
             `<span style="font-weight:700">${fmt(c.new_price)}</span>`,
             `<span style="color:${col}">${d>0?'▲':'▼'} ${Math.abs(d)}%</span>`,
-            lnk(c.detail_url)
+            lnk(c.detail_url),
+            srcBadge
           );
         }
-        inner += `<div class="highlights-subgroup"><div class="highlights-group-label" style="color:var(--accent)">💰 售價變動 (${priceChanges.length})</div>${tbl(TH('單位','原價','新價','變動',''), rows)}</div>`;
+        inner += `<div class="highlights-subgroup"><div class="highlights-group-label" style="color:var(--accent)">💰 售價變動 (${priceChanges.length})</div>${tbl(TH('單位','原價','新價','變動','','來源'), rows)}</div>`;
       }
 
       if (newListings.length) {
@@ -1250,10 +1316,11 @@ async function loadTodayHighlights() {
             `${l.bedrooms!=null?l.bedrooms+'房':'-'}${l.size_net?' '+l.size_net+'呎':''}`,
             `<span style="font-weight:700;color:var(--accent)">${fmt(l.price)}</span>`,
             l.price_per_ft ? `$${Math.round(l.price_per_ft).toLocaleString()}/呎` : '',
-            lnk(l.detail_url)
+            lnk(l.detail_url),
+            srcBadge
           );
         }
-        inner += `<div class="highlights-subgroup"><div class="highlights-group-label" style="color:var(--up)">🆕 新放盤 (${newListings.length})</div>${tbl(TH('單位','房間 / 面積','價格','呎價',''), rows)}</div>`;
+        inner += `<div class="highlights-subgroup"><div class="highlights-group-label" style="color:var(--up)">🆕 新放盤 (${newListings.length})</div>${tbl(TH('單位','房間 / 面積','價格','呎價','','來源'), rows)}</div>`;
       }
 
       if (removedListings.length) {
@@ -1264,10 +1331,11 @@ async function loadTodayHighlights() {
             l.bedrooms!=null ? l.bedrooms+'房' : '-',
             `<span style="text-decoration:line-through;color:var(--muted)">${fmt(l.price)}</span>`,
             '',
-            lnk(l.detail_url)
+            lnk(l.detail_url),
+            srcBadge
           );
         }
-        inner += `<div class="highlights-subgroup"><div class="highlights-group-label" style="color:var(--down)">❌ 已下架 (${removedListings.length})</div>${tbl(TH('單位','房間','原價','',''), rows)}</div>`;
+        inner += `<div class="highlights-subgroup"><div class="highlights-group-label" style="color:var(--down)">❌ 已下架 (${removedListings.length})</div>${tbl(TH('單位','房間','原價','','','來源'), rows)}</div>`;
       }
 
       if (inner) {
@@ -1380,8 +1448,8 @@ async function loadHistoryHighlights(months) {
           ? `<span style="color:${diff<=0?'var(--up)':'var(--down)'}">${diff<=0?'▼':'▲'} ${fmt(Math.abs(diff))}</span>`
           : '-';
         rows += TR(
-          `<span style="color:var(--muted)">${v.first_seen||''}</span>`,
-          `<strong>${escHtml(v.estate_name||'')}</strong> ${escHtml(v.building||'')} ${escHtml(v.floor||'')} ${escHtml(v.unit||'')}`,
+          `${v.reg_date||v.first_seen||''}`,
+          `<span style="color:var(--text)"><strong>${escHtml(v.estate_name||'')}</strong> ${escHtml(v.building||'')} ${escHtml(v.floor||'')} ${escHtml(v.unit||'')}</span>`,
           v.view_price ? fmt(v.view_price) : '-',
           `<span style="font-weight:700;color:var(--accent)">${v.txn_price ? fmt(v.txn_price) : '-'}</span>`,
           diffHtml
@@ -2351,12 +2419,12 @@ async function loadViewings(estateId) {
         <td>${v.bedrooms ? v.bedrooms+'房' : '-'}</td>
         <td>${v.size_net ? v.size_net+'呎' : '-'}</td>
         <td style="color:var(--accent)"><strong>${fmt(v.price)}</strong><br><span style="color:var(--muted);font-size:0.75rem">${psfStr}</span></td>
-        <td>${mgmtMonthly ? `$${mgmtMonthly.toLocaleString()}/月` : '-'}</td>
-        <td>${v.notes ? `<span style="font-size:0.78rem;background:var(--surface2);border-radius:4px;padding:0.15rem 0.4rem">${escHtml(v.notes)}</span>` : '-'}</td>
-        <td id="vmatch-${v.id}">${buildMatchCell(v)}</td>
         <td id="vhs-${v.id}">${hsCell}</td>
-        <td>${v.txn_price && v.txn_reg_date >= v.view_date ? `<span style="color:var(--accent)"><strong>${fmt(v.txn_price)}</strong></span><br><span style="color:var(--muted);font-size:0.75rem">${v.txn_reg_date}</span>` : '-'}</td>
         <td id="vprev-${v.id}"><span style="color:var(--muted);font-size:0.72rem;cursor:pointer" onclick="fetchUnitTxn(${v.id})">查詢</span></td>
+        <td>${v.txn_price && v.txn_reg_date >= v.view_date ? `<span style="color:var(--accent)"><strong>${fmt(v.txn_price)}</strong></span><br><span style="color:var(--muted);font-size:0.75rem">${v.txn_reg_date}</span>` : '-'}</td>
+        <td>${mgmtMonthly ? `$${mgmtMonthly.toLocaleString()}/月` : '-'}</td>
+        <td id="vmatch-${v.id}">${buildMatchCell(v)}</td>
+        <td>${v.notes ? `<span style="font-size:0.78rem;background:var(--surface2);border-radius:4px;padding:0.15rem 0.4rem">${escHtml(v.notes)}</span>` : '-'}</td>
         <td>${imgHtml || '-'}</td>
         <td style="white-space:nowrap">
           <button class="viewing-del-btn" onclick='openViewingModal(JSON.parse(decodeURIComponent("${vData}")))' title="更改" style="background:var(--surface2);margin-right:0.3rem">✏️</button>
@@ -2367,7 +2435,7 @@ async function loadViewings(estateId) {
     panel.innerHTML = `<div class="listings-section" style="overflow-x:auto">
       <table class="history-table" style="min-width:700px;white-space:nowrap">
         <thead><tr>
-          <th>睇樓日期</th><th>單位</th><th>房數</th><th>實用面積</th><th>售價</th><th>管理費(每月)</th><th>備注</th><th>對應放盤</th><th>恒生估值</th><th>成交記錄</th><th>上次購買</th><th>圖片</th><th></th>
+          <th>睇樓日期</th><th>單位</th><th>房數</th><th>實用面積</th><th>售價</th><th>恒生估值</th><th>上次購買</th><th>成交記錄</th><th>管理費(每月)</th><th>對應放盤</th><th>備注</th><th>圖片</th><th></th>
         </tr></thead>
         <tbody>${rows}</tbody>
       </table>
@@ -2840,6 +2908,7 @@ function renderListingsTable() {
     { key: "price",         label: "售價" },
     { key: "price_per_ft",  label: "實呎價" },
     { key: "direction",     label: "座向" },
+    { key: null,            label: "來源" },
     { key: null,            label: "" },
   ];
 
@@ -2876,6 +2945,7 @@ function renderListingsTable() {
           <div class="unit-price">/呎</div>
         </td>
         <td>${escHtml(l.direction||'-')}</td>
+        <td><span style="font-size:0.72rem;color:var(--muted);background:var(--surface2);border-radius:4px;padding:0.1rem 0.4rem">中原</span></td>
         <td>${l.detail_url ? `<a href="${escHtml(l.detail_url)}" target="_blank" class="detail-link">詳情 ↗</a>` : ''}</td>
       </tr>
     `).join('');
