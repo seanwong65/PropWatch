@@ -315,12 +315,10 @@
     }
     .hl-table {
       width: 100%;
-      min-width: 480px;
       border-collapse: collapse;
       font-size: 0.78rem;
       color: var(--text);
     }
-    .hl-scroll { overflow-x: auto; }
     .hl-tr td {
       padding: 0.4rem 0.5rem 0.4rem 0;
       border-bottom: 1px solid color-mix(in srgb, var(--border) 50%, transparent);
@@ -333,7 +331,7 @@
     .hl-c3 { width: 20%; }
     .hl-c4 { width: 20%; color: var(--muted); }
     .hl-c5 { width: 14%; }
-    .hl-c6 { width: 10%; text-align: right; white-space: nowrap; }
+    .hl-c6 { width: 10%; text-align: right; }
     .hl-link { color: #3b82f6; font-size: 0.78rem; white-space: nowrap; text-decoration: none; }
     .hl-link:hover { text-decoration: underline; }
     .highlights-estate { color: var(--muted); font-size: 0.75rem; }
@@ -1211,12 +1209,12 @@ async function loadTodayHighlights() {
     // Shared row renderer — mirrors buildEmailHtml columns exactly
     // Each section returns <tr> rows; caller wraps in <table>
     const lnk = url => url ? `<a href="${url}" target="_blank" class="hl-link">詳情 ↗</a>` : '';
-    const srcBadge = `<span style="font-size:0.72rem;color:var(--muted);background:var(--surface2);border-radius:4px;padding:0.1rem 0.4rem;white-space:nowrap">中原</span>`;
+    const srcBadge = `<span style="font-size:0.72rem;color:var(--muted);background:var(--surface2);border-radius:4px;padding:0.1rem 0.4rem">中原</span>`;
     const TR = (c1, c2, c3, c4, c5='', c6='') =>
       `<tr class="hl-tr"><td class="hl-c1">${c1}</td><td class="hl-c2">${c2}</td><td class="hl-c3">${c3}</td><td class="hl-c4">${c4}</td><td class="hl-c5">${c5}</td><td class="hl-c6">${c6}</td></tr>`;
     const TH = (h1, h2, h3, h4, h5='', h6='') =>
       `<thead><tr class="hl-th"><th class="hl-c1">${h1}</th><th class="hl-c2">${h2}</th><th class="hl-c3">${h3}</th><th class="hl-c4">${h4}</th><th class="hl-c5">${h5}</th><th class="hl-c6">${h6}</th></tr></thead>`;
-    const tbl = (headers, rows) => `<div class="hl-scroll"><table class="hl-table">${headers}<tbody>${rows}</tbody></table></div>`;
+    const tbl = (headers, rows) => `<table class="hl-table">${headers}<tbody>${rows}</tbody></table>`;
 
     const hlTxnQueue = [];
     let html = "";
@@ -1417,7 +1415,7 @@ async function loadHistoryHighlights(months) {
       `<tr class="hl-tr"><td class="hl-c1">${c1}</td><td class="hl-c2">${c2}</td><td class="hl-c3">${c3}</td><td class="hl-c4">${c4}</td><td class="hl-c5">${c5}</td></tr>`;
     const TH = (h1, h2, h3, h4, h5='') =>
       `<thead><tr class="hl-th"><th class="hl-c1">${h1}</th><th class="hl-c2">${h2}</th><th class="hl-c3">${h3}</th><th class="hl-c4">${h4}</th><th class="hl-c5">${h5}</th></tr></thead>`;
-    const tbl = (headers, rows) => `<div class="hl-scroll"><table class="hl-table">${headers}<tbody>${rows}</tbody></table></div>`;
+    const tbl = (headers, rows) => `<table class="hl-table">${headers}<tbody>${rows}</tbody></table>`;
 
     let html = "";
 
@@ -2142,8 +2140,7 @@ function buildMatchCell(v) {
     const price = l.price ? `$${(l.price/1e4).toFixed(0)}萬` : '';
     const floorLabel = escHtml(l.floor || '');
     const linkStyle = `color:var(--accent2);text-decoration:${isDismissed ? 'line-through' : 'none'};opacity:${isDismissed ? '0.4' : '1'}`;
-    const src = `<span style="font-size:0.68rem;color:var(--muted)"> (中原)</span>`;
-    const link = l.detail_url ? `<a href="${escHtml(l.detail_url)}" target="_blank" style="${linkStyle}">${floorLabel} ${price} ↗</a>${src}` : `<span style="${linkStyle}">${floorLabel} ${price}</span>${src}`;
+    const link = l.detail_url ? `<a href="${escHtml(l.detail_url)}" target="_blank" style="${linkStyle}">${floorLabel} ${price} ↗</a>` : `<span style="${linkStyle}">${floorLabel} ${price}</span>`;
     const confirmOnclick = isConfirmed ? `confirmViewingListing(${v.id},null)` : `confirmViewingListing(${v.id},'${escHtml(l.ref_no||'')}')`;
     const confirmStyle = isConfirmed
       ? `font-size:0.68rem;background:var(--accent2);border:none;border-radius:4px;color:#fff;cursor:pointer;padding:1px 5px`
@@ -2916,7 +2913,7 @@ function renderListingsTable() {
   ];
 
   const ths = cols.map(c => {
-    if (!c.key) return `<th>${c.label||''}</th>`;
+    if (!c.key) return `<th></th>`;
     const cls = c.key === sortCol
       ? `sortable sort-${sortDir}`
       : "sortable";

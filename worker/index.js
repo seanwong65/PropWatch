@@ -1,7 +1,7 @@
 const CORS = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Methods": "GET, POST, PUT, PATCH, DELETE, OPTIONS",
-  "Access-Control-Allow-Headers": "Content-Type, Authorization",
+  "Access-Control-Allow-Headers": "Content-Type",
 };
 
 const CENTANET_SEARCH = "https://hk.centanet.com/findproperty/api/Post/Search";
@@ -286,12 +286,6 @@ async function ensureAuthTables(db) {
     await db.prepare("INSERT INTO accounts (username, password_hash, expiry_date) VALUES ('seanwong', ?, '2099-12-31')")
       .bind(hash).run();
   }
-  // Add account_id column to estates if not exists, then backfill to seanwong
-  try { await db.prepare("ALTER TABLE estates ADD COLUMN account_id INTEGER").run(); } catch (_) {}
-  const seanwong = await db.prepare("SELECT id FROM accounts WHERE username = 'seanwong'").first();
-  if (seanwong) {
-    await db.prepare("UPDATE estates SET account_id = ? WHERE account_id IS NULL").bind(seanwong.id).run();
-  }
 }
 
 async function authenticate(db, request) {
@@ -399,7 +393,10 @@ async function searchEstateName(keyword) {
     ...CF_OPTIONS,
   });
 
+  console.log("[searchEstateName] status:", res.status, "keyword:", keyword);
   const rawText = await res.text();
+  console.log("[searchEstateName] response preview:", rawText.slice(0, 300));
+
   if (!res.ok) throw new Error(`Search error: ${res.status}`);
   const data = JSON.parse(rawText);
 
@@ -550,10 +547,9 @@ async function sendEmail(apiKey, to, subject, html) {
   return res.json();
 }
 
-async function getTodayHighlights(db, accountId = null) {
+async function getTodayHighlights(db) {
   const today = hkDateStr();
   const yesterday = hkDateStr(-1);
-  const acct = accountId;
 
   const [newTxns, priceChanges, newListings, removedListings, viewedTxns, linkedPriceChanges] = await Promise.all([
     db.prepare(`
@@ -562,8 +558,7 @@ async function getTodayHighlights(db, accountId = null) {
       WHERE t.first_seen = ?
         AND date(e.first_seen) <= ?
         AND (e.is_disabled = 0 OR e.is_disabled IS NULL)
-        AND (? IS NULL OR e.account_id = ?)
-      ORDER BY t.price DESC`).bind(today, hkDateStr(-2), acct, acct).all(),
+      ORDER BY t.price DESC`).bind(today, hkDateStr(-2)).all(),
     db.prepare(`
       SELECT l.building_name, l.floor, l.unit, l.price as new_price, ph_prev.price as old_price,
              l.detail_url, e.name as estate_name
@@ -580,8 +575,7 @@ async function getTodayHighlights(db, accountId = null) {
         AND ABS(l.price - ph_prev.price) > 1000
         AND date(e.first_seen) <= ?
         AND (e.is_disabled = 0 OR e.is_disabled IS NULL)
-        AND (? IS NULL OR e.account_id = ?)
-      ORDER BY ABS(l.price - ph_prev.price) DESC`).bind(today, today, yesterday, acct, acct).all(),
+      ORDER BY ABS(l.price - ph_prev.price) DESC`).bind(today, today, yesterday).all(),
     db.prepare(`
       SELECT l.building_name, l.floor, l.unit, l.bedrooms, l.price, l.price_per_ft, l.size_net,
              l.detail_url, e.name as estate_name
@@ -595,8 +589,7 @@ async function getTodayHighlights(db, accountId = null) {
         )
         AND date(e.first_seen) <= ?
         AND (e.is_disabled = 0 OR e.is_disabled IS NULL)
-        AND (? IS NULL OR e.account_id = ?)
-      ORDER BY l.price ASC`).bind(today, today, yesterday, acct, acct).all(),
+      ORDER BY l.price ASC`).bind(today, today, yesterday).all(),
     db.prepare(`
       SELECT l.building_name, l.floor, l.unit, l.bedrooms, l.price,
              l.detail_url, e.name as estate_name
@@ -613,8 +606,7 @@ async function getTodayHighlights(db, accountId = null) {
           WHERE estate_id = l.estate_id AND snapshot_date >= ?
         )
         AND date(e.first_seen) <= ?
-        AND (e.is_disabled = 0 OR e.is_disabled IS NULL)
-        AND (? IS NULL OR e.account_id = ?)`).bind(today, yesterday, yesterday, yesterday, acct, acct).all(),
+        AND (e.is_disabled = 0 OR e.is_disabled IS NULL)`).bind(today, yesterday, yesterday, yesterday).all(),
     db.prepare(`
       SELECT t.building, t.floor, t.unit, t.price AS txn_price, t.size_net, t.reg_date,
              v.price AS view_price, v.view_date, v.id AS viewing_id,
@@ -627,8 +619,7 @@ async function getTodayHighlights(db, accountId = null) {
         AND t.unit     = CASE WHEN v.unit LIKE '%室' OR v.unit LIKE '%號' THEN v.unit ELSE v.unit || '室' END
       WHERE t.first_seen = ?
         AND (e.is_disabled = 0 OR e.is_disabled IS NULL)
-        AND (? IS NULL OR e.account_id = ?)
-      ORDER BY e.name, t.price DESC`).bind(today, acct, acct).all(),
+      ORDER BY e.name, t.price DESC`).bind(today).all(),
     db.prepare(`
       SELECT v.id AS viewing_id, v.price AS view_price, v.view_date,
              v.block, v.floor AS view_floor, v.unit AS view_unit,
@@ -646,14 +637,13 @@ async function getTodayHighlights(db, accountId = null) {
       WHERE v.linked_ref_no IS NOT NULL
         AND ABS(l.price - ph_prev.price) > 1000
         AND (e.is_disabled = 0 OR e.is_disabled IS NULL)
-        AND (? IS NULL OR e.account_id = ?)
-      ORDER BY ABS(l.price - ph_prev.price) DESC`).bind(today, today, acct, acct).all(),
+      ORDER BY ABS(l.price - ph_prev.price) DESC`).bind(today, today).all(),
   ]);
 
   // Fetch estate order
   const { results: estateOrder } = await db.prepare(
-    "SELECT name, sort_order, is_favourite FROM estates WHERE (is_disabled = 0 OR is_disabled IS NULL) AND (? IS NULL OR account_id = ?) ORDER BY is_favourite DESC, sort_order ASC"
-  ).bind(acct, acct).all();
+    "SELECT name, sort_order, is_favourite FROM estates WHERE is_disabled = 0 OR is_disabled IS NULL ORDER BY is_favourite DESC, sort_order ASC"
+  ).all();
   const orderIndex = new Map(estateOrder.map((e, i) => [e.name, i]));
 
   // Group by estate
@@ -1006,7 +996,7 @@ export default {
           }
           await db.prepare("UPDATE accounts SET failed_attempts = ? WHERE id = ?")
             .bind(attempts, account.id).run();
-          return json(401, { error: "用戶名或密碼錯誤" });
+          return json(401, { error: `用戶名或密碼錯誤（${attempts}/5次）` });
         }
 
         // Success — reset attempts, create session
@@ -1039,9 +1029,8 @@ export default {
                 AND l.snapshot_date = (SELECT MAX(snapshot_date) FROM listings WHERE estate_id = e.id)) AS today_count,
                (SELECT COUNT(*) FROM transactions t WHERE t.estate_id = e.id
                 AND t.reg_date >= date('now','+8 hours','-3 months')) AS txn_3m_count
-             FROM estates e WHERE (e.is_disabled = 0 OR e.is_disabled IS NULL) AND e.account_id = ? ORDER BY e.is_favourite DESC, e.sort_order ASC`
+             FROM estates e WHERE (e.is_disabled = 0 OR e.is_disabled IS NULL) ORDER BY e.is_favourite DESC, e.sort_order ASC`
           )
-          .bind(session.account_id)
           .all();
         return json(200, { estates: results });
       }
@@ -1058,20 +1047,20 @@ export default {
         if (!name || !bigestcode) return json(400, { error: "缺少屋苑資料" });
 
         let estate = await db
-          .prepare("SELECT * FROM estates WHERE bigestcode = ? AND account_id = ?")
-          .bind(bigestcode, session.account_id)
+          .prepare("SELECT * FROM estates WHERE bigestcode = ?")
+          .bind(bigestcode)
           .first();
 
         const useBigest = isBigest !== false;
 
         if (!estate) {
           await db
-            .prepare("INSERT INTO estates (name, bigestcode, district, is_bigest, account_id) VALUES (?,?,?,?,?)")
-            .bind(name, bigestcode, district || null, useBigest ? 1 : 0, session.account_id)
+            .prepare("INSERT INTO estates (name, bigestcode, district, is_bigest) VALUES (?,?,?,?)")
+            .bind(name, bigestcode, district || null, useBigest ? 1 : 0)
             .run();
           estate = await db
-            .prepare("SELECT * FROM estates WHERE bigestcode = ? AND account_id = ?")
-            .bind(bigestcode, session.account_id)
+            .prepare("SELECT * FROM estates WHERE bigestcode = ?")
+            .bind(bigestcode)
             .first();
         } else if (estate.is_disabled) {
           await db.prepare("UPDATE estates SET is_disabled = 0 WHERE id = ?").bind(estate.id).run();
@@ -1322,7 +1311,7 @@ export default {
       }
 
       if (method === "GET" && path === "/api/today-highlights") {
-        return json(200, await getTodayHighlights(db, session.account_id));
+        return json(200, await getTodayHighlights(db));
       }
 
       if (method === "GET" && path === "/api/history-highlights") {
@@ -1332,7 +1321,6 @@ export default {
         const cutoffStr = cutoff.toISOString().slice(0, 10);
         const today = hkDateStr();
 
-        const acct = session.account_id;
         const [newTxns, newListings, priceChanges, removedListings, viewedTxns] = await Promise.all([
           db.prepare(`
             SELECT t.*, e.name as estate_name FROM transactions t
@@ -1340,9 +1328,8 @@ export default {
             WHERE t.first_seen >= ? AND t.first_seen <= ?
               AND date(e.first_seen) < ?
               AND (e.is_disabled = 0 OR e.is_disabled IS NULL)
-              AND (? IS NULL OR e.account_id = ?)
             ORDER BY t.first_seen DESC, t.price DESC
-          `).bind(cutoffStr, today, cutoffStr, acct, acct).all(),
+          `).bind(cutoffStr, today, cutoffStr).all(),
 
           db.prepare(`
             SELECT l.building_name, l.floor, l.unit, l.bedrooms, l.price, l.price_per_ft, l.size_net,
@@ -1351,12 +1338,11 @@ export default {
             JOIN listings l ON l.ref_no = lph.ref_no AND l.estate_id = lph.estate_id
             JOIN estates e ON e.id = lph.estate_id
             WHERE (e.is_disabled = 0 OR e.is_disabled IS NULL)
-              AND (? IS NULL OR e.account_id = ?)
             GROUP BY lph.ref_no, lph.estate_id
             HAVING MIN(lph.snapshot_date) >= ?
               AND MIN(lph.snapshot_date) > date(e.first_seen)
             ORDER BY first_seen_date DESC, l.price ASC
-          `).bind(acct, acct, cutoffStr).all(),
+          `).bind(cutoffStr).all(),
 
           db.prepare(`
             SELECT l.building_name, l.floor, l.unit, l.detail_url, e.name as estate_name,
@@ -1382,9 +1368,8 @@ export default {
             JOIN estates e ON e.id = changed.estate_id
             WHERE first_p.price != last_p.price
               AND (e.is_disabled = 0 OR e.is_disabled IS NULL)
-              AND (? IS NULL OR e.account_id = ?)
             ORDER BY ABS(last_p.price - first_p.price) DESC
-          `).bind(cutoffStr, acct, acct).all(),
+          `).bind(cutoffStr).all(),
 
           db.prepare(`
             SELECT l.building_name, l.floor, l.unit, l.bedrooms, l.price,
@@ -1400,10 +1385,9 @@ export default {
               )
               AND date(e.first_seen) <= l.snapshot_date
               AND (e.is_disabled = 0 OR e.is_disabled IS NULL)
-              AND (? IS NULL OR e.account_id = ?)
             GROUP BY l.ref_no, l.estate_id
             ORDER BY l.snapshot_date DESC
-          `).bind(cutoffStr, today, today, acct, acct).all(),
+          `).bind(cutoffStr, today, today).all(),
 
           db.prepare(`
             SELECT t.building, t.floor, t.unit, t.price AS txn_price, t.size_net, t.reg_date, t.first_seen,
@@ -1417,14 +1401,13 @@ export default {
               AND t.unit     = CASE WHEN v.unit LIKE '%室' OR v.unit LIKE '%號' THEN v.unit ELSE v.unit || '室' END
             WHERE t.first_seen >= ? AND t.first_seen <= ?
               AND (e.is_disabled = 0 OR e.is_disabled IS NULL)
-              AND (? IS NULL OR e.account_id = ?)
             ORDER BY t.first_seen DESC, e.name
-          `).bind(cutoffStr, today, acct, acct).all(),
+          `).bind(cutoffStr, today).all(),
         ]);
 
         const { results: estateOrder } = await db.prepare(
-          "SELECT name, sort_order, is_favourite FROM estates WHERE (is_disabled = 0 OR is_disabled IS NULL) AND (? IS NULL OR account_id = ?) ORDER BY is_favourite DESC, sort_order ASC"
-        ).bind(acct, acct).all();
+          "SELECT name, sort_order, is_favourite FROM estates WHERE is_disabled = 0 OR is_disabled IS NULL ORDER BY is_favourite DESC, sort_order ASC"
+        ).all();
         const orderIndex = new Map(estateOrder.map((e, i) => [e.name, i]));
 
         const estateMap = new Map();
@@ -1515,38 +1498,32 @@ export default {
         return json(200, { ok: true, results });
       }
 
-
-      if (method === "GET" && path === "/api/viewings/unsold") {
-        const { results } = await db.prepare(`
-          SELECT v.*, e.name AS estate_name,
-            t.price AS txn_price,
-            t.reg_date AS txn_reg_date,
-            l.price AS match_price,
-            l.floor AS match_floor,
-            l.unit AS match_unit,
-            l.detail_url AS match_url
-          FROM viewings v
-          JOIN estates e ON e.id = v.estate_id
-          LEFT JOIN (
-            SELECT estate_id, building, floor, unit, price, reg_date,
-                   ROW_NUMBER() OVER (PARTITION BY estate_id, building, floor, unit ORDER BY reg_date DESC) AS rn
-            FROM transactions
-          ) t ON t.estate_id = v.estate_id
-            AND t.building = CASE WHEN v.block LIKE '%座' THEN v.block ELSE v.block || '座' END
-            AND t.floor = CASE WHEN v.floor LIKE '%樓' OR v.floor LIKE '%層' THEN v.floor ELSE v.floor || '樓' END
-            AND t.unit = CASE WHEN v.unit LIKE '%室' OR v.unit LIKE '%號' THEN v.unit ELSE v.unit || '室' END
-            AND t.rn = 1
-          LEFT JOIN (
-            SELECT ref_no, estate_id, floor, unit, price, detail_url,
-                   ROW_NUMBER() OVER (PARTITION BY ref_no, estate_id ORDER BY snapshot_date DESC) AS rn
-            FROM listings
-          ) l ON l.ref_no = v.linked_ref_no AND l.estate_id = v.estate_id AND l.rn = 1
-          WHERE e.account_id = ?
-            AND (e.is_disabled = 0 OR e.is_disabled IS NULL)
-            AND (t.reg_date IS NULL OR t.reg_date < v.view_date)
-          ORDER BY v.view_date DESC, v.created_at DESC
-        `).bind(session.account_id).all();
-        return json(200, { viewings: results });
+      if (method === "POST" && path === "/api/test-email") {
+        const result = await sendEmail(
+          env.RESEND_API_KEY,
+          "johnwong777@hotmail.com",
+          "PropWatch 測試郵件",
+          buildEmailHtml({
+            date: hkDateStr(),
+            byEstate: [{
+              estate: "碧海藍天",
+              newTransactions: [
+                { building: "3座", floor: "高層", unit: "A室", size_net: 513, price: 9280000, gain_pct: 15.3, held_days: 2738, detail_url: "https://hk.centanet.com" },
+                { building: "6座", floor: "中層", unit: "D室", size_net: 491, price: 8080000, gain_pct: -3.0, held_days: 2628, detail_url: "https://hk.centanet.com" },
+              ],
+              priceChanges: [
+                { building_name: "2座", floor: "高層", unit: "C室", old_price: 8500000, new_price: 7980000, detail_url: "https://hk.centanet.com" },
+              ],
+              newListings: [
+                { building_name: "5座", floor: "低層", unit: "B室", bedrooms: 2, size_net: 501, price: 7200000, price_per_ft: 14371, detail_url: "https://hk.centanet.com" },
+              ],
+              removedListings: [
+                { building_name: "1座", floor: "低層", unit: "G室", bedrooms: 3, price: 11800000, detail_url: "https://hk.centanet.com" },
+              ],
+            }],
+          })
+        );
+        return json(200, { ok: true, message: "測試郵件已發送至 johnwong777@hotmail.com", result });
       }
 
       // Viewings
@@ -1748,31 +1725,16 @@ export default {
 
       if (method === "GET" && path === "/api/settings") {
         await db.prepare("CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT)").run();
-        const settingsKey = `notes_options_${session.account_id}`;
-        const row = await db.prepare("SELECT value FROM settings WHERE key = ?").bind(settingsKey).first();
+        const row = await db.prepare("SELECT value FROM settings WHERE key = 'notes_options'").first();
         return json(200, { notes_options: row?.value || "" });
       }
 
       if (method === "PUT" && path === "/api/settings") {
         await db.prepare("CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT)").run();
         const { notes_options } = await request.json();
-        const settingsKey = `notes_options_${session.account_id}`;
-        await db.prepare("INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value")
-          .bind(settingsKey, notes_options ?? "").run();
+        await db.prepare("INSERT INTO settings (key, value) VALUES ('notes_options', ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value")
+          .bind(notes_options ?? "").run();
         return json(200, { ok: true });
-      }
-
-      if (method === "GET" && path === "/api/test-midland") {
-        try {
-          const res = await fetch("https://www.midland.com.hk/zh-hk/list/buy/%E6%B7%98%E5%A4%A7%E8%8A%B1%E5%9C%92-E-E00055", {
-            headers: { "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36" }
-          });
-          const text = await res.text();
-          const hasListings = text.includes("sc-1b56yos") || text.includes("BuyListingPage");
-          return json(200, { status: res.status, hasListings, length: text.length, sample: text.slice(0, 500) });
-        } catch(e) {
-          return json(200, { error: e.message });
-        }
       }
 
       return json(404, { error: "Not found" });
