@@ -1736,6 +1736,21 @@ function initDragSort() {
   });
 }
 
+function toggleRicacorpInput(id) {
+  const bar = document.getElementById("ricacorp-url-bar");
+  if (!bar) return;
+  bar.style.display = bar.style.display === 'none' ? 'flex' : 'none';
+}
+
+async function saveRicacorpUrl(id) {
+  const input = document.getElementById("ricacorp-url-input");
+  if (!input) return;
+  await api(`/api/estates/${id}`, { method: "PATCH", body: JSON.stringify({ ricacorp_url: input.value.trim() || null }) });
+  const bar = document.getElementById("ricacorp-url-bar");
+  if (bar) bar.style.display = 'none';
+  toast("利嘉閣 URL 已儲存", "success");
+}
+
 async function deleteEstate(e, id) {
   e.stopPropagation();
   if (!confirm("確認移除此屋苑追蹤？")) return;
@@ -1848,9 +1863,10 @@ async function showEstate(id, name, district) {
   main.innerHTML = '<div class="loading"><div class="spinner"></div> 載入中…</div>';
 
   try {
-    const [{ listings }, { trends }] = await Promise.all([
+    const [{ listings }, { trends }, estateData] = await Promise.all([
       api(`/api/estates/${id}/listings`),
       api(`/api/estates/${id}/trends`),
+      api(`/api/estates`).then(r => r.estates?.find(e => e.id === id) || {}),
     ]);
 
     const prices = listings.map(l => l.price).filter(Boolean);
@@ -1893,7 +1909,14 @@ async function showEstate(id, name, district) {
           <div class="estate-sub">${district ? escHtml(district) + ' · ' : ''}共 ${listings.length} 個在售單位</div>
           <div id="estate-info-bar" data-tracking="${trends.length}"></div>
         </div>
-        <button class="sync-btn" style="background:var(--down);border-color:var(--down);white-space:nowrap;flex-shrink:0;margin-top:0.2rem" onclick="openViewingModal()">＋ 新增睇樓</button>
+        <div style="display:flex;gap:0.5rem;align-items:flex-start;flex-shrink:0;margin-top:0.2rem">
+          <button class="sync-btn" style="background:var(--down);border-color:var(--down);white-space:nowrap" onclick="openViewingModal()">＋ 新增睇樓</button>
+          <button class="sync-btn" style="background:var(--surface2);border-color:var(--border);color:var(--muted);white-space:nowrap;font-size:0.78rem" onclick="toggleRicacorpInput(${id})" title="設定利嘉閣 URL">利嘉閣</button>
+        </div>
+      </div>
+      <div id="ricacorp-url-bar" style="margin-top:0.5rem;gap:0.5rem;align-items:center;display:none">
+        <input id="ricacorp-url-input" type="text" placeholder="https://www.ricacorp.com/zh-hk/property/list/buy/..." value="${escHtml(estateData.ricacorp_url||'')}" style="flex:1;background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:0.4rem 0.75rem;color:var(--text);font-size:0.82rem">
+        <button class="sync-btn" style="font-size:0.78rem;padding:0.35rem 0.75rem" onclick="saveRicacorpUrl(${id})">儲存</button>
       </div>
 
       <div class="estate-tabs">
@@ -2945,7 +2968,7 @@ function renderListingsTable() {
           <div class="unit-price">/呎</div>
         </td>
         <td>${escHtml(l.direction||'-')}</td>
-        <td><span style="font-size:0.72rem;color:var(--muted);background:var(--surface2);border-radius:4px;padding:0.1rem 0.4rem">中原</span></td>
+        <td><span style="font-size:0.72rem;color:var(--muted);background:var(--surface2);border-radius:4px;padding:0.1rem 0.4rem;white-space:nowrap">${l.source === 'ricacorp' ? '利嘉閣' : '中原'}</span></td>
         <td>${l.detail_url ? `<a href="${escHtml(l.detail_url)}" target="_blank" class="detail-link">詳情 ↗</a>` : ''}</td>
       </tr>
     `).join('');

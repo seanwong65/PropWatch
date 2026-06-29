@@ -526,6 +526,99 @@ async function saveSearchResults(db, estateId, listings) {
     .run();
 }
 
+async function scrapeRicacorpListings(ricacorpUrl) {
+  const UA = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
+  const listings = [];
+  const seen = new Set();
+
+  for (let page = 1; page <= 15; page++) {
+    const url = page === 1 ? ricacorpUrl : `${ricacorpUrl}?p=${page}`;
+    let html;
+    try {
+      const res = await fetch(url, { headers: { "User-Agent": UA }, signal: AbortSignal.timeout(10000) });
+      if (!res.ok) break;
+      html = await res.text();
+    } catch { break; }
+
+    // Extract individual listing blocks by splitting on detail links
+    const blocks = html.split(/(?=href="\/zh-hk\/property\/detail\/)/);
+    let found = 0;
+
+    for (const block of blocks.slice(1)) {
+      const hrefMatch = block.match(/href="(\/zh-hk\/property\/detail\/[^"]+)"/);
+      if (!hrefMatch) continue;
+      const href = hrefMatch[1];
+
+      // Ref from URL (e.g. cr74096481)
+      const refMatch = href.match(/-(c[a-z]\d+)-/i);
+      const ref_no = refMatch ? refMatch[1].toUpperCase() : null;
+      if (!ref_no || seen.has(ref_no)) continue;
+      seen.add(ref_no);
+      found++;
+
+      // Building from URL slug (segment before ref)
+      const slugParts = href.split("-");
+      const refIdx = slugParts.findIndex(p => /^c[a-z]\d+$/i.test(p));
+      const buildingRaw = refIdx > 0 ? slugParts[refIdx - 1] : null;
+      const building_name = buildingRaw ? decodeURIComponent(buildingRaw) : null;
+
+      // Floor + unit from img alt: "estate building 高層 12室"
+      const altMatch = block.match(/alt="[^"]*?(高層|中層|低層)[^"]*?(\d+室)?"/);
+      const floor = altMatch ? altMatch[1] : null;
+      const unit = altMatch?.[2] || null;
+
+      // Bedrooms
+      const bedMatch = block.match(/(\d+)房/);
+      const bedrooms = bedMatch ? parseInt(bedMatch[1]) : null;
+
+      // Size
+      const sizeMatch = block.match(/實用(\d+)呎/);
+      const size_net = sizeMatch ? parseInt(sizeMatch[1]) : null;
+
+      // Price (e.g. $580 萬 or $580萬)
+      const priceMatch = block.match(/\$(\d+(?:\.\d+)?)\s*萬/);
+      const price = priceMatch ? Math.round(parseFloat(priceMatch[1]) * 10000) : null;
+
+      // Price per sqft
+      const pfMatch = block.match(/@\s*\$([,\d]+)/);
+      const price_per_ft = pfMatch ? parseInt(pfMatch[1].replace(/,/g, "")) : null;
+
+      listings.push({
+        ref_no,
+        building_name,
+        floor,
+        unit,
+        bedrooms,
+        size_net,
+        price,
+        price_per_ft,
+        detail_url: "https://www.ricacorp.com" + href,
+        source: "ricacorp",
+      });
+    }
+
+    if (found === 0) break; // no new listings on this page
+  }
+
+  return listings;
+}
+
+async function saveRicacorpListings(db, estateId, listings) {
+  if (!listings.length) return;
+  const today = hkDateStr();
+  const stmt = db.prepare(
+    `INSERT OR REPLACE INTO listings
+     (estate_id, ref_no, building_name, floor, unit, bedrooms,
+      size_net, price, price_per_ft, detail_url, snapshot_date, source)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`
+  );
+  const batch = listings.map(l =>
+    stmt.bind(estateId, l.ref_no, l.building_name, l.floor, l.unit,
+      l.bedrooms, l.size_net, l.price, l.price_per_ft, l.detail_url, today, l.source)
+  );
+  await db.batch(batch);
+}
+
 async function sendEmail(apiKey, to, subject, html) {
   const res = await fetch("https://api.resend.com/emails", {
     method: "POST",
@@ -915,6 +1008,12 @@ async function runDailySync(db, resendApiKey, { persist = true } = {}) {
           const data = await fetchCentanet(estate.name);
           const listings = data.data || [];
           await saveSearchResults(db, estate.id, listings);
+          if (estate.ricacorp_url) {
+            try {
+              const ricaListings = await scrapeRicacorpListings(estate.ricacorp_url);
+              await saveRicacorpListings(db, estate.id, ricaListings);
+            } catch (e) { /* non-fatal */ }
+          }
           const changes = await detectChanges(db, estate.id, estate.name, listings);
           changes.newTransactions = newTxns;
           return { estate: estate.name, count: listings.length, ok: true, changes };
@@ -1464,6 +1563,16 @@ export default {
         return json(200, { ok: true, is_favourite: newVal });
       }
 
+      if (method === "PATCH" && path.match(/^\/api\/estates\/\d+$/)) {
+        const estateId = path.split("/")[3];
+        const body = await request.json();
+        if (body.ricacorp_url !== undefined) {
+          await db.prepare("UPDATE estates SET ricacorp_url = ? WHERE id = ?")
+            .bind(body.ricacorp_url || null, estateId).run();
+        }
+        return json(200, { ok: true });
+      }
+
       if (method === "POST" && path === "/api/estates/reorder") {
         const { order } = await request.json();
         const stmt = db.prepare("UPDATE estates SET sort_order = ? WHERE id = ?");
@@ -1487,6 +1596,12 @@ export default {
             const data = await fetchCentanet(estate.name);
             const listings = data.data || [];
             await saveSearchResults(db, estate.id, listings);
+            if (estate.ricacorp_url) {
+              try {
+                const ricaListings = await scrapeRicacorpListings(estate.ricacorp_url);
+                await saveRicacorpListings(db, estate.id, ricaListings);
+              } catch (e) { /* non-fatal */ }
+            }
             const changes = await detectChanges(db, estate.id, estate.name, listings);
             changes.newTransactions = newTxns;
             return json(200, { ok: true, results: [{ estate: estate.name, count: listings.length, ok: true, changes }] });
