@@ -1208,12 +1208,16 @@ async function loadTodayHighlights() {
     const pct = (n, o) => o ? ((n-o)/o*100).toFixed(1) : null;
     // Shared row renderer — mirrors buildEmailHtml columns exactly
     // Each section returns <tr> rows; caller wraps in <table>
-    const lnk = url => url ? `<a href="${url}" target="_blank" class="hl-link">詳情 ↗</a>` : '';
-    const srcBadge = `<span style="font-size:0.72rem;color:var(--muted);background:var(--surface2);border-radius:4px;padding:0.1rem 0.4rem">中原</span>`;
-    const TR = (c1, c2, c3, c4, c5='', c6='') =>
-      `<tr class="hl-tr"><td class="hl-c1">${c1}</td><td class="hl-c2">${c2}</td><td class="hl-c3">${c3}</td><td class="hl-c4">${c4}</td><td class="hl-c5">${c5}</td><td class="hl-c6">${c6}</td></tr>`;
-    const TH = (h1, h2, h3, h4, h5='', h6='') =>
-      `<thead><tr class="hl-th"><th class="hl-c1">${h1}</th><th class="hl-c2">${h2}</th><th class="hl-c3">${h3}</th><th class="hl-c4">${h4}</th><th class="hl-c5">${h5}</th><th class="hl-c6">${h6}</th></tr></thead>`;
+    const srcLink = (url, source) => {
+      const label = source === 'ricacorp' ? '利嘉閣' : '中原';
+      return url
+        ? `<a href="${url}" target="_blank" class="hl-link" style="font-size:0.72rem">${label} ↗</a>`
+        : `<span style="font-size:0.72rem;color:var(--muted)">${label}</span>`;
+    };
+    const TR = (c1, c2, c3, c4, c5='') =>
+      `<tr class="hl-tr"><td class="hl-c1">${c1}</td><td class="hl-c2">${c2}</td><td class="hl-c3">${c3}</td><td class="hl-c4">${c4}</td><td class="hl-c5">${c5}</td></tr>`;
+    const TH = (h1, h2, h3, h4, h5='') =>
+      `<thead><tr class="hl-th"><th class="hl-c1">${h1}</th><th class="hl-c2">${h2}</th><th class="hl-c3">${h3}</th><th class="hl-c4">${h4}</th><th class="hl-c5">${h5}</th></tr></thead>`;
     const tbl = (headers, rows) => `<table class="hl-table">${headers}<tbody>${rows}</tbody></table>`;
 
     const hlTxnQueue = [];
@@ -1284,7 +1288,7 @@ async function loadTodayHighlights() {
             <td class="hl-c3"><span style="font-weight:700;color:var(--accent)">${t.price ? fmt(t.price) : '-'}</span><span id="${rowId}-diff"></span></td>
             <td class="hl-c4">${heldStr}<div class="unit-price">${gainHtml}</div></td>
             <td class="hl-c5"><span id="${rowId}-val" style="color:var(--accent)"></span></td>
-            <td class="hl-c6">${lnk(t.detail_url)}</td>
+            <td class="hl-c6">${t.detail_url ? `<a href="${escHtml(t.detail_url)}" target="_blank" class="hl-link">詳情 ↗</a>` : ''}</td>
           </tr>`;
           hlTxnQueue.push({ rowId, estate, t });
         }
@@ -1301,11 +1305,10 @@ async function loadTodayHighlights() {
             `<span style="text-decoration:line-through;color:var(--muted)">${fmt(c.old_price)}</span>`,
             `<span style="font-weight:700">${fmt(c.new_price)}</span>`,
             `<span style="color:${col}">${d>0?'▲':'▼'} ${Math.abs(d)}%</span>`,
-            lnk(c.detail_url),
-            srcBadge
+            srcLink(c.detail_url, c.source)
           );
         }
-        inner += `<div class="highlights-subgroup"><div class="highlights-group-label" style="color:var(--accent)">💰 售價變動 (${priceChanges.length})</div>${tbl(TH('單位','原價','新價','變動','','來源'), rows)}</div>`;
+        inner += `<div class="highlights-subgroup"><div class="highlights-group-label" style="color:var(--accent)">💰 售價變動 (${priceChanges.length})</div>${tbl(TH('單位','原價','新價','變動','來源'), rows)}</div>`;
       }
 
       if (newListings.length) {
@@ -1316,11 +1319,10 @@ async function loadTodayHighlights() {
             `${l.bedrooms!=null?l.bedrooms+'房':'-'}${l.size_net?' '+l.size_net+'呎':''}`,
             `<span style="font-weight:700;color:var(--accent)">${fmt(l.price)}</span>`,
             l.price_per_ft ? `$${Math.round(l.price_per_ft).toLocaleString()}/呎` : '',
-            lnk(l.detail_url),
-            srcBadge
+            srcLink(l.detail_url, l.source)
           );
         }
-        inner += `<div class="highlights-subgroup"><div class="highlights-group-label" style="color:var(--up)">🆕 新放盤 (${newListings.length})</div>${tbl(TH('單位','房間 / 面積','價格','呎價','','來源'), rows)}</div>`;
+        inner += `<div class="highlights-subgroup"><div class="highlights-group-label" style="color:var(--up)">🆕 新放盤 (${newListings.length})</div>${tbl(TH('單位','房間 / 面積','價格','呎價','來源'), rows)}</div>`;
       }
 
       if (removedListings.length) {
@@ -1331,11 +1333,10 @@ async function loadTodayHighlights() {
             l.bedrooms!=null ? l.bedrooms+'房' : '-',
             `<span style="text-decoration:line-through;color:var(--muted)">${fmt(l.price)}</span>`,
             '',
-            lnk(l.detail_url),
-            srcBadge
+            srcLink(l.detail_url, l.source)
           );
         }
-        inner += `<div class="highlights-subgroup"><div class="highlights-group-label" style="color:var(--down)">❌ 已下架 (${removedListings.length})</div>${tbl(TH('單位','房間','原價','','','來源'), rows)}</div>`;
+        inner += `<div class="highlights-subgroup"><div class="highlights-group-label" style="color:var(--down)">❌ 已下架 (${removedListings.length})</div>${tbl(TH('單位','房間','原價','','來源'), rows)}</div>`;
       }
 
       if (inner) {
@@ -3108,7 +3109,7 @@ async function showHistory(refNo, label) {
     <div class="modal">
       <button class="modal-close" onclick="this.closest('.modal-overlay').remove()">✕</button>
       <div class="modal-title">${escHtml(label)}</div>
-      <div class="modal-sub">放盤編號：<a href="https://hk.centanet.com/findproperty/buy/${escHtml(refNo)}" target="_blank" class="detail-link">${escHtml(refNo)} ↗</a></div>
+      <div class="modal-sub" id="historyModalSub">放盤編號：${escHtml(refNo)}</div>
       <div id="historyContent"><div class="loading"><div class="spinner"></div> 載入中…</div></div>
     </div>
   `;
@@ -3116,7 +3117,13 @@ async function showHistory(refNo, label) {
   document.body.appendChild(overlay);
 
   try {
-    const { history } = await api(`/api/listings/${encodeURIComponent(refNo)}/history`);
+    const { history, source, detail_url } = await api(`/api/listings/${encodeURIComponent(refNo)}/history`);
+    const srcLabel = source === 'ricacorp' ? '利嘉閣' : '中原';
+    const sub = document.getElementById("historyModalSub");
+    if (sub) sub.innerHTML = `放盤編號：${detail_url
+      ? `<a href="${escHtml(detail_url)}" target="_blank" class="detail-link">${escHtml(refNo)} ↗</a>`
+      : escHtml(refNo)
+    } &nbsp;<span style="font-size:0.72rem;color:var(--muted);background:var(--surface2);border-radius:4px;padding:0.1rem 0.4rem">${srcLabel}</span>`;
     const content = document.getElementById("historyContent");
     if (!history.length) {
       content.innerHTML = '<div class="no-data">暫無歷史記錄</div>';
