@@ -1873,10 +1873,7 @@ export default {
           });
           const html = await res.text();
           const listings = await scrapeRicacorpListings(ricaUrl);
-          // Return first raw block for regex debugging
-          const blocks = html.split(/(?=href="\/zh-hk\/property\/detail\/)/);
-          const rawBlock = blocks[1]?.slice(0, 2000) || '';
-          return json(200, { status: res.status, htmlLen: html.length, listingCount: listings.length, sample: listings.slice(0, 3), rawBlock });
+          return json(200, { status: res.status, htmlLen: html.length, listingCount: listings.length, sample: listings.slice(0, 3) });
         } catch(e) {
           return json(200, { error: e.message });
         }
