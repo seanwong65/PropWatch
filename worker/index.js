@@ -1008,11 +1008,13 @@ async function runDailySync(db, resendApiKey, { persist = true } = {}) {
           const data = await fetchCentanet(estate.name);
           const listings = data.data || [];
           await saveSearchResults(db, estate.id, listings);
-          try {
-            const ricaUrl = `https://www.ricacorp.com/zh-hk/property/list/buy/${encodeURIComponent(estate.name)}`;
-            const ricaListings = await scrapeRicacorpListings(ricaUrl);
-            await saveRicacorpListings(db, estate.id, ricaListings);
-          } catch (e) { /* non-fatal */ }
+          if (estate.ricacorp_enabled) {
+            try {
+              const ricaUrl = `https://www.ricacorp.com/zh-hk/property/list/buy/${encodeURIComponent(estate.name)}`;
+              const ricaListings = await scrapeRicacorpListings(ricaUrl);
+              await saveRicacorpListings(db, estate.id, ricaListings);
+            } catch (e) { /* non-fatal */ }
+          }
           const changes = await detectChanges(db, estate.id, estate.name, listings);
           changes.newTransactions = newTxns;
           return { estate: estate.name, count: listings.length, ok: true, changes };
@@ -1569,6 +1571,10 @@ export default {
           await db.prepare("UPDATE estates SET ricacorp_url = ? WHERE id = ?")
             .bind(body.ricacorp_url || null, estateId).run();
         }
+        if (body.ricacorp_enabled !== undefined) {
+          await db.prepare("UPDATE estates SET ricacorp_enabled = ? WHERE id = ?")
+            .bind(body.ricacorp_enabled ? 1 : 0, estateId).run();
+        }
         return json(200, { ok: true });
       }
 
@@ -1595,11 +1601,13 @@ export default {
             const data = await fetchCentanet(estate.name);
             const listings = data.data || [];
             await saveSearchResults(db, estate.id, listings);
-            try {
-              const ricaUrl = `https://www.ricacorp.com/zh-hk/property/list/buy/${encodeURIComponent(estate.name)}`;
-              const ricaListings = await scrapeRicacorpListings(ricaUrl);
-              await saveRicacorpListings(db, estate.id, ricaListings);
-            } catch (e) { /* non-fatal */ }
+            if (estate.ricacorp_enabled) {
+              try {
+                const ricaUrl = `https://www.ricacorp.com/zh-hk/property/list/buy/${encodeURIComponent(estate.name)}`;
+                const ricaListings = await scrapeRicacorpListings(ricaUrl);
+                await saveRicacorpListings(db, estate.id, ricaListings);
+              } catch (e) { /* non-fatal */ }
+            }
             const changes = await detectChanges(db, estate.id, estate.name, listings);
             changes.newTransactions = newTxns;
             return json(200, { ok: true, results: [{ estate: estate.name, count: listings.length, ok: true, changes }] });
