@@ -576,16 +576,16 @@ async function scrapeRicacorpListings(ricacorpUrl) {
       const bedMatch = block.match(/>(\d+)<span[^>]*>房<\/span>/);
       const bedrooms = bedMatch ? parseInt(bedMatch[1]) : null;
 
-      // Size
-      const sizeMatch = block.match(/實用(\d+)呎/);
+      // Size: <span class="ml-1 area-value">375</span> (Angular splits 實用/375/呎 across spans)
+      const sizeMatch = block.match(/class="[^"]*area-value[^"]*">\s*(\d+)\s*</);
       const size_net = sizeMatch ? parseInt(sizeMatch[1]) : null;
 
-      // Price (e.g. $580 萬 or $580萬)
-      const priceMatch = block.match(/\$(\d+(?:\.\d+)?)\s*萬/);
+      // Price: <span class="price-container ..."> $520 </span> (separate from 萬 span)
+      const priceMatch = block.match(/class="[^"]*price-container[^"]*">\s*\$\s*([0-9.]+)\s*</);
       const price = priceMatch ? Math.round(parseFloat(priceMatch[1]) * 10000) : null;
 
-      // Price per sqft
-      const pfMatch = block.match(/@\s*\$([,\d]+)/);
+      // Price per sqft: <span class="unit-price ...">@ $13,867</span>
+      const pfMatch = block.match(/class="[^"]*unit-price[^"]*">@ \$([,\d]+)</);
       const price_per_ft = pfMatch ? parseInt(pfMatch[1].replace(/,/g, "")) : null;
 
       listings.push({
