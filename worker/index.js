@@ -556,19 +556,24 @@ async function scrapeRicacorpListings(ricacorpUrl) {
       seen.add(ref_no);
       found++;
 
-      // Building from URL slug (segment before ref)
+      // Building from URL slug (segment before ref), e.g. "c座" -> "C座"
       const slugParts = href.split("-");
       const refIdx = slugParts.findIndex(p => /^c[a-z]\d+$/i.test(p));
       const buildingRaw = refIdx > 0 ? slugParts[refIdx - 1] : null;
-      const building_name = buildingRaw ? decodeURIComponent(buildingRaw) : null;
+      const building_name = buildingRaw
+        ? decodeURIComponent(buildingRaw).replace(/^([a-z])/, l => l.toUpperCase())
+        : null;
 
-      // Floor + unit from img alt: "estate building 高層 12室"
-      const altMatch = block.match(/alt="[^"]*?(高層|中層|低層)[^"]*?(\d+室)?"/);
-      const floor = altMatch ? altMatch[1] : null;
-      const unit = altMatch?.[2] || null;
+      // Floor + unit from business-region-label div (Angular SSR HTML)
+      const labelMatch = block.match(/business-region-label[^>]*>([\s\S]*?)<\/div>/);
+      const labelHtml = labelMatch ? labelMatch[1] : "";
+      const floorMatch = labelHtml.match(/>\s*(極高層|高層|中層|低層|極低層)\s*</);
+      const floor = floorMatch ? floorMatch[1] : null;
+      const unitMatch = labelHtml.match(/>\s*(\d+室)\s*</);
+      const unit = unitMatch ? unitMatch[1] : null;
 
-      // Bedrooms
-      const bedMatch = block.match(/(\d+)房/);
+      // Bedrooms: >2<span ...>房</span>
+      const bedMatch = block.match(/>(\d+)<span[^>]*>房<\/span>/);
       const bedrooms = bedMatch ? parseInt(bedMatch[1]) : null;
 
       // Size
