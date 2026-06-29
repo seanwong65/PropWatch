@@ -1016,7 +1016,7 @@ let chart = null;
 let allListings = [];
 let sortCol = "price";
 let sortDir = "asc";
-let filters = { beds: "all", floor: "all", building: "all", unit: "all", minPrice: "", maxPrice: "", minSize: "", maxSize: "", priceChanged: "all" };
+let filters = { beds: "all", floor: "all", building: "all", unit: "all", minPrice: "", maxPrice: "", minSize: "", maxSize: "", priceChanged: "all", source: "all" };
 
 // ── Toast ──────────────────────────────────────────────────────
 function toast(msg, type = "info") {
@@ -1969,7 +1969,7 @@ async function showEstate(id, name, district, ricacorpEnabled = 0) {
       allListings = listings;
       sortCol = "price";
       sortDir = "asc";
-      filters = { beds: "all", floor: "all", building: "all", unit: "all", minPrice: "", maxPrice: "", minSize: "", maxSize: "", priceChanged: "all" };
+      filters = { beds: "all", floor: "all", building: "all", unit: "all", minPrice: "", maxPrice: "", minSize: "", maxSize: "", priceChanged: "all", source: "all" };
       renderFilterBar();
       renderListingsTable();
     }
@@ -2849,6 +2849,15 @@ function renderFilterBar() {
           <button class="filter-chip ${filters.priceChanged==='no'?'active':''}" onclick="setFilter('priceChanged','no')">無變動</button>
         </div>
       </div>
+      <div class="filter-sep"></div>
+      <div class="filter-pair">
+        <span class="filter-label">來源</span>
+        <div class="filter-group">
+          <button class="filter-chip ${filters.source==='all'?'active':''}" onclick="setFilter('source','all')">全部</button>
+          <button class="filter-chip ${filters.source==='centanet'?'active':''}" onclick="setFilter('source','centanet')">中原</button>
+          <button class="filter-chip ${filters.source==='ricacorp'?'active':''}" onclick="setFilter('source','ricacorp')">利嘉閣</button>
+        </div>
+      </div>
       <span class="filter-count" id="filterCount"></span>
     </div>
   `;
@@ -2882,6 +2891,7 @@ function applyFilters(listings) {
     const hasChange = l.prev_price && Math.abs(l.price - l.prev_price) > 1000;
     if (filters.priceChanged === 'yes' && !hasChange) return false;
     if (filters.priceChanged === 'no' && hasChange) return false;
+    if (filters.source !== 'all' && (l.source || 'centanet') !== filters.source) return false;
     return true;
   });
 }
@@ -2931,11 +2941,10 @@ function renderListingsTable() {
     { key: "price_per_ft",  label: "實呎價" },
     { key: "direction",     label: "座向" },
     { key: null,            label: "來源" },
-    { key: null,            label: "" },
   ];
 
   const ths = cols.map(c => {
-    if (!c.key) return `<th></th>`;
+    if (!c.key) return `<th>${c.label||''}</th>`;
     const cls = c.key === sortCol
       ? `sortable sort-${sortDir}`
       : "sortable";
@@ -2967,8 +2976,9 @@ function renderListingsTable() {
           <div class="unit-price">/呎</div>
         </td>
         <td>${escHtml(l.direction||'-')}</td>
-        <td><span style="font-size:0.72rem;color:var(--muted);background:var(--surface2);border-radius:4px;padding:0.1rem 0.4rem;white-space:nowrap">${l.source === 'ricacorp' ? '利嘉閣' : '中原'}</span></td>
-        <td>${l.detail_url ? `<a href="${escHtml(l.detail_url)}" target="_blank" class="detail-link">詳情 ↗</a>` : ''}</td>
+        <td>${l.detail_url
+          ? `<a href="${escHtml(l.detail_url)}" target="_blank" class="detail-link" style="font-size:0.72rem">${l.source === 'ricacorp' ? '利嘉閣' : '中原'} ↗</a>`
+          : `<span style="font-size:0.72rem;color:var(--muted)">${l.source === 'ricacorp' ? '利嘉閣' : '中原'}</span>`}</td>
       </tr>
     `).join('');
 
