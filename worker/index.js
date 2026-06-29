@@ -1737,19 +1737,6 @@ export default {
         return json(200, { ok: true });
       }
 
-      if (method === "GET" && path === "/api/test-midland") {
-        try {
-          const res = await fetch("https://www.midland.com.hk/zh-hk/list/buy/%E6%B7%98%E5%A4%A7%E8%8A%B1%E5%9C%92-E-E00055", {
-            headers: { "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36" }
-          });
-          const text = await res.text();
-          const hasListings = text.includes("sc-1b56yos") || text.includes("BuyListingPage");
-          return json(200, { status: res.status, hasListings, length: text.length, sample: text.slice(0, 500) });
-        } catch(e) {
-          return json(200, { error: e.message });
-        }
-      }
-
       return json(404, { error: "Not found" });
     } catch (err) {
       console.error(err);
