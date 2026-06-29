@@ -659,7 +659,7 @@ async function getTodayHighlights(db) {
       ORDER BY t.price DESC`).bind(today, hkDateStr(-2)).all(),
     db.prepare(`
       SELECT l.building_name, l.floor, l.unit, l.price as new_price, ph_prev.price as old_price,
-             l.detail_url, e.name as estate_name
+             l.detail_url, l.source, e.name as estate_name
       FROM listings l
       JOIN estates e ON e.id = l.estate_id
       JOIN listing_price_history ph_prev
@@ -676,7 +676,7 @@ async function getTodayHighlights(db) {
       ORDER BY ABS(l.price - ph_prev.price) DESC`).bind(today, today, yesterday).all(),
     db.prepare(`
       SELECT l.building_name, l.floor, l.unit, l.bedrooms, l.price, l.price_per_ft, l.size_net,
-             l.detail_url, e.name as estate_name
+             l.detail_url, l.source, e.name as estate_name
       FROM listings l
       JOIN estates e ON e.id = l.estate_id
       WHERE l.snapshot_date = ?
@@ -690,7 +690,7 @@ async function getTodayHighlights(db) {
       ORDER BY l.price ASC`).bind(today, today, yesterday).all(),
     db.prepare(`
       SELECT l.building_name, l.floor, l.unit, l.bedrooms, l.price,
-             l.detail_url, e.name as estate_name
+             l.detail_url, l.source, e.name as estate_name
       FROM listings l
       JOIN estates e ON e.id = l.estate_id
       WHERE l.snapshot_date = (
@@ -1216,16 +1216,16 @@ export default {
 
       if (method === "GET" && path.match(/^\/api\/listings\/.+\/history$/)) {
         const refNo = decodeURIComponent(path.split("/")[3]);
-        const { results } = await db
-          .prepare(
+        const [{ results }, listing] = await Promise.all([
+          db.prepare(
             `SELECT snapshot_date, price, price_per_ft
              FROM listing_price_history
              WHERE ref_no = ?
              ORDER BY snapshot_date ASC`
-          )
-          .bind(refNo)
-          .all();
-        return json(200, { history: results });
+          ).bind(refNo).all(),
+          db.prepare(`SELECT source, detail_url FROM listings WHERE ref_no = ? LIMIT 1`).bind(refNo).first(),
+        ]);
+        return json(200, { history: results, source: listing?.source || 'centanet', detail_url: listing?.detail_url });
       }
 
       if (method === "GET" && path.match(/^\/api\/estates\/\d+\/trends$/)) {
