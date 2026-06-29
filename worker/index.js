@@ -608,12 +608,12 @@ async function saveRicacorpListings(db, estateId, listings) {
   const today = hkDateStr();
   const stmt = db.prepare(
     `INSERT OR REPLACE INTO listings
-     (estate_id, ref_no, building_name, floor, unit, bedrooms,
+     (estate_id, listing_id, ref_no, building_name, floor, unit, bedrooms,
       size_net, price, price_per_ft, detail_url, snapshot_date, source)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`
   );
   const batch = listings.map(l =>
-    stmt.bind(estateId, l.ref_no, l.building_name, l.floor, l.unit,
+    stmt.bind(estateId, l.ref_no, l.ref_no, l.building_name, l.floor, l.unit,
       l.bedrooms, l.size_net, l.price, l.price_per_ft, l.detail_url, today, l.source)
   );
   await db.batch(batch);
@@ -1856,6 +1856,22 @@ export default {
         await db.prepare("INSERT INTO settings (key, value) VALUES ('notes_options', ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value")
           .bind(notes_options ?? "").run();
         return json(200, { ok: true });
+      }
+
+      if (method === "GET" && path === "/api/debug-ricacorp") {
+        const estateName = url.searchParams.get("name") || "德福花園";
+        try {
+          const ricaUrl = `https://www.ricacorp.com/zh-hk/property/list/buy/${encodeURIComponent(estateName)}`;
+          const res = await fetch(ricaUrl, {
+            headers: { "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36" },
+            signal: AbortSignal.timeout(10000)
+          });
+          const html = await res.text();
+          const listings = await scrapeRicacorpListings(ricaUrl);
+          return json(200, { status: res.status, htmlLen: html.length, listingCount: listings.length, sample: listings.slice(0, 3) });
+        } catch(e) {
+          return json(200, { error: e.message });
+        }
       }
 
       return json(404, { error: "Not found" });
