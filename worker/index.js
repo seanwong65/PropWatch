@@ -1008,12 +1008,11 @@ async function runDailySync(db, resendApiKey, { persist = true } = {}) {
           const data = await fetchCentanet(estate.name);
           const listings = data.data || [];
           await saveSearchResults(db, estate.id, listings);
-          if (estate.ricacorp_url) {
-            try {
-              const ricaListings = await scrapeRicacorpListings(estate.ricacorp_url);
-              await saveRicacorpListings(db, estate.id, ricaListings);
-            } catch (e) { /* non-fatal */ }
-          }
+          try {
+            const ricaUrl = `https://www.ricacorp.com/zh-hk/property/list/buy/${encodeURIComponent(estate.name)}`;
+            const ricaListings = await scrapeRicacorpListings(ricaUrl);
+            await saveRicacorpListings(db, estate.id, ricaListings);
+          } catch (e) { /* non-fatal */ }
           const changes = await detectChanges(db, estate.id, estate.name, listings);
           changes.newTransactions = newTxns;
           return { estate: estate.name, count: listings.length, ok: true, changes };
@@ -1596,12 +1595,11 @@ export default {
             const data = await fetchCentanet(estate.name);
             const listings = data.data || [];
             await saveSearchResults(db, estate.id, listings);
-            if (estate.ricacorp_url) {
-              try {
-                const ricaListings = await scrapeRicacorpListings(estate.ricacorp_url);
-                await saveRicacorpListings(db, estate.id, ricaListings);
-              } catch (e) { /* non-fatal */ }
-            }
+            try {
+              const ricaUrl = `https://www.ricacorp.com/zh-hk/property/list/buy/${encodeURIComponent(estate.name)}`;
+              const ricaListings = await scrapeRicacorpListings(ricaUrl);
+              await saveRicacorpListings(db, estate.id, ricaListings);
+            } catch (e) { /* non-fatal */ }
             const changes = await detectChanges(db, estate.id, estate.name, listings);
             changes.newTransactions = newTxns;
             return json(200, { ok: true, results: [{ estate: estate.name, count: listings.length, ok: true, changes }] });
