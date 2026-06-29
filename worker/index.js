@@ -569,7 +569,7 @@ async function scrapeRicacorpListings(ricacorpUrl) {
       const labelHtml = labelMatch ? labelMatch[1] : "";
       const floorMatch = labelHtml.match(/>\s*(極高層|高層|中層|低層|極低層)\s*</);
       const floor = floorMatch ? floorMatch[1] : null;
-      const unitMatch = labelHtml.match(/>\s*(\d+室)\s*</);
+      const unitMatch = labelHtml.match(/>\s*([A-Za-z0-9]+室)\s*</);
       const unit = unitMatch ? unitMatch[1] : null;
 
       // Bedrooms: >2<span ...>房</span>
