@@ -658,7 +658,7 @@ async function getTodayHighlights(db) {
         AND (e.is_disabled = 0 OR e.is_disabled IS NULL)
       ORDER BY t.price DESC`).bind(today, hkDateStr(-2)).all(),
     db.prepare(`
-      SELECT l.building_name, l.floor, l.unit, l.price as new_price, ph_prev.price as old_price,
+      SELECT l.building_name, l.floor, l.unit, l.ref_no, l.price as new_price, ph_prev.price as old_price,
              l.detail_url, l.source, e.name as estate_name
       FROM listings l
       JOIN estates e ON e.id = l.estate_id
