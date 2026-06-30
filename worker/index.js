@@ -264,6 +264,12 @@ function randomToken() {
   return Array.from(arr).map(b => b.toString(16).padStart(2, "0")).join("");
 }
 
+function normalizeUnit(unit) {
+  if (!unit) return unit;
+  // Strip leading zeros from numeric units: "01室" -> "1室", "10室" unchanged
+  return unit.replace(/^0+(\d+室)$/, '$1');
+}
+
 async function ensureAuthTables(db) {
   await db.prepare(`CREATE TABLE IF NOT EXISTS accounts (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -490,7 +496,7 @@ async function saveSearchResults(db, estateId, listings) {
     batch.push(
       stmtListing.bind(
         estateId, l.listing_id, l.ref_no, l.estate_name, l.phase,
-        l.building_name, l.floor, l.unit, l.bedrooms, l.direction,
+        l.building_name, l.floor, normalizeUnit(l.unit), l.bedrooms, l.direction,
         l.size_net, l.size_gross, l.price, l.price_per_ft,
         l.building_age, l.detail_url, l.thumbnail, today
       )
@@ -618,7 +624,7 @@ async function saveRicacorpListings(db, estateId, listings) {
      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`
   );
   const batch = listings.map(l =>
-    stmt.bind(estateId, l.ref_no, l.ref_no, l.building_name, l.floor, l.unit,
+    stmt.bind(estateId, l.ref_no, l.ref_no, l.building_name, l.floor, normalizeUnit(l.unit),
       l.bedrooms, l.size_net, l.price, l.price_per_ft, l.detail_url, today, l.source)
   );
   await db.batch(batch);
@@ -1864,6 +1870,16 @@ export default {
         await db.prepare("INSERT INTO settings (key, value) VALUES ('notes_options', ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value")
           .bind(notes_options ?? "").run();
         return json(200, { ok: true });
+      }
+
+      if (method === "POST" && path === "/api/admin/normalize-units") {
+        const result = await db.prepare(`
+          UPDATE listings
+          SET unit = CAST(CAST(REPLACE(unit,'室','') AS INTEGER) AS TEXT) || '室'
+          WHERE unit LIKE '0%室'
+            AND CAST(REPLACE(unit,'室','') AS INTEGER) > 0
+        `).run();
+        return json(200, { ok: true, changes: result.meta?.changes ?? result.changes });
       }
 
       if (method === "GET" && path === "/api/debug-ricacorp") {
