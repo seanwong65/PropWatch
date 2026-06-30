@@ -803,7 +803,10 @@ function buildEmailHtml(highlights) {
     if (!newTransactions.length && !priceChanges.length && !newListings.length && !removedListings.length) continue;
     let rows = "";
 
-    const link = (url, label="詳情 ↗") => url ? `<a href="${url}" style="color:#3b82f6;font-size:12px;white-space:nowrap">${label}</a>` : "";
+    const srcLink = (url, source) => {
+      const label = (source === 'ricacorp' ? '利嘉閣' : '中原') + ' ↗';
+      return url ? `<a href="${url}" style="color:#3b82f6;font-size:12px;white-space:nowrap">${label}</a>` : `<span style="color:#64748b;font-size:12px">${source === 'ricacorp' ? '利嘉閣' : '中原'}</span>`;
+    };
 
     const TH = (h1, h2, h3, h4, h5='') =>
       `<tr style="border-bottom:1px solid #334155"><th style="padding:4px 8px;font-size:11px;font-weight:600;color:#64748b;text-transform:uppercase;letter-spacing:0.04em;text-align:left">${h1}</th><th style="padding:4px 8px;font-size:11px;font-weight:600;color:#64748b;text-transform:uppercase;letter-spacing:0.04em;text-align:left">${h2}</th><th style="padding:4px 8px;font-size:11px;font-weight:600;color:#64748b;text-transform:uppercase;letter-spacing:0.04em;text-align:left">${h3}</th><th style="padding:4px 8px;font-size:11px;font-weight:600;color:#64748b;text-transform:uppercase;letter-spacing:0.04em;text-align:left">${h4}</th><th style="padding:4px 8px;font-size:11px;font-weight:600;color:#64748b;text-transform:uppercase;letter-spacing:0.04em;text-align:left">${h5}</th></tr>`;
@@ -836,7 +839,7 @@ function buildEmailHtml(highlights) {
 
     if (priceChanges.length) {
       rows += `<tr><td colspan="5" style="padding:8px 0 4px;font-weight:700;color:#f59e0b">💰 售價變動 (${priceChanges.length})</td></tr>`;
-      rows += TH('單位', '原價', '新價', '變動', '');
+      rows += TH('單位', '原價', '新價', '變動', '來源');
       for (const l of priceChanges) {
         const diff = pct(l.new_price, l.old_price);
         rows += `<tr style="border-bottom:1px solid #1f2d42">
@@ -844,35 +847,35 @@ function buildEmailHtml(highlights) {
           <td style="padding:6px 8px;text-decoration:line-through;color:#64748b">${fmt(l.old_price)}</td>
           <td style="padding:6px 8px;font-weight:700">${fmt(l.new_price)}</td>
           <td style="padding:6px 8px;color:${diff > 0 ? "#10b981" : "#ef4444"}">${diff > 0 ? "▲" : "▼"} ${Math.abs(diff)}%</td>
-          <td style="padding:6px 8px">${link(l.detail_url)}</td>
+          <td style="padding:6px 8px">${srcLink(l.detail_url, l.source)}</td>
         </tr>`;
       }
     }
 
     if (newListings.length) {
       rows += `<tr><td colspan="5" style="padding:8px 0 4px;font-weight:700;color:#10b981">🆕 新放盤 (${newListings.length})</td></tr>`;
-      rows += TH('單位', '房間 / 面積', '價格', '呎價', '');
+      rows += TH('單位', '房間 / 面積', '價格', '呎價', '來源');
       for (const l of newListings) {
         rows += `<tr style="border-bottom:1px solid #1f2d42">
           <td style="padding:6px 8px">${l.building_name || ""} ${l.floor || ""} ${l.unit || ""}</td>
           <td style="padding:6px 8px;color:#64748b">${l.bedrooms ?? "-"}房 ${l.size_net ? l.size_net + "呎" : ""}</td>
           <td style="padding:6px 8px;font-weight:700;color:#f59e0b">${fmt(l.price)}</td>
           <td style="padding:6px 8px;color:#64748b">${l.price_per_ft ? `$${l.price_per_ft.toLocaleString()}/呎` : ""}</td>
-          <td style="padding:6px 8px">${link(l.detail_url)}</td>
+          <td style="padding:6px 8px">${srcLink(l.detail_url, l.source)}</td>
         </tr>`;
       }
     }
 
     if (removedListings.length) {
       rows += `<tr><td colspan="5" style="padding:8px 0 4px;font-weight:700;color:#ef4444">❌ 已下架 (${removedListings.length})</td></tr>`;
-      rows += TH('單位', '房間', '原價', '', '');
+      rows += TH('單位', '房間', '原價', '', '來源');
       for (const l of removedListings) {
         rows += `<tr style="border-bottom:1px solid #1f2d42">
           <td style="padding:6px 8px">${l.building_name || ""} ${l.floor || ""} ${l.unit || ""}</td>
           <td style="padding:6px 8px;color:#64748b">${l.bedrooms ?? "-"}房</td>
           <td style="padding:6px 8px;text-decoration:line-through;color:#64748b">${fmt(l.price)}</td>
           <td></td>
-          <td style="padding:6px 8px">${link(l.detail_url)}</td>
+          <td style="padding:6px 8px">${srcLink(l.detail_url, l.source)}</td>
         </tr>`;
       }
     }
