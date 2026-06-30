@@ -1016,7 +1016,7 @@ let chart = null;
 let allListings = [];
 let sortCol = "price";
 let sortDir = "asc";
-let filters = { beds: "all", floor: "all", building: "all", unit: "all", minPrice: "", maxPrice: "", minSize: "", maxSize: "", priceChanged: "all", source: "all" };
+let filters = { beds: "all", floor: "all", building: "all", unit: "all", minPrice: "", maxPrice: "", minSize: "", maxSize: "", priceChanged: "all", sources: { centanet: true, ricacorp: true } };
 
 // ── Toast ──────────────────────────────────────────────────────
 function toast(msg, type = "info") {
@@ -1939,6 +1939,7 @@ async function showEstate(id, name, district, ricacorpEnabled = 0) {
         <div class="listings-section" id="listingsSection">
           <div class="listings-header">
             <div class="section-title" style="margin:0">最新放盤</div>
+            <div id="sourceToggles"></div>
           </div>
           ${listings.length === 0
             ? '<div class="no-data">暫無放盤資料</div>'
@@ -1970,8 +1971,9 @@ async function showEstate(id, name, district, ricacorpEnabled = 0) {
       allListings = listings;
       sortCol = "price";
       sortDir = "asc";
-      filters = { beds: "all", floor: "all", building: "all", unit: "all", minPrice: "", maxPrice: "", minSize: "", maxSize: "", priceChanged: "all", source: "all" };
+      filters = { beds: "all", floor: "all", building: "all", unit: "all", minPrice: "", maxPrice: "", minSize: "", maxSize: "", priceChanged: "all", sources: { centanet: true, ricacorp: true } };
       renderFilterBar();
+      renderSourceToggles();
       renderListingsTable();
     }
 
@@ -2851,18 +2853,26 @@ function renderFilterBar() {
           <button class="filter-chip ${filters.priceChanged==='no'?'active':''}" onclick="setFilter('priceChanged','no')">無變動</button>
         </div>
       </div>
-      <div class="filter-sep"></div>
-      <div class="filter-pair">
-        <span class="filter-label">來源</span>
-        <div class="filter-group">
-          <button class="filter-chip ${filters.source==='all'?'active':''}" onclick="setFilter('source','all')">全部</button>
-          <button class="filter-chip ${filters.source==='centanet'?'active':''}" onclick="setFilter('source','centanet')">中原</button>
-          <button class="filter-chip ${filters.source==='ricacorp'?'active':''}" onclick="setFilter('source','ricacorp')">利嘉閣</button>
-        </div>
-      </div>
       <span class="filter-count" id="filterCount"></span>
     </div>
   `;
+  renderSourceToggles();
+}
+
+function renderSourceToggles() {
+  const el = document.getElementById('sourceToggles');
+  if (!el) return;
+  const btnStyle = (active) => `background:${active ? 'var(--accent)' : 'var(--surface2)'};border:1px solid ${active ? 'var(--accent)' : 'var(--border)'};border-radius:var(--radius);padding:0.25rem 0.65rem;font-size:0.75rem;cursor:pointer;color:${active ? '#fff' : 'var(--muted)'};font-weight:${active ? '600' : '400'}`;
+  el.innerHTML = `<div style="display:flex;gap:0.4rem">
+    <button style="${btnStyle(filters.sources.centanet)}" onclick="toggleSource('centanet')">中原</button>
+    <button style="${btnStyle(filters.sources.ricacorp)}" onclick="toggleSource('ricacorp')">利嘉閣</button>
+  </div>`;
+}
+
+function toggleSource(src) {
+  filters.sources[src] = !filters.sources[src];
+  renderSourceToggles();
+  renderListingsTable();
 }
 
 function setFilter(key, val) {
@@ -2893,7 +2903,7 @@ function applyFilters(listings) {
     const hasChange = l.prev_price && Math.abs(l.price - l.prev_price) > 1000;
     if (filters.priceChanged === 'yes' && !hasChange) return false;
     if (filters.priceChanged === 'no' && hasChange) return false;
-    if (filters.source !== 'all' && (l.source || 'centanet') !== filters.source) return false;
+    if (!filters.sources[l.source || 'centanet']) return false;
     return true;
   });
 }

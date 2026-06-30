@@ -1592,6 +1592,12 @@ export default {
         return json(200, { ok: true });
       }
 
+      if (method === "POST" && path === "/api/admin/enable-ricacorp-all") {
+        await db.prepare("UPDATE estates SET ricacorp_enabled = 1 WHERE ricacorp_url IS NOT NULL").run();
+        const { results } = await db.prepare("SELECT id, name FROM estates WHERE ricacorp_enabled = 1").all();
+        return json(200, { ok: true, updated: results });
+      }
+
       if (method === "POST" && path === "/api/estates/reorder") {
         const { order } = await request.json();
         const stmt = db.prepare("UPDATE estates SET sort_order = ? WHERE id = ?");
