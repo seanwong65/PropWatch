@@ -1016,7 +1016,7 @@ let chart = null;
 let allListings = [];
 let sortCol = "price";
 let sortDir = "asc";
-let filters = { beds: "all", floor: "all", building: "all", unit: "all", minPrice: "", maxPrice: "", minSize: "", maxSize: "", priceChanged: "all", sources: { centanet: true, ricacorp: true } };
+let filters = { beds: "all", floor: "all", building: "all", unit: "all", minPrice: "", maxPrice: "", minSize: "", maxSize: "", priceChanged: "all" };
 
 // ── Toast ──────────────────────────────────────────────────────
 function toast(msg, type = "info") {
@@ -1674,7 +1674,7 @@ async function loadEstates() {
       <div class="estate-card ${e.id === activeEstateId ? 'active' : ''}"
            data-id="${e.id}"
            draggable="true"
-           onclick="showEstate(${e.id}, '${escHtml(e.name)}', '${escHtml(e.district||'')}', ${e.ricacorp_enabled ? 1 : 0})">
+           onclick="showEstate(${e.id}, '${escHtml(e.name)}', '${escHtml(e.district||'')}', ${e.ricacorp_enabled ? 1 : 0}, ${e.centanet_enabled !== 0 ? 1 : 0})">
         <span class="drag-handle" title="拖拽排序">⠿</span>
         <button class="estate-card-star ${e.is_favourite ? 'starred' : ''}"
                 onclick="toggleFavourite(event,${e.id})" title="標記最愛">★</button>
@@ -1837,7 +1837,7 @@ async function trackEstate(name, bigestcode, district, isBigest) {
 }
 
 // ── Estate detail ──────────────────────────────────────────────
-async function showEstate(id, name, district, ricacorpEnabled = 0) {
+async function showEstate(id, name, district, ricacorpEnabled = 0, centanetEnabled = 1) {
   activeEstateId = id;
   _viewingEstateId = id;
   _viewingEstateName = name;
@@ -1893,7 +1893,7 @@ async function showEstate(id, name, district, ricacorpEnabled = 0) {
         <div>
           <div class="estate-title">${escHtml(name)}</div>
           <div class="estate-sub">${district ? escHtml(district) + ' · ' : ''}共 ${listings.length} 個在售單位</div>
-          <div id="estate-info-bar" data-tracking="${trends.length}" data-id="${id}" data-ricacorp="${ricacorpEnabled}"></div>
+          <div id="estate-info-bar" data-tracking="${trends.length}" data-id="${id}" data-ricacorp="${ricacorpEnabled}" data-centanet="${centanetEnabled}"></div>
         </div>
         <button class="sync-btn" style="background:var(--down);border-color:var(--down);white-space:nowrap;flex-shrink:0;margin-top:0.2rem" onclick="openViewingModal()">＋ 新增睇樓</button>
       </div>
@@ -2862,17 +2862,34 @@ function renderFilterBar() {
 function renderSourceToggles() {
   const el = document.getElementById('sourceToggles');
   if (!el) return;
+  const bar = document.getElementById('estate-info-bar');
+  const centanetOn = bar?.dataset.centanet !== '0';
+  const ricacorpOn = bar?.dataset.ricacorp === '1';
   const btnStyle = (active) => `background:${active ? 'var(--accent)' : 'var(--surface2)'};border:1px solid ${active ? 'var(--accent)' : 'var(--border)'};border-radius:var(--radius);padding:0.25rem 0.65rem;font-size:0.75rem;cursor:pointer;color:${active ? '#fff' : 'var(--muted)'};font-weight:${active ? '600' : '400'}`;
   el.innerHTML = `<div style="display:flex;gap:0.4rem">
-    <button style="${btnStyle(filters.sources.centanet)}" onclick="toggleSource('centanet')">中原</button>
-    <button style="${btnStyle(filters.sources.ricacorp)}" onclick="toggleSource('ricacorp')">利嘉閣</button>
+    <button style="${btnStyle(centanetOn)}" onclick="toggleSource('centanet')">中原</button>
+    <button style="${btnStyle(ricacorpOn)}" onclick="toggleSource('ricacorp')">利嘉閣</button>
   </div>`;
 }
 
-function toggleSource(src) {
-  filters.sources[src] = !filters.sources[src];
+async function toggleSource(src) {
+  const bar = document.getElementById('estate-info-bar');
+  if (!bar) return;
+  const id = bar.dataset.id;
+  if (src === 'centanet') {
+    const current = bar.dataset.centanet !== '0';
+    const newVal = current ? 0 : 1;
+    await api(`/api/estates/${id}`, { method: 'PATCH', body: JSON.stringify({ centanet_enabled: newVal }) });
+    bar.dataset.centanet = String(newVal);
+    toast(newVal ? '已啟用中原資料（下次同步生效）' : '已停用中原資料', newVal ? 'success' : 'info');
+  } else {
+    const current = bar.dataset.ricacorp === '1';
+    const newVal = current ? 0 : 1;
+    await api(`/api/estates/${id}`, { method: 'PATCH', body: JSON.stringify({ ricacorp_enabled: newVal }) });
+    bar.dataset.ricacorp = String(newVal);
+    toast(newVal ? '已啟用利嘉閣資料（下次同步生效）' : '已停用利嘉閣資料', newVal ? 'success' : 'info');
+  }
   renderSourceToggles();
-  renderListingsTable();
 }
 
 function setFilter(key, val) {
@@ -2903,7 +2920,6 @@ function applyFilters(listings) {
     const hasChange = l.prev_price && Math.abs(l.price - l.prev_price) > 1000;
     if (filters.priceChanged === 'yes' && !hasChange) return false;
     if (filters.priceChanged === 'no' && hasChange) return false;
-    if (!filters.sources[l.source || 'centanet']) return false;
     return true;
   });
 }

@@ -1019,9 +1019,12 @@ async function runDailySync(db, resendApiKey, { persist = true } = {}) {
       try {
         const newTxns = await fetchAndSaveTransactions(db, estate.id, estate.name);
         if (persist) {
-          const data = await fetchCentanet(estate.name);
-          const listings = data.data || [];
-          await saveSearchResults(db, estate.id, listings);
+          let listings = [];
+          if (estate.centanet_enabled !== 0) {
+            const data = await fetchCentanet(estate.name);
+            listings = data.data || [];
+            await saveSearchResults(db, estate.id, listings);
+          }
           if (estate.ricacorp_enabled) {
             try {
               const ricaUrl = `https://www.ricacorp.com/zh-hk/property/list/buy/${encodeURIComponent(estate.name)}`;
@@ -1589,6 +1592,10 @@ export default {
           await db.prepare("UPDATE estates SET ricacorp_enabled = ? WHERE id = ?")
             .bind(body.ricacorp_enabled ? 1 : 0, estateId).run();
         }
+        if (body.centanet_enabled !== undefined) {
+          await db.prepare("UPDATE estates SET centanet_enabled = ? WHERE id = ?")
+            .bind(body.centanet_enabled ? 1 : 0, estateId).run();
+        }
         return json(200, { ok: true });
       }
 
@@ -1618,9 +1625,12 @@ export default {
           if (!estate) return json(404, { error: "Not found" });
           try {
             const newTxns = await fetchAndSaveTransactions(db, estate.id, estate.name);
-            const data = await fetchCentanet(estate.name);
-            const listings = data.data || [];
-            await saveSearchResults(db, estate.id, listings);
+            let listings = [];
+            if (estate.centanet_enabled !== 0) {
+              const data = await fetchCentanet(estate.name);
+              listings = data.data || [];
+              await saveSearchResults(db, estate.id, listings);
+            }
             if (estate.ricacorp_enabled) {
               try {
                 const ricaUrl = `https://www.ricacorp.com/zh-hk/property/list/buy/${encodeURIComponent(estate.name)}`;
@@ -1875,6 +1885,12 @@ export default {
         const { notes_options } = await request.json();
         await db.prepare("INSERT INTO settings (key, value) VALUES ('notes_options', ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value")
           .bind(notes_options ?? "").run();
+        return json(200, { ok: true });
+      }
+
+      if (method === "POST" && path === "/api/admin/migrate-centanet-enabled") {
+        await db.prepare("ALTER TABLE estates ADD COLUMN centanet_enabled INTEGER DEFAULT 1").run().catch(() => {});
+        await db.prepare("UPDATE estates SET centanet_enabled = 1 WHERE centanet_enabled IS NULL").run();
         return json(200, { ok: true });
       }
 
