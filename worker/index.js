@@ -586,9 +586,9 @@ async function scrapeRicacorpListings(ricacorpUrl) {
       const sizeMatch = block.match(/class="[^"]*area-value[^"]*">\s*(\d+)\s*</);
       const size_net = sizeMatch ? parseInt(sizeMatch[1]) : null;
 
-      // Price: <span class="price-container ..."> $520 </span> (separate from 萬 span)
-      const priceMatch = block.match(/class="[^"]*price-container[^"]*">\s*\$\s*([0-9.]+)\s*</);
-      const price = priceMatch ? Math.round(parseFloat(priceMatch[1]) * 10000) : null;
+      // Price: <span class="price-container ..."> $1,368 </span> (may include comma for thousands)
+      const priceMatch = block.match(/class="[^"]*price-container[^"]*">\s*\$\s*([0-9,.]+)\s*</);
+      const price = priceMatch ? Math.round(parseFloat(priceMatch[1].replace(/,/g, '')) * 10000) : null;
 
       // Price per sqft: <span class="unit-price ...">@ $13,867</span>
       const pfMatch = block.match(/class="[^"]*unit-price[^"]*">@ \$([,\d]+)</);
