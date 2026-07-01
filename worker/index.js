@@ -703,14 +703,13 @@ async function getTodayHighlights(db) {
           SELECT MAX(snapshot_date) FROM listings
           WHERE estate_id = l.estate_id AND snapshot_date < ?
         )
-        AND l.snapshot_date < ?
         AND l.ref_no IS NOT NULL
         AND l.ref_no NOT IN (
           SELECT ref_no FROM listings
-          WHERE estate_id = l.estate_id AND snapshot_date >= ?
+          WHERE estate_id = l.estate_id AND snapshot_date = ?
         )
         AND date(e.first_seen) <= ?
-        AND (e.is_disabled = 0 OR e.is_disabled IS NULL)`).bind(today, yesterday, yesterday, yesterday).all(),
+        AND (e.is_disabled = 0 OR e.is_disabled IS NULL)`).bind(today, today, yesterday).all(),
     db.prepare(`
       SELECT t.building, t.floor, t.unit, t.price AS txn_price, t.size_net, t.reg_date,
              v.price AS view_price, v.view_date, v.id AS viewing_id,
