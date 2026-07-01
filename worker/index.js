@@ -481,8 +481,8 @@ async function saveSearchResults(db, estateId, listings) {
     `INSERT OR REPLACE INTO listings
      (estate_id, listing_id, ref_no, estate_name, phase, building_name,
       floor, unit, bedrooms, direction, size_net, size_gross,
-      price, price_per_ft, building_age, detail_url, thumbnail, snapshot_date)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+      price, price_per_ft, building_age, detail_url, thumbnail, snapshot_date, source)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
   );
   const stmtHistory = db.prepare(
     `INSERT INTO listing_price_history (ref_no, estate_id, price, price_per_ft, snapshot_date)
@@ -498,7 +498,7 @@ async function saveSearchResults(db, estateId, listings) {
         estateId, l.listing_id, l.ref_no, l.estate_name, l.phase,
         l.building_name, l.floor, normalizeUnit(l.unit), l.bedrooms, l.direction,
         l.size_net, l.size_gross, l.price, l.price_per_ft,
-        l.building_age, l.detail_url, l.thumbnail, today
+        l.building_age, l.detail_url, l.thumbnail, today, 'centanet'
       )
     );
     if (l.ref_no && l.price) {
@@ -1928,6 +1928,13 @@ export default {
         await db.prepare("ALTER TABLE estates ADD COLUMN centanet_enabled INTEGER DEFAULT 1").run().catch(() => {});
         await db.prepare("UPDATE estates SET centanet_enabled = 1 WHERE centanet_enabled IS NULL").run();
         return json(200, { ok: true });
+      }
+
+      if (method === "POST" && path === "/api/admin/backfill-centanet-source") {
+        const result = await db.prepare(
+          `UPDATE listings SET source = 'centanet' WHERE source IS NULL`
+        ).run();
+        return json(200, { ok: true, changes: result.meta?.changes ?? result.changes });
       }
 
       if (method === "POST" && path === "/api/admin/normalize-units") {
