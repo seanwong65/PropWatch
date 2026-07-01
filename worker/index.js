@@ -775,9 +775,39 @@ async function getTodayHighlights(db) {
 function buildEmailHtml(highlights) {
   const fmt = (p) => p ? `$${(p / 1e4).toFixed(0)}萬` : "-";
   const pct = (n, o) => o ? ((n - o) / o * 100).toFixed(1) : null;
-  const { date, byEstate = [], allViewedTxns = [] } = highlights;
+  const { date, byEstate = [], allViewedTxns = [], linkedPriceChanges = [] } = highlights;
 
   let sections = "";
+
+  // 🏷️ 睇過嘅放盤售價變動 — at the very top
+  if (linkedPriceChanges.length) {
+    const TH = (...hs) => `<tr style="border-bottom:1px solid #334155">${hs.map(h=>`<th style="padding:4px 8px;font-size:11px;font-weight:600;color:#64748b;text-transform:uppercase;letter-spacing:0.04em;text-align:left">${h}</th>`).join('')}</tr>`;
+    let rows = "";
+    for (const c of linkedPriceChanges) {
+      const diff = c.new_price - c.old_price;
+      const col = diff <= 0 ? '#10b981' : '#ef4444';
+      const arrow = diff <= 0 ? '▼' : '▲';
+      const diffHtml = `<span style="color:${col}">${arrow} ${fmt(Math.abs(diff))}</span>`;
+      const srcLink = (url, source) => {
+        const label = (source === 'ricacorp' ? '利嘉閣' : '中原') + ' ↗';
+        return url ? `<a href="${url}" style="color:#3b82f6;font-size:12px;white-space:nowrap">${label}</a>` : `<span style="color:#64748b;font-size:12px">${source === 'ricacorp' ? '利嘉閣' : '中原'}</span>`;
+      };
+      rows += `<tr style="border-bottom:1px solid #1f2d42;background:rgba(251,191,36,0.06)">
+        <td style="padding:6px 8px"><strong>${c.estate_name||''}</strong> ${c.building_name||''} ${c.floor||''} ${c.l_unit||''}</td>
+        <td style="padding:6px 8px;color:#64748b">${c.view_price ? fmt(c.view_price) : '-'}</td>
+        <td style="padding:6px 8px;text-decoration:line-through;color:#64748b">${fmt(c.old_price)}</td>
+        <td style="padding:6px 8px;font-weight:700">${fmt(c.new_price)}</td>
+        <td style="padding:6px 8px">${diffHtml}</td>
+      </tr>`;
+    }
+    sections += `<div style="margin-bottom:24px;border:1px solid rgba(251,191,36,0.35);border-radius:8px;padding:16px;background:rgba(251,191,36,0.06)">
+      <h2 style="margin:0 0 12px;font-size:18px;color:#fbbf24">🏷️ 睇過嘅放盤售價變動 (${linkedPriceChanges.length})</h2>
+      <table style="width:100%;border-collapse:collapse;font-size:14px;color:#e2e8f0">
+        <thead>${TH('屋苑 / 單位','睇樓價','原價','新價','變動')}</thead>
+        <tbody>${rows}</tbody>
+      </table>
+    </div>`;
+  }
 
   // 睇過嘅單位成交 — at the very top
   if (allViewedTxns.length) {
@@ -851,7 +881,7 @@ function buildEmailHtml(highlights) {
           <td style="padding:6px 8px">${l.building_name || ""} ${l.floor || ""} ${l.unit || ""}</td>
           <td style="padding:6px 8px;text-decoration:line-through;color:#64748b">${fmt(l.old_price)}</td>
           <td style="padding:6px 8px;font-weight:700">${fmt(l.new_price)}</td>
-          <td style="padding:6px 8px;color:${diff > 0 ? "#10b981" : "#ef4444"}">${diff > 0 ? "▲" : "▼"} ${Math.abs(diff)}%</td>
+          <td style="padding:6px 8px;color:${diff > 0 ? "#ef4444" : "#10b981"}">${diff > 0 ? "▲" : "▼"} ${Math.abs(diff)}%</td>
           <td style="padding:6px 8px">${srcLink(l.detail_url, l.source)}</td>
         </tr>`;
       }
