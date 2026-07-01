@@ -537,14 +537,25 @@ async function scrapeRicacorpListings(ricacorpUrl) {
   const listings = [];
   const seen = new Set();
 
+  let canonicalBase = ricacorpUrl; // may be updated after page 1 using full slug
+
   for (let page = 1; page <= 15; page++) {
-    const url = page === 1 ? ricacorpUrl : `${ricacorpUrl};page=${page}`;
+    const url = page === 1 ? ricacorpUrl : `${canonicalBase};page=${page}`;
     let html;
     try {
       const res = await fetch(url, { headers: { "User-Agent": UA }, signal: AbortSignal.timeout(10000) });
       if (!res.ok) break;
       html = await res.text();
     } catch { break; }
+
+    // On page 1, extract the full slug (e.g. 淘大花園-bigest-九龍灣-hma-hk) for pagination
+    if (page === 1) {
+      const slugMatch = html.match(/&q;hk&q;:&q;([^&]+)&q;/);
+      if (slugMatch) {
+        const base = ricacorpUrl.replace(/\/[^/]+$/, "");
+        canonicalBase = `${base}/${slugMatch[1]}`;
+      }
+    }
 
     // Extract individual listing blocks by splitting on detail links
     const blocks = html.split(/(?=href="\/zh-hk\/property\/detail\/)/);
