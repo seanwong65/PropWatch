@@ -555,7 +555,7 @@ async function scrapeRicacorpListings(ricacorpUrl) {
       const slugMatch = urlindexSection && urlindexSection[1].match(/&q;alias&q;:&q;([^&]+)&q;/);
       if (slugMatch) {
         const base = ricacorpUrl.replace(/\/[^/]+$/, "");
-        canonicalBase = `${base}/${slugMatch[1]}`;
+        canonicalBase = `${base}/${encodeURIComponent(slugMatch[1])}`;
       }
     }
 
@@ -1175,6 +1175,44 @@ export default {
         const token = auth.startsWith("Bearer ") ? auth.slice(7) : null;
         if (token) await db.prepare("DELETE FROM sessions WHERE token = ?").bind(token).run();
         return json(200, { ok: true });
+      }
+
+      if (method === "GET" && path === "/api/debug-ricacorp-pages") {
+        const estateName = url.searchParams.get("name") || "淘大花園";
+        const ricacorpUrl = `https://www.ricacorp.com/zh-hk/property/list/buy/${encodeURIComponent(estateName)}`;
+        const UA = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
+        const log = [];
+        let canonicalBase = ricacorpUrl;
+        const seen = new Set();
+        for (let page = 1; page <= 4; page++) {
+          const pageUrl = page === 1 ? ricacorpUrl : `${canonicalBase};page=${page}`;
+          let html, status;
+          try {
+            const res = await fetch(pageUrl, { headers: { "User-Agent": UA }, signal: AbortSignal.timeout(15000) });
+            status = res.status;
+            html = await res.text();
+          } catch(e) { log.push({ page, error: e.message }); break; }
+
+          const urlindexSection = page === 1 ? html.match(/URLINDEX[^:]*:([\s\S]*?)(?=,&q;[A-Z])/) : null;
+          const slugMatch = urlindexSection && urlindexSection[1].match(/&q;alias&q;:&q;([^&]+)&q;/);
+          if (slugMatch) {
+            const base = ricacorpUrl.replace(/\/[^/]+$/, "");
+            canonicalBase = `${base}/${encodeURIComponent(slugMatch[1])}`;
+          }
+          const blocks = html.split(/(?=href="\/zh-hk\/property\/detail\/)/);
+          let found = 0;
+          for (const block of blocks.slice(1)) {
+            const hm = block.match(/href="(\/zh-hk\/property\/detail\/[^"]+)"/);
+            if (!hm) continue;
+            const ref = hm[1].match(/-(c[a-z]\d+)-/i);
+            const ref_no = ref ? ref[1].toUpperCase() : null;
+            if (!ref_no || seen.has(ref_no)) continue;
+            seen.add(ref_no); found++;
+          }
+          log.push({ page, status, pageUrl: pageUrl.slice(-60), slug: slugMatch?.[1] || null, found, total: seen.size, htmlLen: html.length });
+          if (found === 0) break;
+        }
+        return json(200, { log });
       }
 
       if (method === "POST" && path === "/api/send-today-email") {

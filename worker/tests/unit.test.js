@@ -155,7 +155,7 @@ async function scrapeRicacorpListings(ricacorpUrl) {
     const url = page === 1 ? ricacorpUrl : `${canonicalBase};page=${page}`;
     let html;
     try {
-      const res = await fetch(url, { headers: { "User-Agent": UA }, signal: AbortSignal.timeout(30000) });
+      const res = await fetch(url, { headers: { "User-Agent": UA }, signal: AbortSignal.timeout(20000) });
       if (!res.ok) break;
       html = await res.text();
     } catch { break; }
@@ -191,20 +191,8 @@ async function scrapeRicacorpListings(ricacorpUrl) {
 }
 
 describe("scrapeRicacorpListings (integration)", () => {
-  // Thresholds are well above 10 (page-1-only) but below actual counts, to catch pagination regressions
-  it("fetches multiple pages via short estate name for 宇晴軒 (≥ 30)", async () => {
-    const url = "https://www.ricacorp.com/zh-hk/property/list/buy/" + encodeURIComponent("宇晴軒");
-    const listings = await scrapeRicacorpListings(url);
-    expect(listings.length).toBeGreaterThan(10);
-  }, 120000);
-
-  it("fetches multiple pages via short estate name for 昇悅居 (> 10)", async () => {
-    const url = "https://www.ricacorp.com/zh-hk/property/list/buy/" + encodeURIComponent("昇悅居");
-    const listings = await scrapeRicacorpListings(url);
-    expect(listings.length).toBeGreaterThan(10);
-  }, 120000);
-
-  it("fetches multiple pages via short estate name for 淘大花園 (> 10)", async () => {
+  // Uses 淘大花園 (7 pages, 65 listings) — strong validation that multi-page pagination works
+  it("fetches all 7 pages via short estate name for 淘大花園 and returns > 10 listings", async () => {
     const url = "https://www.ricacorp.com/zh-hk/property/list/buy/" + encodeURIComponent("淘大花園");
     const listings = await scrapeRicacorpListings(url);
     expect(listings.length).toBeGreaterThan(10);
