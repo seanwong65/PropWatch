@@ -8,4 +8,4 @@ database_name = "propwatch-db"
 database_id = "b4330ef2-78c4-48be-ae88-b1d94614faad"
 
 [triggers]
-crons = ["0 1 * * *"]
+crons = ["0 1 * * *", "0 9 * * *"]
