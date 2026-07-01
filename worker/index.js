@@ -1635,6 +1635,27 @@ export default {
         return json(200, { ok: true });
       }
 
+      if (method === "POST" && path === "/api/admin/backfill-ricacorp-floors") {
+        const { results: estates } = await db.prepare(
+          "SELECT id, name FROM estates WHERE ricacorp_enabled = 1 AND (is_disabled = 0 OR is_disabled IS NULL)"
+        ).all();
+        let updated = 0;
+        for (const estate of estates) {
+          const ricaUrl = `https://www.ricacorp.com/zh-hk/property/list/buy/${encodeURIComponent(estate.name)}`;
+          const listings = await scrapeRicacorpListings(ricaUrl);
+          if (!listings.length) continue;
+          const stmt = db.prepare("UPDATE listings SET floor = ? WHERE ref_no = ? AND (floor != ? OR floor IS NULL)");
+          const batch = listings.filter(l => l.ref_no && l.floor).map(l =>
+            stmt.bind(l.floor, l.ref_no, l.floor)
+          );
+          if (batch.length) {
+            const results = await db.batch(batch);
+            updated += results.reduce((s, r) => s + (r.meta?.changes || 0), 0);
+          }
+        }
+        return json(200, { ok: true, updated });
+      }
+
       if (method === "POST" && path === "/api/admin/enable-ricacorp-all") {
         await db.prepare("UPDATE estates SET ricacorp_enabled = 1").run();
         const { results } = await db.prepare("SELECT id, name FROM estates WHERE ricacorp_enabled = 1").all();
