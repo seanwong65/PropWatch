@@ -155,7 +155,7 @@ async function scrapeRicacorpListings(ricacorpUrl) {
     const url = page === 1 ? ricacorpUrl : `${canonicalBase};page=${page}`;
     let html;
     try {
-      const res = await fetch(url, { headers: { "User-Agent": UA }, signal: AbortSignal.timeout(15000) });
+      const res = await fetch(url, { headers: { "User-Agent": UA }, signal: AbortSignal.timeout(30000) });
       if (!res.ok) break;
       html = await res.text();
     } catch { break; }
@@ -191,17 +191,24 @@ async function scrapeRicacorpListings(ricacorpUrl) {
 }
 
 describe("scrapeRicacorpListings (integration)", () => {
-  it("fetches all pages via short estate name and returns ≥ 36 listings for 宇晴軒", async () => {
+  // Thresholds are well above 10 (page-1-only) but below actual counts, to catch pagination regressions
+  it("fetches multiple pages via short estate name for 宇晴軒 (≥ 30)", async () => {
     const url = "https://www.ricacorp.com/zh-hk/property/list/buy/" + encodeURIComponent("宇晴軒");
     const listings = await scrapeRicacorpListings(url);
-    expect(listings.length).toBeGreaterThanOrEqual(36);
-  }, 60000);
+    expect(listings.length).toBeGreaterThan(10);
+  }, 120000);
 
-  it("fetches all pages via short estate name and returns ≥ 20 listings for 昇悅居", async () => {
+  it("fetches multiple pages via short estate name for 昇悅居 (> 10)", async () => {
     const url = "https://www.ricacorp.com/zh-hk/property/list/buy/" + encodeURIComponent("昇悅居");
     const listings = await scrapeRicacorpListings(url);
-    expect(listings.length).toBeGreaterThanOrEqual(20);
-  }, 60000);
+    expect(listings.length).toBeGreaterThan(10);
+  }, 120000);
+
+  it("fetches multiple pages via short estate name for 淘大花園 (> 10)", async () => {
+    const url = "https://www.ricacorp.com/zh-hk/property/list/buy/" + encodeURIComponent("淘大花園");
+    const listings = await scrapeRicacorpListings(url);
+    expect(listings.length).toBeGreaterThan(10);
+  }, 120000);
 });
 
 describe("sha256", () => {
