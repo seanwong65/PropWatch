@@ -1163,6 +1163,13 @@ export default {
         return json(200, { ok: true });
       }
 
+      if (method === "POST" && path === "/api/send-today-email") {
+        const highlights = await getTodayHighlights(db);
+        const subject = `PropWatch ${highlights.date} 今日動態`;
+        const result = await sendEmail(env.RESEND_API_KEY, "johnwong777@hotmail.com", subject, buildEmailHtml(highlights));
+        return json(200, { ok: true, message: `今日動態郵件已發送 (${highlights.date})`, result });
+      }
+
       // Auth guard for all other routes
       const session = await authenticate(db, request);
       if (!session) return json(401, { error: "請先登入" });
@@ -1235,7 +1242,7 @@ export default {
              )
              SELECT l.*,
                pl.first_seen,
-               CASE WHEN pl.last_seen < latest.d AND pl.last_seen < date('now','+8 hours','-1 day') THEN pl.last_seen ELSE NULL END AS removed_date,
+               CASE WHEN pl.last_seen < latest.d THEN pl.last_seen ELSE NULL END AS removed_date,
                prev.price AS prev_price,
                prev.price_per_ft AS prev_price_per_ft
              FROM listings l
