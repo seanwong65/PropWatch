@@ -838,7 +838,7 @@ function buildEmailHtml(highlights) {
           <td style="padding:6px 8px;color:#64748b">${t.size_net ? t.size_net + "實呎" : ""}</td>
           <td style="padding:6px 8px;font-weight:700;color:#f59e0b">${t.price ? `$${(t.price / 1e4).toFixed(0)}萬` : "-"}</td>
           <td style="padding:6px 8px">${heldStr}<br>${gainHtml}</td>
-          <td style="padding:6px 8px">${link(t.detail_url)}</td>
+          <td style="padding:6px 8px">${t.detail_url ? `<a href="${t.detail_url}" style="color:#3b82f6;font-size:12px">詳情 ↗</a>` : ''}</td>
         </tr>`;
       }
     }
