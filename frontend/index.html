@@ -2014,27 +2014,8 @@ async function loadEstateInfo(estateId) {
             <span style="font-size:0.85rem;font-weight:600;color:var(--text)">${escHtml(val)}</span>
           </div>`).join('')}
       </div>` : '';
-    bar.innerHTML = infoPills + `
-      <button id="ricacorp-toggle-btn" onclick="toggleRicacorp(${estId})"
-        style="margin-top:0.75rem;margin-left:${rows.length ? '0.75rem' : '0'};background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius);padding:0.4rem 0.85rem;font-size:0.78rem;cursor:pointer;color:${ricaOn ? 'var(--text)' : 'var(--muted)'};font-weight:${ricaOn ? '600' : '400'}">
-        利嘉閣${ricaOn ? ' ✓' : ''}
-      </button>`;
+    bar.innerHTML = infoPills;
   } catch { /* silently skip if unavailable */ }
-}
-
-async function toggleRicacorp(id) {
-  const btn = document.getElementById("ricacorp-toggle-btn");
-  const bar = document.getElementById("estate-info-bar");
-  const currentlyOn = bar?.dataset.ricacorp === '1';
-  const newVal = currentlyOn ? 0 : 1;
-  await api(`/api/estates/${id}`, { method: "PATCH", body: JSON.stringify({ ricacorp_enabled: newVal }) });
-  if (bar) bar.dataset.ricacorp = String(newVal);
-  if (btn) {
-    btn.style.color = newVal ? 'var(--text)' : 'var(--muted)';
-    btn.style.fontWeight = newVal ? '600' : '400';
-    btn.textContent = newVal ? '利嘉閣 ✓' : '利嘉閣';
-  }
-  toast(newVal ? '已啟用利嘉閣資料（下次同步生效）' : '已停用利嘉閣資料', newVal ? 'success' : 'info');
 }
 
 function hsValHtml(hsPrice) {
