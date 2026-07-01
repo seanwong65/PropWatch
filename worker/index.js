@@ -1172,7 +1172,7 @@ export default {
 
         if (!estate) {
           await db
-            .prepare("INSERT INTO estates (name, bigestcode, district, is_bigest) VALUES (?,?,?,?)")
+            .prepare("INSERT INTO estates (name, bigestcode, district, is_bigest, centanet_enabled, ricacorp_enabled) VALUES (?,?,?,?,1,1)")
             .bind(name, bigestcode, district || null, useBigest ? 1 : 0)
             .run();
           estate = await db
@@ -1600,7 +1600,7 @@ export default {
       }
 
       if (method === "POST" && path === "/api/admin/enable-ricacorp-all") {
-        await db.prepare("UPDATE estates SET ricacorp_enabled = 1 WHERE ricacorp_url IS NOT NULL").run();
+        await db.prepare("UPDATE estates SET ricacorp_enabled = 1").run();
         const { results } = await db.prepare("SELECT id, name FROM estates WHERE ricacorp_enabled = 1").all();
         return json(200, { ok: true, updated: results });
       }
