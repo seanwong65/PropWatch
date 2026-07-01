@@ -149,15 +149,25 @@ async function scrapeRicacorpListings(ricacorpUrl) {
   const UA = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
   const listings = [];
   const seen = new Set();
+  let canonicalBase = ricacorpUrl;
 
   for (let page = 1; page <= 15; page++) {
-    const url = page === 1 ? ricacorpUrl : `${ricacorpUrl};page=${page}`;
+    const url = page === 1 ? ricacorpUrl : `${canonicalBase};page=${page}`;
     let html;
     try {
       const res = await fetch(url, { headers: { "User-Agent": UA }, signal: AbortSignal.timeout(15000) });
       if (!res.ok) break;
       html = await res.text();
     } catch { break; }
+
+    if (page === 1) {
+      const urlindexSection = html.match(/URLINDEX[^:]*:([\s\S]*?)(?=,&q;[A-Z])/);
+      const slugMatch = urlindexSection && urlindexSection[1].match(/&q;alias&q;:&q;([^&]+)&q;/);
+      if (slugMatch) {
+        const base = ricacorpUrl.replace(/\/[^/]+$/, "");
+        canonicalBase = `${base}/${slugMatch[1]}`;
+      }
+    }
 
     const blocks = html.split(/(?=href="\/zh-hk\/property\/detail\/)/);
     let found = 0;
@@ -181,10 +191,16 @@ async function scrapeRicacorpListings(ricacorpUrl) {
 }
 
 describe("scrapeRicacorpListings (integration)", () => {
-  it("fetches all pages and returns ≥ 36 listings for 宇晴軒", async () => {
-    const url = "https://www.ricacorp.com/zh-hk/property/list/buy/宇晴軒-bigest-四小龍-hma-hk";
+  it("fetches all pages via short estate name and returns ≥ 36 listings for 宇晴軒", async () => {
+    const url = "https://www.ricacorp.com/zh-hk/property/list/buy/" + encodeURIComponent("宇晴軒");
     const listings = await scrapeRicacorpListings(url);
     expect(listings.length).toBeGreaterThanOrEqual(36);
+  }, 60000);
+
+  it("fetches all pages via short estate name and returns ≥ 20 listings for 昇悅居", async () => {
+    const url = "https://www.ricacorp.com/zh-hk/property/list/buy/" + encodeURIComponent("昇悅居");
+    const listings = await scrapeRicacorpListings(url);
+    expect(listings.length).toBeGreaterThanOrEqual(20);
   }, 60000);
 });
 

@@ -548,9 +548,11 @@ async function scrapeRicacorpListings(ricacorpUrl) {
       html = await res.text();
     } catch { break; }
 
-    // On page 1, extract the full slug (e.g. 淘大花園-bigest-九龍灣-hma-hk) for pagination
+    // On page 1, extract the full slug from URLINDEX section for pagination
+    // e.g. 昇悅居-estate-四小龍-hma-hk, 淘大花園-bigest-九龍灣-hma-hk
     if (page === 1) {
-      const slugMatch = html.match(/&q;hk&q;:&q;([^&]+)&q;/);
+      const urlindexSection = html.match(/URLINDEX[^:]*:([\s\S]*?)(?=,&q;[A-Z])/);
+      const slugMatch = urlindexSection && urlindexSection[1].match(/&q;alias&q;:&q;([^&]+)&q;/);
       if (slugMatch) {
         const base = ricacorpUrl.replace(/\/[^/]+$/, "");
         canonicalBase = `${base}/${slugMatch[1]}`;
