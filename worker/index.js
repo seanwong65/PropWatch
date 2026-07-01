@@ -574,7 +574,8 @@ async function scrapeRicacorpListings(ricacorpUrl) {
       const labelMatch = block.match(/business-region-label[^>]*>([\s\S]*?)<\/div>/);
       const labelHtml = labelMatch ? labelMatch[1] : "";
       const floorMatch = labelHtml.match(/>\s*(極高層|高層|中層|低層|極低層)\s*</);
-      const floor = floorMatch ? floorMatch[1] : null;
+      const floorRaw = floorMatch ? floorMatch[1] : null;
+      const floor = floorRaw === "極高層" ? "高層" : floorRaw === "極低層" ? "低層" : floorRaw;
       const unitMatch = labelHtml.match(/>\s*([A-Za-z0-9]+室)\s*</);
       const unit = unitMatch ? unitMatch[1] : null;
 
