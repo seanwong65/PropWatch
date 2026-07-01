@@ -538,7 +538,7 @@ async function scrapeRicacorpListings(ricacorpUrl) {
   const seen = new Set();
 
   for (let page = 1; page <= 15; page++) {
-    const url = page === 1 ? ricacorpUrl : `${ricacorpUrl}?p=${page}`;
+    const url = page === 1 ? ricacorpUrl : `${ricacorpUrl};page=${page}`;
     let html;
     try {
       const res = await fetch(url, { headers: { "User-Agent": UA }, signal: AbortSignal.timeout(10000) });
