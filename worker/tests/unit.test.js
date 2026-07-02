@@ -1,4 +1,5 @@
 import { describe, it, expect } from "vitest";
+import { scrapeRicacorpListings } from "../index.js";
 
 // ── Pure helpers extracted inline (no DB/fetch deps) ──────────────────────
 
@@ -143,59 +144,86 @@ describe("parseListing", () => {
   });
 });
 
-// ── Integration: ricacorp pagination ──────────────────────────────────────
+// ── ricacorp pagination ────────────────────────────────────────────────────
+// These tests import the REAL scrapeRicacorpListings from index.js (not a copy),
+// so they cannot drift from deployed behaviour.
 
-async function scrapeRicacorpListings(ricacorpUrl) {
-  const UA = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
-  const listings = [];
-  const seen = new Set();
-  let canonicalBase = ricacorpUrl;
-
-  for (let page = 1; page <= 15; page++) {
-    const url = page === 1 ? ricacorpUrl : `${canonicalBase};page=${page}`;
-    let html;
-    try {
-      const res = await fetch(url, { headers: { "User-Agent": UA }, signal: AbortSignal.timeout(20000) });
-      if (!res.ok) break;
-      html = await res.text();
-    } catch { break; }
-
-    if (page === 1) {
-      const urlindexSection = html.match(/URLINDEX[^:]*:([\s\S]*?)(?=,&q;[A-Z])/);
-      const slugMatch = urlindexSection && urlindexSection[1].match(/&q;alias&q;:&q;([^&]+)&q;/);
-      if (slugMatch) {
-        const base = ricacorpUrl.replace(/\/[^/]+$/, "");
-        canonicalBase = `${base}/${slugMatch[1]}`;
-      }
-    }
-
-    const blocks = html.split(/(?=href="\/zh-hk\/property\/detail\/)/);
-    let found = 0;
-
-    for (const block of blocks.slice(1)) {
-      const hrefMatch = block.match(/href="(\/zh-hk\/property\/detail\/[^"]+)"/);
-      if (!hrefMatch) continue;
-      const href = hrefMatch[1];
-      const refMatch = href.match(/-(c[a-z]\d+)-/i);
-      const ref_no = refMatch ? refMatch[1].toUpperCase() : null;
-      if (!ref_no || seen.has(ref_no)) continue;
-      seen.add(ref_no);
-      found++;
-      listings.push({ ref_no, detail_url: "https://www.ricacorp.com" + href });
-    }
-
-    if (found === 0) break;
-  }
-
-  return listings;
+// Builds a minimal SSR-HTML fixture matching what the scraper parses.
+function fakeRicacorpHtml(refs, slug) {
+  const detailBlocks = refs
+    .map(ref => `<a href="/zh-hk/property/detail/four-hma-est-1-block-${ref}-3-hk">x</a>`)
+    .join("");
+  const urlindex = slug
+    ? `xURLINDEX&q;:{&q;locationId&q;:&q;abc&q;,&q;alias&q;:&q;${slug}&q;},&q;POSTS&q;:1`
+    : "";
+  return urlindex + detailBlocks;
 }
 
-describe("scrapeRicacorpListings (integration)", () => {
-  // Uses 淘大花園 (7 pages, 65 listings) — strong validation that multi-page pagination works
-  it("fetches all 7 pages via short estate name for 淘大花園 and returns > 10 listings", async () => {
+describe("scrapeRicacorpListings — URL encoding (deterministic, mocked fetch)", () => {
+  // Regression guard for the CF-Workers HTTP 400 bug: pagination URLs must be
+  // percent-encoded. Node's fetch auto-encodes, so this asserts on the URL the
+  // scraper *constructs*, catching a dropped encodeURIComponent without network.
+  it("percent-encodes CJK slug in page 2+ URLs (no raw non-ASCII)", async () => {
+    const requestedUrls = [];
+    const slug = "淘大花園-bigest-九龍灣-hma-hk";
+    const pages = [
+      fakeRicacorpHtml(["cf10000001", "cf10000002"], slug), // page 1 (has slug)
+      fakeRicacorpHtml(["cf20000001"], null),               // page 2
+      fakeRicacorpHtml([], null),                            // page 3 → stops
+    ];
+
+    const origFetch = globalThis.fetch;
+    globalThis.fetch = async (u) => {
+      const body = pages[requestedUrls.length] ?? "";
+      requestedUrls.push(typeof u === "string" ? u : u.url);
+      return { ok: true, text: async () => body };
+    };
+    try {
+      const startUrl = "https://www.ricacorp.com/zh-hk/property/list/buy/" + encodeURIComponent("淘大花園");
+      const listings = await scrapeRicacorpListings(startUrl);
+      expect(listings.length).toBe(3); // 2 from page 1 + 1 from page 2
+    } finally {
+      globalThis.fetch = origFetch;
+    }
+
+    const paginationUrls = requestedUrls.slice(1); // page 2 onwards
+    expect(paginationUrls.length).toBeGreaterThan(0);
+    for (const u of paginationUrls) {
+      expect(u).toContain(";page=");
+      expect(/[^\x00-\x7F]/.test(u)).toBe(false); // CF Workers rejects raw CJK with HTTP 400
+    }
+  });
+
+  it("stops when a page yields no new listings", async () => {
+    const requestedUrls = [];
+    const pages = [
+      fakeRicacorpHtml(["cf30000001"], "est-hma-hk"),
+      fakeRicacorpHtml([], null), // immediately empty → stop after page 2 fetch
+    ];
+    const origFetch = globalThis.fetch;
+    globalThis.fetch = async (u) => {
+      const body = pages[requestedUrls.length] ?? "";
+      requestedUrls.push(typeof u === "string" ? u : u.url);
+      return { ok: true, text: async () => body };
+    };
+    try {
+      const listings = await scrapeRicacorpListings("https://www.ricacorp.com/zh-hk/property/list/buy/est");
+      expect(listings.length).toBe(1);
+    } finally {
+      globalThis.fetch = origFetch;
+    }
+    expect(requestedUrls.length).toBe(2); // page 1 + one empty page, then stop
+  });
+});
+
+describe("scrapeRicacorpListings — live integration", () => {
+  // 淘大花園 has ~65 listings across 7 pages. Requiring ≥ 40 proves genuine
+  // multi-page pagination (the page-1-only bug caps at 10) while tolerating
+  // a single flaky page fetch.
+  it("fetches multiple pages for 淘大花園 via short estate name (≥ 40)", async () => {
     const url = "https://www.ricacorp.com/zh-hk/property/list/buy/" + encodeURIComponent("淘大花園");
     const listings = await scrapeRicacorpListings(url);
-    expect(listings.length).toBeGreaterThan(10);
+    expect(listings.length).toBeGreaterThanOrEqual(40);
   }, 120000);
 });
 
