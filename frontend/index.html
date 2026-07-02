@@ -1209,7 +1209,7 @@ async function loadTodayHighlights() {
     // Shared row renderer — mirrors buildEmailHtml columns exactly
     // Each section returns <tr> rows; caller wraps in <table>
     const srcLink = (url, source) => {
-      const label = source === 'ricacorp' ? '利嘉閣' : '中原';
+      const label = sourceLabel(source);
       return url
         ? `<a href="${url}" target="_blank" class="hl-link" style="font-size:0.72rem">${label} ↗</a>`
         : `<span style="font-size:0.72rem;color:var(--muted)">${label}</span>`;
@@ -1674,7 +1674,7 @@ async function loadEstates() {
       <div class="estate-card ${e.id === activeEstateId ? 'active' : ''}"
            data-id="${e.id}"
            draggable="true"
-           onclick="showEstate(${e.id}, '${escHtml(e.name)}', '${escHtml(e.district||'')}', ${e.ricacorp_enabled ? 1 : 0}, ${e.centanet_enabled !== 0 ? 1 : 0})">
+           onclick="showEstate(${e.id}, '${escHtml(e.name)}', '${escHtml(e.district||'')}', ${e.ricacorp_enabled ? 1 : 0}, ${e.centanet_enabled !== 0 ? 1 : 0}, ${e.hkp_enabled ? 1 : 0})">
         <span class="drag-handle" title="拖拽排序">⠿</span>
         <button class="estate-card-star ${e.is_favourite ? 'starred' : ''}"
                 onclick="toggleFavourite(event,${e.id})" title="標記最愛">★</button>
@@ -1837,7 +1837,7 @@ async function trackEstate(name, bigestcode, district, isBigest) {
 }
 
 // ── Estate detail ──────────────────────────────────────────────
-async function showEstate(id, name, district, ricacorpEnabled = 0, centanetEnabled = 1) {
+async function showEstate(id, name, district, ricacorpEnabled = 0, centanetEnabled = 1, hkpEnabled = 0) {
   activeEstateId = id;
   _viewingEstateId = id;
   _viewingEstateName = name;
@@ -1893,7 +1893,7 @@ async function showEstate(id, name, district, ricacorpEnabled = 0, centanetEnabl
         <div>
           <div class="estate-title">${escHtml(name)}</div>
           <div class="estate-sub">${district ? escHtml(district) + ' · ' : ''}共 ${listings.length} 個在售單位</div>
-          <div id="estate-info-bar" data-tracking="${trends.length}" data-id="${id}" data-ricacorp="${ricacorpEnabled}" data-centanet="${centanetEnabled}"></div>
+          <div id="estate-info-bar" data-tracking="${trends.length}" data-id="${id}" data-ricacorp="${ricacorpEnabled}" data-centanet="${centanetEnabled}" data-hkp="${hkpEnabled}"></div>
         </div>
         <button class="sync-btn" style="background:var(--down);border-color:var(--down);white-space:nowrap;flex-shrink:0;margin-top:0.2rem" onclick="openViewingModal()">＋ 新增睇樓</button>
       </div>
@@ -2146,7 +2146,7 @@ function buildMatchCell(v) {
     const price = l.price ? `$${(l.price/1e4).toFixed(0)}萬` : '';
     const floorLabel = escHtml(l.floor || '');
     const linkStyle = `color:var(--accent2);text-decoration:${isDismissed ? 'line-through' : 'none'};opacity:${isDismissed ? '0.4' : '1'}`;
-    const srcLabel = l.source === 'ricacorp' ? '利嘉閣' : '中原';
+    const srcLabel = sourceLabel(l.source);
     const link = l.detail_url ? `<a href="${escHtml(l.detail_url)}" target="_blank" style="${linkStyle}">${floorLabel} ${price} (${srcLabel}) ↗</a>` : `<span style="${linkStyle}">${floorLabel} ${price} (${srcLabel})</span>`;
     const confirmOnclick = isConfirmed ? `confirmViewingListing(${v.id},null)` : `confirmViewingListing(${v.id},'${escHtml(l.ref_no||'')}')`;
     const confirmStyle = isConfirmed
@@ -2841,6 +2841,7 @@ function renderFilterBar() {
           <button class="filter-chip ${filters.source==='all'?'active':''}" onclick="setFilter('source','all')">全部</button>
           <button class="filter-chip ${filters.source==='centanet'?'active':''}" onclick="setFilter('source','centanet')">中原</button>
           <button class="filter-chip ${filters.source==='ricacorp'?'active':''}" onclick="setFilter('source','ricacorp')">利嘉閣</button>
+          <button class="filter-chip ${filters.source==='hkp'?'active':''}" onclick="setFilter('source','hkp')">香港置業</button>
         </div>
       </div>
       <span class="filter-count" id="filterCount"></span>
@@ -2855,10 +2856,12 @@ function renderSourceToggles() {
   const bar = document.getElementById('estate-info-bar');
   const centanetOn = bar?.dataset.centanet !== '0';
   const ricacorpOn = bar?.dataset.ricacorp === '1';
+  const hkpOn = bar?.dataset.hkp === '1';
   const btnStyle = (active) => `background:${active ? 'var(--accent)' : 'var(--surface2)'};border:1px solid ${active ? 'var(--accent)' : 'var(--border)'};border-radius:var(--radius);padding:0.25rem 0.65rem;font-size:0.75rem;cursor:pointer;color:${active ? '#fff' : 'var(--muted)'};font-weight:${active ? '600' : '400'}`;
   el.innerHTML = `<div style="display:flex;gap:0.4rem">
     <button style="${btnStyle(centanetOn)}" onclick="toggleSource('centanet')">中原</button>
     <button style="${btnStyle(ricacorpOn)}" onclick="toggleSource('ricacorp')">利嘉閣</button>
+    <button style="${btnStyle(hkpOn)}" onclick="toggleSource('hkp')">香港置業</button>
   </div>`;
 }
 
@@ -2872,12 +2875,18 @@ async function toggleSource(src) {
     await api(`/api/estates/${id}`, { method: 'PATCH', body: JSON.stringify({ centanet_enabled: newVal }) });
     bar.dataset.centanet = String(newVal);
     toast(newVal ? '已啟用中原資料（下次同步生效）' : '已停用中原資料', newVal ? 'success' : 'info');
-  } else {
+  } else if (src === 'ricacorp') {
     const current = bar.dataset.ricacorp === '1';
     const newVal = current ? 0 : 1;
     await api(`/api/estates/${id}`, { method: 'PATCH', body: JSON.stringify({ ricacorp_enabled: newVal }) });
     bar.dataset.ricacorp = String(newVal);
     toast(newVal ? '已啟用利嘉閣資料（下次同步生效）' : '已停用利嘉閣資料', newVal ? 'success' : 'info');
+  } else {
+    const current = bar.dataset.hkp === '1';
+    const newVal = current ? 0 : 1;
+    await api(`/api/estates/${id}`, { method: 'PATCH', body: JSON.stringify({ hkp_enabled: newVal }) });
+    bar.dataset.hkp = String(newVal);
+    toast(newVal ? '已啟用香港置業資料（下次同步生效）' : '已停用香港置業資料', newVal ? 'success' : 'info');
   }
   renderSourceToggles();
 }
@@ -2996,8 +3005,8 @@ function renderListingsTable() {
         </td>
         <td>${escHtml(l.direction||'-')}</td>
         <td>${l.detail_url
-          ? `<a href="${escHtml(l.detail_url)}" target="_blank" class="detail-link" style="font-size:0.72rem">${l.source === 'ricacorp' ? '利嘉閣' : '中原'} ↗</a>`
-          : `<span style="font-size:0.72rem">${l.source === 'ricacorp' ? '利嘉閣' : '中原'}</span>`}</td>
+          ? `<a href="${escHtml(l.detail_url)}" target="_blank" class="detail-link" style="font-size:0.72rem">${sourceLabel(l.source)} ↗</a>`
+          : `<span style="font-size:0.72rem">${sourceLabel(l.source)}</span>`}</td>
       </tr>
     `).join('');
 
@@ -3010,6 +3019,10 @@ function floorClass(floor) {
   if (floor.includes("中")) return "floor-mid";
   if (floor.includes("低")) return "floor-low";
   return "";
+}
+
+function sourceLabel(s) {
+  return s === "ricacorp" ? "利嘉閣" : s === "hkp" ? "香港置業" : "中原";
 }
 
 // ── Chart ──────────────────────────────────────────────────────
@@ -3136,7 +3149,7 @@ async function showHistory(refNo, label) {
 
   try {
     const { history, source, detail_url } = await api(`/api/listings/${encodeURIComponent(refNo)}/history`);
-    const srcLabel = source === 'ricacorp' ? '利嘉閣' : '中原';
+    const srcLabel = sourceLabel(source);
     const sub = document.getElementById("historyModalSub");
     if (sub) sub.innerHTML = `放盤編號：${detail_url
       ? `<a href="${escHtml(detail_url)}" target="_blank" class="detail-link">${escHtml(refNo)} ↗</a>`
