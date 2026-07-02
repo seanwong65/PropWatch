@@ -649,6 +649,86 @@ async function saveRicacorpListings(db, estateId, listings) {
   await db.batch(batch);
 }
 
+// ── 香港置業 (Hong Kong Property, Midland backend) ─────────────────────────
+// Uses the JSON API at data.hkp.com.hk. Flow: mint an anonymous userToken JWT
+// from any hkp page, resolve the estate name to an est_id, then page through
+// /search/v1/properties. tx_type=S = sale (includes HOS/居屋).
+const HKP_UA = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
+
+async function hkpGetToken() {
+  const res = await fetch("https://www.hkp.com.hk/zh-hk/list/buy/", {
+    headers: { "User-Agent": HKP_UA, "Accept-Language": "zh-HK,zh;q=0.9" },
+    signal: AbortSignal.timeout(15000),
+  });
+  const html = await res.text();
+  return html.match(/"userToken":"([^"]+)"/)?.[1] || null;
+}
+
+async function hkpApi(pathQuery, token) {
+  const res = await fetch(`https://data.hkp.com.hk${pathQuery}`, {
+    headers: { "User-Agent": HKP_UA, "Authorization": `Bearer ${token}`, "Accept": "application/json" },
+    signal: AbortSignal.timeout(15000),
+  });
+  if (!res.ok) return null;
+  return res.json();
+}
+
+function parseHkpProperty(p) {
+  return {
+    ref_no: p.serial_no || null,
+    building_name: p.building?.name || null,
+    floor: p.floor_level?.name || null, // already 高層/中層/低層
+    unit: p.flat != null && p.flat !== "" ? `${p.flat}室` : null,
+    bedrooms: p.bedroom ?? null,
+    size_net: p.net_area || null,
+    price: p.price_hkd || p.price || null,
+    price_per_ft: p.price_over_net_area || null,
+    detail_url: p.url_desc || null,
+    source: "hkp",
+  };
+}
+
+export async function scrapeHkpListings(estateName) {
+  const token = await hkpGetToken();
+  if (!token) return [];
+
+  const ac = await hkpApi(`/search/v1/autocomplete/estates?text=${encodeURIComponent(estateName)}`, token);
+  const estId = ac?.[0]?.result?.[0]?.search?.id;
+  if (!estId) return [];
+
+  const listings = [];
+  const seen = new Set();
+  const limit = 50;
+  for (let page = 1; page <= 20; page++) {
+    const data = await hkpApi(`/search/v1/properties?est_ids=${estId}&tx_type=S&limit=${limit}&page=${page}`, token);
+    const results = data?.result || [];
+    if (!results.length) break;
+    for (const p of results) {
+      if (!p.serial_no || seen.has(p.serial_no)) continue;
+      seen.add(p.serial_no);
+      listings.push(parseHkpProperty(p));
+    }
+    if (listings.length >= (data.count || 0) || results.length < limit) break;
+  }
+  return listings;
+}
+
+async function saveHkpListings(db, estateId, listings) {
+  if (!listings.length) return;
+  const today = hkDateStr();
+  const stmt = db.prepare(
+    `INSERT OR REPLACE INTO listings
+     (estate_id, listing_id, ref_no, building_name, floor, unit, bedrooms,
+      size_net, price, price_per_ft, detail_url, snapshot_date, source)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`
+  );
+  const batch = listings.map(l =>
+    stmt.bind(estateId, l.ref_no, l.ref_no, l.building_name, l.floor, normalizeUnit(l.unit),
+      l.bedrooms, l.size_net, l.price, l.price_per_ft, l.detail_url, today, l.source)
+  );
+  await db.batch(batch);
+}
+
 async function sendEmail(apiKey, to, subject, html) {
   const res = await fetch("https://api.resend.com/emails", {
     method: "POST",
@@ -1080,6 +1160,12 @@ async function runDailySync(db, resendApiKey, { persist = true } = {}) {
               await saveRicacorpListings(db, estate.id, ricaListings);
             } catch (e) { /* non-fatal */ }
           }
+          if (estate.hkp_enabled) {
+            try {
+              const hkpListings = await scrapeHkpListings(estate.name);
+              await saveHkpListings(db, estate.id, hkpListings);
+            } catch (e) { /* non-fatal */ }
+          }
           const changes = await detectChanges(db, estate.id, estate.name, listings);
           changes.newTransactions = newTxns;
           return { estate: estate.name, count: listings.length, ok: true, changes };
@@ -1239,7 +1325,7 @@ export default {
 
         if (!estate) {
           await db
-            .prepare("INSERT INTO estates (name, bigestcode, district, is_bigest, centanet_enabled, ricacorp_enabled) VALUES (?,?,?,?,1,1)")
+            .prepare("INSERT INTO estates (name, bigestcode, district, is_bigest, centanet_enabled, ricacorp_enabled, hkp_enabled) VALUES (?,?,?,?,1,1,1)")
             .bind(name, bigestcode, district || null, useBigest ? 1 : 0)
             .run();
           estate = await db
@@ -1663,6 +1749,10 @@ export default {
           await db.prepare("UPDATE estates SET centanet_enabled = ? WHERE id = ?")
             .bind(body.centanet_enabled ? 1 : 0, estateId).run();
         }
+        if (body.hkp_enabled !== undefined) {
+          await db.prepare("UPDATE estates SET hkp_enabled = ? WHERE id = ?")
+            .bind(body.hkp_enabled ? 1 : 0, estateId).run();
+        }
         return json(200, { ok: true });
       }
 
@@ -1724,6 +1814,12 @@ export default {
                 const ricaUrl = `https://www.ricacorp.com/zh-hk/property/list/buy/${encodeURIComponent(estate.name)}`;
                 const ricaListings = await scrapeRicacorpListings(ricaUrl);
                 await saveRicacorpListings(db, estate.id, ricaListings);
+              } catch (e) { /* non-fatal */ }
+            }
+            if (estate.hkp_enabled) {
+              try {
+                const hkpListings = await scrapeHkpListings(estate.name);
+                await saveHkpListings(db, estate.id, hkpListings);
               } catch (e) { /* non-fatal */ }
             }
             const changes = await detectChanges(db, estate.id, estate.name, listings);

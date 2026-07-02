@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { scrapeRicacorpListings } from "../index.js";
+import { scrapeRicacorpListings, scrapeHkpListings } from "../index.js";
 
 // ── Pure helpers extracted inline (no DB/fetch deps) ──────────────────────
 
@@ -226,6 +226,97 @@ describe("scrapeRicacorpListings — live integration", () => {
     expect(listings.length).toBeGreaterThanOrEqual(40);
   }, 120000);
 });
+
+// ── 香港置業 (hkp) — imports the REAL scrapeHkpListings from index.js ──────────
+
+// Routes the mocked fetch by URL: page (token) → autocomplete → properties.
+function makeHkpFetch({ token = "jwt.tok.en", estId = "E00055", pages = [] } = {}) {
+  const calls = [];
+  const fetch = async (u) => {
+    const url = typeof u === "string" ? u : u.url;
+    calls.push(url);
+    if (url.includes("/list/buy/")) {
+      return { ok: true, text: async () => `<script>{"props":{"pageProps":{"userToken":"${token}"}}}</script>` };
+    }
+    if (url.includes("/autocomplete/estates")) {
+      return { ok: true, json: async () => [{ type: "estate", result: [{ search: { id: estId, type: "estate" } }] }] };
+    }
+    if (url.includes("/search/v1/properties")) {
+      const m = url.match(/page=(\d+)/);
+      const page = m ? parseInt(m[1]) : 1;
+      const result = pages[page - 1] || [];
+      return { ok: true, json: async () => ({ count: pages.flat().length, result }) };
+    }
+    return { ok: false, json: async () => ({}), text: async () => "" };
+  };
+  return { fetch, calls };
+}
+
+const hkpProp = (serial, over) => ({
+  serial_no: serial,
+  building: { name: "D座" },
+  floor_level: { id: "M", name: "中層" },
+  flat: "3",
+  bedroom: 2,
+  net_area: 375,
+  price_hkd: 4300000,
+  price_over_net_area: 11467,
+  url_desc: "https://www.hkp.com.hk/zh-hk/property/x-" + serial,
+  ...over,
+});
+
+describe("scrapeHkpListings — deterministic (mocked fetch)", () => {
+  it("mints token, resolves est_id, and maps property fields", async () => {
+    const { fetch, calls } = makeHkpFetch({ pages: [[hkpProp("H001"), hkpProp("H002")]] });
+    const orig = globalThis.fetch;
+    globalThis.fetch = fetch;
+    let listings;
+    try { listings = await scrapeHkpListings("淘大花園"); }
+    finally { globalThis.fetch = orig; }
+
+    expect(listings.length).toBe(2);
+    const l = listings[0];
+    expect(l).toMatchObject({
+      ref_no: "H001", building_name: "D座", floor: "中層",
+      unit: "3室", bedrooms: 2, size_net: 375, price: 4300000,
+      price_per_ft: 11467, source: "hkp",
+    });
+    // token flows into the Authorization-bearing API calls
+    expect(calls.some(u => u.includes("/autocomplete/estates"))).toBe(true);
+    expect(calls.some(u => u.includes("est_ids=E00055"))).toBe(true);
+  });
+
+  it("paginates until a page returns fewer than the limit", async () => {
+    const full = Array.from({ length: 50 }, (_, i) => hkpProp("A" + i));
+    const { fetch, calls } = makeHkpFetch({ pages: [full, [hkpProp("B1")]] });
+    const orig = globalThis.fetch;
+    globalThis.fetch = fetch;
+    let listings;
+    try { listings = await scrapeHkpListings("淘大花園"); }
+    finally { globalThis.fetch = orig; }
+    expect(listings.length).toBe(51);
+    expect(calls.filter(u => u.includes("/search/v1/properties")).length).toBe(2);
+  });
+
+  it("returns [] when the estate does not resolve", async () => {
+    const orig = globalThis.fetch;
+    globalThis.fetch = async (u) => {
+      const url = typeof u === "string" ? u : u.url;
+      if (url.includes("/list/buy/")) return { ok: true, text: async () => `{"userToken":"t"}` };
+      if (url.includes("/autocomplete/estates")) return { ok: true, json: async () => [] };
+      return { ok: false, json: async () => ({}), text: async () => "" };
+    };
+    try {
+      const listings = await scrapeHkpListings("唔存在嘅屋苑");
+      expect(listings).toEqual([]);
+    } finally { globalThis.fetch = orig; }
+  });
+});
+
+// NOTE: no live hkp integration test — hkp.com.hk geo-blocks non-HK IPs (HTTP 403
+// from CloudFront), so a real fetch only succeeds from the Cloudflare Worker, not
+// from a dev/CI machine. The deterministic mocked tests above cover the logic;
+// production behaviour is verified via the /api/debug-hkp Worker endpoint.
 
 describe("sha256", () => {
   it("hashes '123456' consistently", async () => {
