@@ -277,8 +277,11 @@ async function ensureAuthTables(db) {
     password_hash TEXT NOT NULL,
     expiry_date TEXT NOT NULL,
     failed_attempts INTEGER NOT NULL DEFAULT 0,
-    locked_until TEXT
+    locked_until TEXT,
+    is_active INTEGER NOT NULL DEFAULT 1
   )`).run();
+  // Backfill is_active for pre-existing tables (CREATE IF NOT EXISTS won't add it).
+  try { await db.prepare("ALTER TABLE accounts ADD COLUMN is_active INTEGER NOT NULL DEFAULT 1").run(); } catch (_) {}
   await db.prepare(`CREATE TABLE IF NOT EXISTS sessions (
     token TEXT PRIMARY KEY,
     account_id INTEGER NOT NULL,
@@ -1353,29 +1356,36 @@ export default {
       if (method === "POST" && path === "/api/login") {
         const { username, password } = await request.json();
         if (!username || !password) return json(400, { error: "請輸入用戶名及密碼" });
+
+        // Generic failure — never reveals whether the username exists, how many
+        // attempts remain, or that an account is disabled/expired, so an attacker
+        // cannot enumerate accounts. Status details are only surfaced to someone
+        // who supplies the CORRECT password (i.e. the genuine owner).
+        const BAD = { error: "用戶名或密碼錯誤" };
         const account = await db.prepare("SELECT * FROM accounts WHERE username = ?").bind(username).first();
-        if (!account) return json(401, { error: "用戶名或密碼錯誤" });
+        if (!account) return json(401, BAD);
 
         const now = new Date().toISOString();
-        if (account.locked_until && account.locked_until > now) {
-          return json(403, { error: "帳戶已被鎖定，請稍後再試" });
+        const passwordOk = (await sha256(password)) === account.password_hash;
+
+        if (account.is_active === 0) {
+          return json(403, passwordOk ? { error: "帳戶已被停用，請聯絡管理員" } : BAD);
         }
         if (account.expiry_date < now.slice(0, 10)) {
-          return json(403, { error: "帳戶已過期" });
+          return json(403, passwordOk ? { error: "帳戶已過期" } : BAD);
         }
 
-        const hash = await sha256(password);
-        if (hash !== account.password_hash) {
+        if (!passwordOk) {
           const attempts = (account.failed_attempts || 0) + 1;
           if (attempts >= 5) {
-            const lockUntil = new Date(Date.now() + 30 * 60 * 1000).toISOString();
-            await db.prepare("UPDATE accounts SET failed_attempts = ?, locked_until = ? WHERE id = ?")
-              .bind(attempts, lockUntil, account.id).run();
-            return json(403, { error: "密碼錯誤次數過多，帳戶已鎖定30分鐘" });
+            // Disable the account after 5 failed attempts (needs a manual reset).
+            await db.prepare("UPDATE accounts SET failed_attempts = ?, is_active = 0 WHERE id = ?")
+              .bind(attempts, account.id).run();
+          } else {
+            await db.prepare("UPDATE accounts SET failed_attempts = ? WHERE id = ?")
+              .bind(attempts, account.id).run();
           }
-          await db.prepare("UPDATE accounts SET failed_attempts = ? WHERE id = ?")
-            .bind(attempts, account.id).run();
-          return json(401, { error: `用戶名或密碼錯誤（${attempts}/5次）` });
+          return json(401, BAD);
         }
 
         // Success — reset attempts, create session
