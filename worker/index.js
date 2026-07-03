@@ -825,7 +825,7 @@ async function computeAskingSold(db, estateId) {
       if (days < -21 || days > 120) return false;           // sale registers near delisting
       if (t.size_net && s.size_net && Math.abs(t.size_net - s.size_net) > s.size_net * 0.05) return false;
       const spread = (t.price - s.ask) / s.ask;
-      if (spread < -0.30 || spread > 0.15) return false;    // reject implausible = wrong flat
+      if (spread < -0.15 || spread > 0.05) return false;    // reject implausible = wrong flat
       return true;
     });
     if (!cands.length) continue;
