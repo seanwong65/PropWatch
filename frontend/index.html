@@ -944,6 +944,16 @@
   </div>
 </div>
 
+<!-- Comp (參考成交) Modal -->
+<div class="modal-overlay" id="compModalOverlay" style="display:none" onclick="if(event.target===this)closeCompModal()">
+  <div class="modal" style="max-width:520px">
+    <button class="modal-close" onclick="closeCompModal()">✕</button>
+    <div class="modal-title" id="comp-modal-title" style="font-size:1rem"></div>
+    <div class="modal-sub">參考成交(近 12 個月)</div>
+    <div id="comp-modal-body" style="margin-top:0.5rem"></div>
+  </div>
+</div>
+
 <!-- Viewing Modal -->
 <div class="modal-overlay" id="viewingModalOverlay" style="display:none" onclick="if(event.target===this)closeViewingModal()">
   <div class="modal" style="max-width:520px;max-height:90vh;overflow-y:auto">
@@ -1160,12 +1170,14 @@ async function showDashboard(estates) {
             <button id="dash-tab-today" onclick="switchDashTab('today')" style="background:none;border:none;border-bottom:2px solid var(--accent);margin-bottom:-2px;color:var(--text);font-size:0.9rem;font-weight:600;padding:0.35rem 0.85rem;cursor:pointer">今日動態 <span id="highlights-date" style="font-weight:400;color:var(--muted);font-size:0.8rem"></span></button>
             <button id="dash-tab-unsold" onclick="switchDashTab('unsold')" style="background:none;border:none;border-bottom:2px solid transparent;margin-bottom:-2px;color:var(--muted);font-size:0.9rem;padding:0.35rem 0.85rem;cursor:pointer">追蹤中放盤</button>
             <button id="dash-tab-spread" onclick="switchDashTab('spread')" style="background:none;border:none;border-bottom:2px solid transparent;margin-bottom:-2px;color:var(--muted);font-size:0.9rem;padding:0.35rem 0.85rem;cursor:pointer">叫價→成交</button>
+            <button id="dash-tab-comps" onclick="switchDashTab('comps')" style="background:none;border:none;border-bottom:2px solid transparent;margin-bottom:-2px;color:var(--muted);font-size:0.9rem;padding:0.35rem 0.85rem;cursor:pointer">睇過嘅盤</button>
           </div>
           <button class="history-btn" style="font-size:0.88rem;padding:0.35rem 0.85rem" onclick="showHistoryPage()">歷史動態 →</button>
         </div>
         <div id="dash-panel-today"><div id="highlights-body" style="color:var(--muted);font-size:0.75rem">載入中…</div></div>
         <div id="dash-panel-unsold" style="display:none"><div id="unsold-body" style="color:var(--muted);font-size:0.75rem">載入中…</div></div>
         <div id="dash-panel-spread" style="display:none"><div id="spread-body" style="color:var(--muted);font-size:0.75rem">載入中…</div></div>
+        <div id="dash-panel-comps" style="display:none"><div id="comps-body" style="color:var(--muted);font-size:0.75rem">載入中…</div></div>
       </div>
       <div class="dashboard-chart-section" style="margin-top:1.25rem">
         <div class="dashboard-chart-header">
@@ -1187,8 +1199,9 @@ async function showDashboard(estates) {
 }
 
 let _spreadLoaded = false;
+let _compsLoaded = false;
 function switchDashTab(tab) {
-  const tabs = ['today', 'unsold', 'spread'];
+  const tabs = ['today', 'unsold', 'spread', 'comps'];
   for (const id of tabs) {
     const active = id === tab;
     const panel = document.getElementById('dash-panel-' + id);
@@ -1201,6 +1214,7 @@ function switchDashTab(tab) {
     }
   }
   if (tab === 'spread' && !_spreadLoaded) { _spreadLoaded = true; loadAskingSold(); }
+  if (tab === 'comps' && !_compsLoaded) { _compsLoaded = true; loadViewingComps(); }
 }
 
 function estateNameById(id) {
@@ -1254,6 +1268,84 @@ async function loadAskingSold() {
     body.innerHTML = `<span style="color:var(--down)">載入失敗:${escHtml(e.message)}</span>`;
   }
 }
+
+let _compsData = [];
+const _wan = n => (n / 10000).toLocaleString(undefined, { maximumFractionDigits: 0 });
+
+async function loadViewingComps() {
+  const body = document.getElementById('comps-body');
+  try {
+    const r = await api('/api/viewings/comps');
+    _compsData = r.items || [];
+    if (!_compsData.length) {
+      body.innerHTML = '<span style="color:var(--muted)">未有睇樓記錄。喺屋苑頁「睇樓記錄」新增,呢度就會顯示參考成交。</span>';
+      return;
+    }
+    const cards = _compsData.map(v => {
+      const ownPpf = (v.price && v.size_net) ? Math.round(v.price / v.size_net) : null;
+      let badge = '';
+      if (v.range && v.verdict != null) {
+        if (v.verdict <= -3) badge = `<span style="color:var(--up);font-size:0.75rem;font-weight:600">低於參考 ${Math.abs(v.verdict)}% · 偏抵</span>`;
+        else if (v.verdict >= 3) badge = `<span style="color:var(--down);font-size:0.75rem;font-weight:600">高於參考 ${v.verdict}% · 偏貴</span>`;
+        else badge = `<span style="color:var(--muted);font-size:0.75rem">約市價</span>`;
+      }
+      const rangeTxt = v.range
+        ? `$${_wan(v.range.price_low)}–${_wan(v.range.price_high)}萬 <span style="color:var(--muted);font-size:0.75rem">@$${v.range.ppf_low.toLocaleString()}–${v.range.ppf_high.toLocaleString()}</span>`
+        : `<span style="color:var(--muted)">近12個月冇足夠參考成交</span>`;
+      return `<div onclick="openCompModal(${v.id})" style="background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:0.7rem 0.85rem;margin-bottom:0.5rem;cursor:pointer">
+        <div style="display:flex;justify-content:space-between;align-items:baseline;gap:0.5rem;flex-wrap:wrap">
+          <div style="font-size:0.9rem;font-weight:600;color:var(--text)">${escHtml(v.estate_name)} · ${escHtml(String(v.block))}座${escHtml(String(v.floor))}樓${escHtml(String(v.unit))}室</div>
+          <div style="font-size:0.75rem;color:var(--muted)">${v.size_net || '?'}呎${v.bedrooms ? ' · ' + v.bedrooms + '房' : ''}</div>
+        </div>
+        <div style="display:flex;justify-content:space-between;align-items:baseline;gap:0.5rem;flex-wrap:wrap;margin-top:0.35rem">
+          <div style="font-size:0.8rem;color:var(--muted)">睇樓價 <span style="color:var(--text);font-weight:600">$${_wan(v.price)}萬</span>${ownPpf ? ` <span style="font-size:0.75rem">@$${ownPpf.toLocaleString()}</span>` : ''}</div>
+          ${badge}
+        </div>
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:0.5rem;margin-top:0.35rem;padding-top:0.35rem;border-top:1px solid var(--border)">
+          <div style="font-size:0.8rem;color:var(--accent)">推算 ${rangeTxt}</div>
+          <div style="font-size:0.75rem;color:var(--muted);white-space:nowrap">${v.comp_count} 宗參考 ›</div>
+        </div>
+      </div>`;
+    }).join('');
+    body.innerHTML = `<p style="font-size:0.75rem;color:var(--muted);margin-bottom:0.6rem">每個睇過嘅單位,配近 12 個月同屋苑可比成交,推算合理價區間。撳一下睇晒詳情。</p>${cards}`;
+  } catch (e) {
+    body.innerHTML = `<span style="color:var(--down)">載入失敗:${escHtml(e.message)}</span>`;
+  }
+}
+
+function openCompModal(id) {
+  const v = _compsData.find(x => x.id === id);
+  if (!v) return;
+  const tierLabel = { 1: '① 同一線(同座同室 · 上下層)', 2: '② 同座 · 相近面積', 3: '③ 同屋苑 · 相近面積' };
+  const vFloor = parseInt(String(v.floor).replace(/\D/g, '')) || null;
+  let html = '';
+  for (const tier of [1, 2, 3]) {
+    const rows = v.comps.filter(c => c.tier === tier);
+    if (!rows.length) continue;
+    html += `<div style="font-size:0.78rem;color:var(--muted);margin:0.75rem 0 0.35rem">${tierLabel[tier]}</div>`;
+    html += `<table style="width:100%;border-collapse:collapse;font-size:0.82rem"><tbody>` + rows.map(c => {
+      const cFloor = parseInt(String(c.floor).replace(/\D/g, '')) || null;
+      const diff = (tier === 1 && vFloor && cFloor) ? ` <span style="color:var(--muted);font-size:0.75rem">(${cFloor > vFloor ? '+' : ''}${cFloor - vFloor}層)</span>` : '';
+      return `<tr style="border-top:1px solid var(--border)">
+        <td style="padding:0.35rem 0.4rem 0.35rem 0;color:var(--text)">${escHtml(String(c.building))}${escHtml(String(c.floor))}${escHtml(String(c.unit))}${diff}</td>
+        <td style="text-align:right;padding:0.35rem 0.4rem;color:var(--muted)">${c.size_net || '?'}呎</td>
+        <td style="text-align:right;padding:0.35rem 0.4rem;white-space:nowrap">$${_wan(c.price)}萬</td>
+        <td style="text-align:right;padding:0.35rem 0.4rem;white-space:nowrap;color:var(--muted)">@$${(c.price_per_ft || 0).toLocaleString()}</td>
+        <td style="text-align:right;padding:0.35rem 0 0.35rem 0.4rem;white-space:nowrap;color:var(--muted);font-size:0.75rem">${c.reg_date}</td>
+      </tr>`;
+    }).join('') + `</tbody></table>`;
+  }
+  if (!html) html = '<div style="color:var(--muted);font-size:0.85rem;padding:0.5rem 0">近 12 個月冇同屋苑可比成交。</div>';
+  const ownPpf = (v.price && v.size_net) ? Math.round(v.price / v.size_net) : null;
+  const rangeTxt = v.range ? `$${_wan(v.range.price_low)}–${_wan(v.range.price_high)}萬 (@$${v.range.ppf_low.toLocaleString()}–${v.range.ppf_high.toLocaleString()})` : '近 12 個月冇足夠參考';
+  document.getElementById('comp-modal-title').textContent = `${v.estate_name} · ${v.block}座${v.floor}樓${v.unit}室`;
+  document.getElementById('comp-modal-body').innerHTML =
+    `<div style="font-size:0.82rem;color:var(--muted);margin-bottom:0.5rem">${v.size_net || '?'}呎${v.bedrooms ? ' · ' + v.bedrooms + '房' : ''} · 睇樓價 <span style="color:var(--text);font-weight:600">$${_wan(v.price)}萬</span>${ownPpf ? ` @$${ownPpf.toLocaleString()}` : ''}</div>
+     <div style="background:rgba(251,191,36,0.08);border:1px solid var(--border);border-radius:8px;padding:0.5rem 0.7rem;margin-bottom:0.5rem"><span style="color:var(--muted);font-size:0.78rem">推算合理價 </span><span style="color:var(--accent);font-weight:600">${rangeTxt}</span></div>
+     ${html}`;
+  document.getElementById('compModalOverlay').style.display = 'flex';
+}
+function closeCompModal() { document.getElementById('compModalOverlay').style.display = 'none'; }
 
 async function loadUnsoldViewings() {
   const body = document.getElementById("unsold-body");
