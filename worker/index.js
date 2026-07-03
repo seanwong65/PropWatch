@@ -860,6 +860,88 @@ async function computeAskingSold(db, estateId) {
   };
 }
 
+// ── 睇過嘅盤 · 參考成交 (comps) ──────────────────────────────────────────────
+// For every viewed flat, pull comparable transactions from the SAME estate,
+// registered in the last 12 months only (older = no reference value), in three
+// tiers: ① same building + same unit line (any floor), ② same building + size
+// within ±10%, ③ same estate + size within ±10%. A fair-price range comes from
+// the 25th–75th percentile $/ft of the size-comparable comps.
+const _pctile = (arr, p) => {
+  if (!arr.length) return null;
+  const s = [...arr].sort((a, b) => a - b);
+  return s[Math.min(s.length - 1, Math.floor(p * (s.length - 1)))];
+};
+
+async function computeViewingComps(db) {
+  const { results: viewings } = await db.prepare(`
+    SELECT v.id, v.estate_id, e.name AS estate_name, v.block, v.floor, v.unit,
+           v.size_net, v.bedrooms, v.price, v.view_date
+    FROM viewings v JOIN estates e ON e.id = v.estate_id
+    ORDER BY v.view_date DESC, v.id DESC
+  `).all();
+
+  const estateIds = [...new Set(viewings.map((v) => v.estate_id))];
+  let txns = [];
+  if (estateIds.length) {
+    const ph = estateIds.map(() => "?").join(",");
+    const res = await db.prepare(`
+      SELECT estate_id, building, floor, unit, size_net, price, price_per_ft, reg_date
+      FROM transactions
+      WHERE estate_id IN (${ph}) AND reg_date >= date('now','+8 hours','-12 months')
+    `).bind(...estateIds).all();
+    txns = res.results || [];
+  }
+
+  const byEstate = new Map();
+  for (const t of txns) {
+    if (!t.price_per_ft && t.price && t.size_net) t.price_per_ft = Math.round(t.price / t.size_net);
+    if (!byEstate.has(t.estate_id)) byEstate.set(t.estate_id, []);
+    byEstate.get(t.estate_id).push(t);
+  }
+
+  return viewings.map((v) => {
+    const pool = (byEstate.get(v.estate_id) || []).slice()
+      .sort((a, b) => (b.reg_date || "").localeCompare(a.reg_date || ""));
+    const nb = _normBldg(v.block), nu = _normUnit(v.unit), sz = v.size_net;
+    const within = (t) => sz && t.size_net && Math.abs(t.size_net - sz) <= sz * 0.10;
+
+    const tier1 = [], tier2 = [], tier3 = [];
+    const seen = new Set();
+    for (const t of pool) {
+      const key = `${t.building}|${t.floor}|${t.unit}|${t.reg_date}|${t.price}`;
+      if (seen.has(key)) continue;
+      const sameB = _normBldg(t.building) === nb;
+      const sameU = _normUnit(t.unit) === nu;
+      let tier = 0;
+      if (sameB && sameU) tier = 1;
+      else if (sameB && within(t)) tier = 2;
+      else if (within(t)) tier = 3;
+      else continue;
+      seen.add(key);
+      const row = { tier, building: t.building, floor: t.floor, unit: t.unit,
+        size_net: t.size_net, price: t.price, price_per_ft: t.price_per_ft, reg_date: t.reg_date };
+      (tier === 1 ? tier1 : tier === 2 ? tier2 : tier3).push(row);
+    }
+    const comps = [...tier1.slice(0, 5), ...tier2.slice(0, 5), ...tier3.slice(0, 5)];
+
+    const ppf = comps.filter((c) => c.price_per_ft && (c.tier === 1 || within(c))).map((c) => c.price_per_ft);
+    let range = null;
+    if (sz && ppf.length) {
+      const low = _pctile(ppf, 0.25), high = _pctile(ppf, 0.75);
+      range = { ppf_low: low, ppf_high: high, price_low: Math.round(low * sz),
+        price_high: Math.round(high * sz), single: ppf.length === 1 };
+    }
+    let verdict = null;
+    if (range && v.price) {
+      const mid = (range.price_low + range.price_high) / 2;
+      verdict = Math.round(((v.price - mid) / mid) * 1000) / 10;
+    }
+    return { id: v.id, estate_id: v.estate_id, estate_name: v.estate_name,
+      block: v.block, floor: v.floor, unit: v.unit, size_net: v.size_net, bedrooms: v.bedrooms,
+      price: v.price, view_date: v.view_date, range, verdict, comp_count: comps.length, comps };
+  });
+}
+
 async function sendEmail(apiKey, to, subject, html) {
   const res = await fetch("https://api.resend.com/emails", {
     method: "POST",
@@ -2259,6 +2341,12 @@ export default {
         const estateId = url.searchParams.get("estateId");
         const result = await computeAskingSold(db, estateId ? Number(estateId) : null);
         return json(200, result);
+      }
+
+      // 睇過嘅盤 · 每個單位配近12個月可比成交 + 推算合理價區間
+      if (method === "GET" && path === "/api/viewings/comps") {
+        const items = await computeViewingComps(db);
+        return json(200, { items });
       }
 
       if (method === "POST" && path === "/api/admin/migrate-centanet-enabled") {
