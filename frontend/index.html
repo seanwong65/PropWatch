@@ -2,38 +2,61 @@
 <html lang="zh-HK">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
   <title>PropWatch — 香港樓市追蹤</title>
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
     :root {
+      /* Surface scale — clearer layering between page / cards / raised cards */
       --bg: #0a0f1a;
-      --surface: #111827;
-      --surface2: #1a2436;
-      --border: #1f2d42;
-      --text: #e2e8f0;
-      --muted: #64748b;
-      --accent: #f59e0b;
+      --surface: #131b2b;
+      --surface1: #131b2b;
+      --surface2: #1c2740;
+      --border: #26344d;
+      --text: #f1f5f9;
+      --muted: #94a3b8;        /* brightened from #64748b → ~7:1 on --bg, passes WCAG AA */
+      --accent: #fbbf24;
+      --on-accent: #1a1206;    /* dark ink for text sitting on --accent (amber) */
       --accent2: #3b82f6;
       --up: #10b981;
       --down: #ef4444;
       --radius: 10px;
       --btn-bg: #3a5c59;
       --btn-hover: #4d7a77;
+
+      /* Type scale — six steps, replaces ~18 ad-hoc sizes */
+      --fs-xs: 0.75rem;    /* 12px  meta / labels / table footers */
+      --fs-sm: 0.8125rem;  /* 13px  secondary body / tables */
+      --fs-base: 0.875rem; /* 14px  primary body */
+      --fs-md: 1rem;       /* 16px  card titles / estate names */
+      --fs-lg: 1.25rem;    /* 20px  section headings */
+      --fs-xl: 1.75rem;    /* 28px  stat numbers */
+
+      /* 8pt spacing scale */
+      --sp-1: 4px; --sp-2: 8px; --sp-3: 12px; --sp-4: 16px; --sp-6: 24px; --sp-8: 32px;
+
+      /* Header height — single source of truth for viewport math */
+      --header-h: 56px;
     }
 
+    html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
+
     body {
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI",
+        "PingFang HK", "PingFang TC", "Noto Sans HK", "Noto Sans CJK TC",
+        "Microsoft JhengHei", "Hiragino Sans", sans-serif;
       background: var(--bg);
       color: var(--text);
-      min-height: 100vh;
+      min-height: 100dvh;
+      line-height: 1.6;
     }
 
     /* Header */
     header {
       border-bottom: 1px solid var(--border);
-      padding: 1rem 2rem;
+      height: var(--header-h);
+      padding: 0 max(1.5rem, env(safe-area-inset-right)) 0 max(1.5rem, env(safe-area-inset-left));
       display: flex;
       align-items: center;
       justify-content: space-between;
@@ -54,6 +77,8 @@
       padding: 0.4rem 0.9rem;
       border-radius: 6px;
       font-size: 0.8rem;
+      line-height: 1.2;
+      white-space: nowrap;
       cursor: pointer;
       transition: all 0.2s;
     }
@@ -63,7 +88,8 @@
     .layout {
       display: grid;
       grid-template-columns: 300px 1fr;
-      height: calc(100vh - 57px);
+      height: calc(100vh - var(--header-h));
+      height: calc(100dvh - var(--header-h));
     }
 
     /* Sidebar */
@@ -164,7 +190,7 @@
       position: relative;
     }
     .estate-card:hover { border-color: var(--accent2); }
-    .estate-card.active { border-color: var(--accent); background: rgba(245,158,11,0.06); }
+    .estate-card.active { border-color: var(--accent); background: rgba(251,191,36,0.06); }
     .estate-card-name { font-weight: 600; font-size: 0.9rem; }
     .estate-card-meta { color: var(--muted); font-size: 0.75rem; margin-top: 0.25rem; }
     .estate-card-delete {
@@ -272,7 +298,7 @@
     .dashboard-card:hover { border-color: var(--accent2); }
     .dashboard-card-name { font-weight: 600; font-size: 0.85rem; margin-bottom: 0.4rem; }
     .dashboard-card-count { font-size: 1.5rem; font-weight: 700; color: var(--accent); }
-    .dashboard-card-label { font-size: 0.7rem; color: var(--muted); }
+    .dashboard-card-label { font-size:0.75rem; color: var(--muted); }
     .dashboard-chart-section {
       background: var(--surface2);
       border: 1px solid var(--border);
@@ -325,7 +351,7 @@
       vertical-align: middle;
     }
     .hl-tr:last-child td { border-bottom: none; }
-    .hl-th th { padding: 0.25rem 0.5rem 0.25rem 0; font-size: 0.72rem; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; border-bottom: 1px solid var(--border); }
+    .hl-th th { padding: 0.25rem 0.5rem 0.25rem 0; font-size:0.75rem; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; border-bottom: 1px solid var(--border); }
     .hl-c1 { width: 28%; }
     .hl-c2 { width: 20%; }
     .hl-c3 { width: 20%; }
@@ -377,11 +403,11 @@
       border-radius: var(--radius);
       padding: 1rem;
     }
-    .stat-label { color: var(--muted); font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.06em; }
+    .stat-label { color: var(--muted); font-size:0.75rem; text-transform: uppercase; letter-spacing: 0.06em; }
     .stat-value { font-size: 1.4rem; font-weight: 700; margin-top: 0.25rem; color: var(--accent); }
     .stat-breakdown { display: flex; flex-direction: column; gap: 0.15rem; margin-top: 0.5rem; }
-    .stat-breakdown span { font-size: 0.72rem; color: var(--muted); }
-    .stat-unit { font-size: 0.7rem; color: var(--muted); font-weight: 400; }
+    .stat-breakdown span { font-size:0.75rem; color: var(--muted); }
+    .stat-unit { font-size:0.75rem; color: var(--muted); font-weight: 400; }
 
     /* Chart */
     .chart-section {
@@ -428,7 +454,7 @@
       padding: 0.65rem 1rem;
       text-align: left;
       color: var(--muted);
-      font-size: 0.72rem;
+      font-size:0.75rem;
       text-transform: uppercase;
       letter-spacing: 0.05em;
       font-weight: 600;
@@ -449,12 +475,12 @@
       display: inline-block;
       padding: 0.15rem 0.45rem;
       border-radius: 4px;
-      font-size: 0.72rem;
+      font-size:0.75rem;
       font-weight: 600;
     }
     .floor-high { background: rgba(16,185,129,0.15); color: var(--up); }
     .floor-mid  { background: rgba(59,130,246,0.15); color: var(--accent2); }
-    .floor-low  { background: rgba(245,158,11,0.15); color: var(--accent); }
+    .floor-low  { background: rgba(251,191,36,0.15); color: var(--accent); }
 
     .detail-link {
       color: var(--accent2);
@@ -463,18 +489,18 @@
     }
     .detail-link:hover { text-decoration: underline; }
 
-    .price-change-up { color: var(--down); font-size: 0.72rem; font-weight: 600; }
-    .price-change-down { color: var(--up); font-size: 0.72rem; font-weight: 600; }
-    .price-change-flat { color: var(--muted); font-size: 0.72rem; }
-    .ref-link { color: var(--muted); font-size: 0.72rem; text-decoration: none; }
+    .price-change-up { color: var(--down); font-size:0.75rem; font-weight: 600; }
+    .price-change-down { color: var(--up); font-size:0.75rem; font-weight: 600; }
+    .price-change-flat { color: var(--muted); font-size:0.75rem; }
+    .ref-link { color: var(--muted); font-size:0.75rem; text-decoration: none; }
     .ref-link:hover { color: var(--accent2); }
-    .price-prev { color: var(--muted); font-size: 0.72rem; text-decoration: line-through; }
+    .price-prev { color: var(--muted); font-size:0.75rem; text-decoration: line-through; }
     .history-btn {
       background: var(--btn-bg);
       border: 1px solid var(--btn-bg);
       color: var(--text);
       border-radius: 4px;
-      font-size: 0.68rem;
+      font-size:0.75rem;
       padding: 0.1rem 0.4rem;
       cursor: pointer;
       margin-top: 0.2rem;
@@ -542,7 +568,7 @@
     .vf-img-thumb img { width: 100%; height: 100%; object-fit: cover; }
     .vf-img-rm {
       position: absolute; top: 1px; right: 2px; background: rgba(0,0,0,0.6);
-      border: none; color: #fff; font-size: 0.7rem; cursor: pointer;
+      border: none; color: #fff; font-size:0.75rem; cursor: pointer;
       border-radius: 2px; padding: 0 3px; line-height: 14px;
     }
     .notes-chip { background:var(--surface2);border:1px solid var(--border);color:var(--muted);border-radius:20px;padding:0.25rem 0.7rem;font-size:0.78rem;cursor:pointer;transition:all 0.15s; }
@@ -570,7 +596,7 @@
       font-size: 0.78rem; margin-bottom: 0.5rem;
     }
     .viewing-card-kv { display: flex; flex-direction: column; }
-    .viewing-card-k { color: var(--muted); font-size: 0.68rem; margin-bottom: 1px; }
+    .viewing-card-k { color: var(--muted); font-size:0.75rem; margin-bottom: 1px; }
     .viewing-card-imgs { display: flex; flex-wrap: wrap; gap: 0.4rem; margin-top: 0.4rem; }
     .viewing-card-img {
       width: 72px; height: 72px; object-fit: cover; border-radius: 4px;
@@ -585,7 +611,7 @@
     .history-table { width: 100%; border-collapse: collapse; font-size: 0.82rem; }
     .history-table th {
       color: var(--muted);
-      font-size: 0.7rem;
+      font-size:0.75rem;
       text-transform: uppercase;
       letter-spacing: 0.05em;
       padding: 0.4rem 0.5rem;
@@ -663,7 +689,7 @@
     .txn-date { color: var(--text); font-size: 0.75rem; }
     .hs-val-btn {
       background: var(--btn-bg); border: 1px solid var(--btn-bg); color: var(--text);
-      border-radius: 4px; padding: 2px 8px; font-size: 0.72rem; cursor: pointer;
+      border-radius: 4px; padding: 2px 8px; font-size:0.75rem; cursor: pointer;
       white-space: nowrap;
     }
     .hs-val-btn:hover { background: var(--btn-hover); border-color: var(--btn-hover); }
@@ -707,7 +733,7 @@
       flex-shrink: 0;
     }
     .filter-label {
-      font-size: 0.72rem;
+      font-size:0.75rem;
       color: var(--muted);
       text-transform: uppercase;
       letter-spacing: 0.05em;
@@ -731,7 +757,7 @@
       white-space: nowrap;
     }
     .filter-chip:hover  { border-color: var(--accent2); color: var(--text); }
-    .filter-chip.active { background: rgba(245,158,11,0.12); border-color: var(--accent); color: var(--accent); }
+    .filter-chip.active { background: rgba(251,191,36,0.12); border-color: var(--accent); color: var(--accent); }
     .filter-input {
       background: var(--surface);
       border: 1px solid var(--border);
@@ -838,6 +864,12 @@
       }
       .sidebar.open { transform: translateX(0); }
       .hamburger { display: flex; }
+      /* Tighten header so all controls fit one row on phones (no vertical spill) */
+      header { padding: 0 max(0.6rem, env(safe-area-inset-right)) 0 max(0.6rem, env(safe-area-inset-left)); }
+      header > div:last-child { gap: 0.35rem !important; }
+      .logo-icon { display: none; }
+      .logo h1 { font-size: 1rem; }
+      .sync-btn { padding: 0.4rem 0.6rem; font-size: 0.75rem; }
       .stats-row { grid-template-columns: repeat(2, 1fr); }
       .main { padding: 0.5rem; }
       .dashboard { padding: 0.75rem 0.75rem; }
@@ -847,6 +879,16 @@
       .highlights-subgroup { margin-top: 0.5rem; }
       .hl-tr td { padding: 0.3rem 0.4rem 0.3rem 0; }
     }
+
+    /* Tablet range — iPad landscape & small laptops: tighten the sidebar */
+    @media (min-width: 769px) and (max-width: 1024px) {
+      .layout { grid-template-columns: 260px 1fr; }
+      .main { padding: 1rem; }
+    }
+
+    /* Shared horizontal-scroll table utility (replaces scattered inline styles) */
+    .table-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+    .data-table { min-width: 700px; white-space: nowrap; }
   </style>
 </head>
 <body>
@@ -882,7 +924,7 @@
     <input id="login-password" type="password" placeholder="密碼" autocomplete="current-password"
       style="width:100%;padding:0.65rem 0.8rem;background:var(--surface2);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:0.95rem;box-sizing:border-box;margin-bottom:1rem"
       onkeydown="if(event.key==='Enter')doLogin()">
-    <button onclick="doLogin()" style="width:100%;padding:0.75rem;background:var(--accent);border:none;border-radius:8px;color:#fff;font-size:1rem;font-weight:600;cursor:pointer">登入</button>
+    <button onclick="doLogin()" style="width:100%;padding:0.75rem;background:var(--accent);border:none;border-radius:8px;color:var(--on-accent);font-size:1rem;font-weight:600;cursor:pointer">登入</button>
   </div>
 </div>
 
@@ -1179,12 +1221,12 @@ async function loadUnsoldViewings() {
       allListings = listingsByEstate[v.estate_id] || [];
       const matchCell = buildMatchCell(v);
       return `<tr class="hl-tr">
-        <td class="hl-c1"><strong>${escHtml(v.estate_name)}</strong><br><span style="font-size:0.72rem">${escHtml(unitStr)}</span></td>
-        <td class="hl-c2"><span style="font-weight:700;color:var(--accent)">${fmt(v.price)}</span>${psfStr ? `<br><span style="font-size:0.72rem">${psfStr}</span>` : ''}</td>
+        <td class="hl-c1"><strong>${escHtml(v.estate_name)}</strong><br><span style="font-size:0.75rem">${escHtml(unitStr)}</span></td>
+        <td class="hl-c2"><span style="font-weight:700;color:var(--accent)">${fmt(v.price)}</span>${psfStr ? `<br><span style="font-size:0.75rem">${psfStr}</span>` : ''}</td>
         <td class="hl-c3" id="umatch-${v.id}">${matchCell}</td>
         <td class="hl-c4">${v.notes ? `<span style="background:var(--surface2);border-radius:4px;padding:0.1rem 0.35rem">${escHtml(v.notes)}</span>` : '-'}</td>
-        <td class="hl-c5"><span style="font-size:0.72rem">${v.view_date}</span></td>
-        <td class="hl-c6">${estateId ? `<button class="history-btn" style="font-size:0.72rem;padding:0.15rem 0.5rem" onclick="showEstate(${estateId})">詳情</button>` : ''}</td>
+        <td class="hl-c5"><span style="font-size:0.75rem">${v.view_date}</span></td>
+        <td class="hl-c6">${estateId ? `<button class="history-btn" style="font-size:0.75rem;padding:0.15rem 0.5rem" onclick="showEstate(${estateId})">詳情</button>` : ''}</td>
       </tr>`;
     }).join('');
     allListings = savedAllListings;
@@ -1211,8 +1253,8 @@ async function loadTodayHighlights() {
     const srcLink = (url, source) => {
       const label = sourceLabel(source);
       return url
-        ? `<a href="${url}" target="_blank" class="hl-link" style="font-size:0.72rem">${label} ↗</a>`
-        : `<span style="font-size:0.72rem;color:var(--muted)">${label}</span>`;
+        ? `<a href="${url}" target="_blank" class="hl-link" style="font-size:0.75rem">${label} ↗</a>`
+        : `<span style="font-size:0.75rem;color:var(--muted)">${label}</span>`;
     };
     const TR = (c1, c2, c3, c4, c5='') =>
       `<tr class="hl-tr"><td class="hl-c1">${c1}</td><td class="hl-c2">${c2}</td><td class="hl-c3">${c3}</td><td class="hl-c4">${c4}</td><td class="hl-c5">${c5}</td></tr>`;
@@ -1256,7 +1298,7 @@ async function loadTodayHighlights() {
           v.view_price ? fmt(v.view_price) : '-',
           `<span style="font-weight:700;color:var(--accent)">${v.txn_price ? fmt(v.txn_price) : '-'}</span>`,
           diffHtml,
-          `<span style="font-size:0.72rem">${v.view_date||''}</span>`
+          `<span style="font-size:0.75rem">${v.view_date||''}</span>`
         );
       }
       html += `<div class="highlights-group" style="border:1px solid rgba(248,113,113,0.35);border-radius:8px;padding:0.75rem;background:rgba(248,113,113,0.06);margin-bottom:1rem"><div class="highlights-group-label" style="color:#f87171;font-size:0.9rem;margin-bottom:0.5rem">👀 睇過嘅單位成交 (${allViewedTxns.length})</div>${tbl(TH('屋苑 / 單位','睇樓價','成交價','差價','睇樓日期'), rows)}</div>`;
@@ -1303,7 +1345,7 @@ async function loadTodayHighlights() {
           rows += TR(
             `${escHtml(c.building_name||'')} ${escHtml(c.floor||'')} ${escHtml(c.unit||'')}`,
             `<span style="text-decoration:line-through">${fmt(c.old_price)}</span>`,
-            `<span style="font-weight:700">${fmt(c.new_price)}</span>${c.ref_no ? `<br><button class="history-btn" style="font-size:0.65rem;padding:0.1rem 0.35rem;margin-top:0.2rem" onclick="showHistory('${escHtml(c.ref_no)}','${escHtml((c.building_name||'')+' '+(c.floor||'')+(c.unit||''))}')">歷史 ↓</button>` : ''}`,
+            `<span style="font-weight:700">${fmt(c.new_price)}</span>${c.ref_no ? `<br><button class="history-btn" style="font-size:0.75rem;padding:0.1rem 0.35rem;margin-top:0.2rem" onclick="showHistory('${escHtml(c.ref_no)}','${escHtml((c.building_name||'')+' '+(c.floor||'')+(c.unit||''))}')">歷史 ↓</button>` : ''}`,
             `<span style="color:${col}">${d>0?'▲':'▼'} ${Math.abs(d)}%</span>`,
             srcLink(c.detail_url, c.source)
           );
@@ -1342,7 +1384,7 @@ async function loadTodayHighlights() {
       if (inner) {
         const estateObj = dashboardEstates.find(e => e.name === estate);
         const hdr = estateObj
-          ? `<div class="highlights-estate-header" style="cursor:pointer" onclick="showEstate(${estateObj.id},'${escHtml(estate).replace(/'/g,"\\'")}','${escHtml(estateObj.district||'').replace(/'/g,"\\'")}');closeSidebar()">${escHtml(estate)} <span style="font-size:0.72rem;color:var(--accent2);vertical-align:middle">↗</span></div>`
+          ? `<div class="highlights-estate-header" style="cursor:pointer" onclick="showEstate(${estateObj.id},'${escHtml(estate).replace(/'/g,"\\'")}','${escHtml(estateObj.district||'').replace(/'/g,"\\'")}');closeSidebar()">${escHtml(estate)} <span style="font-size:0.75rem;color:var(--accent2);vertical-align:middle">↗</span></div>`
           : `<div class="highlights-estate-header">${escHtml(estate)}</div>`;
         html += `<div class="highlights-group">${hdr}${inner}</div>`;
       }
@@ -1532,7 +1574,7 @@ async function loadHistoryHighlights(months) {
       if (inner) {
         const estateObj = dashboardEstates.find(e => e.name === estate);
         const hdr = estateObj
-          ? `<div class="highlights-estate-header" style="cursor:pointer" onclick="showEstate(${estateObj.id},'${escHtml(estate).replace(/'/g,"\\'")}','${escHtml(estateObj.district||'').replace(/'/g,"\\'")}');closeSidebar()">${escHtml(estate)} <span style="font-size:0.72rem;color:var(--accent2);vertical-align:middle">↗</span></div>`
+          ? `<div class="highlights-estate-header" style="cursor:pointer" onclick="showEstate(${estateObj.id},'${escHtml(estate).replace(/'/g,"\\'")}','${escHtml(estateObj.district||'').replace(/'/g,"\\'")}');closeSidebar()">${escHtml(estate)} <span style="font-size:0.75rem;color:var(--accent2);vertical-align:middle">↗</span></div>`
           : `<div class="highlights-estate-header">${escHtml(estate)}</div>`;
         html += `<div class="highlights-group">${hdr}${inner}</div>`;
       }
@@ -1620,7 +1662,7 @@ function drawDashboardChart(trends) {
 
   // Gradient fill
   const grad = ctx.createLinearGradient(0, pad.top, 0, pad.top + h);
-  const rgb = isPrice ? "245,158,11" : "59,130,246";
+  const rgb = isPrice ? "251,191,36" : "59,130,246";
   grad.addColorStop(0, `rgba(${rgb},0.28)`);
   grad.addColorStop(1, `rgba(${rgb},0)`);
 
@@ -1914,7 +1956,7 @@ async function showEstate(id, name, district, ricacorpEnabled = 0, centanetEnabl
             const vals = grp.map(l => l.price_per_ft).filter(Boolean);
             if (!vals.length) return '';
             const lo = Math.min(...vals), hi = Math.max(...vals);
-            return `<div style="margin-top:0.35rem"><span style="font-size:0.75rem;color:var(--muted)">${b}房</span> <span class="stat-value" style="font-size:1.1rem">$${Math.round(lo).toLocaleString()}</span><span class="stat-unit"> - </span><span class="stat-value" style="font-size:1.1rem">$${Math.round(hi).toLocaleString()}</span><span class="stat-unit"> /呎</span> <span style="font-size:0.72rem;color:var(--muted)">(${grp.length}個)</span></div>`;
+            return `<div style="margin-top:0.35rem"><span style="font-size:0.75rem;color:var(--muted)">${b}房</span> <span class="stat-value" style="font-size:1.1rem">$${Math.round(lo).toLocaleString()}</span><span class="stat-unit"> - </span><span class="stat-value" style="font-size:1.1rem">$${Math.round(hi).toLocaleString()}</span><span class="stat-unit"> /呎</span> <span style="font-size:0.75rem;color:var(--muted)">(${grp.length}個)</span></div>`;
           }).join('')}
         </div>
         <div class="stat-card">
@@ -2010,7 +2052,7 @@ async function loadEstateInfo(estateId) {
       <div style="margin-top:0.75rem;background:var(--surface2);border-radius:var(--radius);padding:0.75rem 1rem;display:inline-flex;flex-wrap:wrap;gap:0.5rem 1.5rem">
         ${rows.map(([label, val]) => `
           <div style="display:flex;flex-direction:column;gap:0.1rem">
-            <span style="font-size:0.68rem;color:var(--muted);text-transform:uppercase;letter-spacing:0.04em">${escHtml(label)}</span>
+            <span style="font-size:0.75rem;color:var(--muted);text-transform:uppercase;letter-spacing:0.04em">${escHtml(label)}</span>
             <span style="font-size:0.85rem;font-weight:600;color:var(--text)">${escHtml(val)}</span>
           </div>`).join('')}
       </div>` : '';
@@ -2134,7 +2176,7 @@ function buildMatchCell(v) {
   // If confirmed but listing no longer in allListings, show fallback
   if (confirmed && !matches.find(l => l.ref_no === confirmed)) {
     return `<span style="color:var(--muted);font-size:0.75rem">已確認 (已下架)</span>
-      <button onclick="confirmViewingListing(${v.id},null)" style="font-size:0.68rem;background:none;border:none;color:var(--muted);cursor:pointer;padding:0">✕ 取消</button>`;
+      <button onclick="confirmViewingListing(${v.id},null)" style="font-size:0.75rem;background:none;border:none;color:var(--muted);cursor:pointer;padding:0">✕ 取消</button>`;
   }
 
   const dismissed = new Set(JSON.parse(v.dismissed_refs || '[]'));
@@ -2150,13 +2192,13 @@ function buildMatchCell(v) {
     const link = l.detail_url ? `<a href="${escHtml(l.detail_url)}" target="_blank" style="${linkStyle}">${floorLabel} ${price} (${srcLabel}) ↗</a>` : `<span style="${linkStyle}">${floorLabel} ${price} (${srcLabel})</span>`;
     const confirmOnclick = isConfirmed ? `confirmViewingListing(${v.id},null)` : `confirmViewingListing(${v.id},'${escHtml(l.ref_no||'')}')`;
     const confirmStyle = isConfirmed
-      ? `font-size:0.68rem;background:var(--accent2);border:none;border-radius:4px;color:#fff;cursor:pointer;padding:1px 5px`
-      : `font-size:0.68rem;background:var(--surface2);border:1px solid var(--border);border-radius:4px;color:var(--text);cursor:pointer;padding:1px 5px;display:${(confirmed || isDismissed) ? 'none' : ''}`;
+      ? `font-size:0.75rem;background:var(--accent2);border:none;border-radius:4px;color:#fff;cursor:pointer;padding:1px 5px`
+      : `font-size:0.75rem;background:var(--surface2);border:1px solid var(--border);border-radius:4px;color:var(--text);cursor:pointer;padding:1px 5px;display:${(confirmed || isDismissed) ? 'none' : ''}`;
     const rowOpacity = confirmed && !isConfirmed ? '0.3' : '1';
     const xBtn = !isConfirmed && !confirmed
       ? isDismissed
-        ? `<button onclick="dismissViewingListing(${v.id},'${escHtml(l.ref_no||'')}',true)" style="font-size:0.68rem;background:none;border:none;color:var(--muted);cursor:pointer;padding:1px 3px" title="取消刪除線">✕</button>`
-        : `<button onclick="dismissViewingListing(${v.id},'${escHtml(l.ref_no||'')}')" style="font-size:0.68rem;background:none;border:none;color:var(--muted);cursor:pointer;padding:1px 3px" title="唔係呢個">✕</button>`
+        ? `<button onclick="dismissViewingListing(${v.id},'${escHtml(l.ref_no||'')}',true)" style="font-size:0.75rem;background:none;border:none;color:var(--muted);cursor:pointer;padding:1px 3px" title="取消刪除線">✕</button>`
+        : `<button onclick="dismissViewingListing(${v.id},'${escHtml(l.ref_no||'')}')" style="font-size:0.75rem;background:none;border:none;color:var(--muted);cursor:pointer;padding:1px 3px" title="唔係呢個">✕</button>`
       : '';
     return `<div style="font-size:0.78rem;display:flex;align-items:center;gap:0.3rem;opacity:${rowOpacity}">${link}
       <button onclick="${confirmOnclick}" style="${confirmStyle}" ${isConfirmed ? 'title="取消"' : ''}>✓</button>${xBtn}
@@ -2409,7 +2451,7 @@ async function loadViewings(estateId) {
       const imgs = v.images ? JSON.parse(v.images) : [];
       window._viewingImgsMap[v.id] = imgs;
       window._viewingMap[v.id] = v;
-      const imgHtml = imgs.length ? `<img class="viewing-card-img" src="${imgs[0]}" onclick="viewImgFull(${v.id},0)" style="height:56px;border-radius:4px;cursor:pointer;margin-top:0.3rem">${imgs.length>1?`<span style="font-size:0.72rem;color:var(--muted);display:block;margin-top:2px">+${imgs.length-1} 張</span>`:''}` : '';
+      const imgHtml = imgs.length ? `<img class="viewing-card-img" src="${imgs[0]}" onclick="viewImgFull(${v.id},0)" style="height:56px;border-radius:4px;cursor:pointer;margin-top:0.3rem">${imgs.length>1?`<span style="font-size:0.75rem;color:var(--muted);display:block;margin-top:2px">+${imgs.length-1} 張</span>`:''}` : '';
       const fmtBlock = v.block ? ((/座$/.test(v.block) ? v.block : v.block+'座')) : null;
       const fmtFloor = v.floor ? ((/樓$/.test(v.floor)||/層$/.test(v.floor) ? v.floor : v.floor+'樓')) : null;
       const fmtUnit = v.unit ? ((/室$/.test(v.unit)||/號$/.test(v.unit) ? v.unit : v.unit+'室')) : null;
@@ -2427,7 +2469,7 @@ async function loadViewings(estateId) {
         <td>${v.size_net ? v.size_net+'呎' : '-'}</td>
         <td style="color:var(--accent)"><strong>${fmt(v.price)}</strong><br><span style="color:var(--muted);font-size:0.75rem">${psfStr}</span></td>
         <td id="vhs-${v.id}">${hsCell}</td>
-        <td id="vprev-${v.id}"><span style="color:var(--muted);font-size:0.72rem;cursor:pointer" onclick="fetchUnitTxn(${v.id})">查詢</span></td>
+        <td id="vprev-${v.id}"><span style="color:var(--muted);font-size:0.75rem;cursor:pointer" onclick="fetchUnitTxn(${v.id})">查詢</span></td>
         <td>${v.txn_price && v.txn_reg_date >= v.view_date ? `<span style="color:var(--accent)"><strong>${fmt(v.txn_price)}</strong></span><br><span style="color:var(--muted);font-size:0.75rem">${v.txn_reg_date}</span>` : '-'}</td>
         <td>${mgmtMonthly ? `$${mgmtMonthly.toLocaleString()}/月` : '-'}</td>
         <td id="vmatch-${v.id}">${buildMatchCell(v)}</td>
@@ -2439,8 +2481,8 @@ async function loadViewings(estateId) {
         </td>
       </tr>`;
     }).join('');
-    panel.innerHTML = `<div class="listings-section" style="overflow-x:auto">
-      <table class="history-table" style="min-width:700px;white-space:nowrap">
+    panel.innerHTML = `<div class="listings-section table-scroll">
+      <table class="history-table data-table">
         <thead><tr>
           <th>睇樓日期</th><th>單位</th><th>房數</th><th>實用面積</th><th>售價</th><th>恒生估值</th><th>上次購買</th><th>成交記錄</th><th>管理費(每月)</th><th>對應放盤</th><th>備注</th><th>圖片</th><th></th>
         </tr></thead>
@@ -2473,7 +2515,7 @@ async function fetchUnitTxn(viewingId) {
     const t = data.txn;
     if (!t?.price) {
       cell.innerHTML = data.estateUrl
-        ? `<a href="${data.estateUrl}" target="_blank" style="color:var(--muted);font-size:0.72rem">查歷史↗</a>`
+        ? `<a href="${data.estateUrl}" target="_blank" style="color:var(--muted);font-size:0.75rem">查歷史↗</a>`
         : '-';
       return;
     }
@@ -2762,8 +2804,8 @@ function renderTransactionsTable(estateId, offset, hasMore) {
   panel.innerHTML = `
     <div class="listings-section">
       ${filterBar}
-      <div style="overflow-x:auto">
-        <table style="min-width:700px;white-space:nowrap">
+      <div class="table-scroll">
+        <table class="data-table">
           <thead><tr>${ths}</tr></thead>
           <tbody>${rows}</tbody>
         </table>
@@ -2857,7 +2899,7 @@ function renderSourceToggles() {
   const centanetOn = bar?.dataset.centanet !== '0';
   const ricacorpOn = bar?.dataset.ricacorp === '1';
   const hkpOn = bar?.dataset.hkp === '1';
-  const btnStyle = (active) => `background:${active ? 'var(--accent)' : 'var(--surface2)'};border:1px solid ${active ? 'var(--accent)' : 'var(--border)'};border-radius:var(--radius);padding:0.25rem 0.65rem;font-size:0.75rem;cursor:pointer;color:${active ? '#fff' : 'var(--muted)'};font-weight:${active ? '600' : '400'}`;
+  const btnStyle = (active) => `background:${active ? 'var(--accent)' : 'var(--surface2)'};border:1px solid ${active ? 'var(--accent)' : 'var(--border)'};border-radius:var(--radius);padding:0.25rem 0.65rem;font-size:0.75rem;cursor:pointer;color:${active ? 'var(--on-accent)' : 'var(--muted)'};font-weight:${active ? '600' : '400'}`;
   el.innerHTML = `<div style="display:flex;gap:0.4rem">
     <button style="${btnStyle(centanetOn)}" onclick="toggleSource('centanet')">中原</button>
     <button style="${btnStyle(ricacorpOn)}" onclick="toggleSource('ricacorp')">利嘉閣</button>
@@ -2985,7 +3027,7 @@ function renderListingsTable() {
       <tr${l.removed_date ? ' style="opacity:0.45"' : ''}>
         <td class="txn-date">
           ${l.first_seen || '-'}
-          ${l.removed_date ? `<div style="color:var(--down);font-size:0.7rem">下架 ${l.removed_date}</div>` : ''}
+          ${l.removed_date ? `<div style="color:var(--down);font-size:0.75rem">下架 ${l.removed_date}</div>` : ''}
         </td>
         <td>${escHtml(l.building_name||'-')}</td>
         <td>
@@ -3005,12 +3047,12 @@ function renderListingsTable() {
         </td>
         <td>${escHtml(l.direction||'-')}</td>
         <td>${l.detail_url
-          ? `<a href="${escHtml(l.detail_url)}" target="_blank" class="detail-link" style="font-size:0.72rem">${sourceLabel(l.source)} ↗</a>`
-          : `<span style="font-size:0.72rem">${sourceLabel(l.source)}</span>`}</td>
+          ? `<a href="${escHtml(l.detail_url)}" target="_blank" class="detail-link" style="font-size:0.75rem">${sourceLabel(l.source)} ↗</a>`
+          : `<span style="font-size:0.75rem">${sourceLabel(l.source)}</span>`}</td>
       </tr>
     `).join('');
 
-  el.innerHTML = `<div style="overflow-x:auto"><table style="min-width:700px;white-space:nowrap"><thead><tr>${ths}</tr></thead><tbody>${rows}</tbody></table></div>`;
+  el.innerHTML = `<div class="table-scroll"><table class="data-table"><thead><tr>${ths}</tr></thead><tbody>${rows}</tbody></table></div>`;
 }
 
 function floorClass(floor) {
@@ -3078,8 +3120,8 @@ function drawChart(trends) {
 
   // Gradient fill
   const grad = ctx.createLinearGradient(0, pad.top, 0, pad.top + h);
-  grad.addColorStop(0, "rgba(245,158,11,0.25)");
-  grad.addColorStop(1, "rgba(245,158,11,0)");
+  grad.addColorStop(0, "rgba(251,191,36,0.25)");
+  grad.addColorStop(1, "rgba(251,191,36,0)");
 
   ctx.beginPath();
   data.forEach((v, i) => {
@@ -3154,7 +3196,7 @@ async function showHistory(refNo, label) {
     if (sub) sub.innerHTML = `放盤編號：${detail_url
       ? `<a href="${escHtml(detail_url)}" target="_blank" class="detail-link">${escHtml(refNo)} ↗</a>`
       : escHtml(refNo)
-    } &nbsp;<span style="font-size:0.72rem;color:var(--muted);background:var(--surface2);border-radius:4px;padding:0.1rem 0.4rem">${srcLabel}</span>`;
+    } &nbsp;<span style="font-size:0.75rem;color:var(--muted);background:var(--surface2);border-radius:4px;padding:0.1rem 0.4rem">${srcLabel}</span>`;
     const content = document.getElementById("historyContent");
     if (!history.length) {
       content.innerHTML = '<div class="no-data">暫無歷史記錄</div>';
