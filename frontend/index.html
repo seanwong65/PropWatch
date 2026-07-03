@@ -2899,7 +2899,7 @@ function renderSourceToggles() {
   const centanetOn = bar?.dataset.centanet !== '0';
   const ricacorpOn = bar?.dataset.ricacorp === '1';
   const hkpOn = bar?.dataset.hkp === '1';
-  const btnStyle = (active) => `background:${active ? 'var(--accent)' : 'var(--surface2)'};border:1px solid ${active ? 'var(--accent)' : 'var(--border)'};border-radius:var(--radius);padding:0.25rem 0.65rem;font-size:0.75rem;cursor:pointer;color:${active ? 'var(--on-accent)' : 'var(--muted)'};font-weight:${active ? '600' : '400'}`;
+  const btnStyle = (active) => `background:${active ? 'rgba(251,191,36,0.12)' : 'var(--surface2)'};border:1px solid ${active ? 'var(--accent)' : 'var(--border)'};border-radius:var(--radius);padding:0.25rem 0.65rem;font-size:0.75rem;cursor:pointer;color:${active ? 'var(--accent)' : 'var(--muted)'};font-weight:${active ? '600' : '400'}`;
   el.innerHTML = `<div style="display:flex;gap:0.4rem">
     <button style="${btnStyle(centanetOn)}" onclick="toggleSource('centanet')">中原</button>
     <button style="${btnStyle(ricacorpOn)}" onclick="toggleSource('ricacorp')">利嘉閣</button>
