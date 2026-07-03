@@ -768,7 +768,7 @@ async function ensureSystemParams(db) {
 // so an exact-unit join is impossible. We match a *stack* (估苑+座+室+面積) that
 // disappeared from listings against a transaction in a plausible time+price
 // window, pick the single best candidate per stack, and score confidence.
-const _normBldg = (s) => String(s || "").replace(/\s/g, "").toUpperCase();
+const _normBldg = (s) => String(s || "").replace(/[座\s]/g, "").toUpperCase();
 const _normUnit = (s) => String(s || "").replace(/[室號\s]/g, "").toUpperCase();
 
 async function computeAskingSold(db, estateId) {
@@ -936,9 +936,25 @@ async function computeViewingComps(db) {
       const mid = (range.price_low + range.price_high) / 2;
       verdict = Math.round(((v.price - mid) / mid) * 1000) / 10;
     }
+
+    // 已成交:同座 + 同(實際)樓層 + 同室,且成交登記日 >= 睇樓日 - 21日
+    // (睇樓之後先成交 = 你追嗰個盤真係賣咗)。舊過睇樓日嘅 = 業主舊買入,唔算。
+    const exactFloor = String(v.floor || "").replace(/\D/g, "");
+    const cutoff = v.view_date ? new Date(Date.parse(v.view_date) - 21 * 86400000).toISOString().slice(0, 10) : null;
+    const ownSales = pool.filter((t) =>
+      _normBldg(t.building) === nb && _normUnit(t.unit) === nu &&
+      String(t.floor || "").replace(/\D/g, "") === exactFloor && exactFloor &&
+      (!cutoff || (t.reg_date || "") >= cutoff)
+    );
+    const sold = ownSales.length
+      ? { price: ownSales[0].price, reg_date: ownSales[0].reg_date, size_net: ownSales[0].size_net,
+          vs_view: (v.price ? Math.round(((ownSales[0].price - v.price) / v.price) * 1000) / 10 : null) }
+      : null;
+
     return { id: v.id, estate_id: v.estate_id, estate_name: v.estate_name,
       block: v.block, floor: v.floor, unit: v.unit, size_net: v.size_net, bedrooms: v.bedrooms,
-      price: v.price, view_date: v.view_date, range, verdict, comp_count: comps.length, comps };
+      price: v.price, view_date: v.view_date, status: sold ? "sold" : "listed", sold,
+      range, verdict, comp_count: comps.length, comps };
   });
 }
 
