@@ -1159,11 +1159,13 @@ async function showDashboard(estates) {
           <div style="display:flex;gap:0;border-bottom:2px solid var(--border)">
             <button id="dash-tab-today" onclick="switchDashTab('today')" style="background:none;border:none;border-bottom:2px solid var(--accent);margin-bottom:-2px;color:var(--text);font-size:0.9rem;font-weight:600;padding:0.35rem 0.85rem;cursor:pointer">今日動態 <span id="highlights-date" style="font-weight:400;color:var(--muted);font-size:0.8rem"></span></button>
             <button id="dash-tab-unsold" onclick="switchDashTab('unsold')" style="background:none;border:none;border-bottom:2px solid transparent;margin-bottom:-2px;color:var(--muted);font-size:0.9rem;padding:0.35rem 0.85rem;cursor:pointer">追蹤中放盤</button>
+            <button id="dash-tab-spread" onclick="switchDashTab('spread')" style="background:none;border:none;border-bottom:2px solid transparent;margin-bottom:-2px;color:var(--muted);font-size:0.9rem;padding:0.35rem 0.85rem;cursor:pointer">叫價→成交</button>
           </div>
           <button class="history-btn" style="font-size:0.88rem;padding:0.35rem 0.85rem" onclick="showHistoryPage()">歷史動態 →</button>
         </div>
         <div id="dash-panel-today"><div id="highlights-body" style="color:var(--muted);font-size:0.75rem">載入中…</div></div>
         <div id="dash-panel-unsold" style="display:none"><div id="unsold-body" style="color:var(--muted);font-size:0.75rem">載入中…</div></div>
+        <div id="dash-panel-spread" style="display:none"><div id="spread-body" style="color:var(--muted);font-size:0.75rem">載入中…</div></div>
       </div>
       <div class="dashboard-chart-section" style="margin-top:1.25rem">
         <div class="dashboard-chart-header">
@@ -1184,16 +1186,73 @@ async function showDashboard(estates) {
   loadUnsoldViewings();
 }
 
+let _spreadLoaded = false;
 function switchDashTab(tab) {
-  const isToday = tab === 'today';
-  document.getElementById('dash-panel-today').style.display = isToday ? '' : 'none';
-  document.getElementById('dash-panel-unsold').style.display = isToday ? 'none' : '';
-  document.getElementById('dash-tab-today').style.borderBottomColor = isToday ? 'var(--accent)' : 'transparent';
-  document.getElementById('dash-tab-today').style.color = isToday ? 'var(--text)' : 'var(--muted)';
-  document.getElementById('dash-tab-today').style.fontWeight = isToday ? '600' : '400';
-  document.getElementById('dash-tab-unsold').style.borderBottomColor = isToday ? 'transparent' : 'var(--accent)';
-  document.getElementById('dash-tab-unsold').style.color = isToday ? 'var(--muted)' : 'var(--text)';
-  document.getElementById('dash-tab-unsold').style.fontWeight = isToday ? '400' : '600';
+  const tabs = ['today', 'unsold', 'spread'];
+  for (const id of tabs) {
+    const active = id === tab;
+    const panel = document.getElementById('dash-panel-' + id);
+    const btn = document.getElementById('dash-tab-' + id);
+    if (panel) panel.style.display = active ? '' : 'none';
+    if (btn) {
+      btn.style.borderBottomColor = active ? 'var(--accent)' : 'transparent';
+      btn.style.color = active ? 'var(--text)' : 'var(--muted)';
+      btn.style.fontWeight = active ? '600' : '400';
+    }
+  }
+  if (tab === 'spread' && !_spreadLoaded) { _spreadLoaded = true; loadAskingSold(); }
+}
+
+function estateNameById(id) {
+  const e = (dashboardEstates || []).find(x => x.id === id);
+  return e ? e.name : ('#' + id);
+}
+
+async function loadAskingSold() {
+  const body = document.getElementById('spread-body');
+  try {
+    const r = await api('/api/asking-sold');
+    const pairs = r.pairs || [];
+    const s = r.summary || {};
+    if (!pairs.length) {
+      body.innerHTML = '<span style="color:var(--muted)">未有已配對嘅叫價→成交記錄<br><small>系統會持續追蹤放盤,當一個盤下架又出現對應成交時自動配對</small></span>';
+      return;
+    }
+    const medTxt = s.median_spread_pct != null ? (s.median_spread_pct > 0 ? '+' : '') + s.median_spread_pct + '%' : '—';
+    const medColor = s.median_spread_pct <= 0 ? 'var(--up)' : 'var(--down)';
+    const rows = pairs.map(p => {
+      const spreadColor = p.spread_pct <= 0 ? 'var(--up)' : 'var(--down)';
+      const spreadTxt = (p.spread_pct > 0 ? '+' : '') + p.spread_pct + '%';
+      const conf = p.confidence === 'high'
+        ? '<span style="font-size:0.72rem;color:var(--muted)">高</span>'
+        : '<span style="font-size:0.72rem;color:var(--accent)">中</span>';
+      return `<tr class="hl-tr">
+        <td style="padding:0.4rem 0.5rem 0.4rem 0">${escHtml(estateNameById(p.estate_id))}<br><span style="color:var(--muted);font-size:0.75rem">${escHtml(p.building||'')}${escHtml(p.unit||'')} · ${p.size_net||'?'}呎 · ${escHtml(p.txn_floor||'')}</span></td>
+        <td style="text-align:right;padding:0.4rem 0.5rem;white-space:nowrap">$${(p.asking/10000).toLocaleString()}萬</td>
+        <td style="text-align:right;padding:0.4rem 0.5rem;white-space:nowrap">$${(p.sold/10000).toLocaleString()}萬</td>
+        <td style="text-align:right;padding:0.4rem 0.5rem;white-space:nowrap;color:${spreadColor};font-weight:600">${spreadTxt}</td>
+        <td style="text-align:right;padding:0.4rem 0 0.4rem 0.5rem;white-space:nowrap"><span style="color:var(--muted);font-size:0.75rem">${p.reg_date}</span> ${conf}</td>
+      </tr>`;
+    }).join('');
+    body.innerHTML = `
+      <div style="display:flex;gap:1.2rem;flex-wrap:wrap;margin-bottom:0.75rem">
+        <div><div style="font-size:0.75rem;color:var(--muted)">議價幅度中位數</div><div style="font-size:1.4rem;font-weight:600;color:${medColor}">${medTxt}</div></div>
+        <div><div style="font-size:0.75rem;color:var(--muted)">已配對</div><div style="font-size:1.4rem;font-weight:600">${s.count}<span style="font-size:0.8rem;color:var(--muted);font-weight:400"> 宗</span></div></div>
+      </div>
+      <p style="font-size:0.75rem;color:var(--muted);margin-bottom:0.5rem">已下架放盤配對到對應成交,計叫價與實際成交嘅落差(負數＝低於叫價成交)。配對靠 座+室+面積+時序,樓層為遮蔽故信心分「高/中」。</p>
+      <div class="table-scroll"><table style="width:100%;border-collapse:collapse">
+        <thead><tr style="text-align:left;color:var(--muted);font-size:0.75rem">
+          <th style="padding:0.3rem 0.5rem 0.3rem 0">屋苑 / 單位</th>
+          <th style="text-align:right;padding:0.3rem 0.5rem">叫價</th>
+          <th style="text-align:right;padding:0.3rem 0.5rem">成交</th>
+          <th style="text-align:right;padding:0.3rem 0.5rem">落差</th>
+          <th style="text-align:right;padding:0.3rem 0 0.3rem 0.5rem">登記 · 信心</th>
+        </tr></thead>
+        <tbody>${rows}</tbody>
+      </table></div>`;
+  } catch (e) {
+    body.innerHTML = `<span style="color:var(--down)">載入失敗:${escHtml(e.message)}</span>`;
+  }
 }
 
 async function loadUnsoldViewings() {

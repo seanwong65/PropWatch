@@ -760,6 +760,103 @@ async function ensureSystemParams(db) {
   }
 }
 
+// ── 叫價 → 成交落差配對 (asking-to-sold spread) ──────────────────────────────
+// Listings mask the floor (高/中/低層) while transactions carry the exact floor,
+// so an exact-unit join is impossible. We match a *stack* (估苑+座+室+面積) that
+// disappeared from listings against a transaction in a plausible time+price
+// window, pick the single best candidate per stack, and score confidence.
+const _normBldg = (s) => String(s || "").replace(/\s/g, "").toUpperCase();
+const _normUnit = (s) => String(s || "").replace(/[室號\s]/g, "").toUpperCase();
+
+async function computeAskingSold(db, estateId) {
+  const filter = estateId ? "AND s.estate_id = ?" : "";
+  const binds = estateId ? [estateId] : [];
+
+  // Stacks (座+室+面積) whose last listing snapshot is older than the estate's
+  // latest snapshot = they dropped off the market. `ask` = lowest asking on that
+  // last day (across sources).
+  const { results: stacks } = await db.prepare(`
+    WITH latest AS (SELECT estate_id, MAX(snapshot_date) d FROM listings GROUP BY estate_id),
+    stacks AS (
+      SELECT estate_id, building_name, unit, size_net, MAX(snapshot_date) last_seen
+      FROM listings
+      WHERE unit IS NOT NULL AND building_name IS NOT NULL
+      GROUP BY estate_id, building_name, unit, size_net
+    )
+    SELECT s.estate_id, s.building_name, s.unit, s.size_net, s.last_seen,
+      (SELECT l.price FROM listings l
+        WHERE l.estate_id = s.estate_id AND l.building_name = s.building_name
+          AND l.unit = s.unit AND l.size_net = s.size_net AND l.snapshot_date = s.last_seen
+        ORDER BY l.price LIMIT 1) AS ask
+    FROM stacks s
+    JOIN latest la ON la.estate_id = s.estate_id AND s.last_seen < la.d
+    WHERE 1=1 ${filter}
+  `).bind(...binds).all();
+
+  const txnFilter = estateId ? "WHERE estate_id = ?" : "";
+  const { results: txns } = await db.prepare(
+    `SELECT id, estate_id, building, unit, size_net, floor, price, reg_date FROM transactions ${txnFilter}`
+  ).bind(...binds).all();
+
+  const byKey = new Map();
+  for (const t of txns) {
+    const key = `${t.estate_id}|${_normBldg(t.building)}|${_normUnit(t.unit)}`;
+    if (!byKey.has(key)) byKey.set(key, []);
+    byKey.get(key).push(t);
+  }
+
+  const usedTxn = new Set();
+  const pairs = [];
+  // Assign newest-removed stacks first so a shared transaction goes to one flat.
+  stacks.sort((a, b) => (b.last_seen || "").localeCompare(a.last_seen || ""));
+
+  for (const s of stacks) {
+    if (!s.ask) continue;
+    const key = `${s.estate_id}|${_normBldg(s.building_name)}|${_normUnit(s.unit)}`;
+    const dLast = Date.parse(s.last_seen);
+    const cands = (byKey.get(key) || []).filter((t) => {
+      if (usedTxn.has(t.id)) return false;
+      const dReg = Date.parse(t.reg_date);
+      if (isNaN(dReg)) return false;
+      const days = (dReg - dLast) / 86400000;
+      if (days < -21 || days > 120) return false;           // sale registers near delisting
+      if (t.size_net && s.size_net && Math.abs(t.size_net - s.size_net) > s.size_net * 0.05) return false;
+      const spread = (t.price - s.ask) / s.ask;
+      if (spread < -0.30 || spread > 0.15) return false;    // reject implausible = wrong flat
+      return true;
+    });
+    if (!cands.length) continue;
+    cands.sort((a, b) => {
+      const da = Math.abs(Date.parse(a.reg_date) - dLast);
+      const dbb = Math.abs(Date.parse(b.reg_date) - dLast);
+      if (da !== dbb) return da - dbb;
+      return Math.abs(a.price - s.ask) - Math.abs(b.price - s.ask);
+    });
+    const t = cands[0];
+    usedTxn.add(t.id);
+    const spread = (t.price - s.ask) / s.ask;
+    const sizeExact = t.size_net && s.size_net && Math.abs(t.size_net - s.size_net) <= s.size_net * 0.03;
+    const confidence = (sizeExact && spread >= -0.20 && spread <= 0.08) ? "high" : "medium";
+    pairs.push({
+      estate_id: s.estate_id, building: s.building_name, unit: s.unit, size_net: s.size_net,
+      txn_floor: t.floor, removed_date: s.last_seen, reg_date: t.reg_date,
+      asking: s.ask, sold: t.price, spread_pct: Math.round(spread * 1000) / 10, confidence,
+    });
+  }
+
+  pairs.sort((a, b) => (b.reg_date || "").localeCompare(a.reg_date || ""));
+  const spreads = pairs.map((p) => p.spread_pct).sort((a, b) => a - b);
+  const median = spreads.length ? spreads[Math.floor(spreads.length / 2)] : null;
+  return {
+    pairs,
+    summary: {
+      count: pairs.length,
+      high_count: pairs.filter((p) => p.confidence === "high").length,
+      median_spread_pct: median,
+    },
+  };
+}
+
 async function sendEmail(apiKey, to, subject, html) {
   const res = await fetch("https://api.resend.com/emails", {
     method: "POST",
@@ -2145,6 +2242,13 @@ export default {
           await db.prepare("DELETE FROM system_parameters WHERE id = ?").bind(id).run();
           return json(200, { ok: true });
         }
+      }
+
+      // 叫價 → 成交落差:配對已下架放盤同對應成交,計議價幅度
+      if (method === "GET" && path === "/api/asking-sold") {
+        const estateId = url.searchParams.get("estateId");
+        const result = await computeAskingSold(db, estateId ? Number(estateId) : null);
+        return json(200, result);
       }
 
       if (method === "POST" && path === "/api/admin/migrate-centanet-enabled") {
