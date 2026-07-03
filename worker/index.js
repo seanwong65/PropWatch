@@ -729,6 +729,37 @@ async function saveHkpListings(db, estateId, listings) {
   await db.batch(batch);
 }
 
+// System parameters — a generic key/value catalogue with per-row CRUD.
+// Replaces the fragile single-blob settings.notes_options row. Ensures the
+// table exists and runs a one-time migration of any legacy notes_options.
+async function ensureSystemParams(db) {
+  await db.prepare(
+    `CREATE TABLE IF NOT EXISTS system_parameters (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      category TEXT NOT NULL,
+      value TEXT NOT NULL,
+      sort_order INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL DEFAULT (datetime('now', '+8 hours')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now', '+8 hours'))
+    )`
+  ).run();
+  await db.prepare("CREATE INDEX IF NOT EXISTS idx_sysparam_category ON system_parameters(category, sort_order)").run();
+
+  // Run the legacy migration exactly once, guarded by a flag in `settings`,
+  // so deleting all rows later never re-imports the old blob.
+  await db.prepare("CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT)").run();
+  const migrated = await db.prepare("SELECT value FROM settings WHERE key = 'sysparam_migrated'").first();
+  if (!migrated) {
+    const legacy = await db.prepare("SELECT value FROM settings WHERE key = 'notes_options'").first();
+    const lines = (legacy?.value || "").split("\n").map((s) => s.trim()).filter(Boolean);
+    let i = 0;
+    for (const line of lines) {
+      await db.prepare("INSERT INTO system_parameters (category, value, sort_order) VALUES ('notes_option', ?, ?)").bind(line, i++).run();
+    }
+    await db.prepare("INSERT INTO settings (key, value) VALUES ('sysparam_migrated', '1') ON CONFLICT(key) DO UPDATE SET value = '1'").run();
+  }
+}
+
 async function sendEmail(apiKey, to, subject, html) {
   const res = await fetch("https://api.resend.com/emails", {
     method: "POST",
@@ -2070,6 +2101,50 @@ export default {
         await db.prepare("INSERT INTO settings (key, value) VALUES ('notes_options', ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value")
           .bind(notes_options ?? "").run();
         return json(200, { ok: true });
+      }
+
+      // ── System parameters — generic per-row CRUD ─────────────────────────
+      if (path === "/api/system-params") {
+        await ensureSystemParams(db);
+        if (method === "GET") {
+          const category = url.searchParams.get("category");
+          const stmt = category
+            ? db.prepare("SELECT id, category, value, sort_order FROM system_parameters WHERE category = ? ORDER BY sort_order, id").bind(category)
+            : db.prepare("SELECT id, category, value, sort_order FROM system_parameters ORDER BY category, sort_order, id");
+          const { results } = await stmt.all();
+          return json(200, { items: results });
+        }
+        if (method === "POST") {
+          const { category, value } = await request.json();
+          if (!category || !value || !String(value).trim()) return json(400, { error: "category and value required" });
+          const max = await db.prepare("SELECT COALESCE(MAX(sort_order), -1) AS m FROM system_parameters WHERE category = ?").bind(category).first();
+          const so = (max?.m ?? -1) + 1;
+          const res = await db.prepare("INSERT INTO system_parameters (category, value, sort_order) VALUES (?, ?, ?)")
+            .bind(category, String(value).trim(), so).run();
+          return json(200, { id: res.meta.last_row_id, category, value: String(value).trim(), sort_order: so });
+        }
+      }
+
+      if (path.startsWith("/api/system-params/")) {
+        await ensureSystemParams(db);
+        const id = path.split("/").pop();
+        if (method === "PUT") {
+          const { value, sort_order } = await request.json();
+          if (value !== undefined) {
+            if (!String(value).trim()) return json(400, { error: "value cannot be empty" });
+            await db.prepare("UPDATE system_parameters SET value = ?, updated_at = datetime('now', '+8 hours') WHERE id = ?")
+              .bind(String(value).trim(), id).run();
+          }
+          if (sort_order !== undefined) {
+            await db.prepare("UPDATE system_parameters SET sort_order = ?, updated_at = datetime('now', '+8 hours') WHERE id = ?")
+              .bind(sort_order, id).run();
+          }
+          return json(200, { ok: true });
+        }
+        if (method === "DELETE") {
+          await db.prepare("DELETE FROM system_parameters WHERE id = ?").bind(id).run();
+          return json(200, { ok: true });
+        }
       }
 
       if (method === "POST" && path === "/api/admin/migrate-centanet-enabled") {

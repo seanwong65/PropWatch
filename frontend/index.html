@@ -934,9 +934,13 @@
     <button class="modal-close" onclick="closeSettingsModal()">✕</button>
     <div class="modal-title">⚙️ 設定</div>
     <div class="modal-sub">備注選項</div>
-    <p style="font-size:0.78rem;color:var(--muted);margin:0.25rem 0 0.75rem">每行一個選項，儲存後即時生效</p>
-    <textarea id="settings-notes-options" style="width:100%;min-height:140px;background:var(--surface2);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:0.9rem;padding:0.6rem;box-sizing:border-box;resize:vertical;font-family:inherit" placeholder="例：&#10;心水&#10;一般&#10;唔考慮&#10;太貴"></textarea>
-    <button class="vf-submit" onclick="saveSettings()" style="margin-top:0.75rem">儲存設定</button>
+    <p style="font-size:0.78rem;color:var(--muted);margin:0.25rem 0 0.75rem">每個選項獨立儲存，改動即時生效</p>
+    <div id="settings-notes-list" style="display:flex;flex-direction:column;gap:0.4rem;margin-bottom:0.6rem"></div>
+    <div style="display:flex;gap:0.4rem">
+      <input id="settings-notes-new" placeholder="新增選項…" onkeydown="if(event.key==='Enter')addNotesOption()"
+        style="flex:1;background:var(--surface2);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:0.9rem;padding:0.5rem 0.6rem;box-sizing:border-box;font-family:inherit">
+      <button class="vf-submit" onclick="addNotesOption()" style="width:auto;padding:0.5rem 1rem;margin:0;white-space:nowrap">＋ 新增</button>
+    </div>
   </div>
 </div>
 
@@ -2143,12 +2147,14 @@ let _viewingEstateName = '';
 let _viewingImages = []; // [{dataUrl, file}]
 let _viewingEditId = null;
 
-let _notesOptions = [];
+let _notesOptions = [];      // string[] — consumed by the per-unit note dropdown
+let _notesParams = [];       // {id, value}[] — backing rows for the settings CRUD editor
 
 async function loadNotesOptions() {
   try {
-    const r = await api('/api/settings');
-    _notesOptions = (r.notes_options || '').split('\n').map(s => s.trim()).filter(Boolean);
+    const r = await api('/api/system-params?category=notes_option');
+    _notesParams = (r && r.items) || [];
+    _notesOptions = _notesParams.map(p => p.value);
   } catch(_) {}
 }
 
@@ -2272,20 +2278,55 @@ function getNotesValue() {
   return [...chips, ...(text ? [text] : [])].join(', ') || null;
 }
 
-function openSettingsModal() {
+async function openSettingsModal() {
   document.getElementById('settingsModalOverlay').style.display = 'flex';
-  document.getElementById('settings-notes-options').value = _notesOptions.join('\n');
+  renderNotesOptions();
+  await loadNotesOptions();
+  renderNotesOptions();
 }
 
 function closeSettingsModal() {
   document.getElementById('settingsModalOverlay').style.display = 'none';
 }
 
-async function saveSettings() {
-  const val = document.getElementById('settings-notes-options').value;
-  await api('/api/settings', { method: 'PUT', body: JSON.stringify({ notes_options: val }) });
-  _notesOptions = val.split('\n').map(s => s.trim()).filter(Boolean);
-  closeSettingsModal();
+function renderNotesOptions() {
+  const list = document.getElementById('settings-notes-list');
+  if (!list) return;
+  if (!_notesParams.length) {
+    list.innerHTML = `<div style="font-size:0.8rem;color:var(--muted);padding:0.3rem 0">未有選項，喺下面新增。</div>`;
+    return;
+  }
+  list.innerHTML = _notesParams.map(p => `
+    <div style="display:flex;gap:0.4rem;align-items:center">
+      <input value="${escHtml(p.value)}" onchange="updateNotesOption(${p.id}, this.value)"
+        style="flex:1;background:var(--surface2);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:0.9rem;padding:0.5rem 0.6rem;box-sizing:border-box;font-family:inherit">
+      <button onclick="deleteNotesOption(${p.id})" title="刪除"
+        style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;color:var(--muted);cursor:pointer;padding:0.5rem 0.6rem;font-size:0.85rem">✕</button>
+    </div>`).join('');
+}
+
+async function addNotesOption() {
+  const input = document.getElementById('settings-notes-new');
+  const value = input.value.trim();
+  if (!value) return;
+  await api('/api/system-params', { method: 'POST', body: JSON.stringify({ category: 'notes_option', value }) });
+  input.value = '';
+  await loadNotesOptions();
+  renderNotesOptions();
+}
+
+async function updateNotesOption(id, value) {
+  const val = (value || '').trim();
+  if (!val) { renderNotesOptions(); return; }   // reject empty; restore previous
+  await api('/api/system-params/' + id, { method: 'PUT', body: JSON.stringify({ value: val }) });
+  await loadNotesOptions();
+  renderNotesOptions();
+}
+
+async function deleteNotesOption(id) {
+  await api('/api/system-params/' + id, { method: 'DELETE' });
+  await loadNotesOptions();
+  renderNotesOptions();
 }
 
 function openViewingModal(viewing = null) {

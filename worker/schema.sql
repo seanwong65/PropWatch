@@ -121,3 +121,15 @@ CREATE TABLE IF NOT EXISTS transactions (
 );
 
 CREATE INDEX IF NOT EXISTS idx_txn_estate ON transactions(estate_id, first_seen DESC);
+
+-- 系統參數（通用 key/value 目錄，例如「備注選項」）；逐行 CRUD
+CREATE TABLE IF NOT EXISTS system_parameters (
+  id          INTEGER PRIMARY KEY AUTOINCREMENT,
+  category    TEXT    NOT NULL,
+  value       TEXT    NOT NULL,
+  sort_order  INTEGER NOT NULL DEFAULT 0,
+  created_at  TEXT    NOT NULL DEFAULT (datetime('now', '+8 hours')),
+  updated_at  TEXT    NOT NULL DEFAULT (datetime('now', '+8 hours'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_sysparam_category ON system_parameters(category, sort_order);
