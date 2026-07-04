@@ -1070,6 +1070,7 @@ let chart = null;
 
 // Listings state
 let allListings = [];
+let estatesById = {};
 let sortCol = "price";
 let sortDir = "asc";
 let filters = { beds: "all", floor: "all", building: "all", unit: "all", minPrice: "", maxPrice: "", minSize: "", maxSize: "", priceChanged: "all", source: "all" };
@@ -1900,6 +1901,8 @@ async function loadEstates() {
   const list = document.getElementById("estateList");
   try {
     const { estates } = await api("/api/estates");
+    estatesById = {};
+    estates.forEach(e => { estatesById[e.id] = e; });
     if (!estates.length) {
       list.innerHTML = '<div class="sidebar-empty">未追蹤任何屋苑<br><small>在上方搜尋並新增</small></div>';
       document.getElementById("main").innerHTML = '<div class="welcome"><div class="welcome-icon">🏠</div><h2>追蹤香港樓市動態</h2><p>在左側搜尋屋苑名稱，系統每日自動更新售價，並顯示趨勢走勢。</p></div>';
@@ -1910,7 +1913,7 @@ async function loadEstates() {
       <div class="estate-card ${e.id === activeEstateId ? 'active' : ''}"
            data-id="${e.id}"
            draggable="true"
-           onclick="showEstate(${e.id}, '${escHtml(e.name)}', '${escHtml(e.district||'')}', ${e.ricacorp_enabled ? 1 : 0}, ${e.centanet_enabled !== 0 ? 1 : 0}, ${e.hkp_enabled ? 1 : 0})">
+           onclick="showEstate(${e.id})">
         <span class="drag-handle" title="拖拽排序">⠿</span>
         <button class="estate-card-star ${e.is_favourite ? 'starred' : ''}"
                 onclick="toggleFavourite(event,${e.id})" title="標記最愛">★</button>
@@ -2073,10 +2076,15 @@ async function trackEstate(name, bigestcode, district, isBigest) {
 }
 
 // ── Estate detail ──────────────────────────────────────────────
-async function showEstate(id, name, district, ricacorpEnabled = 0, centanetEnabled = 1, hkpEnabled = 0) {
+async function showEstate(id, name, district) {
+  const _est = (estatesById && estatesById[id]) || {};
+  name = name || _est.name || '';
+  district = district || _est.district || '';
   activeEstateId = id;
   _viewingEstateId = id;
   _viewingEstateName = name;
+  const enabledMap = {};
+  SOURCES.forEach(s => { enabledMap[s.id] = sourceEnabledFE(_est, s.id) ? 1 : 0; });
   document.querySelectorAll(".estate-card").forEach(c => {
     c.classList.toggle("active", Number(c.getAttribute("data-id")) === id);
   });
@@ -2129,7 +2137,7 @@ async function showEstate(id, name, district, ricacorpEnabled = 0, centanetEnabl
         <div>
           <div class="estate-title">${escHtml(name)}</div>
           <div class="estate-sub">${district ? escHtml(district) + ' · ' : ''}共 ${listings.length} 個在售單位</div>
-          <div id="estate-info-bar" data-tracking="${trends.length}" data-id="${id}" data-ricacorp="${ricacorpEnabled}" data-centanet="${centanetEnabled}" data-hkp="${hkpEnabled}"></div>
+          <div id="estate-info-bar" data-tracking="${trends.length}" data-id="${id}" data-enabled='${JSON.stringify(enabledMap)}'></div>
         </div>
         <button class="sync-btn" style="background:var(--down);border-color:var(--down);white-space:nowrap;flex-shrink:0;margin-top:0.2rem" onclick="openViewingModal()">＋ 新增睇樓</button>
       </div>
@@ -2241,7 +2249,6 @@ async function loadEstateInfo(estateId) {
     const tracking = bar.dataset.tracking;
     if (tracking) rows.push(['追蹤天數', `${tracking} 天`]);
     const estId = bar.dataset.id;
-    const ricaOn = bar.dataset.ricacorp === '1';
     const infoPills = rows.length ? `
       <div style="margin-top:0.75rem;background:var(--surface2);border-radius:var(--radius);padding:0.75rem 1rem;display:inline-flex;flex-wrap:wrap;gap:0.5rem 1.5rem">
         ${rows.map(([label, val]) => `
@@ -3112,9 +3119,7 @@ function renderFilterBar() {
         <span class="filter-label">來源</span>
         <div class="filter-group">
           <button class="filter-chip ${filters.source==='all'?'active':''}" onclick="setFilter('source','all')">全部</button>
-          <button class="filter-chip ${filters.source==='centanet'?'active':''}" onclick="setFilter('source','centanet')">中原</button>
-          <button class="filter-chip ${filters.source==='ricacorp'?'active':''}" onclick="setFilter('source','ricacorp')">利嘉閣</button>
-          <button class="filter-chip ${filters.source==='hkp'?'active':''}" onclick="setFilter('source','hkp')">香港置業</button>
+          ${SOURCES.map(s => `<button class="filter-chip ${filters.source===s.id?'active':''}" onclick="setFilter('source','${s.id}')">${s.label}</button>`).join('')}
         </div>
       </div>
       <span class="filter-count" id="filterCount"></span>
@@ -3123,18 +3128,18 @@ function renderFilterBar() {
   renderSourceToggles();
 }
 
+function estateEnabledMap() {
+  const bar = document.getElementById('estate-info-bar');
+  try { return JSON.parse(bar?.dataset.enabled || '{}'); } catch (_) { return {}; }
+}
+
 function renderSourceToggles() {
   const el = document.getElementById('sourceToggles');
   if (!el) return;
-  const bar = document.getElementById('estate-info-bar');
-  const centanetOn = bar?.dataset.centanet !== '0';
-  const ricacorpOn = bar?.dataset.ricacorp === '1';
-  const hkpOn = bar?.dataset.hkp === '1';
+  const enabled = estateEnabledMap();
   const btnStyle = (active) => `background:${active ? 'rgba(251,191,36,0.12)' : 'var(--surface2)'};border:1px solid ${active ? 'var(--accent)' : 'var(--border)'};border-radius:var(--radius);padding:0.25rem 0.65rem;font-size:0.75rem;cursor:pointer;color:${active ? 'var(--accent)' : 'var(--muted)'};font-weight:${active ? '600' : '400'}`;
   el.innerHTML = `<div style="display:flex;gap:0.4rem">
-    <button style="${btnStyle(centanetOn)}" onclick="toggleSource('centanet')">中原</button>
-    <button style="${btnStyle(ricacorpOn)}" onclick="toggleSource('ricacorp')">利嘉閣</button>
-    <button style="${btnStyle(hkpOn)}" onclick="toggleSource('hkp')">香港置業</button>
+    ${SOURCES.map(s => `<button style="${btnStyle(!!enabled[s.id])}" onclick="toggleSource('${s.id}')">${s.label}</button>`).join('')}
   </div>`;
 }
 
@@ -3142,25 +3147,13 @@ async function toggleSource(src) {
   const bar = document.getElementById('estate-info-bar');
   if (!bar) return;
   const id = bar.dataset.id;
-  if (src === 'centanet') {
-    const current = bar.dataset.centanet !== '0';
-    const newVal = current ? 0 : 1;
-    await api(`/api/estates/${id}`, { method: 'PATCH', body: JSON.stringify({ centanet_enabled: newVal }) });
-    bar.dataset.centanet = String(newVal);
-    toast(newVal ? '已啟用中原資料（下次同步生效）' : '已停用中原資料', newVal ? 'success' : 'info');
-  } else if (src === 'ricacorp') {
-    const current = bar.dataset.ricacorp === '1';
-    const newVal = current ? 0 : 1;
-    await api(`/api/estates/${id}`, { method: 'PATCH', body: JSON.stringify({ ricacorp_enabled: newVal }) });
-    bar.dataset.ricacorp = String(newVal);
-    toast(newVal ? '已啟用利嘉閣資料（下次同步生效）' : '已停用利嘉閣資料', newVal ? 'success' : 'info');
-  } else {
-    const current = bar.dataset.hkp === '1';
-    const newVal = current ? 0 : 1;
-    await api(`/api/estates/${id}`, { method: 'PATCH', body: JSON.stringify({ hkp_enabled: newVal }) });
-    bar.dataset.hkp = String(newVal);
-    toast(newVal ? '已啟用香港置業資料（下次同步生效）' : '已停用香港置業資料', newVal ? 'success' : 'info');
-  }
+  const label = sourceLabel(src);
+  const enabled = estateEnabledMap();
+  const newVal = enabled[src] ? 0 : 1;
+  await api(`/api/estates/${id}`, { method: 'PATCH', body: JSON.stringify({ [`${src}_enabled`]: newVal }) });
+  enabled[src] = newVal;
+  bar.dataset.enabled = JSON.stringify(enabled);
+  toast(newVal ? `已啟用${label}資料（下次同步生效）` : `已停用${label}資料`, newVal ? 'success' : 'info');
   renderSourceToggles();
 }
 
@@ -3358,8 +3351,21 @@ function floorClass(floor) {
   return "";
 }
 
+// Listing sources registry — add a source here and the filter chips, per-estate
+// toggles, badges and labels all pick it up automatically.
+const SOURCES = [
+  { id: "centanet", label: "中原",     defaultOn: true },
+  { id: "ricacorp", label: "利嘉閣",   defaultOn: false },
+  { id: "hkp",      label: "香港置業", defaultOn: false },
+];
 function sourceLabel(s) {
-  return s === "ricacorp" ? "利嘉閣" : s === "hkp" ? "香港置業" : "中原";
+  const src = SOURCES.find(x => x.id === s);
+  return src ? src.label : (s || "中原");
+}
+// centanet is on unless explicitly 0; others must be truthy.
+function sourceEnabledFE(est, id) {
+  const v = est ? est[id + "_enabled"] : undefined;
+  return id === "centanet" ? v !== 0 : !!v;
 }
 
 // ── Chart ──────────────────────────────────────────────────────

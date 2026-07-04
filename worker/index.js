@@ -746,6 +746,52 @@ async function saveHkpListings(db, estateId, listings) {
   await db.batch(batch);
 }
 
+// ── Listing sources registry ───────────────────────────────────────────────
+// One place that describes every listing source. Add a source here (+ its
+// scrape/save fns) and it auto-applies to daily sync, manual sync, the per-
+// estate enable toggle, new-estate defaults and the schema column — nothing
+// else needs editing. Transactions / valuations stay centanet-only by design
+// (the other portals don't publish that data).
+const ricacorpUrlFor = (name) => `https://www.ricacorp.com/zh-hk/property/list/buy/${encodeURIComponent(name)}`;
+const SOURCES = [
+  { id: "centanet", label: "中原", enabledCol: "centanet_enabled", critical: true,
+    scrape: async (estate) => (await fetchCentanet(estate.name)).data || [],
+    save: saveSearchResults },
+  { id: "ricacorp", label: "利嘉閣", enabledCol: "ricacorp_enabled",
+    scrape: (estate) => scrapeRicacorpListings(ricacorpUrlFor(estate.name)),
+    save: saveRicacorpListings },
+  { id: "hkp", label: "香港置業", enabledCol: "hkp_enabled",
+    scrape: (estate) => scrapeHkpListings(estate.name),
+    save: saveHkpListings },
+];
+// centanet defaults on (enabled unless explicitly 0); others must be truthy.
+const sourceEnabled = (estate, s) => s.id === "centanet" ? estate[s.enabledCol] !== 0 : !!estate[s.enabledCol];
+
+// Scrape + save every enabled source for an estate. Returns the centanet
+// listings (used by change detection). A critical (centanet) failure
+// propagates so the estate is flagged; other sources fail non-fatally.
+async function syncEstateListings(db, estate) {
+  let primary = [];
+  for (const s of SOURCES) {
+    if (!sourceEnabled(estate, s)) continue;
+    try {
+      const listings = await s.scrape(estate);
+      await s.save(db, estate.id, listings);
+      if (s.id === "centanet") primary = listings;
+    } catch (e) {
+      if (s.critical) throw e;
+    }
+  }
+  return primary;
+}
+
+// Auto-create the enable column for every source (new sources get one for free).
+async function ensureSourceColumns(db) {
+  for (const s of SOURCES) {
+    try { await db.prepare(`ALTER TABLE estates ADD COLUMN ${s.enabledCol} INTEGER NOT NULL DEFAULT 1`).run(); } catch (_) {}
+  }
+}
+
 // System parameters — a generic key/value catalogue with per-row CRUD.
 // Replaces the fragile single-blob settings.notes_options row. Ensures the
 // table exists and runs a one-time migration of any legacy notes_options.
@@ -1390,25 +1436,7 @@ async function runDailySync(db, resendApiKey, { persist = true } = {}) {
       try {
         const newTxns = await fetchAndSaveTransactions(db, estate.id, estate.name);
         if (persist) {
-          let listings = [];
-          if (estate.centanet_enabled !== 0) {
-            const data = await fetchCentanet(estate.name);
-            listings = data.data || [];
-            await saveSearchResults(db, estate.id, listings);
-          }
-          if (estate.ricacorp_enabled) {
-            try {
-              const ricaUrl = `https://www.ricacorp.com/zh-hk/property/list/buy/${encodeURIComponent(estate.name)}`;
-              const ricaListings = await scrapeRicacorpListings(ricaUrl);
-              await saveRicacorpListings(db, estate.id, ricaListings);
-            } catch (e) { /* non-fatal */ }
-          }
-          if (estate.hkp_enabled) {
-            try {
-              const hkpListings = await scrapeHkpListings(estate.name);
-              await saveHkpListings(db, estate.id, hkpListings);
-            } catch (e) { /* non-fatal */ }
-          }
+          const listings = await syncEstateListings(db, estate);
           const changes = await detectChanges(db, estate.id, estate.name, listings);
           changes.newTransactions = newTxns;
           return { estate: estate.name, count: listings.length, ok: true, changes };
@@ -1463,6 +1491,7 @@ export default {
 
     try {
       await ensureAuthTables(db);
+      await ensureSourceColumns(db);
 
       // Login endpoint — public
       if (method === "POST" && path === "/api/login") {
@@ -1574,8 +1603,10 @@ export default {
         const useBigest = isBigest !== false;
 
         if (!estate) {
+          const srcCols = SOURCES.map((s) => s.enabledCol).join(", ");
+          const srcOnes = SOURCES.map(() => "1").join(", ");
           await db
-            .prepare("INSERT INTO estates (name, bigestcode, district, is_bigest, centanet_enabled, ricacorp_enabled, hkp_enabled) VALUES (?,?,?,?,1,1,1)")
+            .prepare(`INSERT INTO estates (name, bigestcode, district, is_bigest, ${srcCols}) VALUES (?,?,?,?, ${srcOnes})`)
             .bind(name, bigestcode, district || null, useBigest ? 1 : 0)
             .run();
           estate = await db
@@ -1991,17 +2022,11 @@ export default {
           await db.prepare("UPDATE estates SET ricacorp_url = ? WHERE id = ?")
             .bind(body.ricacorp_url || null, estateId).run();
         }
-        if (body.ricacorp_enabled !== undefined) {
-          await db.prepare("UPDATE estates SET ricacorp_enabled = ? WHERE id = ?")
-            .bind(body.ricacorp_enabled ? 1 : 0, estateId).run();
-        }
-        if (body.centanet_enabled !== undefined) {
-          await db.prepare("UPDATE estates SET centanet_enabled = ? WHERE id = ?")
-            .bind(body.centanet_enabled ? 1 : 0, estateId).run();
-        }
-        if (body.hkp_enabled !== undefined) {
-          await db.prepare("UPDATE estates SET hkp_enabled = ? WHERE id = ?")
-            .bind(body.hkp_enabled ? 1 : 0, estateId).run();
+        for (const s of SOURCES) {
+          if (body[s.enabledCol] !== undefined) {
+            await db.prepare(`UPDATE estates SET ${s.enabledCol} = ? WHERE id = ?`)
+              .bind(body[s.enabledCol] ? 1 : 0, estateId).run();
+          }
         }
         return json(200, { ok: true });
       }
@@ -2053,25 +2078,7 @@ export default {
           if (!estate) return json(404, { error: "Not found" });
           try {
             const newTxns = await fetchAndSaveTransactions(db, estate.id, estate.name);
-            let listings = [];
-            if (estate.centanet_enabled !== 0) {
-              const data = await fetchCentanet(estate.name);
-              listings = data.data || [];
-              await saveSearchResults(db, estate.id, listings);
-            }
-            if (estate.ricacorp_enabled) {
-              try {
-                const ricaUrl = `https://www.ricacorp.com/zh-hk/property/list/buy/${encodeURIComponent(estate.name)}`;
-                const ricaListings = await scrapeRicacorpListings(ricaUrl);
-                await saveRicacorpListings(db, estate.id, ricaListings);
-              } catch (e) { /* non-fatal */ }
-            }
-            if (estate.hkp_enabled) {
-              try {
-                const hkpListings = await scrapeHkpListings(estate.name);
-                await saveHkpListings(db, estate.id, hkpListings);
-              } catch (e) { /* non-fatal */ }
-            }
+            const listings = await syncEstateListings(db, estate);
             const changes = await detectChanges(db, estate.id, estate.name, listings);
             changes.newTransactions = newTxns;
             return json(200, { ok: true, results: [{ estate: estate.name, count: listings.length, ok: true, changes }] });
