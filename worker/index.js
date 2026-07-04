@@ -645,10 +645,17 @@ async function saveRicacorpListings(db, estateId, listings) {
       size_net, price, price_per_ft, detail_url, snapshot_date, source)
      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`
   );
-  const batch = listings.map(l =>
-    stmt.bind(estateId, l.ref_no, l.ref_no, l.building_name, l.floor, normalizeUnit(l.unit),
-      l.bedrooms, l.size_net, l.price, l.price_per_ft, l.detail_url, today, l.source)
+  const stmtHistory = db.prepare(
+    `INSERT INTO listing_price_history (ref_no, estate_id, price, price_per_ft, snapshot_date)
+     VALUES (?,?,?,?,?)
+     ON CONFLICT(ref_no, snapshot_date) DO UPDATE SET price=excluded.price, price_per_ft=excluded.price_per_ft`
   );
+  const batch = [];
+  for (const l of listings) {
+    batch.push(stmt.bind(estateId, l.ref_no, l.ref_no, l.building_name, l.floor, normalizeUnit(l.unit),
+      l.bedrooms, l.size_net, l.price, l.price_per_ft, l.detail_url, today, l.source));
+    if (l.ref_no && l.price) batch.push(stmtHistory.bind(l.ref_no, estateId, l.price, l.price_per_ft, today));
+  }
   await db.batch(batch);
 }
 
@@ -725,10 +732,17 @@ async function saveHkpListings(db, estateId, listings) {
       size_net, price, price_per_ft, detail_url, snapshot_date, source)
      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`
   );
-  const batch = listings.map(l =>
-    stmt.bind(estateId, l.ref_no, l.ref_no, l.building_name, l.floor, normalizeUnit(l.unit),
-      l.bedrooms, l.size_net, l.price, l.price_per_ft, l.detail_url, today, l.source)
+  const stmtHistory = db.prepare(
+    `INSERT INTO listing_price_history (ref_no, estate_id, price, price_per_ft, snapshot_date)
+     VALUES (?,?,?,?,?)
+     ON CONFLICT(ref_no, snapshot_date) DO UPDATE SET price=excluded.price, price_per_ft=excluded.price_per_ft`
   );
+  const batch = [];
+  for (const l of listings) {
+    batch.push(stmt.bind(estateId, l.ref_no, l.ref_no, l.building_name, l.floor, normalizeUnit(l.unit),
+      l.bedrooms, l.size_net, l.price, l.price_per_ft, l.detail_url, today, l.source));
+    if (l.ref_no && l.price) batch.push(stmtHistory.bind(l.ref_no, estateId, l.price, l.price_per_ft, today));
+  }
   await db.batch(batch);
 }
 
