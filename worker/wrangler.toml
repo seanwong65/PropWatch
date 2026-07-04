@@ -7,7 +7,11 @@ binding = "DB"
 database_name = "propwatch-db"
 database_id = "b4330ef2-78c4-48be-ae88-b1d94614faad"
 
-# HKT = UTC+8.  "0 16 * * *" = 00:00 HKT → daily sync (all sources).
-#               "0 1 * * *"  = 09:00 HKT → "今日動態" email (separate invocation).
+# HKT = UTC+8. Daily sync is split across staggered slots so each runs in its
+# own invocation (Cloudflare blocks self-fetch chaining; no Queues on this plan).
+#   "0 16 * * *"  = 00:00 HKT → sync slot 0 (estates 0–11)
+#   "10 16 * * *" = 00:10 HKT → sync slot 1 (estates 12–23)
+#   "20 16 * * *" = 00:20 HKT → sync slot 2 (estates 24–35)
+#   "0 1 * * *"   = 09:00 HKT → "今日動態" email (separate invocation)
 [triggers]
-crons = ["0 16 * * *", "0 1 * * *"]
+crons = ["0 16 * * *", "10 16 * * *", "20 16 * * *", "0 1 * * *"]
