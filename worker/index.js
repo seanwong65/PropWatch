@@ -1340,7 +1340,10 @@ async function fetchAndSaveTransactions(db, estateId, estateName) {
      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`
   );
   const batch = (raw.data || [])
-    .filter(t => t.id)
+    // Keep only genuine residential market deals: drop car parks and
+    // special / non-arm's-length transactions (公司轉讓、內部轉讓、確認人 etc.)
+    // which carry non-market prices and would skew comps & 成交統計.
+    .filter(t => t.id && t.transTheme !== "CarPark" && t.specialCase?.value !== true)
     .map(t => stmt.bind(
       estateId, String(t.id),
       t.buildingName ?? null, t.yAxis ?? null, t.xAxis ?? null,
