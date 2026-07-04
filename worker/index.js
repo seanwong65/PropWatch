@@ -1448,37 +1448,47 @@ async function runDailySync(db, resendApiKey, { persist = true } = {}) {
     })
   );
 
-  let emailResult = null;
-  if (resendApiKey) {
-    try {
-      const highlights = await getTodayHighlights(db);
-      const { byEstate } = highlights;
-      const totalTxns    = byEstate.reduce((s, e) => s + e.newTransactions.length, 0);
-      const totalPrice   = byEstate.reduce((s, e) => s + e.priceChanges.length, 0);
-      const totalNew     = byEstate.reduce((s, e) => s + e.newListings.length, 0);
-      const totalDel     = byEstate.reduce((s, e) => s + e.removedListings.length, 0);
-      const totalViewed  = byEstate.reduce((s, e) => s + e.viewedTxns.length, 0);
-      const hasChanges = totalTxns + totalPrice + totalNew + totalDel + totalViewed > 0;
-      const parts = [];
-      if (totalViewed) parts.push(`${totalViewed} 個睇過嘅單位成交`);
-      if (totalTxns)   parts.push(`${totalTxns} 個新成交`);
-      if (totalPrice)  parts.push(`${totalPrice} 個價格變動`);
-      if (totalNew)    parts.push(`${totalNew} 個新放盤`);
-      if (totalDel)    parts.push(`${totalDel} 個已下架`);
-      const subject = hasChanges ? `PropWatch 通知：${parts.join("、")}` : "PropWatch 通知：今日無更新";
-      emailResult = await sendEmail(resendApiKey, "johnwong777@hotmail.com", subject, buildEmailHtml(highlights));
-    } catch (err) {
-      console.error("Email send failed:", err.message);
-      emailResult = { error: err.message };
-    }
-  }
+  return { results };
+}
 
-  return { results, email: emailResult };
+// Send the "今日動態" digest email. Kept SEPARATE from runDailySync so it runs
+// in its own Worker invocation with a fresh subrequest budget — a full sync
+// nearly exhausts the per-invocation subrequest limit, which is why the email
+// step failed when both ran together.
+async function sendDailyEmail(db, resendApiKey) {
+  if (!resendApiKey) return { error: "no RESEND_API_KEY" };
+  try {
+    const highlights = await getTodayHighlights(db);
+    const { byEstate } = highlights;
+    const totalTxns    = byEstate.reduce((s, e) => s + e.newTransactions.length, 0);
+    const totalPrice   = byEstate.reduce((s, e) => s + e.priceChanges.length, 0);
+    const totalNew     = byEstate.reduce((s, e) => s + e.newListings.length, 0);
+    const totalDel     = byEstate.reduce((s, e) => s + e.removedListings.length, 0);
+    const totalViewed  = byEstate.reduce((s, e) => s + e.viewedTxns.length, 0);
+    const hasChanges = totalTxns + totalPrice + totalNew + totalDel + totalViewed > 0;
+    const parts = [];
+    if (totalViewed) parts.push(`${totalViewed} 個睇過嘅單位成交`);
+    if (totalTxns)   parts.push(`${totalTxns} 個新成交`);
+    if (totalPrice)  parts.push(`${totalPrice} 個價格變動`);
+    if (totalNew)    parts.push(`${totalNew} 個新放盤`);
+    if (totalDel)    parts.push(`${totalDel} 個已下架`);
+    const subject = hasChanges ? `PropWatch 通知：${parts.join("、")}` : "PropWatch 通知：今日無更新";
+    return await sendEmail(resendApiKey, "johnwong777@hotmail.com", subject, buildEmailHtml(highlights));
+  } catch (err) {
+    console.error("Email send failed:", err.message);
+    return { error: err.message };
+  }
 }
 
 export default {
   async scheduled(event, env, ctx) {
-    ctx.waitUntil(runDailySync(env.DB, env.RESEND_API_KEY));
+    // "0 1 * * *" = 09:00 HKT → email only (fresh subrequest budget).
+    // Everything else (the 00:00 HKT "0 16 * * *" sync) → sync only, no email.
+    if (event.cron === "0 1 * * *") {
+      ctx.waitUntil(sendDailyEmail(env.DB, env.RESEND_API_KEY));
+    } else {
+      ctx.waitUntil(runDailySync(env.DB));
+    }
   },
 
   async fetch(request, env) {
@@ -1560,10 +1570,8 @@ export default {
       }
 
       if (method === "POST" && path === "/api/send-today-email") {
-        const highlights = await getTodayHighlights(db);
-        const subject = `PropWatch ${highlights.date} 今日動態`;
-        const result = await sendEmail(env.RESEND_API_KEY, "johnwong777@hotmail.com", subject, buildEmailHtml(highlights));
-        return json(200, { ok: true, message: `今日動態郵件已發送 (${highlights.date})`, result });
+        const result = await sendDailyEmail(db, env.RESEND_API_KEY);
+        return json(200, { ok: !result?.error, result });
       }
 
       // Auth guard for all other routes
