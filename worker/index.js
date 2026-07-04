@@ -474,6 +474,7 @@ function parseListing(item) {
     building_age: N(item.buildingAge),
     detail_url: N(item.detailUrl),
     thumbnail: N(item.thumbnail),
+    publish_date: item.publishDate ? item.publishDate.slice(0, 10) : null,
   };
 }
 
@@ -484,8 +485,8 @@ async function saveSearchResults(db, estateId, listings) {
     `INSERT OR REPLACE INTO listings
      (estate_id, listing_id, ref_no, estate_name, phase, building_name,
       floor, unit, bedrooms, direction, size_net, size_gross,
-      price, price_per_ft, building_age, detail_url, thumbnail, snapshot_date, source)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+      price, price_per_ft, building_age, detail_url, thumbnail, snapshot_date, source, publish_date)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
   );
   const stmtHistory = db.prepare(
     `INSERT INTO listing_price_history (ref_no, estate_id, price, price_per_ft, snapshot_date)
@@ -501,7 +502,7 @@ async function saveSearchResults(db, estateId, listings) {
         estateId, l.listing_id, l.ref_no, l.estate_name, l.phase,
         l.building_name, l.floor, normalizeUnit(l.unit), l.bedrooms, l.direction,
         l.size_net, l.size_gross, l.price, l.price_per_ft,
-        l.building_age, l.detail_url, l.thumbnail, today, 'centanet'
+        l.building_age, l.detail_url, l.thumbnail, today, 'centanet', l.publish_date
       )
     );
     if (l.ref_no && l.price) {

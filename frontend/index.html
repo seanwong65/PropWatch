@@ -1073,7 +1073,7 @@ let allListings = [];
 let estatesById = {};
 let sortCol = "price";
 let sortDir = "asc";
-let filters = { beds: "all", floor: "all", building: "all", unit: "all", minPrice: "", maxPrice: "", minSize: "", maxSize: "", priceChanged: "all", source: "all" };
+let filters = { beds: "all", floor: "all", building: "all", unit: "all", minPrice: "", maxPrice: "", minSize: "", maxSize: "", priceChanged: "all", source: "all", dom: "all" };
 
 // ── Toast ──────────────────────────────────────────────────────
 function toast(msg, type = "info") {
@@ -2215,7 +2215,7 @@ async function showEstate(id, name, district) {
       allListings = listings;
       sortCol = "price";
       sortDir = "asc";
-      filters = { beds: "all", floor: "all", building: "all", unit: "all", minPrice: "", maxPrice: "", minSize: "", maxSize: "", priceChanged: "all", source: "all" };
+      filters = { beds: "all", floor: "all", building: "all", unit: "all", minPrice: "", maxPrice: "", minSize: "", maxSize: "", priceChanged: "all", source: "all", dom: "all" };
       renderFilterBar();
       renderSourceToggles();
       renderListingsTable();
@@ -3122,6 +3122,13 @@ function renderFilterBar() {
           ${SOURCES.map(s => `<button class="filter-chip ${filters.source===s.id?'active':''}" onclick="setFilter('source','${s.id}')">${s.label}</button>`).join('')}
         </div>
       </div>
+      <div class="filter-sep"></div>
+      <div class="filter-pair">
+        <span class="filter-label">放盤日數</span>
+        <div class="filter-group">
+          ${[['all','全部'],['30','30日+'],['60','60日+'],['90','90日+'],['180','180日+']].map(([v,t]) => `<button class="filter-chip ${filters.dom===v?'active':''}" onclick="setFilter('dom','${v}')">${t}</button>`).join('')}
+        </div>
+      </div>
       <span class="filter-count" id="filterCount"></span>
     </div>
   `;
@@ -3186,6 +3193,10 @@ function applyFilters(listings) {
     if (filters.priceChanged === 'yes' && !hasChange) return false;
     if (filters.priceChanged === 'no' && hasChange) return false;
     if (filters.source !== 'all' && l.source !== filters.source) return false;
+    if (filters.dom !== 'all') {
+      const days = domDays(l);
+      if (days == null || days < Number(filters.dom)) return false;
+    }
     return true;
   });
 }
@@ -3232,6 +3243,7 @@ function makeCombined(items) {
     unit: items[0].unit, size_net: items[0].size_net, bedrooms: items[0].bedrooms,
     direction: items.map(i => i.direction).find(Boolean) || null,
     first_seen: firstSeen,
+    publish_date: items.map(i => i.publish_date).filter(Boolean).sort()[0] || null,
     removed_date: items.every(i => i.removed_date) ? items[0].removed_date : null,
     price_min: Math.min(...prices), price_max: Math.max(...prices),
     ppf_min: ppf.length ? Math.min(...ppf) : null, ppf_max: ppf.length ? Math.max(...ppf) : null,
@@ -3262,6 +3274,22 @@ function groupListings(listings) {
     for (const i of items) rows.push(i);
   }
   return rows;
+}
+
+// Days on market — prefer the source's true publish date, fall back to when
+// we first saw it. Stale listings (long DOM) usually mean a motivated seller.
+function listingDate(l) { return l.publish_date || l.first_seen || null; }
+function domDays(l) {
+  const d = listingDate(l);
+  if (!d) return null;
+  const days = Math.floor((Date.now() - Date.parse(d)) / 86400000);
+  return days >= 0 ? days : null;
+}
+function domBadge(l) {
+  const days = domDays(l);
+  if (days == null) return '';
+  const color = days >= 180 ? 'var(--down)' : days >= 90 ? 'var(--accent)' : 'var(--muted)';
+  return `<div style="font-size:0.72rem;color:${color}">放 ${days.toLocaleString()} 日</div>`;
 }
 
 function renderListingsTable() {
@@ -3323,8 +3351,8 @@ function renderListingsTable() {
       return `
       <tr${rowStyle}>
         <td class="txn-date">
-          ${l.first_seen || '-'}
-          ${l.removed_date ? `<div style="color:var(--down);font-size:0.75rem">下架 ${l.removed_date}</div>` : ''}
+          ${listingDate(l) || '-'}
+          ${l.removed_date ? `<div style="color:var(--down);font-size:0.75rem">下架 ${l.removed_date}</div>` : domBadge(l)}
         </td>
         <td>${escHtml(l.building_name||'-')}</td>
         <td>

@@ -38,6 +38,8 @@ CREATE TABLE IF NOT EXISTS listings (
   detail_url    TEXT,
   thumbnail     TEXT,
   snapshot_date TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+  source        TEXT,
+  publish_date  TEXT,
   UNIQUE(listing_id, snapshot_date)
 );
 
