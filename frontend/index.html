@@ -3276,9 +3276,14 @@ function groupListings(listings) {
   return rows;
 }
 
-// Days on market — prefer the source's true publish date, fall back to when
-// we first saw it. Stale listings (long DOM) usually mean a motivated seller.
-function listingDate(l) { return l.publish_date || l.first_seen || null; }
+// Days on market — use the EARLIER of the source's publish date and the day we
+// first recorded it. Our first_seen is a hard floor (we saw it live that day),
+// so if a portal "refreshes" a stale listing to look new (publish date later
+// than our record), the fake-fresh date is ignored and we keep the earlier one.
+function listingDate(l) {
+  const dates = [l.publish_date, l.first_seen].filter(Boolean);
+  return dates.length ? dates.sort()[0] : null;   // earliest (YYYY-MM-DD sorts lexically)
+}
 function domDays(l) {
   const d = listingDate(l);
   if (!d) return null;
