@@ -3224,13 +3224,61 @@ function setSort(col) {
   renderListingsTable();
 }
 
+// Merge listings that are the SAME unit (座+樓層+單位+實呎) across different
+// sources into one row — but only when their prices are within 5% of each
+// other. A bigger gap likely means different actual flats inside the same
+// floor band (floor is masked to 高/中/低層), so those stay separate.
+function makeCombined(items) {
+  const byPrice = [...items].sort((a, b) => (a.price || 0) - (b.price || 0));
+  const prices = byPrice.map(i => i.price).filter(Boolean);
+  const ppf = byPrice.map(i => i.price_per_ft).filter(Boolean);
+  const firstSeen = items.map(i => i.first_seen).filter(Boolean).sort()[0] || null;
+  return {
+    _combined: true,
+    building_name: items[0].building_name, floor: items[0].floor,
+    unit: items[0].unit, size_net: items[0].size_net, bedrooms: items[0].bedrooms,
+    direction: items.map(i => i.direction).find(Boolean) || null,
+    first_seen: firstSeen,
+    removed_date: items.every(i => i.removed_date) ? items[0].removed_date : null,
+    price_min: Math.min(...prices), price_max: Math.max(...prices),
+    ppf_min: ppf.length ? Math.min(...ppf) : null, ppf_max: ppf.length ? Math.max(...ppf) : null,
+    sources: byPrice.map(i => ({ source: i.source, price: i.price, detail_url: i.detail_url })),
+  };
+}
+
+function groupListings(listings) {
+  const groups = new Map();
+  const order = [];
+  let soloId = 0;
+  for (const l of listings) {
+    const key = (l.building_name && l.unit && l.size_net)
+      ? `g|${l.building_name}|${l.floor || ''}|${l.unit}|${l.size_net}`
+      : `s|${soloId++}`;
+    if (!groups.has(key)) { groups.set(key, []); order.push(key); }
+    groups.get(key).push(l);
+  }
+  const rows = [];
+  for (const key of order) {
+    const items = groups.get(key);
+    const nSrc = new Set(items.map(i => i.source)).size;
+    if (items.length > 1 && nSrc > 1) {
+      const prices = items.map(i => i.price).filter(Boolean);
+      const min = Math.min(...prices), max = Math.max(...prices);
+      if (min > 0 && (max - min) / min <= 0.05) { rows.push(makeCombined(items)); continue; }
+    }
+    for (const i of items) rows.push(i);
+  }
+  return rows;
+}
+
 function renderListingsTable() {
   const el = document.getElementById("listingsTable");
   if (!el) return;
   const visible = applySortAndFilter();
+  const displayRows = groupListings(visible);
 
   const fc = document.getElementById("filterCount");
-  if (fc) fc.textContent = `顯示 ${visible.length} / ${allListings.length} 個盤`;
+  if (fc) fc.textContent = `顯示 ${visible.length} / ${allListings.length} 個盤${displayRows.length < visible.length ? `(合併為 ${displayRows.length} 行)` : ''}`;
 
   const cols = [
     { key: "first_seen",    label: "上盤日期" },
@@ -3252,10 +3300,35 @@ function renderListingsTable() {
     return `<th class="${cls}" onclick="setSort('${c.key}')">${c.label}</th>`;
   }).join('');
 
-  const rows = visible.length === 0
+  const priceCell = l => l._combined
+    ? `<div style="color:var(--accent);font-weight:600">$${(l.price_min/1e4).toFixed(0)}${l.price_max > l.price_min ? `–${(l.price_max/1e4).toFixed(0)}` : ''}萬</div>
+       <div style="font-size:0.72rem;color:var(--muted)">最平 ${sourceLabel(l.sources[0].source)} · ${l.sources.length} 個源</div>`
+    : `$${l.price ? (l.price/1e4).toFixed(0)+'萬' : '-'}
+       ${priceChangeBadge(l.price, l.prev_price)}
+       ${l.ref_no ? `<br><button class="history-btn" onclick="showHistory('${escHtml(l.ref_no)}','${escHtml((l.building_name||'')+' '+(l.floor||'')+(l.unit||''))}')">歷史 ↓</button>` : ''}`;
+
+  const ppfCell = l => {
+    const lo = l._combined ? l.ppf_min : l.price_per_ft;
+    const hi = l._combined ? l.ppf_max : l.price_per_ft;
+    return `<div>$${lo ? lo.toLocaleString() : '-'}${(hi && hi > lo) ? `–${hi.toLocaleString()}` : ''}</div><div class="unit-price">/呎</div>`;
+  };
+
+  const sourceCell = l => l._combined
+    ? l.sources.map(s => s.detail_url
+        ? `<a href="${escHtml(s.detail_url)}" target="_blank" class="detail-link" style="font-size:0.72rem;white-space:nowrap">${sourceLabel(s.source)} $${(s.price/1e4).toFixed(0)} ↗</a>`
+        : `<span style="font-size:0.72rem;white-space:nowrap;color:var(--muted)">${sourceLabel(s.source)} $${(s.price/1e4).toFixed(0)}</span>`
+      ).join('<br>')
+    : (l.detail_url
+        ? `<a href="${escHtml(l.detail_url)}" target="_blank" class="detail-link" style="font-size:0.75rem">${sourceLabel(l.source)} ↗</a>`
+        : `<span style="font-size:0.75rem">${sourceLabel(l.source)}</span>`);
+
+  const rows = displayRows.length === 0
     ? `<tr><td colspan="${cols.length}" class="no-data" style="padding:2rem;text-align:center">無符合條件的放盤</td></tr>`
-    : visible.map(l => `
-      <tr${l.removed_date ? ' style="opacity:0.45"' : ''}>
+    : displayRows.map(l => {
+      const rowStyle = (l.removed_date || l._combined)
+        ? ` style="${l.removed_date ? 'opacity:0.45;' : ''}${l._combined ? 'background:rgba(16,185,129,0.06);' : ''}"` : '';
+      return `
+      <tr${rowStyle}>
         <td class="txn-date">
           ${l.first_seen || '-'}
           ${l.removed_date ? `<div style="color:var(--down);font-size:0.75rem">下架 ${l.removed_date}</div>` : ''}
@@ -3267,21 +3340,12 @@ function renderListingsTable() {
         </td>
         <td>${l.bedrooms ?? '-'}房</td>
         <td>${l.size_net ? l.size_net.toLocaleString()+'呎' : '-'}</td>
-        <td class="price-cell">
-          $${l.price ? (l.price/1e4).toFixed(0)+'萬' : '-'}
-          ${priceChangeBadge(l.price, l.prev_price)}
-          ${l.ref_no ? `<br><button class="history-btn" onclick="showHistory('${escHtml(l.ref_no)}','${escHtml((l.building_name||'')+' '+(l.floor||'')+(l.unit||''))}')">歷史 ↓</button>` : ''}
-        </td>
-        <td>
-          <div>$${l.price_per_ft ? l.price_per_ft.toLocaleString() : '-'}</div>
-          <div class="unit-price">/呎</div>
-        </td>
+        <td class="price-cell">${priceCell(l)}</td>
+        <td>${ppfCell(l)}</td>
         <td>${escHtml(l.direction||'-')}</td>
-        <td>${l.detail_url
-          ? `<a href="${escHtml(l.detail_url)}" target="_blank" class="detail-link" style="font-size:0.75rem">${sourceLabel(l.source)} ↗</a>`
-          : `<span style="font-size:0.75rem">${sourceLabel(l.source)}</span>`}</td>
-      </tr>
-    `).join('');
+        <td>${sourceCell(l)}</td>
+      </tr>`;
+    }).join('');
 
   el.innerHTML = `<div class="table-scroll"><table class="data-table"><thead><tr>${ths}</tr></thead><tbody>${rows}</tbody></table></div>`;
 }
