@@ -1429,30 +1429,39 @@ async function detectChanges(db, estateId, estateName, newListings) {
   return { estate: estateName, priceChanges, newListings: newAdded, removedListings: removed };
 }
 
-async function runDailySync(db, resendApiKey, { persist = true } = {}) {
-  const { results: estates } = await db.prepare("SELECT * FROM estates WHERE is_disabled = 0 OR is_disabled IS NULL").all();
-  const results = await Promise.all(
-    estates.map(async (estate) => {
-      try {
-        const newTxns = await fetchAndSaveTransactions(db, estate.id, estate.name);
-        if (persist) {
-          const listings = await syncEstateListings(db, estate);
-          const changes = await detectChanges(db, estate.id, estate.name, listings);
-          changes.newTransactions = newTxns;
-          return { estate: estate.name, count: listings.length, ok: true, changes };
-        }
-        return { estate: estate.name, ok: true };
-      } catch (err) {
-        return { estate: estate.name, error: err.message, ok: false };
-      }
-    })
-  );
-
-  return { results };
+// Sync one estate: transactions + every enabled source + change detection.
+async function syncOneEstate(db, estate) {
+  const newTxns = await fetchAndSaveTransactions(db, estate.id, estate.name);
+  const listings = await syncEstateListings(db, estate);
+  const changes = await detectChanges(db, estate.id, estate.name, listings);
+  changes.newTransactions = newTxns;
+  return { estate: estate.name, count: listings.length, ok: true, changes };
 }
 
-// Send the "今日動態" digest email. Kept SEPARATE from runDailySync so it runs
-// in its own Worker invocation with a fresh subrequest budget — a full sync
+// Sync a slice of estates (ORDER BY id, LIMIT/OFFSET), sequentially and
+// per-estate non-fatal. Returns how many estates the slice actually held.
+async function syncEstatesBatch(db, offset, size) {
+  const { results: estates } = await db.prepare(
+    "SELECT * FROM estates WHERE is_disabled = 0 OR is_disabled IS NULL ORDER BY id LIMIT ? OFFSET ?"
+  ).bind(size, offset).all();
+  await Promise.all(estates.map(async (estate) => {
+    try { await syncOneEstate(db, estate); } catch (_) { /* non-fatal per estate */ }
+  }));
+  return estates.length;
+}
+
+// ── Chunked daily sync via cron slots ───────────────────────────────────────
+// A full sync of every estate × every source can exceed the per-invocation
+// subrequest limit. Cloudflare blocks a Worker from self-fetching its own route
+// (error 1042) and this account has no Queues, so instead we run the daily sync
+// across several staggered cron triggers — each fires its OWN invocation with a
+// fresh subrequest budget and syncs one SYNC_SLOT_SIZE slice of estates.
+// SYNC_SLOTS maps each sync cron to a slice index. Capacity = slots × size.
+const SYNC_SLOT_SIZE = 12;
+const SYNC_SLOTS = { "0 16 * * *": 0, "10 16 * * *": 1, "20 16 * * *": 2 };
+
+// Send the "今日動態" digest email. Kept SEPARATE from the sync so it runs in
+// its own Worker invocation with a fresh subrequest budget — a full sync
 // nearly exhausts the per-invocation subrequest limit, which is why the email
 // step failed when both ran together.
 async function sendDailyEmail(db, resendApiKey) {
@@ -1482,16 +1491,17 @@ async function sendDailyEmail(db, resendApiKey) {
 
 export default {
   async scheduled(event, env, ctx) {
-    // "0 1 * * *" = 09:00 HKT → email only (fresh subrequest budget).
-    // Everything else (the 00:00 HKT "0 16 * * *" sync) → sync only, no email.
+    // "0 1 * * *" = 09:00 HKT → email only (own fresh subrequest budget).
+    // The 00:00/00:10/00:20 HKT sync slots each sync one slice of estates.
     if (event.cron === "0 1 * * *") {
       ctx.waitUntil(sendDailyEmail(env.DB, env.RESEND_API_KEY));
-    } else {
-      ctx.waitUntil(runDailySync(env.DB));
+    } else if (event.cron in SYNC_SLOTS) {
+      const offset = SYNC_SLOTS[event.cron] * SYNC_SLOT_SIZE;
+      ctx.waitUntil(syncEstatesBatch(env.DB, offset, SYNC_SLOT_SIZE));
     }
   },
 
-  async fetch(request, env) {
+  async fetch(request, env, ctx) {
     const url = new URL(request.url);
     const path = url.pathname;
     const method = request.method;
@@ -2082,19 +2092,23 @@ export default {
       if (method === "POST" && path === "/api/sync") {
         const estateId = url.searchParams.get("estateId");
         if (estateId) {
+          // Single estate stays synchronous — it's one estate, well under the limit.
           const estate = await db.prepare("SELECT * FROM estates WHERE id = ?").bind(estateId).first();
           if (!estate) return json(404, { error: "Not found" });
           try {
-            const newTxns = await fetchAndSaveTransactions(db, estate.id, estate.name);
-            const listings = await syncEstateListings(db, estate);
-            const changes = await detectChanges(db, estate.id, estate.name, listings);
-            changes.newTransactions = newTxns;
-            return json(200, { ok: true, results: [{ estate: estate.name, count: listings.length, ok: true, changes }] });
+            return json(200, { ok: true, results: [await syncOneEstate(db, estate)] });
           } catch (err) {
             return json(200, { ok: true, results: [{ estate: estate.name, error: err.message, ok: false }] });
           }
         }
-        const { results } = await runDailySync(db, null, { persist: true });
+        // All estates in one request (best-effort, immediate feedback). The
+        // automated daily sync is split across cron slots to stay under the
+        // per-invocation subrequest limit; see the scheduled handler.
+        const { results: estates } = await db.prepare("SELECT * FROM estates WHERE is_disabled = 0 OR is_disabled IS NULL ORDER BY id").all();
+        const results = await Promise.all(estates.map(async (estate) => {
+          try { return await syncOneEstate(db, estate); }
+          catch (err) { return { estate: estate.name, error: err.message, ok: false }; }
+        }));
         return json(200, { ok: true, results });
       }
 
