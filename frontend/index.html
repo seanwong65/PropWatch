@@ -1071,6 +1071,9 @@ let chart = null;
 // Listings state
 let allListings = [];
 let estatesById = {};
+let groupOverrides = {};   // ref_no -> {status:'ungrouped'|'grouped', group_key}
+let groupSelectMode = false;
+let groupSelected = new Set();
 let sortCol = "price";
 let sortDir = "asc";
 let filters = { beds: "all", floor: "all", building: "all", unit: "all", minPrice: "", maxPrice: "", minSize: "", maxSize: "", priceChanged: "all", source: "all", dom: "all" };
@@ -2094,10 +2097,13 @@ async function showEstate(id, name, district) {
   main.innerHTML = '<div class="loading"><div class="spinner"></div> 載入中…</div>';
 
   try {
-    const [{ listings }, { trends }] = await Promise.all([
+    const [{ listings }, { trends }, overridesRes] = await Promise.all([
       api(`/api/estates/${id}/listings`),
       api(`/api/estates/${id}/trends`),
+      api(`/api/estates/${id}/group-overrides`).catch(() => ({ overrides: [] })),
     ]);
+    groupOverrides = {};
+    for (const o of (overridesRes.overrides || [])) groupOverrides[o.ref_no] = o;
 
     const prices = listings.map(l => l.price).filter(Boolean);
     const pricesPerFt = listings.map(l => l.price_per_ft).filter(Boolean);
@@ -2187,8 +2193,12 @@ async function showEstate(id, name, district) {
         <div class="listings-section" id="listingsSection">
           <div class="listings-header">
             <div class="section-title" style="margin:0">最新放盤</div>
-            <div id="sourceToggles"></div>
+            <div style="display:flex;align-items:center;gap:0.6rem">
+              <button class="history-btn" id="groupModeBtn" onclick="toggleGroupSelectMode()" style="font-size:0.75rem">群組模式</button>
+              <div id="sourceToggles"></div>
+            </div>
           </div>
+          <div id="groupSelectBar"></div>
           ${listings.length === 0
             ? '<div class="no-data">暫無放盤資料</div>'
             : '<div id="filterBar"></div><div id="listingsTable"></div>'
@@ -3268,13 +3278,14 @@ function setSort(col) {
 // sources into one row — but only when their prices are within 5% of each
 // other. A bigger gap likely means different actual flats inside the same
 // floor band (floor is masked to 高/中/低層), so those stay separate.
-function makeCombined(items) {
+function makeCombined(items, isManual) {
   const byPrice = [...items].sort((a, b) => (a.price || 0) - (b.price || 0));
   const prices = byPrice.map(i => i.price).filter(Boolean);
   const ppf = byPrice.map(i => i.price_per_ft).filter(Boolean);
   const firstSeen = items.map(i => i.first_seen).filter(Boolean).sort()[0] || null;
   return {
     _combined: true,
+    _manual: !!isManual,
     building_name: items[0].building_name, floor: items[0].floor,
     unit: items[0].unit, size_net: items[0].size_net, bedrooms: items[0].bedrooms,
     direction: items.map(i => i.direction).find(Boolean) || null,
@@ -3283,16 +3294,24 @@ function makeCombined(items) {
     removed_date: items.every(i => i.removed_date) ? items[0].removed_date : null,
     price_min: Math.min(...prices), price_max: Math.max(...prices),
     ppf_min: ppf.length ? Math.min(...ppf) : null, ppf_max: ppf.length ? Math.max(...ppf) : null,
-    sources: byPrice.map(i => ({ source: i.source, price: i.price, detail_url: i.detail_url })),
+    sources: byPrice.map(i => ({ source: i.source, price: i.price, detail_url: i.detail_url, ref_no: i.ref_no })),
   };
 }
 
+// Groups same-unit cross-source listings (price within 5%), honouring any
+// saved overrides: a ref_no marked 'ungrouped' is always forced solo (breaks
+// out of whatever auto/manual grouping it would otherwise join); refs sharing
+// a manual 'grouped' group_key are combined unconditionally.
 function groupListings(listings) {
   const groups = new Map();
   const order = [];
   let soloId = 0;
   for (const l of listings) {
-    const key = (l.building_name && l.unit && l.size_net)
+    const ov = l.ref_no && groupOverrides[l.ref_no];
+    let key;
+    if (ov && ov.status === 'grouped' && ov.group_key) key = `m|${ov.group_key}`;
+    else if (ov && ov.status === 'ungrouped') key = `s|${soloId++}`;
+    else key = (l.building_name && l.unit && l.size_net)
       ? `g|${l.building_name}|${l.floor || ''}|${l.unit}|${l.size_net}`
       : `s|${soloId++}`;
     if (!groups.has(key)) { groups.set(key, []); order.push(key); }
@@ -3301,6 +3320,10 @@ function groupListings(listings) {
   const rows = [];
   for (const key of order) {
     const items = groups.get(key);
+    if (key.startsWith('m|')) {
+      rows.push(items.length > 1 ? makeCombined(items, true) : items[0]);
+      continue;
+    }
     const nSrc = new Set(items.map(i => i.source)).size;
     if (items.length > 1 && nSrc > 1) {
       const prices = items.map(i => i.price).filter(Boolean);
@@ -3310,6 +3333,32 @@ function groupListings(listings) {
     for (const i of items) rows.push(i);
   }
   return rows;
+}
+
+// Persist a group-override action then refresh the current estate's listings.
+async function applyGroupOverride(action, refNos) {
+  if (!activeEstateId || !refNos.length) return;
+  try {
+    await api(`/api/estates/${activeEstateId}/group-overrides`, {
+      method: 'POST', body: JSON.stringify({ action, ref_nos: refNos }),
+    });
+    const { overrides } = await api(`/api/estates/${activeEstateId}/group-overrides`);
+    groupOverrides = {};
+    for (const o of overrides) groupOverrides[o.ref_no] = o;
+    groupSelected.clear();
+    renderListingsTable();
+  } catch (e) { toast('操作失敗：' + e.message, 'error'); }
+}
+
+function toggleGroupSelectMode() {
+  groupSelectMode = !groupSelectMode;
+  groupSelected.clear();
+  renderListingsTable();
+}
+
+function toggleGroupSelect(refNo) {
+  groupSelected.has(refNo) ? groupSelected.delete(refNo) : groupSelected.add(refNo);
+  renderListingsTable();
 }
 
 // Days on market — use the EARLIER of the source's publish date and the day we
@@ -3342,7 +3391,22 @@ function renderListingsTable() {
   const fc = document.getElementById("filterCount");
   if (fc) fc.textContent = `顯示 ${visible.length} / ${allListings.length} 個盤${displayRows.length < visible.length ? `(合併為 ${displayRows.length} 行)` : ''}`;
 
+  const modeBtn = document.getElementById('groupModeBtn');
+  if (modeBtn) {
+    modeBtn.textContent = groupSelectMode ? '✕ 取消群組模式' : '群組模式';
+    modeBtn.style.background = groupSelectMode ? 'var(--btn-hover)' : '';
+  }
+  const selBar = document.getElementById('groupSelectBar');
+  if (selBar) {
+    selBar.innerHTML = groupSelectMode
+      ? `<div style="display:flex;align-items:center;gap:0.6rem;padding:0.5rem 0;font-size:0.8rem;color:var(--muted)">
+           剔選 2 個或以上盤(建議唔同來源)夾成一行 —— 已選 ${groupSelected.size} 個
+           <button class="history-btn" ${groupSelected.size < 2 ? 'disabled style="opacity:0.5"' : ''} onclick="applyGroupOverride('group', [...groupSelected])">合併選中</button>
+         </div>` : '';
+  }
+
   const cols = [
+    ...(groupSelectMode ? [{ key: null, label: '' }] : []),
     { key: "first_seen",    label: "上盤日期" },
     { key: "building_name", label: "座" },
     { key: "floor",         label: "樓層/單位" },
@@ -3376,22 +3440,41 @@ function renderListingsTable() {
     return `<div>$${lo ? lo.toLocaleString() : '-'}${(hi && hi > lo) ? `–${hi.toLocaleString()}` : ''}</div><div class="unit-price">/呎</div>`;
   };
 
-  const sourceCell = l => l._combined
-    ? l.sources.map(s => s.detail_url
+  const sourceCell = l => {
+    if (l._combined) {
+      const links = l.sources.map(s => s.detail_url
         ? `<a href="${escHtml(s.detail_url)}" target="_blank" class="detail-link" style="font-size:0.72rem;white-space:nowrap">${sourceLabel(s.source)} $${(s.price/1e4).toFixed(0)} ↗</a>`
         : `<span style="font-size:0.72rem;white-space:nowrap;color:var(--muted)">${sourceLabel(s.source)} $${(s.price/1e4).toFixed(0)}</span>`
-      ).join('<br>')
-    : (l.detail_url
-        ? `<a href="${escHtml(l.detail_url)}" target="_blank" class="detail-link" style="font-size:0.75rem">${sourceLabel(l.source)} ↗</a>`
-        : `<span style="font-size:0.75rem">${sourceLabel(l.source)}</span>`);
+      ).join('<br>');
+      const refs = l.sources.map(s => s.ref_no).filter(Boolean);
+      const undoLabel = l._manual ? '還原' : '拆開';
+      const undoAction = l._manual ? 'reset' : 'ungroup';
+      const undoBtn = refs.length
+        ? `<button class="history-btn" style="font-size:0.68rem;padding:0.05rem 0.35rem;margin-top:0.25rem" onclick='applyGroupOverride("${undoAction}", ${JSON.stringify(refs)})'>${undoLabel}</button>`
+        : '';
+      return links + '<br>' + undoBtn;
+    }
+    const link = l.detail_url
+      ? `<a href="${escHtml(l.detail_url)}" target="_blank" class="detail-link" style="font-size:0.75rem">${sourceLabel(l.source)} ↗</a>`
+      : `<span style="font-size:0.75rem">${sourceLabel(l.source)}</span>`;
+    const hasOverride = l.ref_no && groupOverrides[l.ref_no];
+    const resetBtn = hasOverride
+      ? `<br><button class="history-btn" style="font-size:0.68rem;padding:0.05rem 0.35rem;margin-top:0.2rem" onclick="applyGroupOverride('reset',['${escHtml(l.ref_no)}'])">↺ 還原自動</button>`
+      : '';
+    return link + resetBtn;
+  };
 
   const rows = displayRows.length === 0
     ? `<tr><td colspan="${cols.length}" class="no-data" style="padding:2rem;text-align:center">無符合條件的放盤</td></tr>`
     : displayRows.map(l => {
       const rowStyle = (l.removed_date || l._combined)
         ? ` style="${l.removed_date ? 'opacity:0.45;' : ''}${l._combined ? 'background:rgba(16,185,129,0.06);' : ''}"` : '';
+      const checkboxCell = groupSelectMode
+        ? `<td>${(!l._combined && l.ref_no) ? `<input type="checkbox" ${groupSelected.has(l.ref_no) ? 'checked' : ''} onchange="toggleGroupSelect('${escHtml(l.ref_no)}')">` : ''}</td>`
+        : '';
       return `
       <tr${rowStyle}>
+        ${checkboxCell}
         <td class="txn-date">
           ${listingDate(l) || '-'}
           ${l.removed_date ? `<div style="color:var(--down);font-size:0.75rem">下架 ${l.removed_date}</div>` : domBadge(l)}
