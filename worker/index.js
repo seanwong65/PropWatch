@@ -643,8 +643,8 @@ async function saveRicacorpListings(db, estateId, listings) {
   const stmt = db.prepare(
     `INSERT OR REPLACE INTO listings
      (estate_id, listing_id, ref_no, building_name, floor, unit, bedrooms,
-      size_net, price, price_per_ft, detail_url, snapshot_date, source)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`
+      size_net, price, price_per_ft, detail_url, snapshot_date, source, publish_date)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
   );
   const stmtHistory = db.prepare(
     `INSERT INTO listing_price_history (ref_no, estate_id, price, price_per_ft, snapshot_date)
@@ -654,7 +654,7 @@ async function saveRicacorpListings(db, estateId, listings) {
   const batch = [];
   for (const l of listings) {
     batch.push(stmt.bind(estateId, l.ref_no, l.ref_no, l.building_name, l.floor, normalizeUnit(l.unit),
-      l.bedrooms, l.size_net, l.price, l.price_per_ft, l.detail_url, today, l.source));
+      l.bedrooms, l.size_net, l.price, l.price_per_ft, l.detail_url, today, l.source, l.publish_date ?? null));
     if (l.ref_no && l.price) batch.push(stmtHistory.bind(l.ref_no, estateId, l.price, l.price_per_ft, today));
   }
   await db.batch(batch);
@@ -695,6 +695,10 @@ function parseHkpProperty(p) {
     price: p.price_hkd || p.price || null,
     price_per_ft: p.price_over_net_area || null,
     detail_url: p.url_desc || null,
+    // The current listing's post date (what hkp shows as 上盤日期). Fake-fresh
+    // dates are caught on the client by taking the earlier of this and the day
+    // we first recorded the listing. Falls back to the original first-pub date.
+    publish_date: (p.post_date || p.first_pub_date || "").slice(0, 10) || null,
     source: "hkp",
   };
 }
@@ -730,8 +734,8 @@ async function saveHkpListings(db, estateId, listings) {
   const stmt = db.prepare(
     `INSERT OR REPLACE INTO listings
      (estate_id, listing_id, ref_no, building_name, floor, unit, bedrooms,
-      size_net, price, price_per_ft, detail_url, snapshot_date, source)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`
+      size_net, price, price_per_ft, detail_url, snapshot_date, source, publish_date)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
   );
   const stmtHistory = db.prepare(
     `INSERT INTO listing_price_history (ref_no, estate_id, price, price_per_ft, snapshot_date)
@@ -741,7 +745,7 @@ async function saveHkpListings(db, estateId, listings) {
   const batch = [];
   for (const l of listings) {
     batch.push(stmt.bind(estateId, l.ref_no, l.ref_no, l.building_name, l.floor, normalizeUnit(l.unit),
-      l.bedrooms, l.size_net, l.price, l.price_per_ft, l.detail_url, today, l.source));
+      l.bedrooms, l.size_net, l.price, l.price_per_ft, l.detail_url, today, l.source, l.publish_date ?? null));
     if (l.ref_no && l.price) batch.push(stmtHistory.bind(l.ref_no, estateId, l.price, l.price_per_ft, today));
   }
   await db.batch(batch);
