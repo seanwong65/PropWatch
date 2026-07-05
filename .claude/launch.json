@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "propwatch-frontend",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": ["serve", "frontend", "-p", "3456", "--no-clipboard"],
+      "port": 3456
+    }
+  ]
+}
