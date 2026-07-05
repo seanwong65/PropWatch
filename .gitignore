@@ -1,3 +1,6 @@
 node_modules/
 .DS_Store
 .wrangler/
+
+# local Claude Code settings (per-machine, not shared)
+.claude/settings.local.json
