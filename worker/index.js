@@ -1867,8 +1867,32 @@ export default {
             detail_url: t.detailUrl,
             hs_price: saved ? saved.price : null,
             hs_date: saved ? saved.valuation_date : null,
+            source: "centanet",
           };
         });
+
+        // Supplement with 利嘉閣 land-registry deals stored in the DB. Match on
+        // 座+樓+室+登記日 (normalised): a match enriches the Centanet row with the
+        // 簽約 date; ricacorp-only deals are appended on the first page.
+        const { results: ricaTxns } = await db.prepare(
+          "SELECT building, floor, unit, price, size_net, price_per_ft, reg_date, instrument_date FROM transactions WHERE estate_id=? AND source='ricacorp'"
+        ).bind(estateId).all();
+        const txnKey = (b, f, u, d) => `${_normBldg(b)}|${String(f || "").replace(/\D/g, "")}|${_normUnit(u)}|${d || ""}`;
+        const ricaByKey = new Map(ricaTxns.map(r => [txnKey(r.building, r.floor, r.unit, r.reg_date), r]));
+        for (const t of txns) {
+          const m = ricaByKey.get(txnKey(t.building, t.floor, t.unit, t.reg_date));
+          if (m) { t.instrument_date = m.instrument_date; ricaByKey.delete(txnKey(m.building, m.floor, m.unit, m.reg_date)); }
+        }
+        if (offset === 0) {
+          for (const r of ricaByKey.values()) {
+            txns.push({
+              building: r.building, floor: r.floor, unit: r.unit,
+              price: r.price, size_net: r.size_net, price_per_ft_net: r.price_per_ft,
+              reg_date: r.reg_date, instrument_date: r.instrument_date, source: "ricacorp",
+            });
+          }
+          txns.sort((a, b) => (b.reg_date || "").localeCompare(a.reg_date || ""));
+        }
         return json(200, { transactions: txns, total: raw.data?.length ?? 0 });
       }
 
