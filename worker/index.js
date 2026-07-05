@@ -667,6 +667,88 @@ async function saveRicacorpListings(db, estateId, listings) {
   await db.batch(batch);
 }
 
+// ── 利嘉閣 土地註冊成交 (land registry transactions) ─────────────────────────
+// Supplements Centanet transactions. Mostly overlapping, but carries the
+// instrument (簽約) date and occasionally deals Centanet lacks. Net area/$ only.
+const RICA_UA = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
+
+// Return the balanced-brace JSON object that encloses position `idx`.
+function _objectAround(str, idx) {
+  let s = idx, depth = 0;
+  while (s > 0) { s--; if (str[s] === "}") depth++; else if (str[s] === "{") { if (depth === 0) break; depth--; } }
+  let e = idx; depth = 0;
+  while (e < str.length) { const c = str[e]; if (c === "{") depth++; else if (c === "}") { depth--; if (depth === 0) { e++; break; } } e++; }
+  return str.slice(s, e);
+}
+
+export async function scrapeRicacorpTransactions(estateName) {
+  const base = `https://www.ricacorp.com/zh-hk/property/list/landregistry;registrationDateFrom=1095;displayText=${encodeURIComponent(estateName)}`;
+  const txns = [];
+  const seen = new Set();
+  let failStreak = 0;
+  // The page embeds each unit's full history; keep only recent registrations
+  // (matches the ;registrationDateFrom=1095 window ≈ 3 years).
+  const cutoff = new Date(Date.now() - 1100 * 86400000).toISOString().slice(0, 10);
+
+  for (let page = 1; page <= 10; page++) {
+    const url = page === 1 ? base : `${base};page=${page}`;
+    let html = null;
+    for (let a = 0; a < 3 && html === null; a++) {
+      try {
+        const res = await fetch(url, { headers: { "User-Agent": RICA_UA }, signal: AbortSignal.timeout(25000) });
+        if (res.ok) html = await res.text();
+      } catch { /* retry */ }
+    }
+    if (html === null) { if (++failStreak >= 3) break; continue; }
+    failStreak = 0;
+    html = html.replace(/&q;/g, '"');
+
+    let found = 0, idx = 0;
+    while ((idx = html.indexOf('"consideration"', idx)) !== -1) {
+      const obj = _objectAround(html, idx);
+      idx += 15;
+      const price = Number(obj.match(/"consideration":(\d+)/)?.[1]) || null;
+      const regMs = Number(obj.match(/"registrationDate":(\d+)/)?.[1]) || null;
+      const instMs = Number(obj.match(/"instrumentDate":(\d+)/)?.[1]) || null;
+      const floor = obj.match(/"floor":"([^"]+)"/)?.[1] || null;
+      const flat = obj.match(/"flat":"([^"]+)"/)?.[1] || null;
+      const sArea = Number(obj.match(/"saleableArea":([\d.]+)/)?.[1]) || null;
+      const sPpf = Math.round(Number(obj.match(/"saleableAreaUnitPrice":([\d.]+)/)?.[1])) || null;
+      const building = obj.match(/"(\d+座|[A-Za-z]座)-building/)?.[1] || null;
+      const reg_date = regMs ? new Date(regMs).toISOString().slice(0, 10) : null;
+      if (!price || !reg_date || reg_date < cutoff) continue;   // recent registrations only
+      // No stable ref in this object → deterministic id from the unit + deal.
+      const id = `RR-${building || "?"}-${floor || "?"}-${flat || "?"}-${reg_date}-${price}`;
+      if (seen.has(id)) continue;
+      seen.add(id); found++;
+      txns.push({
+        transaction_id: id, building, floor, unit: flat,
+        price, size_net: sArea, price_per_ft: sPpf || (sArea ? Math.round(price / sArea) : null), reg_date,
+        instrument_date: instMs ? new Date(instMs).toISOString().slice(0, 10) : null,
+        source: "ricacorp",
+      });
+    }
+    if (found === 0) break;
+  }
+  return txns;
+}
+
+async function saveRicacorpTransactions(db, estateId, txns) {
+  if (!txns.length) return;
+  const today = hkDateStr();
+  const stmt = db.prepare(
+    `INSERT OR IGNORE INTO transactions
+     (estate_id, transaction_id, building, floor, unit, price, size_net, price_per_ft,
+      reg_date, instrument_date, source, first_seen)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`
+  );
+  const batch = txns.map(t => stmt.bind(
+    estateId, t.transaction_id, t.building, t.floor, normalizeUnit(t.unit),
+    t.price, t.size_net, t.price_per_ft, t.reg_date, t.instrument_date, t.source, today
+  ));
+  await db.batch(batch);
+}
+
 // ── 香港置業 (Hong Kong Property, Midland backend) ─────────────────────────
 // Uses the JSON API at data.hkp.com.hk. Flow: mint an anonymous userToken JWT
 // from any hkp page, resolve the estate name to an est_id, then page through

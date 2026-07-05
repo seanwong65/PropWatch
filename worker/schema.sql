@@ -118,6 +118,8 @@ CREATE TABLE IF NOT EXISTS transactions (
   prev_price     REAL,
   gain_pct       REAL,
   held_days      INTEGER,
+  source         TEXT DEFAULT 'centanet',
+  instrument_date TEXT,
   first_seen     TEXT NOT NULL DEFAULT (date('now', '+8 hours')),
   UNIQUE(transaction_id)
 );
