@@ -1774,7 +1774,9 @@ export default {
                pl.first_seen,
                CASE WHEN pl.last_seen < latest.d THEN pl.last_seen ELSE NULL END AS removed_date,
                prev.price AS prev_price,
-               prev.price_per_ft AS prev_price_per_ft
+               prev.price_per_ft AS prev_price_per_ft,
+               (SELECT COUNT(DISTINCT h.price) FROM listing_price_history h
+                 WHERE h.ref_no = l.ref_no) AS price_variants
              FROM listings l
              JOIN per_listing pl ON pl.listing_id = l.listing_id
              JOIN latest ON 1=1
@@ -1790,6 +1792,61 @@ export default {
           .bind(estateId, estateId, estateId)
           .all();
         return json(200, { listings: results });
+      }
+
+      // 屋苑市場溫度:在售量、30/90日成交、消化率(答「買家定賣家市場」)
+      if (method === "GET" && path.match(/^\/api\/estates\/\d+\/market-temp$/)) {
+        const estateId = path.split("/")[3];
+        const row = await db.prepare(`
+          SELECT
+            (SELECT COUNT(*) FROM listings WHERE estate_id = ?1
+               AND snapshot_date = (SELECT MAX(snapshot_date) FROM listings WHERE estate_id = ?1)) AS active_listings,
+            (SELECT COUNT(*) FROM transactions WHERE estate_id = ?1
+               AND reg_date >= date('now','+8 hours','-30 day')) AS txn_30d,
+            (SELECT COUNT(*) FROM transactions WHERE estate_id = ?1
+               AND reg_date >= date('now','+8 hours','-90 day')) AS txn_90d
+        `).bind(estateId).first();
+        return json(200, row);
+      }
+
+      // 全組合指數:全部追蹤屋苑嘅每日中位呎價,逐屋苑歸一化後平均 —— 做
+      // 屋苑走勢圖嘅大市對照線(跑贏/跑輸你追蹤緊嘅市場)
+      if (method === "GET" && path === "/api/market-index") {
+        const { results } = await db.prepare(`
+          SELECT estate_id, snapshot_date, avg_price_ft FROM price_snapshots
+          WHERE snapshot_date >= date('now','+8 hours','-90 day') AND avg_price_ft > 0
+          ORDER BY snapshot_date
+        `).all();
+        const firstOf = new Map();
+        const byDate = new Map();
+        for (const r of results) {
+          if (!firstOf.has(r.estate_id)) firstOf.set(r.estate_id, r.avg_price_ft);
+          const idx = r.avg_price_ft / firstOf.get(r.estate_id) * 100;
+          if (!byDate.has(r.snapshot_date)) byDate.set(r.snapshot_date, []);
+          byDate.get(r.snapshot_date).push(idx);
+        }
+        const index = [...byDate.entries()]
+          .filter(([, v]) => v.length >= 5)   // need a broad-enough day to be meaningful
+          .map(([d, v]) => ({ snapshot_date: d, idx: Math.round(v.reduce((s, x) => s + x, 0) / v.length * 100) / 100 }));
+        return json(200, { index });
+      }
+
+      // 上手成交:某座+某室成條線嘅歷史成交(實際樓層),俾用戶對返放盤個 band
+      if (method === "GET" && path.match(/^\/api\/estates\/\d+\/line-history$/)) {
+        const estateId = path.split("/")[3];
+        const building = url.searchParams.get("building") || "";
+        const unit = url.searchParams.get("unit") || "";
+        if (!unit) return json(400, { error: "unit required" });
+        const { results } = await db.prepare(`
+          SELECT building, floor, unit, price, size_net, price_per_ft, reg_date,
+                 instrument_date, gain_pct, held_days, source
+          FROM transactions
+          WHERE estate_id = ?
+            AND REPLACE(REPLACE(unit,'室',''),' ','') = ?
+            AND (?3 = '' OR REPLACE(REPLACE(building,'座',''),' ','') = ?3)
+          ORDER BY reg_date DESC LIMIT 40
+        `).bind(estateId, unit.replace(/[室\s]/g, ""), building.replace(/[座\s]/g, "")).all();
+        return json(200, { history: results });
       }
 
       if (method === "GET" && path.match(/^\/api\/listings\/.+\/history$/)) {

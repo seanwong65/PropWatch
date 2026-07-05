@@ -2171,6 +2171,10 @@ async function showEstate(id, name, district) {
             return `<div style="margin-top:0.35rem"><span style="font-size:0.75rem;color:var(--muted)">${b}房</span> <span class="stat-value" style="font-size:1.1rem">$${lo}萬</span><span class="stat-unit"> - </span><span class="stat-value" style="font-size:1.1rem">$${hi}萬</span></div>`;
           }).join('')}
         </div>
+        <div class="stat-card" id="market-temp-card">
+          <div class="stat-label">市場溫度</div>
+          <div style="margin-top:0.35rem;font-size:0.8rem;color:var(--muted)">載入中…</div>
+        </div>
       </div>
         <div class="chart-section">
           <div class="section-title">實用呎價趨勢</div>
@@ -2205,10 +2209,23 @@ async function showEstate(id, name, district) {
       </div>
     `;
 
-    // Draw chart
+    // Draw chart, then overlay the portfolio index (async, non-blocking)
     if (trends.length >= 2) {
       drawChart(trends);
+      api('/api/market-index').then(({ index }) => {
+        if (!index || index.length < 2 || activeEstateId !== id) return;
+        const idxMap = new Map(index.map(r => [r.snapshot_date, r.idx]));
+        let base = null;
+        const overlay = trends.map(t => {
+          const v = idxMap.get(t.snapshot_date);
+          if (v == null) return null;
+          if (base === null) base = { idx: v, ppf: t.avg_price_ft };
+          return base.ppf * (v / base.idx);
+        });
+        if (overlay.filter(Boolean).length >= 2) drawChart(trends, overlay);
+      }).catch(() => {});
     }
+    loadMarketTemp(id);
 
     // Init listings sort/filter state and render
     if (listings.length > 0) {
@@ -3042,9 +3059,25 @@ function renderTransactionsTable(estateId, offset, hasMore) {
       <span class="filter-count">${filtered.length !== allTransactions.length ? `${filtered.length} / ${allTransactions.length} 條` : `${allTransactions.length} 條`}</span>
     </div>`;
 
+  // 樓層溢價:將已載入成交按樓層分組,平均實呎價 → 高層值唔值個溢價
+  const buckets = [['1-9樓', 1, 9], ['10-19樓', 10, 19], ['20-29樓', 20, 29], ['30樓+', 30, 999]];
+  const premium = buckets.map(([label, lo, hi]) => {
+    const vals = filtered.filter(t => {
+      const f = parseInt(String(t.floor || '').replace(/\D/g, ''));
+      return f >= lo && f <= hi && t.price_per_ft_net;
+    }).map(t => t.price_per_ft_net);
+    return vals.length ? { label, avg: Math.round(vals.reduce((s, v) => s + v, 0) / vals.length), n: vals.length } : null;
+  }).filter(Boolean);
+  const premiumStrip = premium.length >= 2
+    ? `<div style="display:flex;gap:1rem;flex-wrap:wrap;align-items:baseline;padding:0.5rem 0.75rem;margin-bottom:0.5rem;background:var(--surface2);border-radius:8px;font-size:0.78rem">
+        <span style="color:var(--muted)">樓層溢價(平均實呎)</span>
+        ${premium.map(p => `<span>${p.label} <span style="color:var(--accent);font-weight:600">$${p.avg.toLocaleString()}</span> <span style="color:var(--muted);font-size:0.72rem">(${p.n}宗)</span></span>`).join('')}
+      </div>` : '';
+
   panel.innerHTML = `
     <div class="listings-section">
       ${filterBar}
+      ${premiumStrip}
       <div class="table-scroll">
         <table class="data-table">
           <thead><tr>${ths}</tr></thead>
@@ -3334,6 +3367,7 @@ function renderListingsTable() {
        <div style="font-size:0.72rem;color:var(--muted)">最平 ${sourceLabel(l.sources[0].source)} · ${l.sources.length} 個源</div>`
     : `$${l.price ? (l.price/1e4).toFixed(0)+'萬' : '-'}
        ${priceChangeBadge(l.price, l.prev_price)}
+       ${l.price_variants > 1 ? `<div style="font-size:0.72rem;color:${l.price < l.prev_price ? 'var(--up)' : 'var(--accent)'}">改價 ${l.price_variants - 1} 次</div>` : ''}
        ${l.ref_no ? `<br><button class="history-btn" onclick="showHistory('${escHtml(l.ref_no)}','${escHtml((l.building_name||'')+' '+(l.floor||'')+(l.unit||''))}')">歷史 ↓</button>` : ''}`;
 
   const ppfCell = l => {
@@ -3366,6 +3400,7 @@ function renderListingsTable() {
         <td>
           <span class="floor-badge ${floorClass(l.floor)}">${escHtml(l.floor||'-')}</span>
           <span style="margin-left:0.4rem">${escHtml(l.unit||'-')}</span>
+          ${l.building_name && l.unit ? `<br><button class="history-btn" style="font-size:0.7rem;padding:0.1rem 0.4rem;margin-top:0.2rem" onclick="openLineHistory('${escHtml(l.building_name)}','${escHtml(l.unit)}','${escHtml(l.floor||'')}')">上手 ↓</button>` : ''}
         </td>
         <td>${l.bedrooms ?? '-'}房</td>
         <td>${l.size_net ? l.size_net.toLocaleString()+'呎' : '-'}</td>
@@ -3405,7 +3440,7 @@ function sourceEnabledFE(est, id) {
 }
 
 // ── Chart ──────────────────────────────────────────────────────
-function drawChart(trends) {
+function drawChart(trends, overlay) {
   const canvas = document.getElementById("trendChart");
   if (!canvas) return;
 
@@ -3422,8 +3457,9 @@ function drawChart(trends) {
   const w = W - pad.left - pad.right;
   const h = H - pad.top - pad.bottom;
 
-  const minV = Math.min(...data) * 0.98;
-  const maxV = Math.max(...data) * 1.02;
+  const allVals = data.concat((overlay || []).filter(v => v != null));
+  const minV = Math.min(...allVals) * 0.98;
+  const maxV = Math.max(...allVals) * 1.02;
 
   ctx.clearRect(0, 0, W, H);
 
@@ -3492,6 +3528,30 @@ function drawChart(trends) {
   ctx.arc(lx, ly, 4, 0, Math.PI * 2);
   ctx.fillStyle = "#f59e0b";
   ctx.fill();
+
+  // 全組合指數 overlay — dashed blue line, scaled to start at the estate's
+  // first point so divergence = out/under-performing the tracked market.
+  if (overlay && overlay.filter(v => v != null).length >= 2) {
+    ctx.beginPath();
+    ctx.setLineDash([5, 4]);
+    ctx.strokeStyle = "#3b82f6";
+    ctx.lineWidth = 1.5;
+    let started = false;
+    overlay.forEach((v, i) => {
+      if (v == null) return;
+      const x = pad.left + (w / (data.length - 1)) * i;
+      const y = pad.top + h - ((v - minV) / (maxV - minV)) * h;
+      started ? ctx.lineTo(x, y) : ctx.moveTo(x, y);
+      started = true;
+    });
+    ctx.stroke();
+    ctx.setLineDash([]);
+    // Legend
+    ctx.font = "10px -apple-system, sans-serif";
+    ctx.textAlign = "left";
+    ctx.fillStyle = "#f59e0b"; ctx.fillText("── 本屋苑", pad.left + 4, 12);
+    ctx.fillStyle = "#3b82f6"; ctx.fillText("╌╌ 全組合", pad.left + 64, 12);
+  }
 }
 
 // ── Sync all ──────────────────────────────────────────────────
@@ -3555,6 +3615,65 @@ async function showHistory(refNo, label) {
     `;
   } catch (err) {
     document.getElementById("historyContent").innerHTML = `<div class="no-data">載入失敗：${err.message}</div>`;
+  }
+}
+
+// 市場溫度卡:在售量 / 月成交 / 消化率 → 買家定賣家市場
+async function loadMarketTemp(estateId) {
+  const card = document.getElementById('market-temp-card');
+  if (!card) return;
+  try {
+    const t = await api(`/api/estates/${estateId}/market-temp`);
+    const months = t.txn_30d > 0 ? (t.active_listings / t.txn_30d) : null;
+    let verdict, color;
+    if (months == null || months > 12) { verdict = '極淡 · 買家話事'; color = 'var(--up)'; }
+    else if (months > 6) { verdict = '偏淡 · 買家有利'; color = 'var(--up)'; }
+    else if (months > 3) { verdict = '均衡'; color = 'var(--muted)'; }
+    else { verdict = '偏熱 · 賣家有利'; color = 'var(--down)'; }
+    card.innerHTML = `<div class="stat-label">市場溫度</div>
+      <div style="margin-top:0.35rem"><span class="stat-value" style="font-size:1.1rem">${t.txn_30d}</span><span class="stat-unit"> 宗/30日</span> <span style="font-size:0.75rem;color:var(--muted)">(90日 ${t.txn_90d} 宗)</span></div>
+      <div style="margin-top:0.25rem;font-size:0.8rem;color:var(--muted)">在售 ${t.active_listings} 個${months != null ? ` · 約 ${months.toFixed(0)} 個月去貨` : ''}</div>
+      <div style="margin-top:0.25rem;font-size:0.8rem;font-weight:600;color:${color}">${verdict}</div>`;
+  } catch (_) { card.innerHTML = `<div class="stat-label">市場溫度</div><div style="margin-top:0.35rem;font-size:0.8rem;color:var(--muted)">載入失敗</div>`; }
+}
+
+// 上手成交:一條線(座+室)嘅歷史成交,實際樓層清楚列出俾用戶對返個 band
+async function openLineHistory(building, unit, floorBand) {
+  document.getElementById('comp-modal-title').textContent = `${building} ${unit} · 上手成交`;
+  document.getElementById('comp-modal-body').innerHTML = '<div class="loading"><div class="spinner"></div> 載入中…</div>';
+  document.getElementById('compModalOverlay').style.display = 'flex';
+  try {
+    let { history } = await api(`/api/estates/${activeEstateId}/line-history?building=${encodeURIComponent(building)}&unit=${encodeURIComponent(unit)}`);
+    // Same deal can exist from both centanet and ricacorp — dedupe, preferring
+    // the row that carries held/gain info.
+    const byDeal = new Map();
+    for (const h of history) {
+      const k = `${String(h.floor||'').replace(/\D/g,'')}|${h.reg_date}|${h.price}`;
+      if (!byDeal.has(k) || (h.gain_pct != null && byDeal.get(k).gain_pct == null)) byDeal.set(k, h);
+    }
+    history = [...byDeal.values()];
+    if (!history.length) {
+      document.getElementById('comp-modal-body').innerHTML = '<div style="color:var(--muted);font-size:0.85rem;padding:0.5rem 0">呢條線暫無成交記錄(系統只有近年數據)。</div>';
+      return;
+    }
+    const rows = history.map(h => {
+      const held = h.held_days ? (h.held_days / 365).toFixed(1) + '年' : '';
+      const gain = h.gain_pct != null ? `<span class="${h.gain_pct >= 0 ? 'gain-pos' : 'gain-neg'}">${h.gain_pct >= 0 ? '▲' : '▼'}${Math.abs(h.gain_pct).toFixed(0)}%</span>` : '';
+      return `<tr style="border-top:1px solid var(--border)">
+        <td style="padding:0.35rem 0.4rem 0.35rem 0;color:var(--text)">${escHtml(String(h.floor||'?'))}</td>
+        <td style="text-align:right;padding:0.35rem 0.4rem;white-space:nowrap">$${(h.price/1e4).toFixed(0)}萬</td>
+        <td style="text-align:right;padding:0.35rem 0.4rem;color:var(--muted);white-space:nowrap">${h.price_per_ft ? '@$'+Math.round(h.price_per_ft).toLocaleString() : '-'}</td>
+        <td style="text-align:right;padding:0.35rem 0.4rem;white-space:nowrap;color:var(--muted);font-size:0.75rem">${h.reg_date || '-'}</td>
+        <td style="text-align:right;padding:0.35rem 0 0.35rem 0.4rem;white-space:nowrap;font-size:0.75rem">${held} ${gain}</td>
+      </tr>`;
+    }).join('');
+    document.getElementById('comp-modal-body').innerHTML = `
+      <div style="font-size:0.78rem;color:var(--muted);margin-bottom:0.5rem">同座同室各層真實成交(放盤樓層顯示為「${escHtml(floorBand||'?')}」,自行對照)。持貨短/蝕讓 = 議價空間大。</div>
+      <table style="width:100%;border-collapse:collapse;font-size:0.82rem">
+        <thead><tr style="text-align:left;color:var(--muted);font-size:0.75rem"><th style="padding:0.3rem 0.4rem 0.3rem 0">樓層</th><th style="text-align:right">成交</th><th style="text-align:right">實呎價</th><th style="text-align:right">登記日</th><th style="text-align:right">持有/賺蝕</th></tr></thead>
+        <tbody>${rows}</tbody></table>`;
+  } catch (e) {
+    document.getElementById('comp-modal-body').innerHTML = `<div style="color:var(--down)">載入失敗:${escHtml(e.message)}</div>`;
   }
 }
 
