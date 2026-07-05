@@ -917,6 +917,20 @@ async function ensureSystemParams(db) {
   }
 }
 
+// 最新放盤 combine-same-unit 嘅人手覆蓋(拆開錯誤 group / 人手夾埋冇撞中嘅盤)
+async function ensureGroupOverrides(db) {
+  await db.prepare(`CREATE TABLE IF NOT EXISTS listing_group_overrides (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    estate_id INTEGER NOT NULL,
+    ref_no TEXT NOT NULL,
+    status TEXT NOT NULL CHECK(status IN ('ungrouped','grouped')),
+    group_key TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now', '+8 hours')),
+    UNIQUE(estate_id, ref_no)
+  )`).run();
+  await db.prepare("CREATE INDEX IF NOT EXISTS idx_grpovr_estate ON listing_group_overrides(estate_id)").run();
+}
+
 // ── 叫價 → 成交落差配對 (asking-to-sold spread) ──────────────────────────────
 // Listings mask the floor (高/中/低層) while transactions carry the exact floor,
 // so an exact-unit join is impossible. We match a *stack* (估苑+座+室+面積) that
@@ -1847,6 +1861,49 @@ export default {
           ORDER BY reg_date DESC LIMIT 40
         `).bind(estateId, unit.replace(/[室\s]/g, ""), building.replace(/[座\s]/g, "")).all();
         return json(200, { history: results });
+      }
+
+      // 最新放盤 combine 嘅人手覆蓋:讀取 / 拆開 / 夾埋 / 還原自動
+      if (method === "GET" && path.match(/^\/api\/estates\/\d+\/group-overrides$/)) {
+        await ensureGroupOverrides(db);
+        const estateId = path.split("/")[3];
+        const { results } = await db.prepare(
+          "SELECT ref_no, status, group_key FROM listing_group_overrides WHERE estate_id = ?"
+        ).bind(estateId).all();
+        return json(200, { overrides: results });
+      }
+
+      if (method === "POST" && path.match(/^\/api\/estates\/\d+\/group-overrides$/)) {
+        await ensureGroupOverrides(db);
+        const estateId = path.split("/")[3];
+        const { action, ref_nos } = await request.json();
+        if (!Array.isArray(ref_nos) || !ref_nos.length) return json(400, { error: "ref_nos required" });
+
+        if (action === "ungroup") {
+          // 每個 ref 永遠 solo,唔會再被自動夾埋
+          for (const ref of ref_nos) {
+            await db.prepare(
+              `INSERT INTO listing_group_overrides (estate_id, ref_no, status, group_key) VALUES (?,?,'ungrouped',NULL)
+               ON CONFLICT(estate_id, ref_no) DO UPDATE SET status='ungrouped', group_key=NULL`
+            ).bind(estateId, ref).run();
+          }
+        } else if (action === "group") {
+          if (ref_nos.length < 2) return json(400, { error: "至少要 2 個 ref_no" });
+          const groupKey = `manual-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+          for (const ref of ref_nos) {
+            await db.prepare(
+              `INSERT INTO listing_group_overrides (estate_id, ref_no, status, group_key) VALUES (?,?,'grouped',?)
+               ON CONFLICT(estate_id, ref_no) DO UPDATE SET status='grouped', group_key=excluded.group_key`
+            ).bind(estateId, ref, groupKey).run();
+          }
+        } else if (action === "reset") {
+          for (const ref of ref_nos) {
+            await db.prepare("DELETE FROM listing_group_overrides WHERE estate_id = ? AND ref_no = ?").bind(estateId, ref).run();
+          }
+        } else {
+          return json(400, { error: "action must be ungroup / group / reset" });
+        }
+        return json(200, { ok: true });
       }
 
       if (method === "GET" && path.match(/^\/api\/listings\/.+\/history$/)) {

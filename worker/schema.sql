@@ -137,3 +137,18 @@ CREATE TABLE IF NOT EXISTS system_parameters (
 );
 
 CREATE INDEX IF NOT EXISTS idx_sysparam_category ON system_parameters(category, sort_order);
+
+-- 手動 group/ungroup 覆蓋（最新放盤 combine-same-unit 邏輯嘅人手修正）
+-- status='ungrouped': 呢個 ref_no 永遠唔會被自動夾埋（拆開錯誤嘅 group）
+-- status='grouped':   group_key 相同嘅 ref_no 強制夾成一行（人手夾埋冇撞中 key 嘅盤）
+CREATE TABLE IF NOT EXISTS listing_group_overrides (
+  id          INTEGER PRIMARY KEY AUTOINCREMENT,
+  estate_id   INTEGER NOT NULL REFERENCES estates(id) ON DELETE CASCADE,
+  ref_no      TEXT    NOT NULL,
+  status      TEXT    NOT NULL CHECK(status IN ('ungrouped','grouped')),
+  group_key   TEXT,
+  created_at  TEXT    NOT NULL DEFAULT (datetime('now', '+8 hours')),
+  UNIQUE(estate_id, ref_no)
+);
+
+CREATE INDEX IF NOT EXISTS idx_grpovr_estate ON listing_group_overrides(estate_id);
