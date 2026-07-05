@@ -1539,6 +1539,13 @@ async function detectChanges(db, estateId, estateName, newListings) {
 // Sync one estate: transactions + every enabled source + change detection.
 async function syncOneEstate(db, estate) {
   const newTxns = await fetchAndSaveTransactions(db, estate.id, estate.name);
+  // Supplement Centanet transactions with 利嘉閣 land-registry deals (non-fatal).
+  if (estate.ricacorp_enabled) {
+    try {
+      const ricaTxns = await scrapeRicacorpTransactions(estate.name);
+      await saveRicacorpTransactions(db, estate.id, ricaTxns);
+    } catch (e) { /* non-fatal */ }
+  }
   const listings = await syncEstateListings(db, estate);
   const changes = await detectChanges(db, estate.id, estate.name, listings);
   changes.newTransactions = newTxns;
