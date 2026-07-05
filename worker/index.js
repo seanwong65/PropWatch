@@ -542,20 +542,27 @@ export async function scrapeRicacorpListings(ricacorpUrl) {
   const seen = new Set();
 
   let canonicalBase = ricacorpUrl; // may be updated after page 1 using full slug
+  let failStreak = 0;
 
   for (let page = 1; page <= 15; page++) {
     const url = page === 1 ? ricacorpUrl : `${canonicalBase};page=${page}`;
-    // Pages are 1MB+; retry once with a generous timeout so a single slow
-    // fetch doesn't abort the whole pagination and silently truncate results.
+    // Pages are 1MB+ and flaky. Retry up to 3× (any failure, incl. non-200)
+    // with a generous timeout.
     let html = null;
-    for (let attempt = 0; attempt < 2 && html === null; attempt++) {
+    for (let attempt = 0; attempt < 3 && html === null; attempt++) {
       try {
-        const res = await fetch(url, { headers: { "User-Agent": UA }, signal: AbortSignal.timeout(20000) });
-        if (!res.ok) break;
-        html = await res.text();
+        const res = await fetch(url, { headers: { "User-Agent": UA }, signal: AbortSignal.timeout(25000) });
+        if (res.ok) html = await res.text();
       } catch { /* retry */ }
     }
-    if (html === null) break;
+    // A single failed page must NOT truncate the rest — skip it and keep
+    // paginating (a false "removed" alert is worse than a one-cycle gap). Only
+    // give up after several failures in a row.
+    if (html === null) {
+      if (++failStreak >= 3) break;
+      continue;
+    }
+    failStreak = 0;
 
     // On page 1, extract the full slug from URLINDEX section for pagination
     // e.g. 昇悅居-estate-四小龍-hma-hk, 淘大花園-bigest-九龍灣-hma-hk
@@ -1101,8 +1108,18 @@ async function getTodayHighlights(db) {
           SELECT ref_no FROM listings
           WHERE estate_id = l.estate_id AND snapshot_date = ?
         )
+        -- Scrape-health guard: only trust a "removed" if this source pulled a
+        -- healthy count today (>=70% of last snapshot). A truncated scrape
+        -- (e.g. ricacorp) drops many live listings and would flag them all as
+        -- 下架, so its absences are ignored on an under-delivering day.
+        AND (
+          (SELECT COUNT(*) FROM listings tt
+             WHERE tt.estate_id = l.estate_id AND tt.source = l.source AND tt.snapshot_date = ?)
+          >= 0.7 * (SELECT COUNT(*) FROM listings pp
+             WHERE pp.estate_id = l.estate_id AND pp.source = l.source AND pp.snapshot_date = l.snapshot_date)
+        )
         AND date(e.first_seen) <= ?
-        AND (e.is_disabled = 0 OR e.is_disabled IS NULL)`).bind(today, today, yesterday).all(),
+        AND (e.is_disabled = 0 OR e.is_disabled IS NULL)`).bind(today, today, today, yesterday).all(),
     db.prepare(`
       SELECT t.building, t.floor, t.unit, t.price AS txn_price, t.size_net, t.reg_date,
              v.price AS view_price, v.view_date, v.id AS viewing_id,
