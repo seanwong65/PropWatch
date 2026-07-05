@@ -1591,15 +1591,25 @@ async function loadTodayHighlights() {
     if (!html) html = `<span style="color:var(--muted)">今日暫無更新</span>`;
     body.innerHTML = html;
 
-    // Auto-fetch HS valuation for new transactions
+    // Auto-fetch HS valuation for new transactions (throttled to avoid
+    // tripping HSBC's own rate-limit when there are many at once)
+    const HS_AUTOFETCH_CONCURRENCY = 3;
+    const hsQueue = [];
     for (const { rowId, estate: estateName, t } of hlTxnQueue) {
       const blockNum   = (t.building || '').match(/\d+/)?.[0] || '';
       const floorNum   = (t.floor || '').match(/\d+/)?.[0] || '';
       const flatLetter = (t.unit || '').replace(/[室層樓]/g, '').trim();
       if (!estateName || !blockNum || !floorNum || !flatLetter) continue;
-      (async () => {
+      hsQueue.push({ rowId, estateName, blockNum, floorNum, flatLetter, t });
+    }
+    const runHsAutofetch = async () => {
+      let item;
+      while ((item = hsQueue.shift())) {
+        const { rowId, estateName, blockNum, floorNum, flatLetter, t } = item;
         try {
+          const eid = (dashboardEstates.find(e => e.name === estateName) || {}).id || '';
           const params = new URLSearchParams({ estate: estateName, block: blockNum, floor: floorNum, flat: flatLetter });
+          if (eid) params.set('estateId', eid);
           const hsData = await api(`/api/hangseng-valuation?${params}`);
           if (hsData?.price) {
             const hp = Number(hsData.price);
@@ -1607,13 +1617,13 @@ async function loadTodayHighlights() {
             if (diffSpan) diffSpan.innerHTML = hsDiffHtml(hp, t.price);
             const valSpan = document.getElementById(rowId + '-val');
             if (valSpan) {
-              const eid = (dashboardEstates.find(e => e.name === estateName) || {}).id || '';
               valSpan.innerHTML = `${hsValHtml(hp)}<button class="history-btn" style="display:block;margin-top:3px" onclick="showHSHistory('${blockNum}','${floorNum}','${flatLetter}','${eid}')">歷史</button>`;
             }
           }
         } catch {}
-      })();
-    }
+      }
+    };
+    for (let i = 0; i < HS_AUTOFETCH_CONCURRENCY; i++) runHsAutofetch();
   } catch(e) {
     if (body) body.innerHTML = `<span style="color:var(--muted)">載入失敗</span>`;
   }
