@@ -126,6 +126,14 @@ CREATE TABLE IF NOT EXISTS transactions (
 
 CREATE INDEX IF NOT EXISTS idx_txn_estate ON transactions(estate_id, first_seen DESC);
 
+-- 同一宗真實成交可能 centanet + 利嘉閣各存一次（同座樓層單位同價同登記日，
+-- 淨係 transaction_id 唔同）。呢個 combination 唯一索引令 INSERT OR IGNORE
+-- 擋走後入嘅重複，先入為準。COALESCE 令 NULL 都當同值。
+CREATE UNIQUE INDEX IF NOT EXISTS idx_txn_combo ON transactions (
+  estate_id, COALESCE(building,''), COALESCE(floor,''), COALESCE(unit,''),
+  COALESCE(price,-1), COALESCE(reg_date,'')
+);
+
 -- 系統參數（通用 key/value 目錄，例如「備注選項」）；逐行 CRUD
 CREATE TABLE IF NOT EXISTS system_parameters (
   id          INTEGER PRIMARY KEY AUTOINCREMENT,

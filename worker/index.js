@@ -886,6 +886,30 @@ async function ensureSourceColumns(db) {
   }
 }
 
+// 成交入庫去重（入庫層修正,唔靠 query 時再去重）。同一宗真實買賣
+// centanet + 利嘉閣會各存一次（同座樓層單位同價同登記日,只係 transaction_id
+// 唔同），造成中位數/宗數 double。呢度：一次性清走舊重複（保留最早入庫
+// min(id)=先入為準），再起一個 combination 唯一索引;之後兩個 source 都用
+// INSERT OR IGNORE,後入嘅同 combination 會被索引擋住唔存。整個過程用
+// settings flag 守住只做一次。COALESCE 令 building/unit 等 NULL 都當同值。
+const TXN_COMBO_COLS =
+  "estate_id, COALESCE(building,''), COALESCE(floor,''), COALESCE(unit,''), COALESCE(price,-1), COALESCE(reg_date,'')";
+async function ensureTxnDedup(db) {
+  await db.prepare("CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT)").run();
+  const done = await db.prepare("SELECT 1 FROM settings WHERE key = 'txn_combo_dedup'").first();
+  if (done) return;
+  await db.prepare(
+    `DELETE FROM transactions WHERE id NOT IN (
+       SELECT MIN(id) FROM transactions GROUP BY ${TXN_COMBO_COLS})`
+  ).run();
+  await db.prepare(
+    `CREATE UNIQUE INDEX IF NOT EXISTS idx_txn_combo ON transactions (${TXN_COMBO_COLS})`
+  ).run();
+  await db.prepare(
+    "INSERT INTO settings (key, value) VALUES ('txn_combo_dedup', '1') ON CONFLICT(key) DO UPDATE SET value = '1'"
+  ).run();
+}
+
 // System parameters — a generic key/value catalogue with per-row CRUD.
 // Replaces the fragile single-blob settings.notes_options row. Ensures the
 // table exists and runs a one-time migration of any legacy notes_options.
@@ -1178,33 +1202,23 @@ async function getConfig(db) {
   return cfg;
 }
 
-// 成交去重：同一宗真實買賣可能 centanet + 利嘉閣各存一次（同座樓層單位
-// 同價同登記日），會 double 中位數同宗數。以呢個 key 每組只留一行（source
-// 順序穩定），全部成交分析共用同一去重定義。放喺 subquery WHERE dr = 1。
-const TXN_DEDUP_ROWNUM =
-  "ROW_NUMBER() OVER (PARTITION BY estate_id, building, floor, unit, reg_date, price ORDER BY source) dr";
-
 // 每個屋苑近 N 日成交呎價中位數 —— 抵買雷達同睇樓記錄共用嘅同一把尺，
 // 定義只喺呢度出現一次。返回 Map<estate_id, { med_psf, n_sold }>（med_psf
 // 已 round）。偶數宗數取中間兩個平均。estateIds 傳入可限定屋苑。呢度唔做
 // minSold 過濾——n_sold 一齊回埋，由 caller 自己決定要幾多宗先信個中位數。
+// 成交重複喺入庫層由 idx_txn_combo 唯一索引擋走（見 ensureTxnDedup），
+// 所以呢度唔使再去重。
 async function soldMedianPsf(db, { days = 60, estateIds = null } = {}) {
   const idFilter = estateIds?.length
     ? `AND estate_id IN (${estateIds.map(() => "?").join(",")})`
     : "";
   const { results } = await db.prepare(`
-    WITH dedup AS (
-      SELECT estate_id, price_per_ft FROM (
-        SELECT estate_id, price_per_ft, ${TXN_DEDUP_ROWNUM}
-        FROM transactions
-        WHERE reg_date >= date('now', ?) AND price_per_ft > 0 ${idFilter}
-      ) WHERE dr = 1
-    ),
-    sold AS (
+    WITH sold AS (
       SELECT estate_id, price_per_ft,
              ROW_NUMBER() OVER (PARTITION BY estate_id ORDER BY price_per_ft) rn,
              COUNT(*) OVER (PARTITION BY estate_id) c
-      FROM dedup
+      FROM transactions
+      WHERE reg_date >= date('now', ?) AND price_per_ft > 0 ${idFilter}
     )
     SELECT estate_id, ROUND(AVG(price_per_ft)) med_psf, MAX(c) n_sold
     FROM sold WHERE rn IN ((c+1)/2, (c+2)/2) GROUP BY estate_id
@@ -1228,12 +1242,9 @@ async function soldMedianPsfByTier(db, { days = 60, estateIds = null } = {}) {
       SELECT estate_id, building,
              CAST(REPLACE(REPLACE(floor,'樓',''),'層','') AS INT) fl,
              price_per_ft, reg_date
-      FROM (
-        SELECT estate_id, building, floor, unit, reg_date, price, price_per_ft, ${TXN_DEDUP_ROWNUM}
-        FROM transactions
-        WHERE price_per_ft > 0
-          AND CAST(REPLACE(REPLACE(floor,'樓',''),'層','') AS INT) > 0 ${idFilter}
-      ) WHERE dr = 1
+      FROM transactions
+      WHERE price_per_ft > 0
+        AND CAST(REPLACE(REPLACE(floor,'樓',''),'層','') AS INT) > 0 ${idFilter}
     ),
     maxf AS (
       SELECT estate_id, building, MAX(fl) max_fl
@@ -1865,6 +1876,7 @@ async function detectChanges(db, estateId, estateName, newListings) {
 
 // Sync one estate: transactions + every enabled source + change detection.
 async function syncOneEstate(db, estate) {
+  await ensureTxnDedup(db);   // combination 唯一索引就位,先入為準防重複
   const newTxns = await fetchAndSaveTransactions(db, estate.id, estate.name);
   // Supplement Centanet transactions with 利嘉閣 land-registry deals (non-fatal).
   if (estate.ricacorp_enabled) {
@@ -3041,13 +3053,9 @@ export default {
             WITH numf AS (
               SELECT building, floor, unit, price, size_net, price_per_ft, reg_date, source,
                      CAST(REPLACE(REPLACE(floor,'樓',''),'層','') AS INT) fl
-              FROM (
-                SELECT estate_id, building, floor, unit, price, size_net, price_per_ft, reg_date, source,
-                       ${TXN_DEDUP_ROWNUM}
-                FROM transactions
-                WHERE estate_id = ? AND price_per_ft > 0
-                  AND CAST(REPLACE(REPLACE(floor,'樓',''),'層','') AS INT) > 0
-              ) WHERE dr = 1
+              FROM transactions
+              WHERE estate_id = ? AND price_per_ft > 0
+                AND CAST(REPLACE(REPLACE(floor,'樓',''),'層','') AS INT) > 0
             ),
             maxf AS (SELECT building, MAX(fl) max_fl FROM numf GROUP BY building)
             SELECT n.building, n.floor, n.unit, n.price, n.size_net, n.price_per_ft, n.reg_date, n.source
@@ -3061,12 +3069,8 @@ export default {
         } else {
           ({ results: comps } = await db.prepare(`
             SELECT building, floor, unit, price, size_net, price_per_ft, reg_date, source
-            FROM (
-              SELECT estate_id, building, floor, unit, price, size_net, price_per_ft, reg_date, source,
-                     ${TXN_DEDUP_ROWNUM}
-              FROM transactions
-              WHERE estate_id = ? AND price_per_ft > 0 AND reg_date >= date('now', ?)
-            ) WHERE dr = 1
+            FROM transactions
+            WHERE estate_id = ? AND price_per_ft > 0 AND reg_date >= date('now', ?)
             ORDER BY reg_date DESC, price_per_ft DESC
           `).bind(eid, win).all());
         }
@@ -3100,6 +3104,19 @@ export default {
         await db.prepare("ALTER TABLE estates ADD COLUMN centanet_enabled INTEGER DEFAULT 1").run().catch(() => {});
         await db.prepare("UPDATE estates SET centanet_enabled = 1 WHERE centanet_enabled IS NULL").run();
         return json(200, { ok: true });
+      }
+
+      // 一次性:清走同 combination 嘅重複成交 + 起唯一索引(先入為準)。
+      // 即刻執行,唔使等下次 sync;force=1 可清 flag 重跑。
+      if (method === "POST" && path === "/api/admin/dedupe-transactions") {
+        if (url.searchParams.get("force") === "1") {
+          await db.prepare("DELETE FROM settings WHERE key = 'txn_combo_dedup'").run().catch(() => {});
+          await db.prepare("DROP INDEX IF EXISTS idx_txn_combo").run().catch(() => {});
+        }
+        const before = (await db.prepare("SELECT COUNT(*) n FROM transactions").first()).n;
+        await ensureTxnDedup(db);
+        const after = (await db.prepare("SELECT COUNT(*) n FROM transactions").first()).n;
+        return json(200, { ok: true, before, after, removed: before - after });
       }
 
       if (method === "POST" && path === "/api/admin/backfill-centanet-source") {
