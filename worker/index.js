@@ -1126,6 +1126,135 @@ async function computeViewingComps(db) {
   });
 }
 
+// ── 抵買雷達 & 議價指數 ─────────────────────────────────────────────────────
+// 跨屋苑篩「呎價明顯低過同苑近 60 日成交中位數」嘅在售盤，並為每個屋苑計
+// 議價指數（0-100，愈高愈易壓價）：叫價溢價 35% + 市場冷淡 30% + 蝕讓比例 35%。
+// 缺數據嘅分項唔計入（按實際權重歸一化），有效權重不足 60 唔俾分數。
+// 全苑中位數係粗略基準——超大型多期屋苑（嘉湖山莊等）唔同期嘅呎價差異大，
+// vs_med_pct 極端值要人手覆核，唔好當保證。
+async function computeBargainRadar(db, { belowPct = 8, limit = 30 } = {}) {
+  const { results: estateRows } = await db.prepare(`
+    WITH latest AS (SELECT estate_id, MAX(snapshot_date) d FROM listings GROUP BY estate_id),
+    stock AS (
+      SELECT l.estate_id, COUNT(DISTINCT l.ref_no) n_stock, AVG(l.price_per_ft) ask_psf
+      FROM listings l JOIN latest ON l.estate_id=latest.estate_id AND l.snapshot_date=latest.d
+      WHERE l.price_per_ft > 0 GROUP BY l.estate_id
+    ),
+    sold AS (
+      SELECT estate_id, price_per_ft,
+             ROW_NUMBER() OVER (PARTITION BY estate_id ORDER BY price_per_ft) rn,
+             COUNT(*) OVER (PARTITION BY estate_id) c
+      FROM transactions
+      WHERE reg_date >= date('now','-60 days') AND price_per_ft > 0
+    ),
+    sold_med AS (
+      SELECT estate_id, AVG(price_per_ft) med_psf, MAX(c) n_sold
+      FROM sold WHERE rn IN ((c+1)/2, (c+2)/2) GROUP BY estate_id
+    ),
+    vol30 AS (
+      SELECT estate_id, COUNT(*) n30 FROM transactions
+      WHERE reg_date >= date('now','-30 days') GROUP BY estate_id
+    ),
+    loss90 AS (
+      SELECT estate_id, COUNT(*) n, SUM(CASE WHEN gain_pct < 0 THEN 1 ELSE 0 END) n_loss
+      FROM transactions
+      WHERE reg_date >= date('now','-90 days') AND gain_pct IS NOT NULL
+      GROUP BY estate_id
+    )
+    SELECT e.id, e.name, s.n_stock, ROUND(s.ask_psf) ask_psf,
+           sm.n_sold, ROUND(sm.med_psf) sold_med_psf,
+           COALESCE(v.n30, 0) sold_30d, l.n loss_n, l.n_loss
+    FROM estates e
+    JOIN stock s ON s.estate_id = e.id
+    LEFT JOIN sold_med sm ON sm.estate_id = e.id
+    LEFT JOIN vol30 v ON v.estate_id = e.id
+    LEFT JOIN loss90 l ON l.estate_id = e.id
+    WHERE e.is_disabled = 0
+  `).all();
+
+  const clamp01 = (x) => Math.max(0, Math.min(1, x));
+  const estates = estateRows.map((r) => {
+    const spread = r.sold_med_psf ? (r.ask_psf - r.sold_med_psf) / r.sold_med_psf * 100 : null;
+    const absorption = r.n_stock ? (r.sold_30d || 0) / r.n_stock : null;
+    const lossPct = r.loss_n >= 5 ? (r.n_loss / r.loss_n) * 100 : null;
+    let score = 0, wSum = 0;
+    if (spread != null && r.n_sold >= 5) { score += clamp01(spread / 20) * 35; wSum += 35; }
+    if (absorption != null)              { score += (1 - clamp01(absorption / 0.5)) * 30; wSum += 30; }
+    if (lossPct != null)                 { score += clamp01(lossPct / 50) * 35; wSum += 35; }
+    return {
+      estate_id: r.id, name: r.name, n_stock: r.n_stock, ask_psf: r.ask_psf,
+      n_sold_60d: r.n_sold || 0, sold_med_psf: r.sold_med_psf, sold_30d: r.sold_30d,
+      spread_pct: spread != null ? Math.round(spread * 10) / 10 : null,
+      absorption: absorption != null ? Math.round(absorption * 100) / 100 : null,
+      loss_pct: lossPct != null ? Math.round(lossPct) : null,
+      bargain_index: wSum >= 60 ? Math.round(score / wSum * 100) : null,
+    };
+  });
+
+  const { results: rows } = await db.prepare(`
+    WITH latest AS (SELECT estate_id, MAX(snapshot_date) d FROM listings GROUP BY estate_id),
+    sold AS (
+      SELECT estate_id, price_per_ft,
+             ROW_NUMBER() OVER (PARTITION BY estate_id ORDER BY price_per_ft) rn,
+             COUNT(*) OVER (PARTITION BY estate_id) c
+      FROM transactions
+      WHERE reg_date >= date('now','-60 days') AND price_per_ft > 0
+    ),
+    sold_med AS (
+      SELECT estate_id, AVG(price_per_ft) med_psf, MAX(c) n_sold
+      FROM sold WHERE rn IN ((c+1)/2, (c+2)/2) GROUP BY estate_id HAVING MAX(c) >= 5
+    ),
+    cuts AS (
+      SELECT ref_no, COUNT(DISTINCT price) n_prices, MIN(price) min_p, MAX(price) max_p,
+             MIN(snapshot_date) first_d
+      FROM listing_price_history GROUP BY ref_no
+    ),
+    cur AS (
+      SELECT l.*, ROW_NUMBER() OVER (
+        PARTITION BY l.estate_id, l.building_name, l.floor, l.unit, l.size_net
+        ORDER BY l.price
+      ) dup_rn
+      FROM listings l JOIN latest ON l.estate_id=latest.estate_id AND l.snapshot_date=latest.d
+      WHERE l.price_per_ft > 0
+    )
+    SELECT e.name estate_name, c.estate_id, c.ref_no, c.building_name, c.floor, c.unit,
+           c.bedrooms, c.size_net, c.price, ROUND(c.price_per_ft) psf, c.detail_url, c.source,
+           c.publish_date, ROUND(sm.med_psf) sold_med_psf, sm.n_sold,
+           ROUND((c.price_per_ft - sm.med_psf) * 100.0 / sm.med_psf, 1) vs_med_pct,
+           k.n_prices, k.min_p, k.max_p, k.first_d
+    FROM cur c
+    JOIN sold_med sm ON sm.estate_id = c.estate_id
+    JOIN estates e ON e.id = c.estate_id
+    LEFT JOIN cuts k ON k.ref_no = c.ref_no
+    WHERE c.dup_rn = 1 AND e.is_disabled = 0
+      AND (c.price_per_ft - sm.med_psf) / sm.med_psf <= -(? / 100.0)
+    ORDER BY vs_med_pct
+    LIMIT ?
+  `).bind(belowPct, limit).all();
+
+  const now = Date.now();
+  const listings = rows.map((r) => {
+    const cutPct = r.n_prices >= 2 && r.max_p > 0
+      ? Math.round((r.min_p - r.max_p) * 1000 / r.max_p) / 10 : null;
+    const onMarketFrom = [r.publish_date, r.first_d].filter(Boolean).sort()[0] || null;
+    const dom = onMarketFrom ? Math.round((now - Date.parse(onMarketFrom)) / 86400000) : null;
+    const est = estates.find((s) => s.estate_id === r.estate_id);
+    return {
+      estate_id: r.estate_id, estate_name: r.estate_name, ref_no: r.ref_no,
+      building_name: r.building_name, floor: r.floor, unit: r.unit,
+      bedrooms: r.bedrooms, size_net: r.size_net, price: r.price, psf: r.psf,
+      sold_med_psf: r.sold_med_psf, n_sold: r.n_sold, vs_med_pct: r.vs_med_pct,
+      detail_url: r.detail_url, source: r.source,
+      cut_pct: cutPct != null && cutPct < 0 ? cutPct : null,
+      days_on_market: dom != null && dom >= 0 ? dom : null,
+      loss_zone: est?.loss_pct != null && est.loss_pct >= 30,
+    };
+  });
+
+  estates.sort((a, b) => (b.bargain_index ?? -1) - (a.bargain_index ?? -1));
+  return { estates, listings };
+}
+
 async function sendEmail(apiKey, to, subject, html) {
   const res = await fetch("https://api.resend.com/emails", {
     method: "POST",
@@ -2658,6 +2787,14 @@ export default {
       if (method === "GET" && path === "/api/viewings/comps") {
         const items = await computeViewingComps(db);
         return json(200, { items });
+      }
+
+      // 抵買雷達:呎價低過同苑近60日成交中位數嘅在售盤 + 每苑議價指數
+      if (method === "GET" && path === "/api/bargain-radar") {
+        const belowPct = Math.max(0, Number(url.searchParams.get("belowPct")) || 8);
+        const limit = Math.min(Math.max(1, Number(url.searchParams.get("limit")) || 30), 100);
+        const result = await computeBargainRadar(db, { belowPct, limit });
+        return json(200, result);
       }
 
       if (method === "POST" && path === "/api/admin/migrate-centanet-enabled") {
