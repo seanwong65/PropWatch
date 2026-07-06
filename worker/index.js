@@ -1127,6 +1127,7 @@ async function computeViewingComps(db) {
 }
 
 // ── 抵買雷達 & 議價指數 ─────────────────────────────────────────────────────
+// 只計已標星（收藏）嘅屋苑——用戶主動追蹤緊嘅先至有參考價值。
 // 跨屋苑篩「呎價明顯低過同苑近 60 日成交中位數」嘅在售盤，並為每個屋苑計
 // 議價指數（0-100，愈高愈易壓價）：叫價溢價 35% + 市場冷淡 30% + 蝕讓比例 35%。
 // 缺數據嘅分項唔計入（按實際權重歸一化），有效權重不足 60 唔俾分數。
@@ -1169,7 +1170,7 @@ async function computeBargainRadar(db, { belowPct = 8, limit = 30 } = {}) {
     LEFT JOIN sold_med sm ON sm.estate_id = e.id
     LEFT JOIN vol30 v ON v.estate_id = e.id
     LEFT JOIN loss90 l ON l.estate_id = e.id
-    WHERE e.is_disabled = 0
+    WHERE e.is_disabled = 0 AND e.is_favourite = 1
   `).all();
 
   const clamp01 = (x) => Math.max(0, Math.min(1, x));
@@ -1226,7 +1227,7 @@ async function computeBargainRadar(db, { belowPct = 8, limit = 30 } = {}) {
     JOIN sold_med sm ON sm.estate_id = c.estate_id
     JOIN estates e ON e.id = c.estate_id
     LEFT JOIN cuts k ON k.ref_no = c.ref_no
-    WHERE c.dup_rn = 1 AND e.is_disabled = 0
+    WHERE c.dup_rn = 1 AND e.is_disabled = 0 AND e.is_favourite = 1
       AND (c.price_per_ft - sm.med_psf) / sm.med_psf <= -(? / 100.0)
     ORDER BY vs_med_pct
     LIMIT ?

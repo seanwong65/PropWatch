@@ -1264,7 +1264,7 @@ async function loadBargainRadar() {
     }).join('');
 
     body.innerHTML = `
-      <div style="font-size:0.9rem;font-weight:700;margin-bottom:0.3rem">📊 屋苑議價指數</div>
+      <div style="font-size:0.9rem;font-weight:700;margin-bottom:0.3rem">📊 屋苑議價指數 <span style="font-weight:400;color:var(--muted);font-size:0.75rem">(只計 ★ 已標星屋苑)</span></div>
       <p style="font-size:0.75rem;color:var(--muted);margin-bottom:0.5rem">0–100,愈高愈易壓價。叫價溢價(叫價 vs 近60日成交呎價)+市場冷淡度(30日消化率愈低愈凍)+蝕讓比例(近90日)合成。</p>
       <div class="table-scroll"><table style="width:100%;border-collapse:collapse;margin-bottom:1.2rem">
         <thead><tr style="text-align:left;color:var(--muted);font-size:0.75rem">
