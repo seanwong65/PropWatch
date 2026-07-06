@@ -1154,38 +1154,57 @@ async function computeViewingComps(db) {
 // 每個參數：key（settings 表存做 cfg_<key>）、label/desc（顯示喺設定 modal）、
 // def 預設值、min/max 上下限（PUT 時 clamp）。加新參數只需要加一行，
 // GET /api/config 會自動出現喺設定度。
+// groups：呢個參數影響邊個 tab／功能（設定 modal 用嚟做 dropdown 分類）。
+// 共用參數會列多過一個 group。CONFIG_GROUPS 定 dropdown 次序。
+const CONFIG_GROUPS = ["睇樓記錄", "抵買雷達", "每日 Email", "今日動態"];
 const CONFIG_DEFS = [
   { key: "market_median_days", label: "成交中位數窗口（日）", def: 60, min: 7, max: 365,
+    groups: ["睇樓記錄", "抵買雷達"],
     desc: "「相對市價」同「抵買雷達」計每苑／每層帶成交呎價中位數時，用近幾多日內嘅成交。" },
   { key: "market_min_sold", label: "中位數最少成交宗數", def: 5, min: 1, max: 50,
+    groups: ["睇樓記錄", "抵買雷達"],
     desc: "成交唔夠呢個數，中位數當唔可信：睇樓記錄會 fallback 全苑（再唔夠就唔顯示），筍盤唔會出。" },
   { key: "verdict_band_pct", label: "約市價界線（±%）", def: 3, min: 0, max: 20,
+    groups: ["睇樓記錄"],
     desc: "相對市價喺 ±呢個% 之內顯示「約市價」，超出先算「低市價／貴市價」。" },
   { key: "bargain_below_pct", label: "筍盤門檻（%）", def: 8, min: 1, max: 50,
+    groups: ["抵買雷達", "每日 Email"],
     desc: "呎價要低過同苑成交中位數幾多% 先算筍盤（抵買雷達＋每日 email）。" },
   { key: "email_bargain_top", label: "Email 筍盤數目", def: 5, min: 0, max: 20,
+    groups: ["每日 Email"],
     desc: "每日 email「今日筍盤」最多列幾多個；設 0 成段唔出。" },
   { key: "absorption_days", label: "消化率窗口（日）", def: 30, min: 7, max: 180,
+    groups: ["抵買雷達"],
     desc: "議價指數嘅「市場冷淡度」：近幾多日成交量 ÷ 而家在售盤數。" },
   { key: "loss_days", label: "蝕讓比例窗口（日）", def: 90, min: 7, max: 365,
+    groups: ["抵買雷達"],
     desc: "議價指數嘅「蝕讓比例」同 💔蝕讓區 badge：計近幾多日內嘅成交。" },
   { key: "loss_zone_pct", label: "蝕讓區門檻（%）", def: 30, min: 0, max: 100,
+    groups: ["抵買雷達"],
     desc: "屋苑蝕讓比例 ≥ 呢個%，該苑嘅筍盤就標 💔蝕讓區。" },
   { key: "stale_dom_days", label: "擺賣耐門檻（日）", def: 90, min: 7, max: 1000,
+    groups: ["抵買雷達"],
     desc: "筍盤擺賣超過呢個日數就標 ⏳擺賣耐。" },
   { key: "idx_w_spread", label: "議價指數：叫價溢價權重", def: 35, min: 0, max: 100,
+    groups: ["抵買雷達"],
     desc: "三個權重自動歸一化，唔使夾埋等於 100；設 0 即係唔計呢項。" },
   { key: "idx_w_cold", label: "議價指數：市場冷淡權重", def: 30, min: 0, max: 100,
+    groups: ["抵買雷達"],
     desc: "同上——市場愈凍（消化率愈低）分數愈高。" },
   { key: "idx_w_loss", label: "議價指數：蝕讓權重", def: 35, min: 0, max: 100,
+    groups: ["抵買雷達"],
     desc: "同上——蝕讓成交比例愈高分數愈高。" },
   { key: "idx_spread_cap_pct", label: "叫價溢價滿分位（%）", def: 20, min: 1, max: 100,
+    groups: ["抵買雷達"],
     desc: "叫價高過成交中位數去到呢個%，「叫價溢價」分項當滿分。" },
   { key: "idx_absorption_cap", label: "消化率滿分位", def: 0.5, min: 0.05, max: 5,
+    groups: ["抵買雷達"],
     desc: "消化率去到呢個值當市場最熱（冷淡分＝0）；0.5 即係一個窗口內賣出一半在售盤。" },
   { key: "idx_loss_cap_pct", label: "蝕讓滿分位（%）", def: 50, min: 1, max: 100,
+    groups: ["抵買雷達"],
     desc: "蝕讓比例去到呢個%，「蝕讓」分項當滿分。" },
   { key: "hs_autofetch_concurrency", label: "恒生估價並發數", def: 3, min: 1, max: 10,
+    groups: ["今日動態"],
     desc: "今日動態自動查估價時同時最多幾多個請求；太高會觸發恒生限流令查詢失敗。" },
 ];
 
@@ -3080,7 +3099,7 @@ export default {
       // 分析參數：GET 攞晒全部定義+現值；PUT 改一個/多個（clamp 落 min/max）。
       if (method === "GET" && path === "/api/config") {
         const cfg = await getConfig(db);
-        return json(200, { items: CONFIG_DEFS.map((d) => ({ ...d, value: cfg[d.key] })) });
+        return json(200, { items: CONFIG_DEFS.map((d) => ({ ...d, value: cfg[d.key] })), groups: CONFIG_GROUPS });
       }
       if (method === "PUT" && path === "/api/config") {
         const body = await request.json();

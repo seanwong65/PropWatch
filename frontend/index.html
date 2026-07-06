@@ -941,8 +941,12 @@
         style="flex:1;background:var(--surface2);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:0.9rem;padding:0.5rem 0.6rem;box-sizing:border-box;font-family:inherit">
       <button class="vf-submit" onclick="addNotesOption()" style="width:auto;padding:0.5rem 1rem;margin:0;white-space:nowrap">＋ 新增</button>
     </div>
-    <div class="modal-sub" style="margin-top:1.25rem">📐 分析參數</div>
-    <p style="font-size:0.78rem;color:var(--muted);margin:0.25rem 0 0.75rem">相對市價／抵買雷達／議價指數／email 用嘅數字，改完即時生效（有上下限自動修正）</p>
+    <div class="modal-sub" style="margin-top:1.25rem;display:flex;align-items:center;justify-content:space-between;gap:0.6rem">
+      <span>📐 分析參數</span>
+      <select id="settings-cfg-group" onchange="_cfgGroup=this.value;renderCfgOptions()"
+        style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:0.85rem;padding:0.35rem 0.5rem;font-family:inherit"></select>
+    </div>
+    <p style="font-size:0.78rem;color:var(--muted);margin:0.25rem 0 0.75rem">相對市價／抵買雷達／議價指數／email 用嘅數字，改完即時生效（有上下限自動修正）。用右上角揀分類，睇某個 tab／功能用嘅參數。</p>
     <div id="settings-cfg-list" style="display:flex;flex-direction:column;gap:0.7rem"></div>
   </div>
 </div>
@@ -1993,10 +1997,13 @@ function drawDashboardChart(trends) {
 // 分析參數（⚙️ 設定可改）。keyed by config key;未載入前用 ?? 預設值頂住。
 let _appCfg = {};
 let _cfgDefs = [];
+let _cfgGroups = [];
+let _cfgGroup = '全部';   // 設定 modal 揀緊嘅分類
 async function loadAppConfig() {
   try {
-    const { items } = await api('/api/config');
+    const { items, groups } = await api('/api/config');
     _cfgDefs = items || [];
+    _cfgGroups = groups || [];
     _appCfg = Object.fromEntries(_cfgDefs.map(d => [d.key, d.value]));
   } catch { /* 用預設值照行 */ }
 }
@@ -2803,24 +2810,45 @@ async function openSettingsModal() {
 }
 
 // 分析參數列表：label + number input + 說明。onchange 即刻 PUT,後端 clamp
-// 完會回最新值,input 同 _appCfg 都更新返。
+// 完會回最新值,input 同 _appCfg 都更新返。用 _cfgGroup 按 tab/功能分類過濾。
+function renderCfgGroupSelect() {
+  const sel = document.getElementById('settings-cfg-group');
+  if (!sel) return;
+  const opts = ['全部', ..._cfgGroups];
+  if (!opts.includes(_cfgGroup)) _cfgGroup = '全部';
+  sel.innerHTML = opts.map(g => `<option value="${escHtml(g)}"${g === _cfgGroup ? ' selected' : ''}>${escHtml(g)}</option>`).join('');
+}
+
 function renderCfgOptions() {
+  renderCfgGroupSelect();
   const list = document.getElementById('settings-cfg-list');
   if (!list) return;
   if (!_cfgDefs.length) {
     list.innerHTML = `<div style="font-size:0.8rem;color:var(--muted);padding:0.3rem 0">載入中…</div>`;
     return;
   }
-  list.innerHTML = _cfgDefs.map(d => `
+  const defs = _cfgGroup === '全部'
+    ? _cfgDefs
+    : _cfgDefs.filter(d => (d.groups || []).includes(_cfgGroup));
+  if (!defs.length) {
+    list.innerHTML = `<div style="font-size:0.8rem;color:var(--muted);padding:0.3rem 0">呢個分類冇參數。</div>`;
+    return;
+  }
+  list.innerHTML = defs.map(d => {
+    // 共用參數(影響多過一個 tab)喺「全部」view 標埋屬邊啲功能。
+    const tags = _cfgGroup === '全部' && (d.groups || []).length > 1
+      ? ` <span style="font-size:0.68rem;color:var(--accent2)">· ${d.groups.map(escHtml).join(' / ')}</span>` : '';
+    return `
     <div>
       <div style="display:flex;gap:0.6rem;align-items:center;justify-content:space-between">
-        <label for="cfg-${d.key}" style="font-size:0.85rem;color:var(--text)">${escHtml(d.label)}</label>
+        <label for="cfg-${d.key}" style="font-size:0.85rem;color:var(--text)">${escHtml(d.label)}${tags}</label>
         <input id="cfg-${d.key}" type="number" value="${d.value}" min="${d.min}" max="${d.max}" step="any"
           onchange="updateCfgOption('${d.key}', this.value)"
           style="width:90px;background:var(--surface2);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:0.9rem;padding:0.4rem 0.5rem;box-sizing:border-box;font-family:inherit;text-align:right">
       </div>
       <div style="font-size:0.75rem;color:var(--muted);margin-top:0.15rem">${escHtml(d.desc)}（${d.min}–${d.max}，預設 ${d.def}）</div>
-    </div>`).join('');
+    </div>`;
+  }).join('');
 }
 
 async function updateCfgOption(key, value) {
