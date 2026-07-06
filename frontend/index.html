@@ -2426,10 +2426,54 @@ function marketVsHtml(v) {
     : (v.floor_tier ? `${v.floor_tier}近${days}日成交唔夠${minSold}宗，改用全苑中位數` : `全苑近${days}日成交中位數`);
   // 估計市值 = 實用面積 × 中位呎價（同 badge 用同一個基準）。
   const estVal = (v.sold_med_psf && v.size_net) ? v.sold_med_psf * v.size_net : null;
-  const estHtml = estVal
-    ? `<div style="font-size:0.8rem;color:var(--accent2)" title="實用 ${v.size_net}呎 × 中位 $${v.sold_med_psf.toLocaleString()}/呎">估計市值 $${(estVal/1e4).toFixed(0)}萬</div>`
+  const estInline = estVal
+    ? ` <span style="color:var(--accent2)" title="實用 ${v.size_net}呎 × 中位 $${v.sold_med_psf.toLocaleString()}/呎">估值 $${(estVal/1e4).toFixed(0)}萬</span>`
     : '';
-  return `${badge}${estHtml}<div class="unit-price" title="${tip}">${label} $${(v.sold_med_psf||0).toLocaleString()} · ${v.market_n_sold}宗</div>`;
+  // 「N宗」可撳,彈出組成中位數嗰批成交。
+  const nClick = `<span onclick="openEstateComps(${v.estate_id},'${v.market_basis||'estate'}','${v.floor_tier||''}')" style="cursor:pointer;border-bottom:1px dotted var(--muted)" title="睇成交紀錄">${v.market_n_sold}宗</span>`;
+  return `<div style="font-size:0.8rem">${badge}${estInline}</div>`
+    + `<div class="unit-price" title="${tip}">${label} $${(v.sold_med_psf||0).toLocaleString()} · ${nClick}</div>`;
+}
+
+// 撳「N宗」彈出組成中位數嗰批成交紀錄（同層帶或全苑,由後端用同一 tier 邏輯篩）。
+async function openEstateComps(estateId, basis, tier) {
+  const overlay = document.createElement('div');
+  overlay.className = 'modal-overlay';
+  overlay.style.display = 'flex';
+  overlay.onclick = (e) => { if (e.target === overlay) overlay.remove(); };
+  overlay.innerHTML = `<div class="modal" style="max-width:540px;max-height:90vh;overflow-y:auto">
+    <button class="modal-close" onclick="this.closest('.modal-overlay').remove()">✕</button>
+    <div class="modal-title">成交紀錄</div>
+    <div class="modal-sub" id="ec-sub">載入中…</div>
+    <div id="ec-body" style="margin-top:0.5rem"><div class="loading"><div class="spinner"></div> 載入中…</div></div>
+  </div>`;
+  document.body.appendChild(overlay);
+  try {
+    const params = new URLSearchParams({ estate_id: estateId, basis });
+    if (basis === 'tier' && tier) params.set('tier', tier);
+    const { comps, days } = await api('/api/estate-comps?' + params);
+    const scope = basis === 'tier' && tier ? `${tier}成交` : '全苑成交';
+    document.getElementById('ec-sub').textContent = `${scope}（近${days}日 · ${comps.length}宗，中位呎價基準）`;
+    if (!comps.length) { document.getElementById('ec-body').innerHTML = '<div style="color:var(--muted)">冇成交紀錄</div>'; return; }
+    const fmt = p => p ? `$${(p/1e4).toFixed(0)}萬` : '-';
+    const rows = comps.map(c => `<tr class="hl-tr">
+        <td style="padding:0.4rem 0.5rem 0.4rem 0">${escHtml(c.building||'')} ${escHtml(c.floor||'')} ${escHtml(c.unit||'')}</td>
+        <td style="text-align:right;padding:0.4rem 0.5rem;white-space:nowrap;color:var(--muted)">${c.size_net?c.size_net+'呎':'-'}</td>
+        <td style="text-align:right;padding:0.4rem 0.5rem;white-space:nowrap;font-weight:600;color:var(--accent)">${fmt(c.price)}</td>
+        <td style="text-align:right;padding:0.4rem 0.5rem;white-space:nowrap">$${Math.round(c.price_per_ft).toLocaleString()}</td>
+        <td style="text-align:right;padding:0.4rem 0 0.4rem 0.5rem;white-space:nowrap;color:var(--muted);font-size:0.75rem">${(c.reg_date||'').slice(0,10)}</td>
+      </tr>`).join('');
+    document.getElementById('ec-body').innerHTML = `<div class="table-scroll"><table style="width:100%;border-collapse:collapse;font-size:0.85rem">
+      <thead><tr style="text-align:left;color:var(--muted);font-size:0.75rem">
+        <th style="padding:0.3rem 0.5rem 0.3rem 0">單位</th>
+        <th style="text-align:right;padding:0.3rem 0.5rem">面積</th>
+        <th style="text-align:right;padding:0.3rem 0.5rem">成交價</th>
+        <th style="text-align:right;padding:0.3rem 0.5rem">呎價</th>
+        <th style="text-align:right;padding:0.3rem 0 0.3rem 0.5rem">登記日</th>
+      </tr></thead><tbody>${rows}</tbody></table></div>`;
+  } catch (e) {
+    document.getElementById('ec-body').innerHTML = `<span style="color:var(--down)">載入失敗:${escHtml(e.message)}</span>`;
+  }
 }
 
 async function fetchHSVal(rowId, estate, block, floor, flat, estateId, txnPrice) {

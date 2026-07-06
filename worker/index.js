@@ -1178,6 +1178,12 @@ async function getConfig(db) {
   return cfg;
 }
 
+// 成交去重：同一宗真實買賣可能 centanet + 利嘉閣各存一次（同座樓層單位
+// 同價同登記日），會 double 中位數同宗數。以呢個 key 每組只留一行（source
+// 順序穩定），全部成交分析共用同一去重定義。放喺 subquery WHERE dr = 1。
+const TXN_DEDUP_ROWNUM =
+  "ROW_NUMBER() OVER (PARTITION BY estate_id, building, floor, unit, reg_date, price ORDER BY source) dr";
+
 // 每個屋苑近 N 日成交呎價中位數 —— 抵買雷達同睇樓記錄共用嘅同一把尺，
 // 定義只喺呢度出現一次。返回 Map<estate_id, { med_psf, n_sold }>（med_psf
 // 已 round）。偶數宗數取中間兩個平均。estateIds 傳入可限定屋苑。呢度唔做
@@ -1187,12 +1193,18 @@ async function soldMedianPsf(db, { days = 60, estateIds = null } = {}) {
     ? `AND estate_id IN (${estateIds.map(() => "?").join(",")})`
     : "";
   const { results } = await db.prepare(`
-    WITH sold AS (
+    WITH dedup AS (
+      SELECT estate_id, price_per_ft FROM (
+        SELECT estate_id, price_per_ft, ${TXN_DEDUP_ROWNUM}
+        FROM transactions
+        WHERE reg_date >= date('now', ?) AND price_per_ft > 0 ${idFilter}
+      ) WHERE dr = 1
+    ),
+    sold AS (
       SELECT estate_id, price_per_ft,
              ROW_NUMBER() OVER (PARTITION BY estate_id ORDER BY price_per_ft) rn,
              COUNT(*) OVER (PARTITION BY estate_id) c
-      FROM transactions
-      WHERE reg_date >= date('now', ?) AND price_per_ft > 0 ${idFilter}
+      FROM dedup
     )
     SELECT estate_id, ROUND(AVG(price_per_ft)) med_psf, MAX(c) n_sold
     FROM sold WHERE rn IN ((c+1)/2, (c+2)/2) GROUP BY estate_id
@@ -1216,9 +1228,12 @@ async function soldMedianPsfByTier(db, { days = 60, estateIds = null } = {}) {
       SELECT estate_id, building,
              CAST(REPLACE(REPLACE(floor,'樓',''),'層','') AS INT) fl,
              price_per_ft, reg_date
-      FROM transactions
-      WHERE price_per_ft > 0
-        AND CAST(REPLACE(REPLACE(floor,'樓',''),'層','') AS INT) > 0 ${idFilter}
+      FROM (
+        SELECT estate_id, building, floor, unit, reg_date, price, price_per_ft, ${TXN_DEDUP_ROWNUM}
+        FROM transactions
+        WHERE price_per_ft > 0
+          AND CAST(REPLACE(REPLACE(floor,'樓',''),'層','') AS INT) > 0 ${idFilter}
+      ) WHERE dr = 1
     ),
     maxf AS (
       SELECT estate_id, building, MAX(fl) max_fl
@@ -3008,6 +3023,54 @@ export default {
         const limit = Math.min(Math.max(1, Number(url.searchParams.get("limit")) || 30), 100);
         const result = await computeBargainRadar(db, { belowPct, limit });
         return json(200, result);
+      }
+
+      // 成交紀錄:組成「相對市價」中位數嗰批成交（撳「N宗」睇）。
+      // basis=tier + tier(高/中/低層):用同 soldMedianPsfByTier 一樣嘅逐座三等分;
+      // 其餘:全苑。窗口日數同 getConfig 一致。
+      if (method === "GET" && path === "/api/estate-comps") {
+        const eid = Number(url.searchParams.get("estate_id"));
+        if (!eid) return json(400, { error: "estate_id required" });
+        const basis = url.searchParams.get("basis");
+        const tier = url.searchParams.get("tier");
+        const { market_median_days: days } = await getConfig(db);
+        const win = `-${days} days`;
+        let comps;
+        if (basis === "tier" && tier) {
+          ({ results: comps } = await db.prepare(`
+            WITH numf AS (
+              SELECT building, floor, unit, price, size_net, price_per_ft, reg_date, source,
+                     CAST(REPLACE(REPLACE(floor,'樓',''),'層','') AS INT) fl
+              FROM (
+                SELECT estate_id, building, floor, unit, price, size_net, price_per_ft, reg_date, source,
+                       ${TXN_DEDUP_ROWNUM}
+                FROM transactions
+                WHERE estate_id = ? AND price_per_ft > 0
+                  AND CAST(REPLACE(REPLACE(floor,'樓',''),'層','') AS INT) > 0
+              ) WHERE dr = 1
+            ),
+            maxf AS (SELECT building, MAX(fl) max_fl FROM numf GROUP BY building)
+            SELECT n.building, n.floor, n.unit, n.price, n.size_net, n.price_per_ft, n.reg_date, n.source
+            FROM numf n JOIN maxf m ON m.building IS n.building
+            WHERE n.reg_date >= date('now', ?)
+              AND CASE WHEN n.fl <= m.max_fl / 3.0 THEN '低層'
+                       WHEN n.fl <= m.max_fl * 2 / 3.0 THEN '中層'
+                       ELSE '高層' END = ?
+            ORDER BY n.reg_date DESC, n.price_per_ft DESC
+          `).bind(eid, win, tier).all());
+        } else {
+          ({ results: comps } = await db.prepare(`
+            SELECT building, floor, unit, price, size_net, price_per_ft, reg_date, source
+            FROM (
+              SELECT estate_id, building, floor, unit, price, size_net, price_per_ft, reg_date, source,
+                     ${TXN_DEDUP_ROWNUM}
+              FROM transactions
+              WHERE estate_id = ? AND price_per_ft > 0 AND reg_date >= date('now', ?)
+            ) WHERE dr = 1
+            ORDER BY reg_date DESC, price_per_ft DESC
+          `).bind(eid, win).all());
+        }
+        return json(200, { comps, tier: basis === "tier" ? tier : null, days });
       }
 
       // 分析參數：GET 攞晒全部定義+現值；PUT 改一個/多個（clamp 落 min/max）。
