@@ -2436,6 +2436,54 @@ function marketVsHtml(v) {
 }
 
 // 撳「N宗」彈出組成中位數嗰批成交紀錄（同層帶或全苑,由後端用同一 tier 邏輯篩）。
+let _ecComps = [];
+let _ecSort = { key: 'reg_date', dir: 'desc' };
+
+const EC_COLS = [
+  { key: 'unit',         label: '單位',   align: 'left' },
+  { key: 'size_net',     label: '面積',   align: 'right' },
+  { key: 'price',        label: '成交價', align: 'right' },
+  { key: 'price_per_ft', label: '呎價',   align: 'right' },
+  { key: 'reg_date',     label: '登記日', align: 'right' },
+];
+
+function _ecSortVal(c, key) {
+  if (key === 'unit') return `${c.building||''} ${c.floor||''} ${c.unit||''}`;
+  return c[key];
+}
+
+function sortEcComps(key) {
+  if (_ecSort.key === key) _ecSort.dir = _ecSort.dir === 'asc' ? 'desc' : 'asc';
+  else _ecSort = { key, dir: key === 'reg_date' ? 'desc' : 'asc' };
+  renderEcTable();
+}
+
+function renderEcTable() {
+  const body = document.getElementById('ec-body');
+  if (!body) return;
+  if (!_ecComps.length) { body.innerHTML = '<div style="color:var(--muted)">冇成交紀錄</div>'; return; }
+  const { key, dir } = _ecSort;
+  const rows = [..._ecComps].sort((a, b) => {
+    let av = _ecSortVal(a, key), bv = _ecSortVal(b, key);
+    if (typeof av === 'string') { av = av || ''; bv = bv || ''; return dir === 'asc' ? av.localeCompare(bv) : bv.localeCompare(av); }
+    av = av ?? -Infinity; bv = bv ?? -Infinity;
+    return dir === 'asc' ? av - bv : bv - av;
+  });
+  const fmt = p => p ? `$${(p/1e4).toFixed(0)}萬` : '-';
+  const rowsHtml = rows.map(c => `<tr class="hl-tr">
+      <td style="padding:0.4rem 0.5rem 0.4rem 0">${escHtml(c.building||'')} ${escHtml(c.floor||'')} ${escHtml(c.unit||'')}</td>
+      <td style="text-align:right;padding:0.4rem 0.5rem;white-space:nowrap;color:var(--muted)">${c.size_net?c.size_net+'呎':'-'}</td>
+      <td style="text-align:right;padding:0.4rem 0.5rem;white-space:nowrap;font-weight:600;color:var(--accent)">${fmt(c.price)}</td>
+      <td style="text-align:right;padding:0.4rem 0.5rem;white-space:nowrap">$${Math.round(c.price_per_ft).toLocaleString()}</td>
+      <td style="text-align:right;padding:0.4rem 0 0.4rem 0.5rem;white-space:nowrap;color:var(--muted);font-size:0.75rem">${(c.reg_date||'').slice(0,10)}</td>
+    </tr>`).join('');
+  const arrow = k => k !== key ? '' : (dir === 'asc' ? ' ▲' : ' ▼');
+  const ths = EC_COLS.map(col => `<th onclick="sortEcComps('${col.key}')" style="text-align:${col.align};padding:0.3rem 0.5rem;cursor:pointer;user-select:none;white-space:nowrap">${col.label}${arrow(col.key)}</th>`).join('');
+  body.innerHTML = `<div class="table-scroll"><table style="width:100%;border-collapse:collapse;font-size:0.85rem">
+    <thead><tr style="text-align:left;color:var(--muted);font-size:0.75rem">${ths}</tr></thead>
+    <tbody>${rowsHtml}</tbody></table></div>`;
+}
+
 async function openEstateComps(estateId, basis, tier) {
   const overlay = document.createElement('div');
   overlay.className = 'modal-overlay';
@@ -2453,24 +2501,10 @@ async function openEstateComps(estateId, basis, tier) {
     if (basis === 'tier' && tier) params.set('tier', tier);
     const { comps, days } = await api('/api/estate-comps?' + params);
     const scope = basis === 'tier' && tier ? `${tier}成交` : '全苑成交';
-    document.getElementById('ec-sub').textContent = `${scope}（近${days}日 · ${comps.length}宗，中位呎價基準）`;
-    if (!comps.length) { document.getElementById('ec-body').innerHTML = '<div style="color:var(--muted)">冇成交紀錄</div>'; return; }
-    const fmt = p => p ? `$${(p/1e4).toFixed(0)}萬` : '-';
-    const rows = comps.map(c => `<tr class="hl-tr">
-        <td style="padding:0.4rem 0.5rem 0.4rem 0">${escHtml(c.building||'')} ${escHtml(c.floor||'')} ${escHtml(c.unit||'')}</td>
-        <td style="text-align:right;padding:0.4rem 0.5rem;white-space:nowrap;color:var(--muted)">${c.size_net?c.size_net+'呎':'-'}</td>
-        <td style="text-align:right;padding:0.4rem 0.5rem;white-space:nowrap;font-weight:600;color:var(--accent)">${fmt(c.price)}</td>
-        <td style="text-align:right;padding:0.4rem 0.5rem;white-space:nowrap">$${Math.round(c.price_per_ft).toLocaleString()}</td>
-        <td style="text-align:right;padding:0.4rem 0 0.4rem 0.5rem;white-space:nowrap;color:var(--muted);font-size:0.75rem">${(c.reg_date||'').slice(0,10)}</td>
-      </tr>`).join('');
-    document.getElementById('ec-body').innerHTML = `<div class="table-scroll"><table style="width:100%;border-collapse:collapse;font-size:0.85rem">
-      <thead><tr style="text-align:left;color:var(--muted);font-size:0.75rem">
-        <th style="padding:0.3rem 0.5rem 0.3rem 0">單位</th>
-        <th style="text-align:right;padding:0.3rem 0.5rem">面積</th>
-        <th style="text-align:right;padding:0.3rem 0.5rem">成交價</th>
-        <th style="text-align:right;padding:0.3rem 0.5rem">呎價</th>
-        <th style="text-align:right;padding:0.3rem 0 0.3rem 0.5rem">登記日</th>
-      </tr></thead><tbody>${rows}</tbody></table></div>`;
+    document.getElementById('ec-sub').textContent = `${scope}（近${days}日 · ${comps.length}宗，中位呎價基準 · 撳表頭可排序）`;
+    _ecComps = comps;
+    _ecSort = { key: 'reg_date', dir: 'desc' };
+    renderEcTable();
   } catch (e) {
     document.getElementById('ec-body').innerHTML = `<span style="color:var(--down)">載入失敗:${escHtml(e.message)}</span>`;
   }
