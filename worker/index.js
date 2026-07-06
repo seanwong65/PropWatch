@@ -1126,6 +1126,30 @@ async function computeViewingComps(db) {
   });
 }
 
+// 每個屋苑近 N 日成交呎價中位數 —— 抵買雷達同睇樓記錄共用嘅同一把尺，
+// 定義只喺呢度出現一次。返回 Map<estate_id, { med_psf, n_sold }>（med_psf
+// 已 round）。偶數宗數取中間兩個平均。estateIds 傳入可限定屋苑。呢度唔做
+// minSold 過濾——n_sold 一齊回埋，由 caller 自己決定要幾多宗先信個中位數。
+async function soldMedianPsf(db, { days = 60, estateIds = null } = {}) {
+  const idFilter = estateIds?.length
+    ? `AND estate_id IN (${estateIds.map(() => "?").join(",")})`
+    : "";
+  const { results } = await db.prepare(`
+    WITH sold AS (
+      SELECT estate_id, price_per_ft,
+             ROW_NUMBER() OVER (PARTITION BY estate_id ORDER BY price_per_ft) rn,
+             COUNT(*) OVER (PARTITION BY estate_id) c
+      FROM transactions
+      WHERE reg_date >= date('now', ?) AND price_per_ft > 0 ${idFilter}
+    )
+    SELECT estate_id, ROUND(AVG(price_per_ft)) med_psf, MAX(c) n_sold
+    FROM sold WHERE rn IN ((c+1)/2, (c+2)/2) GROUP BY estate_id
+  `).bind(`-${days} days`, ...(estateIds || [])).all();
+  const map = new Map();
+  for (const r of results) map.set(r.estate_id, { med_psf: r.med_psf, n_sold: r.n_sold });
+  return map;
+}
+
 // ── 抵買雷達 & 議價指數 ─────────────────────────────────────────────────────
 // 只計已標星（收藏）嘅屋苑——用戶主動追蹤緊嘅先至有參考價值。
 // 跨屋苑篩「呎價明顯低過同苑近 60 日成交中位數」嘅在售盤，並為每個屋苑計
@@ -1134,23 +1158,22 @@ async function computeViewingComps(db) {
 // 全苑中位數係粗略基準——超大型多期屋苑（嘉湖山莊等）唔同期嘅呎價差異大，
 // vs_med_pct 極端值要人手覆核，唔好當保證。
 async function computeBargainRadar(db, { belowPct = 8, limit = 30 } = {}) {
-  const { results: estateRows } = await db.prepare(`
+  const { results: favRows } = await db.prepare(
+    "SELECT id FROM estates WHERE is_disabled = 0 AND is_favourite = 1"
+  ).all();
+  const favIds = favRows.map((r) => r.id);
+  if (!favIds.length) return { estates: [], listings: [] };
+
+  // 同一把尺：近 60 日成交呎價中位數（radar + 睇樓記錄共用）。
+  const medMap = await soldMedianPsf(db, { days: 60, estateIds: favIds });
+
+  // 屋苑統計：在售量 / 平均叫價呎價 / 30日消化 / 90日蝕讓（中位數由上面 helper 補）。
+  const { results: statRows } = await db.prepare(`
     WITH latest AS (SELECT estate_id, MAX(snapshot_date) d FROM listings GROUP BY estate_id),
     stock AS (
       SELECT l.estate_id, COUNT(DISTINCT l.ref_no) n_stock, AVG(l.price_per_ft) ask_psf
       FROM listings l JOIN latest ON l.estate_id=latest.estate_id AND l.snapshot_date=latest.d
       WHERE l.price_per_ft > 0 GROUP BY l.estate_id
-    ),
-    sold AS (
-      SELECT estate_id, price_per_ft,
-             ROW_NUMBER() OVER (PARTITION BY estate_id ORDER BY price_per_ft) rn,
-             COUNT(*) OVER (PARTITION BY estate_id) c
-      FROM transactions
-      WHERE reg_date >= date('now','-60 days') AND price_per_ft > 0
-    ),
-    sold_med AS (
-      SELECT estate_id, AVG(price_per_ft) med_psf, MAX(c) n_sold
-      FROM sold WHERE rn IN ((c+1)/2, (c+2)/2) GROUP BY estate_id
     ),
     vol30 AS (
       SELECT estate_id, COUNT(*) n30 FROM transactions
@@ -1163,28 +1186,29 @@ async function computeBargainRadar(db, { belowPct = 8, limit = 30 } = {}) {
       GROUP BY estate_id
     )
     SELECT e.id, e.name, s.n_stock, ROUND(s.ask_psf) ask_psf,
-           sm.n_sold, ROUND(sm.med_psf) sold_med_psf,
            COALESCE(v.n30, 0) sold_30d, l.n loss_n, l.n_loss
     FROM estates e
     JOIN stock s ON s.estate_id = e.id
-    LEFT JOIN sold_med sm ON sm.estate_id = e.id
     LEFT JOIN vol30 v ON v.estate_id = e.id
     LEFT JOIN loss90 l ON l.estate_id = e.id
     WHERE e.is_disabled = 0 AND e.is_favourite = 1
   `).all();
 
   const clamp01 = (x) => Math.max(0, Math.min(1, x));
-  const estates = estateRows.map((r) => {
-    const spread = r.sold_med_psf ? (r.ask_psf - r.sold_med_psf) / r.sold_med_psf * 100 : null;
+  const estates = statRows.map((r) => {
+    const med = medMap.get(r.id);
+    const medPsf = med?.med_psf ?? null;
+    const nSold = med?.n_sold ?? 0;
+    const spread = medPsf ? (r.ask_psf - medPsf) / medPsf * 100 : null;
     const absorption = r.n_stock ? (r.sold_30d || 0) / r.n_stock : null;
     const lossPct = r.loss_n >= 5 ? (r.n_loss / r.loss_n) * 100 : null;
     let score = 0, wSum = 0;
-    if (spread != null && r.n_sold >= 5) { score += clamp01(spread / 20) * 35; wSum += 35; }
-    if (absorption != null)              { score += (1 - clamp01(absorption / 0.5)) * 30; wSum += 30; }
-    if (lossPct != null)                 { score += clamp01(lossPct / 50) * 35; wSum += 35; }
+    if (spread != null && nSold >= 5) { score += clamp01(spread / 20) * 35; wSum += 35; }
+    if (absorption != null)           { score += (1 - clamp01(absorption / 0.5)) * 30; wSum += 30; }
+    if (lossPct != null)              { score += clamp01(lossPct / 50) * 35; wSum += 35; }
     return {
       estate_id: r.id, name: r.name, n_stock: r.n_stock, ask_psf: r.ask_psf,
-      n_sold_60d: r.n_sold || 0, sold_med_psf: r.sold_med_psf, sold_30d: r.sold_30d,
+      n_sold_60d: nSold, sold_med_psf: medPsf, sold_30d: r.sold_30d,
       spread_pct: spread != null ? Math.round(spread * 10) / 10 : null,
       absorption: absorption != null ? Math.round(absorption * 100) / 100 : null,
       loss_pct: lossPct != null ? Math.round(lossPct) : null,
@@ -1192,19 +1216,9 @@ async function computeBargainRadar(db, { belowPct = 8, limit = 30 } = {}) {
     };
   });
 
-  const { results: rows } = await db.prepare(`
+  // 在售盤（每個 座+樓+室+面積 取最平嗰個），對同苑中位數計 vs_med_pct。
+  const { results: curRows } = await db.prepare(`
     WITH latest AS (SELECT estate_id, MAX(snapshot_date) d FROM listings GROUP BY estate_id),
-    sold AS (
-      SELECT estate_id, price_per_ft,
-             ROW_NUMBER() OVER (PARTITION BY estate_id ORDER BY price_per_ft) rn,
-             COUNT(*) OVER (PARTITION BY estate_id) c
-      FROM transactions
-      WHERE reg_date >= date('now','-60 days') AND price_per_ft > 0
-    ),
-    sold_med AS (
-      SELECT estate_id, AVG(price_per_ft) med_psf, MAX(c) n_sold
-      FROM sold WHERE rn IN ((c+1)/2, (c+2)/2) GROUP BY estate_id HAVING MAX(c) >= 5
-    ),
     cuts AS (
       SELECT ref_no, COUNT(DISTINCT price) n_prices, MIN(price) min_p, MAX(price) max_p,
              MIN(snapshot_date) first_d
@@ -1219,22 +1233,19 @@ async function computeBargainRadar(db, { belowPct = 8, limit = 30 } = {}) {
       WHERE l.price_per_ft > 0
     )
     SELECT e.name estate_name, c.estate_id, c.ref_no, c.building_name, c.floor, c.unit,
-           c.bedrooms, c.size_net, c.price, ROUND(c.price_per_ft) psf, c.detail_url, c.source,
-           c.publish_date, ROUND(sm.med_psf) sold_med_psf, sm.n_sold,
-           ROUND((c.price_per_ft - sm.med_psf) * 100.0 / sm.med_psf, 1) vs_med_pct,
+           c.bedrooms, c.size_net, c.price, c.price_per_ft, ROUND(c.price_per_ft) psf,
+           c.detail_url, c.source, c.publish_date,
            k.n_prices, k.min_p, k.max_p, k.first_d
     FROM cur c
-    JOIN sold_med sm ON sm.estate_id = c.estate_id
     JOIN estates e ON e.id = c.estate_id
     LEFT JOIN cuts k ON k.ref_no = c.ref_no
     WHERE c.dup_rn = 1 AND e.is_disabled = 0 AND e.is_favourite = 1
-      AND (c.price_per_ft - sm.med_psf) / sm.med_psf <= -(? / 100.0)
-    ORDER BY vs_med_pct
-    LIMIT ?
-  `).bind(belowPct, limit).all();
+  `).all();
 
   const now = Date.now();
-  const listings = rows.map((r) => {
+  const listings = curRows.map((r) => {
+    const v = marketVerdict(medMap.get(r.estate_id), r.price_per_ft);
+    if (!v || v.vs_med_pct > -belowPct) return null;   // 冇足夠成交基準 / 唔夠平
     const cutPct = r.n_prices >= 2 && r.max_p > 0
       ? Math.round((r.min_p - r.max_p) * 1000 / r.max_p) / 10 : null;
     const onMarketFrom = [r.publish_date, r.first_d].filter(Boolean).sort()[0] || null;
@@ -1244,16 +1255,28 @@ async function computeBargainRadar(db, { belowPct = 8, limit = 30 } = {}) {
       estate_id: r.estate_id, estate_name: r.estate_name, ref_no: r.ref_no,
       building_name: r.building_name, floor: r.floor, unit: r.unit,
       bedrooms: r.bedrooms, size_net: r.size_net, price: r.price, psf: r.psf,
-      sold_med_psf: r.sold_med_psf, n_sold: r.n_sold, vs_med_pct: r.vs_med_pct,
+      sold_med_psf: v.sold_med_psf, n_sold: v.n_sold, vs_med_pct: v.vs_med_pct,
       detail_url: r.detail_url, source: r.source,
       cut_pct: cutPct != null && cutPct < 0 ? cutPct : null,
       days_on_market: dom != null && dom >= 0 ? dom : null,
       loss_zone: est?.loss_pct != null && est.loss_pct >= 30,
     };
-  });
+  }).filter(Boolean);
 
+  listings.sort((a, b) => a.vs_med_pct - b.vs_med_pct);
   estates.sort((a, b) => (b.bargain_index ?? -1) - (a.bargain_index ?? -1));
-  return { estates, listings };
+  return { estates, listings: listings.slice(0, limit) };
+}
+
+// 一個單位相對同苑近60日成交中位數平定貴。med 係 soldMedianPsf 一格
+// { med_psf, n_sold }；少於 5 宗成交唔夠信,返 null。psf 係單位呎價。
+function marketVerdict(med, psf) {
+  if (!med || med.n_sold < 5 || !psf) return null;
+  return {
+    sold_med_psf: med.med_psf,
+    n_sold: med.n_sold,
+    vs_med_pct: Math.round((psf - med.med_psf) / med.med_psf * 1000) / 10,
+  };
 }
 
 async function sendEmail(apiKey, to, subject, html) {
@@ -2581,6 +2604,16 @@ export default {
           WHERE v.estate_id = ?
           ORDER BY v.view_date DESC, v.created_at DESC
         `).bind(estateId).all();
+        // 相對同苑近60日成交中位數平定貴（同抵買雷達同一把尺）。
+        const medMap = await soldMedianPsf(db, { days: 60, estateIds: [Number(estateId)] });
+        const med = medMap.get(Number(estateId));
+        for (const v of results) {
+          const psf = v.price && v.size_net ? v.price / v.size_net : null;
+          const verdict = marketVerdict(med, psf);
+          v.sold_med_psf = verdict?.sold_med_psf ?? null;
+          v.market_n_sold = verdict?.n_sold ?? null;
+          v.vs_med_pct = verdict?.vs_med_pct ?? null;
+        }
         return json(200, { viewings: results });
       }
 
