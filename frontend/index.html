@@ -2424,7 +2424,12 @@ function marketVsHtml(v) {
   const tip = isTier
     ? `同層帶近${days}日成交中位數（以該座成交最高層 ${v.tier_max_floor} 樓三等分）`
     : (v.floor_tier ? `${v.floor_tier}近${days}日成交唔夠${minSold}宗，改用全苑中位數` : `全苑近${days}日成交中位數`);
-  return `${badge}<div class="unit-price" title="${tip}">${label} $${(v.sold_med_psf||0).toLocaleString()} · ${v.market_n_sold}宗</div>`;
+  // 估計市值 = 實用面積 × 中位呎價（同 badge 用同一個基準）。
+  const estVal = (v.sold_med_psf && v.size_net) ? v.sold_med_psf * v.size_net : null;
+  const estHtml = estVal
+    ? `<div style="font-size:0.8rem;color:var(--accent2)" title="實用 ${v.size_net}呎 × 中位 $${v.sold_med_psf.toLocaleString()}/呎">估計市值 $${(estVal/1e4).toFixed(0)}萬</div>`
+    : '';
+  return `${badge}${estHtml}<div class="unit-price" title="${tip}">${label} $${(v.sold_med_psf||0).toLocaleString()} · ${v.market_n_sold}宗</div>`;
 }
 
 async function fetchHSVal(rowId, estate, block, floor, flat, estateId, txnPrice) {
