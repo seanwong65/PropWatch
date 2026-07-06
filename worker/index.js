@@ -1126,6 +1126,58 @@ async function computeViewingComps(db) {
   });
 }
 
+// ── 分析參數（可喺 ⚙️ 設定度改，唔 hardcode）───────────────────────────────
+// 每個參數：key（settings 表存做 cfg_<key>）、label/desc（顯示喺設定 modal）、
+// def 預設值、min/max 上下限（PUT 時 clamp）。加新參數只需要加一行，
+// GET /api/config 會自動出現喺設定度。
+const CONFIG_DEFS = [
+  { key: "market_median_days", label: "成交中位數窗口（日）", def: 60, min: 7, max: 365,
+    desc: "「相對市價」同「抵買雷達」計每苑／每層帶成交呎價中位數時，用近幾多日內嘅成交。" },
+  { key: "market_min_sold", label: "中位數最少成交宗數", def: 5, min: 1, max: 50,
+    desc: "成交唔夠呢個數，中位數當唔可信：睇樓記錄會 fallback 全苑（再唔夠就唔顯示），筍盤唔會出。" },
+  { key: "verdict_band_pct", label: "約市價界線（±%）", def: 3, min: 0, max: 20,
+    desc: "相對市價喺 ±呢個% 之內顯示「約市價」，超出先算「低市價／貴市價」。" },
+  { key: "bargain_below_pct", label: "筍盤門檻（%）", def: 8, min: 1, max: 50,
+    desc: "呎價要低過同苑成交中位數幾多% 先算筍盤（抵買雷達＋每日 email）。" },
+  { key: "email_bargain_top", label: "Email 筍盤數目", def: 5, min: 0, max: 20,
+    desc: "每日 email「今日筍盤」最多列幾多個；設 0 成段唔出。" },
+  { key: "absorption_days", label: "消化率窗口（日）", def: 30, min: 7, max: 180,
+    desc: "議價指數嘅「市場冷淡度」：近幾多日成交量 ÷ 而家在售盤數。" },
+  { key: "loss_days", label: "蝕讓比例窗口（日）", def: 90, min: 7, max: 365,
+    desc: "議價指數嘅「蝕讓比例」同 💔蝕讓區 badge：計近幾多日內嘅成交。" },
+  { key: "loss_zone_pct", label: "蝕讓區門檻（%）", def: 30, min: 0, max: 100,
+    desc: "屋苑蝕讓比例 ≥ 呢個%，該苑嘅筍盤就標 💔蝕讓區。" },
+  { key: "stale_dom_days", label: "擺賣耐門檻（日）", def: 90, min: 7, max: 1000,
+    desc: "筍盤擺賣超過呢個日數就標 ⏳擺賣耐。" },
+  { key: "idx_w_spread", label: "議價指數：叫價溢價權重", def: 35, min: 0, max: 100,
+    desc: "三個權重自動歸一化，唔使夾埋等於 100；設 0 即係唔計呢項。" },
+  { key: "idx_w_cold", label: "議價指數：市場冷淡權重", def: 30, min: 0, max: 100,
+    desc: "同上——市場愈凍（消化率愈低）分數愈高。" },
+  { key: "idx_w_loss", label: "議價指數：蝕讓權重", def: 35, min: 0, max: 100,
+    desc: "同上——蝕讓成交比例愈高分數愈高。" },
+  { key: "idx_spread_cap_pct", label: "叫價溢價滿分位（%）", def: 20, min: 1, max: 100,
+    desc: "叫價高過成交中位數去到呢個%，「叫價溢價」分項當滿分。" },
+  { key: "idx_absorption_cap", label: "消化率滿分位", def: 0.5, min: 0.05, max: 5,
+    desc: "消化率去到呢個值當市場最熱（冷淡分＝0）；0.5 即係一個窗口內賣出一半在售盤。" },
+  { key: "idx_loss_cap_pct", label: "蝕讓滿分位（%）", def: 50, min: 1, max: 100,
+    desc: "蝕讓比例去到呢個%，「蝕讓」分項當滿分。" },
+  { key: "hs_autofetch_concurrency", label: "恒生估價並發數", def: 3, min: 1, max: 10,
+    desc: "今日動態自動查估價時同時最多幾多個請求；太高會觸發恒生限流令查詢失敗。" },
+];
+
+// 讀成 { key: number }，冇存過用預設值；存咗嘅會 clamp 返落 min/max 之內。
+async function getConfig(db) {
+  await db.prepare("CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT)").run();
+  const { results } = await db.prepare("SELECT key, value FROM settings WHERE key LIKE 'cfg_%'").all();
+  const stored = new Map(results.map((r) => [r.key.slice(4), Number(r.value)]));
+  const cfg = {};
+  for (const d of CONFIG_DEFS) {
+    const v = stored.get(d.key);
+    cfg[d.key] = (v != null && Number.isFinite(v)) ? Math.max(d.min, Math.min(d.max, v)) : d.def;
+  }
+  return cfg;
+}
+
 // 每個屋苑近 N 日成交呎價中位數 —— 抵買雷達同睇樓記錄共用嘅同一把尺，
 // 定義只喺呢度出現一次。返回 Map<estate_id, { med_psf, n_sold }>（med_psf
 // 已 round）。偶數宗數取中間兩個平均。estateIds 傳入可限定屋苑。呢度唔做
@@ -1211,17 +1263,19 @@ function deriveFloorTier(floorNum, maxFloor) {
 // 缺數據嘅分項唔計入（按實際權重歸一化），有效權重不足 60 唔俾分數。
 // 全苑中位數係粗略基準——超大型多期屋苑（嘉湖山莊等）唔同期嘅呎價差異大，
 // vs_med_pct 極端值要人手覆核，唔好當保證。
-async function computeBargainRadar(db, { belowPct = 8, limit = 30 } = {}) {
+async function computeBargainRadar(db, { belowPct = null, limit = 30 } = {}) {
+  const cfg = await getConfig(db);
+  const minBelowPct = belowPct ?? cfg.bargain_below_pct;
   const { results: favRows } = await db.prepare(
     "SELECT id FROM estates WHERE is_disabled = 0 AND is_favourite = 1"
   ).all();
   const favIds = favRows.map((r) => r.id);
-  if (!favIds.length) return { estates: [], listings: [] };
+  if (!favIds.length) return { estates: [], listings: [], cfg };
 
-  // 同一把尺：近 60 日成交呎價中位數（radar + 睇樓記錄共用）。
-  const medMap = await soldMedianPsf(db, { days: 60, estateIds: favIds });
+  // 同一把尺：近 N 日成交呎價中位數（radar + 睇樓記錄共用）。
+  const medMap = await soldMedianPsf(db, { days: cfg.market_median_days, estateIds: favIds });
 
-  // 屋苑統計：在售量 / 平均叫價呎價 / 30日消化 / 90日蝕讓（中位數由上面 helper 補）。
+  // 屋苑統計：在售量 / 平均叫價呎價 / 消化 / 蝕讓（中位數由上面 helper 補）。
   const { results: statRows } = await db.prepare(`
     WITH latest AS (SELECT estate_id, MAX(snapshot_date) d FROM listings GROUP BY estate_id),
     stock AS (
@@ -1229,44 +1283,52 @@ async function computeBargainRadar(db, { belowPct = 8, limit = 30 } = {}) {
       FROM listings l JOIN latest ON l.estate_id=latest.estate_id AND l.snapshot_date=latest.d
       WHERE l.price_per_ft > 0 GROUP BY l.estate_id
     ),
-    vol30 AS (
-      SELECT estate_id, COUNT(*) n30 FROM transactions
-      WHERE reg_date >= date('now','-30 days') GROUP BY estate_id
+    vol AS (
+      SELECT estate_id, COUNT(*) n_vol FROM transactions
+      WHERE reg_date >= date('now', ?1) GROUP BY estate_id
     ),
-    loss90 AS (
+    loss AS (
       SELECT estate_id, COUNT(*) n, SUM(CASE WHEN gain_pct < 0 THEN 1 ELSE 0 END) n_loss
       FROM transactions
-      WHERE reg_date >= date('now','-90 days') AND gain_pct IS NOT NULL
+      WHERE reg_date >= date('now', ?2) AND gain_pct IS NOT NULL
       GROUP BY estate_id
     )
     SELECT e.id, e.name, s.n_stock, ROUND(s.ask_psf) ask_psf,
-           COALESCE(v.n30, 0) sold_30d, l.n loss_n, l.n_loss
+           COALESCE(v.n_vol, 0) sold_recent, l.n loss_n, l.n_loss
     FROM estates e
     JOIN stock s ON s.estate_id = e.id
-    LEFT JOIN vol30 v ON v.estate_id = e.id
-    LEFT JOIN loss90 l ON l.estate_id = e.id
+    LEFT JOIN vol v ON v.estate_id = e.id
+    LEFT JOIN loss l ON l.estate_id = e.id
     WHERE e.is_disabled = 0 AND e.is_favourite = 1
-  `).all();
+  `).bind(`-${cfg.absorption_days} days`, `-${cfg.loss_days} days`).all();
 
   const clamp01 = (x) => Math.max(0, Math.min(1, x));
+  const totalW = cfg.idx_w_spread + cfg.idx_w_cold + cfg.idx_w_loss;
   const estates = statRows.map((r) => {
     const med = medMap.get(r.id);
     const medPsf = med?.med_psf ?? null;
     const nSold = med?.n_sold ?? 0;
     const spread = medPsf ? (r.ask_psf - medPsf) / medPsf * 100 : null;
-    const absorption = r.n_stock ? (r.sold_30d || 0) / r.n_stock : null;
-    const lossPct = r.loss_n >= 5 ? (r.n_loss / r.loss_n) * 100 : null;
+    const absorption = r.n_stock ? (r.sold_recent || 0) / r.n_stock : null;
+    const lossPct = r.loss_n >= cfg.market_min_sold ? (r.n_loss / r.loss_n) * 100 : null;
     let score = 0, wSum = 0;
-    if (spread != null && nSold >= 5) { score += clamp01(spread / 20) * 35; wSum += 35; }
-    if (absorption != null)           { score += (1 - clamp01(absorption / 0.5)) * 30; wSum += 30; }
-    if (lossPct != null)              { score += clamp01(lossPct / 50) * 35; wSum += 35; }
+    if (spread != null && nSold >= cfg.market_min_sold) {
+      score += clamp01(spread / cfg.idx_spread_cap_pct) * cfg.idx_w_spread; wSum += cfg.idx_w_spread;
+    }
+    if (absorption != null) {
+      score += (1 - clamp01(absorption / cfg.idx_absorption_cap)) * cfg.idx_w_cold; wSum += cfg.idx_w_cold;
+    }
+    if (lossPct != null) {
+      score += clamp01(lossPct / cfg.idx_loss_cap_pct) * cfg.idx_w_loss; wSum += cfg.idx_w_loss;
+    }
+    // 有效權重唔夠總權重 60% 唔俾分（缺太多數據嘅分數冇意義）。
     return {
       estate_id: r.id, name: r.name, n_stock: r.n_stock, ask_psf: r.ask_psf,
-      n_sold_60d: nSold, sold_med_psf: medPsf, sold_30d: r.sold_30d,
+      n_sold_60d: nSold, sold_med_psf: medPsf, sold_30d: r.sold_recent,
       spread_pct: spread != null ? Math.round(spread * 10) / 10 : null,
       absorption: absorption != null ? Math.round(absorption * 100) / 100 : null,
       loss_pct: lossPct != null ? Math.round(lossPct) : null,
-      bargain_index: wSum >= 60 ? Math.round(score / wSum * 100) : null,
+      bargain_index: (totalW > 0 && wSum >= totalW * 0.6) ? Math.round(score / wSum * 100) : null,
     };
   });
 
@@ -1298,8 +1360,8 @@ async function computeBargainRadar(db, { belowPct = 8, limit = 30 } = {}) {
 
   const now = Date.now();
   const listings = curRows.map((r) => {
-    const v = marketVerdict(medMap.get(r.estate_id), r.price_per_ft);
-    if (!v || v.vs_med_pct > -belowPct) return null;   // 冇足夠成交基準 / 唔夠平
+    const v = marketVerdict(medMap.get(r.estate_id), r.price_per_ft, cfg.market_min_sold);
+    if (!v || v.vs_med_pct > -minBelowPct) return null;   // 冇足夠成交基準 / 唔夠平
     const cutPct = r.n_prices >= 2 && r.max_p > 0
       ? Math.round((r.min_p - r.max_p) * 1000 / r.max_p) / 10 : null;
     const onMarketFrom = [r.publish_date, r.first_d].filter(Boolean).sort()[0] || null;
@@ -1313,19 +1375,19 @@ async function computeBargainRadar(db, { belowPct = 8, limit = 30 } = {}) {
       detail_url: r.detail_url, source: r.source,
       cut_pct: cutPct != null && cutPct < 0 ? cutPct : null,
       days_on_market: dom != null && dom >= 0 ? dom : null,
-      loss_zone: est?.loss_pct != null && est.loss_pct >= 30,
+      loss_zone: est?.loss_pct != null && est.loss_pct >= cfg.loss_zone_pct,
     };
   }).filter(Boolean);
 
   listings.sort((a, b) => a.vs_med_pct - b.vs_med_pct);
   estates.sort((a, b) => (b.bargain_index ?? -1) - (a.bargain_index ?? -1));
-  return { estates, listings: listings.slice(0, limit) };
+  return { estates, listings: listings.slice(0, limit), cfg };
 }
 
-// 一個單位相對同苑近60日成交中位數平定貴。med 係 soldMedianPsf 一格
-// { med_psf, n_sold }；少於 5 宗成交唔夠信,返 null。psf 係單位呎價。
-function marketVerdict(med, psf) {
-  if (!med || med.n_sold < 5 || !psf) return null;
+// 一個單位相對同苑成交中位數平定貴。med 係 soldMedianPsf 一格
+// { med_psf, n_sold }；少於 minSold 宗成交唔夠信,返 null。psf 係單位呎價。
+function marketVerdict(med, psf, minSold = 5) {
+  if (!med || med.n_sold < minSold || !psf) return null;
   return {
     sold_med_psf: med.med_psf,
     n_sold: med.n_sold,
@@ -1832,11 +1894,14 @@ async function sendDailyEmail(db, resendApiKey) {
   if (!resendApiKey) return { error: "no RESEND_API_KEY" };
   try {
     const highlights = await getTodayHighlights(db);
-    // 筍盤 Top 5（non-fatal — radar 失敗唔阻住每日通知）
+    // 筍盤 Top N（數目喺 ⚙️ 設定度改；0=唔要；non-fatal — radar 失敗唔阻住每日通知）
     let bargains = [];
     try {
-      const radar = await computeBargainRadar(db, { belowPct: 8, limit: 5 });
-      bargains = radar.listings;
+      const emailTop = (await getConfig(db)).email_bargain_top;
+      if (emailTop > 0) {
+        const radar = await computeBargainRadar(db, { limit: emailTop });
+        bargains = radar.listings;
+      }
     } catch (e) { /* non-fatal */ }
     const { byEstate } = highlights;
     const totalTxns    = byEstate.reduce((s, e) => s + e.newTransactions.length, 0);
@@ -2659,11 +2724,13 @@ export default {
           ORDER BY v.view_date DESC, v.created_at DESC
         `).bind(estateId).all();
         // 相對市價（同抵買雷達同一把尺）：優先同層帶（高/中/低層，以該座
-        // 成交最高層三等分）嘅近60日中位數，唔夠 5 宗先 fallback 全苑。
+        // 成交最高層三等分）嘅近N日中位數，唔夠宗數先 fallback 全苑。
+        // 窗口日數／最少宗數都喺 ⚙️ 設定度改（getConfig）。
         const eid = Number(estateId);
+        const vcfg = await getConfig(db);
         const [medMap, tierMap, { results: maxfRows }] = await Promise.all([
-          soldMedianPsf(db, { days: 60, estateIds: [eid] }),
-          soldMedianPsfByTier(db, { days: 60, estateIds: [eid] }),
+          soldMedianPsf(db, { days: vcfg.market_median_days, estateIds: [eid] }),
+          soldMedianPsfByTier(db, { days: vcfg.market_median_days, estateIds: [eid] }),
           db.prepare(`
             SELECT building, MAX(CAST(REPLACE(REPLACE(floor,'樓',''),'層','') AS INT)) max_fl
             FROM transactions
@@ -2679,8 +2746,8 @@ export default {
           const bldg = v.block ? (/座$/.test(v.block) ? v.block : v.block + "座") : null;
           const maxFl = maxfMap.get(bldg) ?? null;
           const tier = deriveFloorTier(floorNum, maxFl);
-          const tierVerdict = tier ? marketVerdict(tierMap.get(`${eid}|${tier}`), psf) : null;
-          const verdict = tierVerdict ?? marketVerdict(med, psf);
+          const tierVerdict = tier ? marketVerdict(tierMap.get(`${eid}|${tier}`), psf, vcfg.market_min_sold) : null;
+          const verdict = tierVerdict ?? marketVerdict(med, psf, vcfg.market_min_sold);
           v.floor_tier = tier;
           v.tier_max_floor = maxFl;
           v.market_basis = tierVerdict ? "tier" : (verdict ? "estate" : null);
@@ -2933,12 +3000,37 @@ export default {
         return json(200, { items });
       }
 
-      // 抵買雷達:呎價低過同苑近60日成交中位數嘅在售盤 + 每苑議價指數
+      // 抵買雷達:呎價低過同苑成交中位數嘅在售盤 + 每苑議價指數。
+      // 門檻/窗口等數字全部由 ⚙️ 設定（getConfig）嚟；belowPct query 可臨時覆蓋。
       if (method === "GET" && path === "/api/bargain-radar") {
-        const belowPct = Math.max(0, Number(url.searchParams.get("belowPct")) || 8);
+        const belowPctQ = Number(url.searchParams.get("belowPct"));
+        const belowPct = Number.isFinite(belowPctQ) && belowPctQ > 0 ? belowPctQ : null;
         const limit = Math.min(Math.max(1, Number(url.searchParams.get("limit")) || 30), 100);
         const result = await computeBargainRadar(db, { belowPct, limit });
         return json(200, result);
+      }
+
+      // 分析參數：GET 攞晒全部定義+現值；PUT 改一個/多個（clamp 落 min/max）。
+      if (method === "GET" && path === "/api/config") {
+        const cfg = await getConfig(db);
+        return json(200, { items: CONFIG_DEFS.map((d) => ({ ...d, value: cfg[d.key] })) });
+      }
+      if (method === "PUT" && path === "/api/config") {
+        const body = await request.json();
+        await db.prepare("CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT)").run();
+        const updated = [];
+        for (const d of CONFIG_DEFS) {
+          if (!(d.key in body)) continue;
+          const n = Number(body[d.key]);
+          if (!Number.isFinite(n)) return json(400, { error: `${d.key} 要係數字` });
+          const v = Math.max(d.min, Math.min(d.max, n));
+          await db.prepare(
+            "INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value"
+          ).bind(`cfg_${d.key}`, String(v)).run();
+          updated.push(d.key);
+        }
+        const cfg = await getConfig(db);
+        return json(200, { ok: true, updated, items: CONFIG_DEFS.map((d) => ({ ...d, value: cfg[d.key] })) });
       }
 
       if (method === "POST" && path === "/api/admin/migrate-centanet-enabled") {

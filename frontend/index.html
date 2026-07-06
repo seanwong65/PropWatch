@@ -930,7 +930,7 @@
 
 <!-- Settings Modal -->
 <div class="modal-overlay" id="settingsModalOverlay" style="display:none" onclick="if(event.target===this)closeSettingsModal()">
-  <div class="modal" style="max-width:420px">
+  <div class="modal" style="max-width:460px;max-height:90vh;overflow-y:auto">
     <button class="modal-close" onclick="closeSettingsModal()">✕</button>
     <div class="modal-title">⚙️ 設定</div>
     <div class="modal-sub">備注選項</div>
@@ -941,6 +941,9 @@
         style="flex:1;background:var(--surface2);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:0.9rem;padding:0.5rem 0.6rem;box-sizing:border-box;font-family:inherit">
       <button class="vf-submit" onclick="addNotesOption()" style="width:auto;padding:0.5rem 1rem;margin:0;white-space:nowrap">＋ 新增</button>
     </div>
+    <div class="modal-sub" style="margin-top:1.25rem">📐 分析參數</div>
+    <p style="font-size:0.78rem;color:var(--muted);margin:0.25rem 0 0.75rem">相對市價／抵買雷達／議價指數／email 用嘅數字，改完即時生效（有上下限自動修正）</p>
+    <div id="settings-cfg-list" style="display:flex;flex-direction:column;gap:0.7rem"></div>
   </div>
 </div>
 
@@ -1228,9 +1231,14 @@ function switchDashTab(tab) {
 async function loadBargainRadar() {
   const body = document.getElementById('radar-body');
   try {
-    const r = await api('/api/bargain-radar?belowPct=8&limit=40');
+    // 門檻/窗口由後端 ⚙️ 設定嚟(response 有埋 cfg),前端唔傳 belowPct。
+    const r = await api('/api/bargain-radar?limit=40');
     const estates = r.estates || [];
     const listings = r.listings || [];
+    const cfg = r.cfg || {};
+    const days = cfg.market_median_days ?? 60;
+    const belowPct = cfg.bargain_below_pct ?? 8;
+    const staleDom = cfg.stale_dom_days ?? 90;
 
     // 議價指數排行（只顯示有分數嘅屋苑）
     const idxRows = estates.filter(e => e.bargain_index != null).map(e => {
@@ -1250,7 +1258,7 @@ async function loadBargainRadar() {
     const bargainRows = listings.map(l => {
       const badges = [];
       if (l.cut_pct != null) badges.push(badge(`🔻減價 ${Math.abs(l.cut_pct)}%`, 'var(--accent)'));
-      if (l.days_on_market != null && l.days_on_market >= 90) badges.push(badge(`⏳擺賣${l.days_on_market}日`, 'var(--muted)'));
+      if (l.days_on_market != null && l.days_on_market >= staleDom) badges.push(badge(`⏳擺賣${l.days_on_market}日`, 'var(--muted)'));
       if (l.loss_zone) badges.push(badge('💔蝕讓區', 'var(--up)'));
       const srcName = l.source === 'ricacorp' ? '利嘉閣' : l.source === 'hkp' ? '香港置業' : '中原';
       const link = l.detail_url ? `<a href="${escHtml(l.detail_url)}" target="_blank" style="color:var(--accent2);font-size:0.75rem;text-decoration:none">${srcName} ↗</a>` : `<span style="color:var(--muted);font-size:0.75rem">${srcName}</span>`;
@@ -1276,8 +1284,8 @@ async function loadBargainRadar() {
         </tr></thead>
         <tbody>${idxRows || '<tr><td colspan="5" style="color:var(--muted);padding:0.5rem 0">未有足夠成交數據</td></tr>'}</tbody>
       </table></div>
-      <div style="font-size:0.9rem;font-weight:700;margin-bottom:0.3rem">💎 筍盤(呎價低過同苑近60日成交中位數 8%+)</div>
-      <p style="font-size:0.75rem;color:var(--muted);margin-bottom:0.5rem">全苑中位數係粗略基準——大型多期屋苑唔同期呎價差異大,低幾成嘅極端值多數有原因(凶宅/爛裝修/銀主盤),睇盤前自己覆核。</p>
+      <div style="font-size:0.9rem;font-weight:700;margin-bottom:0.3rem">💎 筍盤(呎價低過同苑近${days}日成交中位數 ${belowPct}%+)</div>
+      <p style="font-size:0.75rem;color:var(--muted);margin-bottom:0.5rem">全苑中位數係粗略基準——大型多期屋苑唔同期呎價差異大,低幾成嘅極端值多數有原因(凶宅/爛裝修/銀主盤),睇盤前自己覆核。門檻/窗口可以喺 ⚙️ 設定度改。</p>
       <div class="table-scroll"><table style="width:100%;border-collapse:collapse">
         <thead><tr style="text-align:left;color:var(--muted);font-size:0.75rem">
           <th style="padding:0.3rem 0.5rem 0.3rem 0">屋苑 / 單位</th>
@@ -1286,7 +1294,7 @@ async function loadBargainRadar() {
           <th style="padding:0.3rem 0.5rem">訊號</th>
           <th style="text-align:right;padding:0.3rem 0 0.3rem 0.5rem">來源</th>
         </tr></thead>
-        <tbody>${bargainRows || '<tr><td colspan="5" style="color:var(--muted);padding:0.5rem 0">今日冇筍盤(冇盤低過中位數 8%+)</td></tr>'}</tbody>
+        <tbody>${bargainRows || `<tr><td colspan="5" style="color:var(--muted);padding:0.5rem 0">今日冇筍盤(冇盤低過中位數 ${belowPct}%+)</td></tr>`}</tbody>
       </table></div>`;
   } catch (e) {
     body.innerHTML = `<span style="color:var(--down)">載入失敗:${escHtml(e.message)}</span>`;
@@ -1665,7 +1673,7 @@ async function loadTodayHighlights() {
 
     // Auto-fetch HS valuation for new transactions (throttled to avoid
     // tripping HSBC's own rate-limit when there are many at once)
-    const HS_AUTOFETCH_CONCURRENCY = 3;
+    const HS_AUTOFETCH_CONCURRENCY = _appCfg.hs_autofetch_concurrency ?? 3;
     const hsQueue = [];
     for (const { rowId, estate: estateName, t } of hlTxnQueue) {
       const blockNum   = (t.building || '').match(/\d+/)?.[0] || '';
@@ -1982,8 +1990,20 @@ function drawDashboardChart(trends) {
 }
 
 // ── Estate list ────────────────────────────────────────────────
+// 分析參數（⚙️ 設定可改）。keyed by config key;未載入前用 ?? 預設值頂住。
+let _appCfg = {};
+let _cfgDefs = [];
+async function loadAppConfig() {
+  try {
+    const { items } = await api('/api/config');
+    _cfgDefs = items || [];
+    _appCfg = Object.fromEntries(_cfgDefs.map(d => [d.key, d.value]));
+  } catch { /* 用預設值照行 */ }
+}
+
 async function loadEstates() {
   const list = document.getElementById("estateList");
+  loadAppConfig();
   try {
     const { estates } = await api("/api/estates");
     estatesById = {};
@@ -2386,21 +2406,24 @@ function hsDiffHtml(hsPrice, txnPrice) {
 // basis='tier' 時基準係同層帶(高/中/低層,以該座成交最高層三等分)嘅中位數,
 // 同層唔夠5宗會 fallback 返全苑中位數。
 function marketVsHtml(v) {
+  const days = _appCfg.market_median_days ?? 60;
+  const minSold = _appCfg.market_min_sold ?? 5;
+  const band = _appCfg.verdict_band_pct ?? 3;
   if (v.vs_med_pct == null) {
-    const why = v.market_n_sold != null && v.market_n_sold < 5
-      ? '近60日成交唔夠5宗' : '未有面積/售價';
+    const why = v.market_n_sold != null && v.market_n_sold < minSold
+      ? `近${days}日成交唔夠${minSold}宗` : '未有面積/售價';
     return `<span style="color:var(--muted);font-size:0.75rem" title="${why}">-</span>`;
   }
   const vs = v.vs_med_pct, abs = Math.abs(vs).toFixed(1);
   let badge;
-  if (vs <= -3)      badge = `<span class="gain-pos">低市價 ${abs}%</span>`;
-  else if (vs >= 3)  badge = `<span class="gain-neg">貴市價 ${abs}%</span>`;
-  else               badge = `<span style="color:var(--muted);font-size:0.75rem">約市價 ${vs > 0 ? '+' : ''}${vs}%</span>`;
+  if (vs <= -band)      badge = `<span class="gain-pos">低市價 ${abs}%</span>`;
+  else if (vs >= band)  badge = `<span class="gain-neg">貴市價 ${abs}%</span>`;
+  else                  badge = `<span style="color:var(--muted);font-size:0.75rem">約市價 ${vs > 0 ? '+' : ''}${vs}%</span>`;
   const isTier = v.market_basis === 'tier';
   const label = isTier ? `${v.floor_tier}中位` : '全苑中位';
   const tip = isTier
-    ? `同層帶近60日成交中位數（以該座成交最高層 ${v.tier_max_floor} 樓三等分）`
-    : (v.floor_tier ? `${v.floor_tier}近60日成交唔夠5宗，改用全苑中位數` : '全苑近60日成交中位數');
+    ? `同層帶近${days}日成交中位數（以該座成交最高層 ${v.tier_max_floor} 樓三等分）`
+    : (v.floor_tier ? `${v.floor_tier}近${days}日成交唔夠${minSold}宗，改用全苑中位數` : `全苑近${days}日成交中位數`);
   return `${badge}<div class="unit-price" title="${tip}">${label} $${(v.sold_med_psf||0).toLocaleString()} · ${v.market_n_sold}宗</div>`;
 }
 
@@ -2609,8 +2632,46 @@ function getNotesValue() {
 async function openSettingsModal() {
   document.getElementById('settingsModalOverlay').style.display = 'flex';
   renderNotesOptions();
-  await loadNotesOptions();
+  renderCfgOptions();
+  await Promise.all([loadNotesOptions(), loadAppConfig()]);
   renderNotesOptions();
+  renderCfgOptions();
+}
+
+// 分析參數列表：label + number input + 說明。onchange 即刻 PUT,後端 clamp
+// 完會回最新值,input 同 _appCfg 都更新返。
+function renderCfgOptions() {
+  const list = document.getElementById('settings-cfg-list');
+  if (!list) return;
+  if (!_cfgDefs.length) {
+    list.innerHTML = `<div style="font-size:0.8rem;color:var(--muted);padding:0.3rem 0">載入中…</div>`;
+    return;
+  }
+  list.innerHTML = _cfgDefs.map(d => `
+    <div>
+      <div style="display:flex;gap:0.6rem;align-items:center;justify-content:space-between">
+        <label for="cfg-${d.key}" style="font-size:0.85rem;color:var(--text)">${escHtml(d.label)}</label>
+        <input id="cfg-${d.key}" type="number" value="${d.value}" min="${d.min}" max="${d.max}" step="any"
+          onchange="updateCfgOption('${d.key}', this.value)"
+          style="width:90px;background:var(--surface2);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:0.9rem;padding:0.4rem 0.5rem;box-sizing:border-box;font-family:inherit;text-align:right">
+      </div>
+      <div style="font-size:0.75rem;color:var(--muted);margin-top:0.15rem">${escHtml(d.desc)}（${d.min}–${d.max}，預設 ${d.def}）</div>
+    </div>`).join('');
+}
+
+async function updateCfgOption(key, value) {
+  try {
+    const { items } = await api('/api/config', { method: 'PUT', body: JSON.stringify({ [key]: Number(value) }) });
+    _cfgDefs = items || _cfgDefs;
+    _appCfg = Object.fromEntries(_cfgDefs.map(d => [d.key, d.value]));
+    const input = document.getElementById('cfg-' + key);
+    const d = _cfgDefs.find(x => x.key === key);
+    if (input && d) input.value = d.value;   // 反映 clamp 後嘅值
+    _radarLoaded = false;                     // 下次開抵買雷達 tab 用新參數重新載
+  } catch (e) {
+    alert('儲存失敗:' + e.message);
+    renderCfgOptions();
+  }
 }
 
 function closeSettingsModal() {
