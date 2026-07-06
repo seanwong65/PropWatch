@@ -2435,6 +2435,87 @@ function marketVsHtml(v) {
     + `<div class="unit-price" title="${tip}">${label} $${(v.sold_med_psf||0).toLocaleString()} · ${nClick}</div>`;
 }
 
+const _median = arr => {
+  if (!arr.length) return null;
+  const s = [...arr].sort((a, b) => a - b), n = s.length;
+  return n % 2 ? s[(n - 1) / 2] : Math.round((s[n / 2 - 1] + s[n / 2]) / 2);
+};
+
+// 把 groupListings 出嚟嘅行(可能係 combined)攤平做統一欄位;combined 取最平嗰口價。
+function _normListingRow(l) {
+  if (!l._combined) return l;
+  const cheapest = (l.sources || [])[0] || {};
+  return {
+    building_name: l.building_name, floor: l.floor, unit: l.unit,
+    size_net: l.size_net, bedrooms: l.bedrooms, direction: l.direction,
+    price: l.price_min, price_per_ft: l.ppf_min,
+    detail_url: cheapest.detail_url, source: cheapest.source,
+    first_seen: l.first_seen, publish_date: l.publish_date,
+  };
+}
+
+// 同一屋苑最新放盤入面,同房數 + 同樓層帶(高/中/低層)嘅類近盤(已跨 source 去重)。
+// 樓層帶:睇樓記錄用 v.floor_tier(由真實樓層 ÷ 該座成交最高層三等分);放盤本身
+// 已係 portal masked 嘅 高/中/低層,兩者對齊做 match(粗略,portal 分界未必一樣)。
+function similarListings(v) {
+  if (!v.floor_tier || v.bedrooms == null) return [];
+  return groupListings(allListings || [])
+    .map(_normListingRow)
+    .filter(l => l.floor === v.floor_tier && Number(l.bedrooms) === Number(v.bedrooms) && l.price > 0);
+}
+
+function similarListingsHtml(v) {
+  if (!v.floor_tier || v.bedrooms == null) {
+    return `<span style="color:var(--muted);font-size:0.75rem" title="未有房數/樓層帶">－</span>`;
+  }
+  const sim = similarListings(v);
+  if (!sim.length) return `<span style="color:var(--muted);font-size:0.75rem" title="冇同房數同樓層帶嘅在售盤">0 個</span>`;
+  const medPsf = _median(sim.map(s => s.price_per_ft).filter(Boolean));
+  const nClick = `<span onclick="openSimilarListings(${v.id})" style="cursor:pointer;border-bottom:1px dotted var(--muted)" title="睇 ${v.bedrooms}房 ${v.floor_tier} 在售盤">${sim.length} 個</span>`;
+  return `<div style="font-size:0.8rem">${v.bedrooms}房 ${v.floor_tier} · ${nClick}</div>`
+    + (medPsf ? `<div class="unit-price">叫價中位 $${medPsf.toLocaleString()}/呎</div>` : '');
+}
+
+// 撳「N 個」彈出同房數同樓層帶嘅在售盤(叫價由平到貴)。
+function openSimilarListings(viewingId) {
+  const v = window._viewingMap?.[viewingId];
+  if (!v) return;
+  const sim = similarListings(v).sort((a, b) => (a.price_per_ft || 0) - (b.price_per_ft || 0));
+  const overlay = document.createElement('div');
+  overlay.className = 'modal-overlay';
+  overlay.style.display = 'flex';
+  overlay.onclick = (e) => { if (e.target === overlay) overlay.remove(); };
+  const fmt = p => p ? `$${(p/1e4).toFixed(0)}萬` : '-';
+  const srcName = s => s === 'ricacorp' ? '利嘉閣' : s === 'hkp' ? '香港置業' : '中原';
+  const rows = sim.map(l => {
+    const unit = [l.building_name, l.floor, l.unit].filter(Boolean).map(escHtml).join(' ');
+    const link = l.detail_url
+      ? `<a href="${escHtml(l.detail_url)}" target="_blank" style="color:var(--accent2);text-decoration:none">${srcName(l.source)} ↗</a>`
+      : `<span style="color:var(--muted)">${srcName(l.source)}</span>`;
+    return `<tr class="hl-tr">
+      <td style="padding:0.4rem 0.5rem 0.4rem 0">${unit}${l.direction ? ` <span style="color:var(--muted);font-size:0.72rem">向${escHtml(l.direction)}</span>` : ''}</td>
+      <td style="text-align:right;padding:0.4rem 0.5rem;white-space:nowrap;color:var(--muted)">${l.size_net ? l.size_net+'呎' : '-'}</td>
+      <td style="text-align:right;padding:0.4rem 0.5rem;white-space:nowrap;font-weight:600;color:var(--accent)">${fmt(l.price)}</td>
+      <td style="text-align:right;padding:0.4rem 0.5rem;white-space:nowrap">${l.price_per_ft ? '$'+Math.round(l.price_per_ft).toLocaleString() : '-'}</td>
+      <td style="text-align:right;padding:0.4rem 0 0.4rem 0.5rem;white-space:nowrap;font-size:0.75rem">${link}</td>
+    </tr>`;
+  }).join('');
+  overlay.innerHTML = `<div class="modal" style="max-width:560px;max-height:90vh;overflow-y:auto">
+    <button class="modal-close" onclick="this.closest('.modal-overlay').remove()">✕</button>
+    <div class="modal-title">類近在售盤</div>
+    <div class="modal-sub">${escHtml(_viewingEstateName||'')} · ${v.bedrooms}房 · ${v.floor_tier} · ${sim.length}個（叫價由平到貴）</div>
+    <div style="margin-top:0.5rem"><div class="table-scroll"><table style="width:100%;border-collapse:collapse;font-size:0.85rem">
+      <thead><tr style="text-align:left;color:var(--muted);font-size:0.75rem">
+        <th style="padding:0.3rem 0.5rem 0.3rem 0">單位</th>
+        <th style="text-align:right;padding:0.3rem 0.5rem">面積</th>
+        <th style="text-align:right;padding:0.3rem 0.5rem">叫價</th>
+        <th style="text-align:right;padding:0.3rem 0.5rem">呎價</th>
+        <th style="text-align:right;padding:0.3rem 0 0.3rem 0.5rem">來源</th>
+      </tr></thead><tbody>${rows}</tbody></table></div></div>
+  </div>`;
+  document.body.appendChild(overlay);
+}
+
 // 撳「N宗」彈出組成中位數嗰批成交紀錄（同層帶或全苑,由後端用同一 tier 邏輯篩）。
 let _ecComps = [];
 let _ecSort = { key: 'reg_date', dir: 'desc' };
@@ -2980,9 +3061,10 @@ async function loadViewings(estateId) {
       return `<tr>
         <td>${v.view_date}</td>
         <td><strong>${unitStr}</strong>${subLine ? `<br><span style="color:var(--muted);font-size:0.75rem">${subLine}</span>` : ''}</td>
-        <td style="color:var(--accent)"><strong>${fmt(v.price)} ${sizeStr}</strong><br><span style="color:var(--muted);font-size:0.75rem">${psfStr}</span></td>
+        <td><strong style="color:var(--accent)">${fmt(v.price)}</strong> <strong>${sizeStr}</strong><br><span style="color:var(--muted);font-size:0.75rem">${psfStr}</span></td>
         <td id="vhs-${v.id}">${hsCell}</td>
         <td>${marketVsHtml(v)}</td>
+        <td>${similarListingsHtml(v)}</td>
         <td id="vprev-${v.id}"><span style="color:var(--muted);font-size:0.75rem;cursor:pointer" onclick="fetchUnitTxn(${v.id})">查詢</span></td>
         <td>${v.txn_price && v.txn_reg_date >= v.view_date ? `<span style="color:var(--accent)"><strong>${fmt(v.txn_price)}</strong></span><br><span style="color:var(--muted);font-size:0.75rem">${v.txn_reg_date}</span>` : '-'}</td>
         <td>${mgmtMonthly ? `$${mgmtMonthly.toLocaleString()}/月` : '-'}</td>
@@ -2998,7 +3080,7 @@ async function loadViewings(estateId) {
     panel.innerHTML = `<div class="listings-section table-scroll">
       <table class="history-table data-table">
         <thead><tr>
-          <th>睇樓日期</th><th>單位</th><th>售價</th><th>恒生估值</th><th>相對市價</th><th>上次購買</th><th>成交記錄</th><th>管理費(每月)</th><th>對應放盤</th><th>備注</th><th>圖片</th><th></th>
+          <th>睇樓日期</th><th>單位</th><th>售價</th><th>恒生估值</th><th>相對市價</th><th>類近在售</th><th>上次購買</th><th>成交記錄</th><th>管理費(每月)</th><th>對應放盤</th><th>備注</th><th>圖片</th><th></th>
         </tr></thead>
         <tbody>${rows}</tbody>
       </table>
