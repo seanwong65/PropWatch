@@ -1407,12 +1407,41 @@ async function getTodayHighlights(db) {
   return { date: today, byEstate, allViewedTxns, linkedPriceChanges: linkedPriceChanges.results || [] };
 }
 
-function buildEmailHtml(highlights) {
+function buildEmailHtml(highlights, bargains = []) {
   const fmt = (p) => p ? `$${(p / 1e4).toFixed(0)}萬` : "-";
   const pct = (n, o) => o ? ((n - o) / o * 100).toFixed(1) : null;
   const { date, byEstate = [], allViewedTxns = [], linkedPriceChanges = [] } = highlights;
 
   let sections = "";
+
+  // 💎 今日筍盤 Top 5 — 呎價低過同苑近60日成交中位數最多嘅在售盤
+  if (bargains.length) {
+    const TH = (...hs) => `<tr style="border-bottom:1px solid #334155">${hs.map(h=>`<th style="padding:4px 8px;font-size:11px;font-weight:600;color:#64748b;text-transform:uppercase;letter-spacing:0.04em;text-align:left">${h}</th>`).join('')}</tr>`;
+    let rows = "";
+    for (const b of bargains) {
+      const badges = [];
+      if (b.cut_pct != null) badges.push(`<span style="color:#f59e0b">🔻減價 ${Math.abs(b.cut_pct)}%</span>`);
+      if (b.days_on_market != null && b.days_on_market >= 90) badges.push(`<span style="color:#64748b">⏳擺賣${b.days_on_market}日</span>`);
+      if (b.loss_zone) badges.push(`<span style="color:#10b981">💔蝕讓區</span>`);
+      const srcName = b.source === 'ricacorp' ? '利嘉閣' : b.source === 'hkp' ? '香港置業' : '中原';
+      const link = b.detail_url ? `<a href="${b.detail_url}" style="color:#3b82f6;font-size:12px;white-space:nowrap">${srcName} ↗</a>` : `<span style="color:#64748b;font-size:12px">${srcName}</span>`;
+      rows += `<tr style="border-bottom:1px solid #1f2d42;background:rgba(52,211,153,0.05)">
+        <td style="padding:6px 8px"><strong>${b.estate_name||''}</strong> ${b.building_name||''} ${b.floor||''} ${b.unit||''}<br><span style="color:#64748b;font-size:12px">${b.size_net||'?'}呎${b.bedrooms!=null?' · '+b.bedrooms+'房':''}</span></td>
+        <td style="padding:6px 8px;font-weight:700;color:#f59e0b">${fmt(b.price)}<br><span style="font-weight:400;color:#64748b;font-size:12px">$${(b.psf||0).toLocaleString()}/呎</span></td>
+        <td style="padding:6px 8px;color:#10b981;font-weight:700">${b.vs_med_pct}%<br><span style="font-weight:400;color:#64748b;font-size:12px">中位 $${(b.sold_med_psf||0).toLocaleString()}</span></td>
+        <td style="padding:6px 8px;font-size:12px">${badges.join('<br>') || '-'}</td>
+        <td style="padding:6px 8px">${link}</td>
+      </tr>`;
+    }
+    sections += `<div style="margin-bottom:24px;border:1px solid rgba(52,211,153,0.4);border-radius:8px;padding:16px;background:rgba(52,211,153,0.06)">
+      <h2 style="margin:0 0 4px;font-size:18px;color:#34d399">💎 今日筍盤 Top ${bargains.length}</h2>
+      <p style="margin:0 0 12px;font-size:12px;color:#64748b">呎價低過同屋苑近60日成交中位數最多嘅在售盤。全苑中位數係粗略基準,平得誇張多數有原因,睇盤前自己覆核。</p>
+      <table style="width:100%;border-collapse:collapse;font-size:14px;color:#e2e8f0">
+        <thead>${TH('屋苑 / 單位','售價','平幾多','訊號','來源')}</thead>
+        <tbody>${rows}</tbody>
+      </table>
+    </div>`;
+  }
 
   // 🏷️ 睇過嘅放盤售價變動 — at the very top
   if (linkedPriceChanges.length) {
@@ -1725,6 +1754,12 @@ async function sendDailyEmail(db, resendApiKey) {
   if (!resendApiKey) return { error: "no RESEND_API_KEY" };
   try {
     const highlights = await getTodayHighlights(db);
+    // 筍盤 Top 5（non-fatal — radar 失敗唔阻住每日通知）
+    let bargains = [];
+    try {
+      const radar = await computeBargainRadar(db, { belowPct: 8, limit: 5 });
+      bargains = radar.listings;
+    } catch (e) { /* non-fatal */ }
     const { byEstate } = highlights;
     const totalTxns    = byEstate.reduce((s, e) => s + e.newTransactions.length, 0);
     const totalPrice   = byEstate.reduce((s, e) => s + e.priceChanges.length, 0);
@@ -1738,8 +1773,9 @@ async function sendDailyEmail(db, resendApiKey) {
     if (totalPrice)  parts.push(`${totalPrice} 個價格變動`);
     if (totalNew)    parts.push(`${totalNew} 個新放盤`);
     if (totalDel)    parts.push(`${totalDel} 個已下架`);
-    const subject = hasChanges ? `PropWatch 通知：${parts.join("、")}` : "PropWatch 通知：今日無更新";
-    return await sendEmail(resendApiKey, "johnwong777@hotmail.com", subject, buildEmailHtml(highlights));
+    if (bargains.length) parts.push(`${bargains.length} 個筍盤`);
+    const subject = hasChanges || bargains.length ? `PropWatch 通知：${parts.join("、")}` : "PropWatch 通知：今日無更新";
+    return await sendEmail(resendApiKey, "johnwong777@hotmail.com", subject, buildEmailHtml(highlights, bargains));
   } catch (err) {
     console.error("Email send failed:", err.message);
     return { error: err.message };
