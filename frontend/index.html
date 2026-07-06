@@ -2383,6 +2383,8 @@ function hsDiffHtml(hsPrice, txnPrice) {
 }
 
 // 相對同苑近60日成交中位呎價平定貴（同抵買雷達同一把尺,由 /api/viewings 計好）。
+// basis='tier' 時基準係同層帶(高/中/低層,以該座成交最高層三等分)嘅中位數,
+// 同層唔夠5宗會 fallback 返全苑中位數。
 function marketVsHtml(v) {
   if (v.vs_med_pct == null) {
     const why = v.market_n_sold != null && v.market_n_sold < 5
@@ -2394,7 +2396,12 @@ function marketVsHtml(v) {
   if (vs <= -3)      badge = `<span class="gain-pos">低市價 ${abs}%</span>`;
   else if (vs >= 3)  badge = `<span class="gain-neg">貴市價 ${abs}%</span>`;
   else               badge = `<span style="color:var(--muted);font-size:0.75rem">約市價 ${vs > 0 ? '+' : ''}${vs}%</span>`;
-  return `${badge}<div class="unit-price">中位 $${(v.sold_med_psf||0).toLocaleString()} · ${v.market_n_sold}宗</div>`;
+  const isTier = v.market_basis === 'tier';
+  const label = isTier ? `${v.floor_tier}中位` : '全苑中位';
+  const tip = isTier
+    ? `同層帶近60日成交中位數（以該座成交最高層 ${v.tier_max_floor} 樓三等分）`
+    : (v.floor_tier ? `${v.floor_tier}近60日成交唔夠5宗，改用全苑中位數` : '全苑近60日成交中位數');
+  return `${badge}<div class="unit-price" title="${tip}">${label} $${(v.sold_med_psf||0).toLocaleString()} · ${v.market_n_sold}宗</div>`;
 }
 
 async function fetchHSVal(rowId, estate, block, floor, flat, estateId, txnPrice) {

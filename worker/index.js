@@ -1150,6 +1150,60 @@ async function soldMedianPsf(db, { days = 60, estateIds = null } = {}) {
   return map;
 }
 
+// 分層（高/中/低層）成交呎價中位數。每座用「該座歷史成交見過嘅最高層」
+// 估總層數（成交夠多先準，冷門座可能低估），三等分：1..max/3 低層、
+// ..2max/3 中層、其餘高層——同 deriveFloorTier 一致。返回
+// Map<"estateId|tier", { med_psf, n_sold }>。中位數計法同 soldMedianPsf
+// 同一款（偶數取中間兩個平均），只係多咗 tier 一維。
+async function soldMedianPsfByTier(db, { days = 60, estateIds = null } = {}) {
+  const idFilter = estateIds?.length
+    ? `AND estate_id IN (${estateIds.map(() => "?").join(",")})`
+    : "";
+  const { results } = await db.prepare(`
+    WITH numf AS (
+      SELECT estate_id, building,
+             CAST(REPLACE(REPLACE(floor,'樓',''),'層','') AS INT) fl,
+             price_per_ft, reg_date
+      FROM transactions
+      WHERE price_per_ft > 0
+        AND CAST(REPLACE(REPLACE(floor,'樓',''),'層','') AS INT) > 0 ${idFilter}
+    ),
+    maxf AS (
+      SELECT estate_id, building, MAX(fl) max_fl
+      FROM numf GROUP BY estate_id, building
+    ),
+    recent AS (
+      SELECT n.estate_id,
+             CASE WHEN n.fl <= m.max_fl / 3.0 THEN '低層'
+                  WHEN n.fl <= m.max_fl * 2 / 3.0 THEN '中層'
+                  ELSE '高層' END tier,
+             n.price_per_ft
+      FROM numf n
+      JOIN maxf m ON m.estate_id = n.estate_id AND m.building IS n.building
+      WHERE n.reg_date >= date('now', ?)
+    ),
+    ranked AS (
+      SELECT estate_id, tier, price_per_ft,
+             ROW_NUMBER() OVER (PARTITION BY estate_id, tier ORDER BY price_per_ft) rn,
+             COUNT(*) OVER (PARTITION BY estate_id, tier) c
+      FROM recent
+    )
+    SELECT estate_id, tier, ROUND(AVG(price_per_ft)) med_psf, MAX(c) n_sold
+    FROM ranked WHERE rn IN ((c+1)/2, (c+2)/2) GROUP BY estate_id, tier
+  `).bind(...(estateIds || []), `-${days} days`).all();
+  const map = new Map();
+  for (const r of results) map.set(`${r.estate_id}|${r.tier}`, { med_psf: r.med_psf, n_sold: r.n_sold });
+  return map;
+}
+
+// 一個樓層屬高/中/低層——同 soldMedianPsfByTier 嘅 SQL 用同一條三分界。
+function deriveFloorTier(floorNum, maxFloor) {
+  if (!floorNum || !maxFloor || floorNum > maxFloor) return null;
+  if (floorNum <= maxFloor / 3) return "低層";
+  if (floorNum <= maxFloor * 2 / 3) return "中層";
+  return "高層";
+}
+
 // ── 抵買雷達 & 議價指數 ─────────────────────────────────────────────────────
 // 只計已標星（收藏）嘅屋苑——用戶主動追蹤緊嘅先至有參考價值。
 // 跨屋苑篩「呎價明顯低過同苑近 60 日成交中位數」嘅在售盤，並為每個屋苑計
@@ -2604,12 +2658,32 @@ export default {
           WHERE v.estate_id = ?
           ORDER BY v.view_date DESC, v.created_at DESC
         `).bind(estateId).all();
-        // 相對同苑近60日成交中位數平定貴（同抵買雷達同一把尺）。
-        const medMap = await soldMedianPsf(db, { days: 60, estateIds: [Number(estateId)] });
-        const med = medMap.get(Number(estateId));
+        // 相對市價（同抵買雷達同一把尺）：優先同層帶（高/中/低層，以該座
+        // 成交最高層三等分）嘅近60日中位數，唔夠 5 宗先 fallback 全苑。
+        const eid = Number(estateId);
+        const [medMap, tierMap, { results: maxfRows }] = await Promise.all([
+          soldMedianPsf(db, { days: 60, estateIds: [eid] }),
+          soldMedianPsfByTier(db, { days: 60, estateIds: [eid] }),
+          db.prepare(`
+            SELECT building, MAX(CAST(REPLACE(REPLACE(floor,'樓',''),'層','') AS INT)) max_fl
+            FROM transactions
+            WHERE estate_id = ? AND CAST(REPLACE(REPLACE(floor,'樓',''),'層','') AS INT) > 0
+            GROUP BY building
+          `).bind(eid).all(),
+        ]);
+        const med = medMap.get(eid);
+        const maxfMap = new Map(maxfRows.map((r) => [r.building, r.max_fl]));
         for (const v of results) {
           const psf = v.price && v.size_net ? v.price / v.size_net : null;
-          const verdict = marketVerdict(med, psf);
+          const floorNum = parseInt(String(v.floor ?? "").replace(/[樓層]/g, ""), 10) || null;
+          const bldg = v.block ? (/座$/.test(v.block) ? v.block : v.block + "座") : null;
+          const maxFl = maxfMap.get(bldg) ?? null;
+          const tier = deriveFloorTier(floorNum, maxFl);
+          const tierVerdict = tier ? marketVerdict(tierMap.get(`${eid}|${tier}`), psf) : null;
+          const verdict = tierVerdict ?? marketVerdict(med, psf);
+          v.floor_tier = tier;
+          v.tier_max_floor = maxFl;
+          v.market_basis = tierVerdict ? "tier" : (verdict ? "estate" : null);
           v.sold_med_psf = verdict?.sold_med_psf ?? null;
           v.market_n_sold = verdict?.n_sold ?? null;
           v.vs_med_pct = verdict?.vs_med_pct ?? null;
