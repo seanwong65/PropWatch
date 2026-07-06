@@ -2975,12 +2975,12 @@ async function loadViewings(estateId) {
       const hsCell = v.hs_price
         ? hsValHtml(v.hs_price) + hsDiffHtml(v.hs_price, v.price)
         : `<button class="hs-val-btn" onclick="manualFetchViewingHSVal(${v.id},${estateId},'${escHtml(v.block||'')}','${escHtml(v.floor)}','${escHtml(v.unit)}',${v.price||0})">查估值</button>`;
+      const subLine = [v.direction ? `向${escHtml(v.direction)}` : '', v.bedrooms ? v.bedrooms+'房' : ''].filter(Boolean).join(' ');
+      const sizeStr = v.size_net ? v.size_net+'呎' : '-';
       return `<tr>
         <td>${v.view_date}</td>
-        <td><strong>${unitStr}</strong>${v.direction ? `<br><span style="color:var(--muted);font-size:0.75rem">向${escHtml(v.direction)}</span>` : ''}</td>
-        <td>${v.bedrooms ? v.bedrooms+'房' : '-'}</td>
-        <td>${v.size_net ? v.size_net+'呎' : '-'}</td>
-        <td style="color:var(--accent)"><strong>${fmt(v.price)}</strong><br><span style="color:var(--muted);font-size:0.75rem">${psfStr}</span></td>
+        <td><strong>${unitStr}</strong>${subLine ? `<br><span style="color:var(--muted);font-size:0.75rem">${subLine}</span>` : ''}</td>
+        <td style="color:var(--accent)"><strong>${fmt(v.price)} ${sizeStr}</strong><br><span style="color:var(--muted);font-size:0.75rem">${psfStr}</span></td>
         <td id="vhs-${v.id}">${hsCell}</td>
         <td>${marketVsHtml(v)}</td>
         <td id="vprev-${v.id}"><span style="color:var(--muted);font-size:0.75rem;cursor:pointer" onclick="fetchUnitTxn(${v.id})">查詢</span></td>
@@ -2998,7 +2998,7 @@ async function loadViewings(estateId) {
     panel.innerHTML = `<div class="listings-section table-scroll">
       <table class="history-table data-table">
         <thead><tr>
-          <th>睇樓日期</th><th>單位</th><th>房數</th><th>實用面積</th><th>售價</th><th>恒生估值</th><th>相對市價</th><th>上次購買</th><th>成交記錄</th><th>管理費(每月)</th><th>對應放盤</th><th>備注</th><th>圖片</th><th></th>
+          <th>睇樓日期</th><th>單位</th><th>售價</th><th>恒生估值</th><th>相對市價</th><th>上次購買</th><th>成交記錄</th><th>管理費(每月)</th><th>對應放盤</th><th>備注</th><th>圖片</th><th></th>
         </tr></thead>
         <tbody>${rows}</tbody>
       </table>
