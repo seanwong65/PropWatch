@@ -2485,16 +2485,30 @@ function similarListings(v) {
     .filter(l => l.floor === v.floor_tier && Number(l.bedrooms) === Number(v.bedrooms) && l.price > 0);
 }
 
+// 版面跟 marketVsHtml:第一行 verdict badge(貴/低/約叫價 X%,同 marketVsHtml
+// 用同一個 ±band 界線),第二行「X層中位 $XX,XXX/呎 · N個」。
 function similarListingsHtml(v) {
+  const band = _appCfg.verdict_band_pct ?? 3;
   if (!v.floor_tier || v.bedrooms == null) {
     return `<span style="color:var(--muted);font-size:0.75rem" title="未有房數/樓層帶">－</span>`;
   }
   const sim = similarListings(v);
-  if (!sim.length) return `<span style="color:var(--muted);font-size:0.75rem" title="冇同房數同樓層帶嘅在售盤">0 個</span>`;
+  const tip = `${v.bedrooms}房 ${v.floor_tier} 在售盤`;
+  if (!sim.length) return `<span style="color:var(--muted);font-size:0.75rem" title="冇同房數同樓層帶嘅在售盤(${tip})">0 個</span>`;
   const medPsf = _median(sim.map(s => s.price_per_ft).filter(Boolean));
-  const nClick = `<span onclick="openSimilarListings(${v.id})" style="cursor:pointer;border-bottom:1px dotted var(--muted)" title="睇 ${v.bedrooms}房 ${v.floor_tier} 在售盤">${sim.length} 個</span>`;
-  return `<div style="font-size:0.8rem">${v.bedrooms}房 ${v.floor_tier} · ${nClick}</div>`
-    + (medPsf ? `<div class="unit-price">叫價中位 $${medPsf.toLocaleString()}/呎</div>` : '');
+  const ownPsf = (v.price && v.size_net) ? v.price / v.size_net : null;
+  let badge;
+  if (medPsf && ownPsf) {
+    const vs = (ownPsf - medPsf) / medPsf * 100, abs = Math.abs(vs).toFixed(1);
+    if (vs <= -band)      badge = `<span class="gain-pos">低叫價 ${abs}%</span>`;
+    else if (vs >= band)  badge = `<span class="gain-neg">貴叫價 ${abs}%</span>`;
+    else                  badge = `<span style="color:var(--muted);font-size:0.75rem">約叫價 ${vs > 0 ? '+' : ''}${vs.toFixed(1)}%</span>`;
+  } else {
+    badge = `<span style="color:var(--muted);font-size:0.75rem">-</span>`;
+  }
+  const nClick = `<span onclick="openSimilarListings(${v.id})" style="cursor:pointer;border-bottom:1px dotted var(--muted)" title="睇 ${tip}">${sim.length} 個</span>`;
+  return `<div style="font-size:0.8rem">${badge}</div>`
+    + `<div class="unit-price" title="${tip}">${medPsf ? `${v.floor_tier}中位 $${medPsf.toLocaleString()}/呎 · ` : ''}${nClick}</div>`;
 }
 
 // 類近在售盤 popup — 全部欄位可撳表頭排序（同成交紀錄 popup 一致）。
