@@ -1125,24 +1125,43 @@ async function computeViewingComps(db) {
   }
 
   return viewings.map((v) => {
+    // 同一宗真實成交,centanet + 利嘉閣可能各存一份,利嘉閣有時 building
+    // 缺(null)。排序令有 building 嗰份行先,先於下面 dedup 保留低嚟——
+    // 咁先會分去啱嘅 tier(同座),唔會因為 building=null 跌落「同屋苑」
+    // 變成同一宗成交出現兩次。
     const pool = (byEstate.get(v.estate_id) || []).slice()
-      .sort((a, b) => (b.reg_date || "").localeCompare(a.reg_date || ""));
+      .sort((a, b) => {
+        const aHasB = a.building ? 0 : 1, bHasB = b.building ? 0 : 1;
+        if (aHasB !== bHasB) return aHasB - bHasB;
+        return (b.reg_date || "").localeCompare(a.reg_date || "");
+      });
     const nb = _normBldg(v.block), nu = _normUnit(v.unit), sz = v.size_net;
     const within = (t) => sz && t.size_net && Math.abs(t.size_net - sz) <= sz * 0.10;
+    // 睇緊嗰個單位本身嘅樓層——佢自己嘅成交史唔算「comp」(唔係比較對象,
+    // 係主角本身;已用嚟做上面「本單位真實成交」headline),下面成個 tier
+    // loop 要排除,唔好又當「① 同一線」重複顯示自己。
+    const exactFloor = String(v.floor || "").replace(/\D/g, "");
 
     const tier1 = [], tier2 = [], tier3 = [];
     const seen = new Set();
     for (const t of pool) {
-      const key = `${t.building}|${t.floor}|${t.unit}|${t.reg_date}|${t.price}`;
+      // dedup key 唔連 building(佢喺唔同 source 之間唔穩定,見上面註解)。
+      // 一見到就即刻 mark seen(唔理下面會唔會被排除/分邊個 tier),否則
+      // 有 building 嗰份被自己樓層排除咗之後,null building 嗰份會走漏。
+      const key = `${t.floor}|${t.unit}|${t.reg_date}|${t.price}`;
       if (seen.has(key)) continue;
+      seen.add(key);
       const sameB = _normBldg(t.building) === nb;
       const sameU = _normUnit(t.unit) === nu;
+      const sameFloorAsViewing = exactFloor && String(t.floor || "").replace(/\D/g, "") === exactFloor;
+      // 唔靠 sameB 嚟判斷係咪自己嘅樓層——因為 duplicate 嗰份 building
+      // 可能係 null,只有 sameU + 樓層啱先夠穩陣認到「呢個係自己」。
+      if (sameU && sameFloorAsViewing) continue;   // 自己嘅樓層,唔算 comp
       let tier = 0;
       if (sameB && sameU) tier = 1;
       else if (sameB && within(t)) tier = 2;
       else if (within(t)) tier = 3;
       else continue;
-      seen.add(key);
       const row = { tier, building: t.building, floor: t.floor, unit: t.unit,
         size_net: t.size_net, price: t.price, price_per_ft: t.price_per_ft, reg_date: t.reg_date };
       (tier === 1 ? tier1 : tier === 2 ? tier2 : tier3).push(row);
@@ -1164,7 +1183,7 @@ async function computeViewingComps(db) {
 
     // 已成交:同座 + 同(實際)樓層 + 同室,且成交登記日 >= 睇樓日 - 21日
     // (睇樓之後先成交 = 你追嗰個盤真係賣咗)。舊過睇樓日嘅 = 業主舊買入,唔算。
-    const exactFloor = String(v.floor || "").replace(/\D/g, "");
+    // exactFloor 已喺上面 tier loop 之前計咗。
     const cutoff = v.view_date ? new Date(Date.parse(v.view_date) - 21 * 86400000).toISOString().slice(0, 10) : null;
     const ownSales = pool.filter((t) =>
       _normBldg(t.building) === nb && _normUnit(t.unit) === nu &&
