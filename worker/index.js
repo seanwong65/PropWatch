@@ -2853,6 +2853,33 @@ export default {
         return json(200, { viewings: results });
       }
 
+      // 追蹤中放盤:跨屋苑攞晒未確認成交嘅睇樓記錄(冇對應成交,或者成交
+      // 登記日早過睇樓日——即係嗰宗成交發生喺睇樓之前,唔算「睇完先賣」)。
+      // Dashboard「追蹤中放盤」tab 用。前端本身有 call 呢個 endpoint,但
+      // 之前一直冇實作(404),依家補返。
+      if (method === "GET" && path === "/api/viewings/unsold") {
+        const { results } = await db.prepare(`
+          SELECT v.*, e.name AS estate_name,
+            t.price AS txn_price,
+            t.reg_date AS txn_reg_date
+          FROM viewings v
+          JOIN estates e ON e.id = v.estate_id
+          LEFT JOIN (
+            SELECT estate_id, building, floor, unit, price, reg_date,
+                   ROW_NUMBER() OVER (PARTITION BY estate_id, building, floor, unit ORDER BY reg_date DESC) AS rn
+            FROM transactions
+          ) t ON t.estate_id = v.estate_id
+            AND t.building = CASE WHEN v.block LIKE '%座' THEN v.block ELSE v.block || '座' END
+            AND t.floor = CASE WHEN v.floor LIKE '%樓' OR v.floor LIKE '%層' THEN v.floor ELSE v.floor || '樓' END
+            AND t.unit = CASE WHEN v.unit LIKE '%室' OR v.unit LIKE '%號' THEN v.unit ELSE v.unit || '室' END
+            AND t.rn = 1
+          WHERE (e.is_disabled = 0 OR e.is_disabled IS NULL)
+            AND (t.price IS NULL OR t.reg_date < v.view_date)
+          ORDER BY v.view_date DESC, v.created_at DESC
+        `).all();
+        return json(200, { viewings: results });
+      }
+
       if (method === "GET" && path === "/api/viewings/unit-txn") {
         const estateName = url.searchParams.get("estate");
         const building   = url.searchParams.get("building");
