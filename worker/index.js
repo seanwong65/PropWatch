@@ -543,6 +543,12 @@ export async function scrapeRicacorpListings(ricacorpUrl) {
 
   let canonicalBase = ricacorpUrl; // may be updated after page 1 using full slug
   let failStreak = 0;
+  // 追蹤今次 scrape 完唔完整:有任何一頁甩咗(retry 都失敗跳過)、或者連續
+  // 失敗 break、或者去到頁數上限都未見自然完(某頁 0 新盤),都當唔完整。
+  // 唔完整嘅話 saveRicacorpListings 會 carry forward 上次嘅盤,唔存殘缺
+  // snapshot(殘缺 snapshot 會令甩咗頁嘅盤扮下架)。
+  let incomplete = false;
+  let reachedEnd = false;
 
   for (let page = 1; page <= 15; page++) {
     const url = page === 1 ? ricacorpUrl : `${canonicalBase};page=${page}`;
@@ -559,6 +565,7 @@ export async function scrapeRicacorpListings(ricacorpUrl) {
     // paginating (a false "removed" alert is worse than a one-cycle gap). Only
     // give up after several failures in a row.
     if (html === null) {
+      incomplete = true;   // 甩咗一頁 → 唔完整
       if (++failStreak >= 3) break;
       continue;
     }
@@ -638,15 +645,39 @@ export async function scrapeRicacorpListings(ricacorpUrl) {
       });
     }
 
-    if (found === 0) break; // no new listings on this page
+    if (found === 0) { reachedEnd = true; break; } // no new listings = 自然完
   }
 
+  // 未見自然完(某頁 0 新盤)就停 = 可能仲有頁未攞 → 當唔完整。
+  if (!reachedEnd) incomplete = true;
+  listings.complete = !incomplete;
   return listings;
 }
 
 async function saveRicacorpListings(db, estateId, listings) {
-  if (!listings.length) return;
   const today = hkDateStr();
+  let toSave = listings;
+
+  // 攞唔齊全部頁(scrapeRicacorpListings 標 .complete=false):唔好存殘缺
+  // snapshot 令甩咗頁嘅盤扮下架。將上一個 ricacorp snapshot 有、但今次冇
+  // scrape 到嘅盤,原樣 carry forward 落今日,補返甩咗嘅頁。真下架會等到
+  // 有一次完整 scrape 先反映(可接受:假下架 alert 更煩)。
+  if (listings.complete === false) {
+    const scraped = new Set(listings.map((l) => l.ref_no));
+    const { results: prev } = await db.prepare(`
+      SELECT ref_no, building_name, floor, unit, bedrooms, size_net, price, price_per_ft, detail_url, publish_date
+      FROM listings
+      WHERE estate_id = ? AND source = 'ricacorp' AND snapshot_date = (
+        SELECT MAX(snapshot_date) FROM listings
+        WHERE estate_id = ? AND source = 'ricacorp' AND snapshot_date < ?)
+    `).bind(estateId, estateId, today).all();
+    const carried = prev
+      .filter((p) => p.ref_no && !scraped.has(p.ref_no))
+      .map((p) => ({ ...p, source: "ricacorp" }));
+    if (carried.length) toSave = listings.concat(carried);
+  }
+
+  if (!toSave.length) return;
   const stmt = db.prepare(
     `INSERT OR REPLACE INTO listings
      (estate_id, listing_id, ref_no, building_name, floor, unit, bedrooms,
@@ -659,7 +690,7 @@ async function saveRicacorpListings(db, estateId, listings) {
      ON CONFLICT(ref_no, snapshot_date) DO UPDATE SET price=excluded.price, price_per_ft=excluded.price_per_ft`
   );
   const batch = [];
-  for (const l of listings) {
+  for (const l of toSave) {
     batch.push(stmt.bind(estateId, l.ref_no, l.ref_no, l.building_name, l.floor, normalizeUnit(l.unit),
       l.bedrooms, l.size_net, l.price, l.price_per_ft, l.detail_url, today, l.source, l.publish_date ?? null));
     if (l.ref_no && l.price) batch.push(stmtHistory.bind(l.ref_no, estateId, l.price, l.price_per_ft, today));
@@ -2065,6 +2096,7 @@ export default {
         return json(200, {
           estate: estateName,
           count: listings.length,
+          complete: listings.complete,
           sample: listings.slice(0, 2),
         });
       }
