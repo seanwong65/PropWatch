@@ -1096,11 +1096,13 @@ const _pctile = (arr, p) => {
 };
 
 async function computeViewingComps(db) {
+  // 排序跟屋苑偏好(同側欄屋苑清單一致):已標星最愛優先,再跟手動拖曳嘅
+  // sort_order;同一屋苑內嘅卡再按睇樓日期新到舊。
   const { results: viewings } = await db.prepare(`
     SELECT v.id, v.estate_id, e.name AS estate_name, v.block, v.floor, v.unit,
            v.size_net, v.bedrooms, v.price, v.view_date, v.linked_ref_no, v.dismissed_refs
     FROM viewings v JOIN estates e ON e.id = v.estate_id
-    ORDER BY v.view_date DESC, v.id DESC
+    ORDER BY e.is_favourite DESC, e.sort_order ASC, v.view_date DESC, v.id DESC
   `).all();
 
   const estateIds = [...new Set(viewings.map((v) => v.estate_id))];
