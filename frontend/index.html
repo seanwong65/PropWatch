@@ -889,14 +889,18 @@
     /* Shared horizontal-scroll table utility (replaces scattered inline styles) */
     .table-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
     .data-table { min-width: 700px; white-space: nowrap; }
-    /* Thin mirrored scrollbar auto-inserted above every .table-scroll (see
-       enableTopScrollbars() below) so wide tables can be dragged left/right
-       without first scrolling down to the table's own bottom edge. */
-    .table-scroll-top { overflow-x: auto; overflow-y: hidden; height: 14px; }
-    .table-scroll-top > div { height: 1px; }
     /* 最新放盤表:淨係顯示約10行,之後上下+左右都可以喺個框入面拉(唔使
        成頁咁長)。max-height 由 JS 度返嚟set(睇 renderListingsTable)。 */
     .table-scroll-capped { overflow-y: auto; }
+
+    /* 全站捲軸半透明(Chrome/Safari/Edge 用 ::-webkit-scrollbar,Firefox 用
+       scrollbar-color)。淨係影響外觀,唔改任何 scroll 行為。 */
+    * { scrollbar-width: thin; scrollbar-color: rgba(148,163,184,0.35) transparent; }
+    ::-webkit-scrollbar { width: 9px; height: 9px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: rgba(148,163,184,0.35); border-radius: 5px; border: 2px solid transparent; background-clip: padding-box; }
+    ::-webkit-scrollbar-thumb:hover { background: rgba(148,163,184,0.55); background-clip: padding-box; }
+    ::-webkit-scrollbar-corner { background: transparent; }
   </style>
 </head>
 <body>
@@ -1078,44 +1082,6 @@
 </div>
 
 <script>
-// 自動幫每個 .table-scroll 闊表格加一條幼身「頂部滾動條」，同表格本身嘅
-// 橫向 scroll 雙向同步——長表格好多行時，原生 scrollbar 貼喺表格最底，
-// 要拉到成頁最底先郁到；呢條頂部 mirror bar 一出現就即刻可以左右拉。
-// 用 MutationObserver 監聽全頁新增節點，唔使逐個 render function 手動掛。
-(function enableTopScrollbars() {
-  function attach(el) {
-    if (el._hasTopScrollbar) return;
-    const table = el.querySelector(":scope > table");
-    if (!table || !el.parentNode) return;
-    el._hasTopScrollbar = true;
-    const topBar = document.createElement("div");
-    topBar.className = "table-scroll-top";
-    const spacer = document.createElement("div");
-    topBar.appendChild(spacer);
-    el.parentNode.insertBefore(topBar, el);
-    const syncWidth = () => { spacer.style.width = table.scrollWidth + "px"; };
-    syncWidth();
-    new ResizeObserver(syncWidth).observe(table);
-    let guard = false;
-    topBar.addEventListener("scroll", () => {
-      if (guard) return; guard = true; el.scrollLeft = topBar.scrollLeft; guard = false;
-    });
-    el.addEventListener("scroll", () => {
-      if (guard) return; guard = true; topBar.scrollLeft = el.scrollLeft; guard = false;
-    });
-  }
-  const mo = new MutationObserver((muts) => {
-    for (const m of muts) {
-      for (const node of m.addedNodes) {
-        if (node.nodeType !== 1) continue;
-        if (node.classList?.contains("table-scroll")) attach(node);
-        node.querySelectorAll?.(".table-scroll").forEach(attach);
-      }
-    }
-  });
-  mo.observe(document.body, { childList: true, subtree: true });
-})();
-
 const API = "https://propwatch-worker.johnwong777.workers.dev";
 let activeEstateId = null;
 let searchTimer = null;
