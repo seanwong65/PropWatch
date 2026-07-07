@@ -894,6 +894,9 @@
        without first scrolling down to the table's own bottom edge. */
     .table-scroll-top { overflow-x: auto; overflow-y: hidden; height: 14px; }
     .table-scroll-top > div { height: 1px; }
+    /* 最新放盤表:淨係顯示約10行,之後上下+左右都可以喺個框入面拉(唔使
+       成頁咁長)。max-height 由 JS 度返嚟set(睇 renderListingsTable)。 */
+    .table-scroll-capped { overflow-y: auto; }
   </style>
 </head>
 <body>
@@ -3930,7 +3933,20 @@ function renderListingsTable() {
       </tr>`;
     }).join('');
 
-  el.innerHTML = `<div class="table-scroll"><table class="data-table"><thead><tr>${ths}</tr></thead><tbody>${rows}</tbody></table></div>`;
+  el.innerHTML = `<div class="table-scroll table-scroll-capped" id="listingsTableScroll"><table class="data-table"><thead><tr>${ths}</tr></thead><tbody>${rows}</tbody></table></div>`;
+
+  // 淨係顯示約10行高度,之後上下+左右都可以喺個框入面拉。行高唔一致
+  // (有啲盤多個 source/改價會有幾行 sub-text),所以實測前 10 行嘅實際
+  // 高度嚟set max-height,唔靠估一個固定數值。
+  const scrollEl = document.getElementById('listingsTableScroll');
+  if (scrollEl) {
+    const theadH = scrollEl.querySelector('thead')?.offsetHeight || 0;
+    const bodyRows = scrollEl.querySelectorAll('tbody tr');
+    const rowsToShow = Math.min(10, bodyRows.length);
+    let h = theadH;
+    for (let i = 0; i < rowsToShow; i++) h += bodyRows[i].offsetHeight;
+    if (h > 0) scrollEl.style.maxHeight = h + 'px';
+  }
 }
 
 function floorClass(floor) {
