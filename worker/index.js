@@ -1509,19 +1509,27 @@ async function getTodayHighlights(db) {
              l.detail_url, l.source, e.name as estate_name
       FROM listings l
       JOIN estates e ON e.id = l.estate_id
-      WHERE l.snapshot_date = (
-          SELECT MAX(snapshot_date) FROM listings
-          WHERE estate_id = l.estate_id AND snapshot_date < ?
+      WHERE l.ref_no IS NOT NULL
+        -- 呢行係呢個 ref 喺呢個屋苑最後一次出現嘅 snapshot
+        AND l.snapshot_date = (
+          SELECT MAX(snapshot_date) FROM listings x
+          WHERE x.estate_id = l.estate_id AND x.ref_no = l.ref_no
         )
-        AND l.ref_no IS NOT NULL
-        AND l.ref_no NOT IN (
-          SELECT ref_no FROM listings
-          WHERE estate_id = l.estate_id AND snapshot_date = ?
+        -- 而且嗰個 snapshot 啱啱好係「上上次」(今日 T 之前係 P,再之前係 PP)。
+        -- 即係呢個 ref 連續兩個 sync(P 同今日 T)都冇再出現,先當確認下架;
+        -- 一次 scrape 甩漏(利嘉閣分頁偶爾甩一頁,~10幾個盤一日唔見)唔會即報。
+        -- 代價:真下架會遲一個 sync 先出,但假下架 alert 比遲報更煩。
+        AND l.snapshot_date = (
+          SELECT MAX(snapshot_date) FROM listings
+          WHERE estate_id = l.estate_id AND snapshot_date < (
+            SELECT MAX(snapshot_date) FROM listings
+            WHERE estate_id = l.estate_id AND snapshot_date < ?
+          )
         )
         -- Scrape-health guard: only trust a "removed" if this source pulled a
-        -- healthy count today (>=70% of last snapshot). A truncated scrape
-        -- (e.g. ricacorp) drops many live listings and would flag them all as
-        -- 下架, so its absences are ignored on an under-delivering day.
+        -- healthy count today (>=70% of the ref's last-seen snapshot). A
+        -- truncated scrape drops many live listings; ignore its absences on an
+        -- under-delivering day.
         AND (
           (SELECT COUNT(*) FROM listings tt
              WHERE tt.estate_id = l.estate_id AND tt.source = l.source AND tt.snapshot_date = ?)
@@ -1529,7 +1537,7 @@ async function getTodayHighlights(db) {
              WHERE pp.estate_id = l.estate_id AND pp.source = l.source AND pp.snapshot_date = l.snapshot_date)
         )
         AND date(e.first_seen) <= ?
-        AND (e.is_disabled = 0 OR e.is_disabled IS NULL)`).bind(today, today, today, yesterday).all(),
+        AND (e.is_disabled = 0 OR e.is_disabled IS NULL)`).bind(today, today, yesterday).all(),
     db.prepare(`
       SELECT t.building, t.floor, t.unit, t.price AS txn_price, t.size_net, t.reg_date,
              v.price AS view_price, v.view_date, v.id AS viewing_id,
@@ -2554,15 +2562,24 @@ export default {
             WHERE l.snapshot_date >= ?
               AND l.snapshot_date < ?
               AND l.ref_no IS NOT NULL
+              -- 連續兩個 sync(今日 T 同前一個 P)都冇再出現先當下架,
+              -- 避免一次 scrape 甩漏(利嘉閣分頁)造成嘅假下架喺歷史度閃出閃入。
               AND l.ref_no NOT IN (
                 SELECT ref_no FROM listings
                 WHERE estate_id = l.estate_id AND snapshot_date = ?
+              )
+              AND l.ref_no NOT IN (
+                SELECT ref_no FROM listings
+                WHERE estate_id = l.estate_id AND snapshot_date = (
+                  SELECT MAX(snapshot_date) FROM listings
+                  WHERE estate_id = l.estate_id AND snapshot_date < ?
+                )
               )
               AND date(e.first_seen) <= l.snapshot_date
               AND (e.is_disabled = 0 OR e.is_disabled IS NULL)
             GROUP BY l.ref_no, l.estate_id
             ORDER BY l.snapshot_date DESC
-          `).bind(cutoffStr, today, today).all(),
+          `).bind(cutoffStr, today, today, today).all(),
 
           db.prepare(`
             SELECT t.building, t.floor, t.unit, t.price AS txn_price, t.size_net, t.reg_date, t.first_seen,
