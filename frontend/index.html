@@ -1090,6 +1090,40 @@ let activeEstateId = null;
 let searchTimer = null;
 let chart = null;
 
+// 幫任何表格加「固定表頭 + 淨係顯示約10行 + 上下左右都可以喺框入面拉」
+// 效果(同最新放盤表一致)。做法:先用 auto layout render 一次完整表
+// (thead+tbody)量度瀏覽器實際計出嚟嘅每欄闊度(照顧晒全部行嘅內容,
+// 唔止得第一行),即刻拆做兩個表——表頭獨立一個唔捲動嘅細表格,表身
+// 留喺可捲動嘅框(限高 rowsToShow 行),兩個表用返量到嘅 colgroup +
+// table-layout:fixed 鎖定對齊,再用 JS 雙向同步橫向捲動位置。
+// container:要接管嘅 div(全部由呢個 function 生成,原有 innerHTML 會被覆蓋)。
+// theadTr:<thead><tr> 入面嘅內容(一串 <th>...</th>)。
+// tbodyHtml:<tbody> 入面嘅內容(一串 <tr>...</tr>)。
+// 返 { headerWrap, bodyWrap } 俾 caller 有需要可以再操作。
+function renderFrozenTable(container, theadTr, tbodyHtml, rowsToShow = 10, tableClass = 'data-table') {
+  if (!container) return null;
+  container.innerHTML = `<div class="table-scroll"><table class="${tableClass}"><thead><tr>${theadTr}</tr></thead><tbody>${tbodyHtml}</tbody></table></div>`;
+  const measureTable = container.querySelector('table');
+  const colWidths = Array.from(measureTable.querySelectorAll('thead th')).map(th => th.getBoundingClientRect().width);
+  const totalWidth = colWidths.reduce((a, b) => a + b, 0);
+  const colgroupHtml = colWidths.length ? `<colgroup>${colWidths.map(w => `<col style="width:${w}px">`).join('')}</colgroup>` : '';
+  const fixedStyle = `table-layout:fixed;width:${totalWidth}px`;
+  container.innerHTML = `
+    <div class="table-scroll-header"><table class="${tableClass}" style="${fixedStyle}">${colgroupHtml}<thead><tr>${theadTr}</tr></thead></table></div>
+    <div class="table-scroll table-scroll-capped"><table class="${tableClass}" style="${fixedStyle}">${colgroupHtml}<tbody>${tbodyHtml}</tbody></table></div>`;
+  const headerWrap = container.children[0];
+  const bodyWrap = container.children[1];
+  let guard = false;
+  headerWrap.onscroll = () => { if (guard) return; guard = true; bodyWrap.scrollLeft = headerWrap.scrollLeft; guard = false; };
+  bodyWrap.onscroll = () => { if (guard) return; guard = true; headerWrap.scrollLeft = bodyWrap.scrollLeft; guard = false; };
+  const bodyRows = bodyWrap.querySelectorAll('tbody tr');
+  const n = Math.min(rowsToShow, bodyRows.length);
+  let h = 0;
+  for (let i = 0; i < n; i++) h += bodyRows[i].offsetHeight;
+  if (h > 0) bodyWrap.style.maxHeight = h + 'px';
+  return { headerWrap, bodyWrap };
+}
+
 // Listings state
 let allListings = [];
 let estatesById = {};
@@ -1293,28 +1327,20 @@ async function loadBargainRadar() {
     body.innerHTML = `
       <div style="font-size:0.9rem;font-weight:700;margin-bottom:0.3rem">📊 屋苑議價指數 <span style="font-weight:400;color:var(--muted);font-size:0.75rem">(只計 ★ 已標星屋苑)</span></div>
       <p style="font-size:0.75rem;color:var(--muted);margin-bottom:0.5rem">0–100,愈高愈易壓價。叫價溢價(叫價 vs 近60日成交呎價)+市場冷淡度(30日消化率愈低愈凍)+蝕讓比例(近90日)合成。</p>
-      <div class="table-scroll"><table style="width:100%;border-collapse:collapse;margin-bottom:1.2rem">
-        <thead><tr style="text-align:left;color:var(--muted);font-size:0.75rem">
-          <th style="padding:0.3rem 0.5rem 0.3rem 0">屋苑</th>
-          <th style="padding:0.3rem 0.5rem">議價指數</th>
-          <th style="text-align:right;padding:0.3rem 0.5rem">叫價溢價</th>
-          <th style="text-align:right;padding:0.3rem 0.5rem">30日消化</th>
-          <th style="text-align:right;padding:0.3rem 0 0.3rem 0.5rem">蝕讓比例</th>
-        </tr></thead>
-        <tbody>${idxRows || '<tr><td colspan="5" style="color:var(--muted);padding:0.5rem 0">未有足夠成交數據</td></tr>'}</tbody>
-      </table></div>
+      <div id="radarIdxWrap" style="margin-bottom:1.2rem"></div>
       <div style="font-size:0.9rem;font-weight:700;margin-bottom:0.3rem">💎 筍盤(呎價低過同苑近${days}日成交中位數 ${belowPct}%+)</div>
       <p style="font-size:0.75rem;color:var(--muted);margin-bottom:0.5rem">全苑中位數係粗略基準——大型多期屋苑唔同期呎價差異大,低幾成嘅極端值多數有原因(凶宅/爛裝修/銀主盤),睇盤前自己覆核。門檻/窗口可以喺 ⚙️ 設定度改。</p>
-      <div class="table-scroll"><table style="width:100%;border-collapse:collapse">
-        <thead><tr style="text-align:left;color:var(--muted);font-size:0.75rem">
-          <th style="padding:0.3rem 0.5rem 0.3rem 0">屋苑 / 單位</th>
-          <th style="text-align:right;padding:0.3rem 0.5rem">售價</th>
-          <th style="text-align:right;padding:0.3rem 0.5rem">平幾多</th>
-          <th style="padding:0.3rem 0.5rem">訊號</th>
-          <th style="text-align:right;padding:0.3rem 0 0.3rem 0.5rem">來源</th>
-        </tr></thead>
-        <tbody>${bargainRows || `<tr><td colspan="5" style="color:var(--muted);padding:0.5rem 0">今日冇筍盤(冇盤低過中位數 ${belowPct}%+)</td></tr>`}</tbody>
-      </table></div>`;
+      <div id="radarListingsWrap"></div>`;
+    renderFrozenTable(
+      document.getElementById('radarIdxWrap'),
+      `<th style="padding:0.3rem 0.5rem 0.3rem 0">屋苑</th><th style="padding:0.3rem 0.5rem">議價指數</th><th style="text-align:right;padding:0.3rem 0.5rem">叫價溢價</th><th style="text-align:right;padding:0.3rem 0.5rem">30日消化</th><th style="text-align:right;padding:0.3rem 0 0.3rem 0.5rem">蝕讓比例</th>`,
+      idxRows || '<tr><td colspan="5" style="color:var(--muted);padding:0.5rem 0">未有足夠成交數據</td></tr>'
+    );
+    renderFrozenTable(
+      document.getElementById('radarListingsWrap'),
+      `<th style="padding:0.3rem 0.5rem 0.3rem 0">屋苑 / 單位</th><th style="text-align:right;padding:0.3rem 0.5rem">售價</th><th style="text-align:right;padding:0.3rem 0.5rem">平幾多</th><th style="padding:0.3rem 0.5rem">訊號</th><th style="text-align:right;padding:0.3rem 0 0.3rem 0.5rem">來源</th>`,
+      bargainRows || `<tr><td colspan="5" style="color:var(--muted);padding:0.5rem 0">今日冇筍盤(冇盤低過中位數 ${belowPct}%+)</td></tr>`
+    );
   } catch (e) {
     body.innerHTML = `<span style="color:var(--down)">載入失敗:${escHtml(e.message)}</span>`;
   }
@@ -1357,16 +1383,12 @@ async function loadAskingSold() {
         <div><div style="font-size:0.75rem;color:var(--muted)">已配對</div><div style="font-size:1.4rem;font-weight:600">${s.count}<span style="font-size:0.8rem;color:var(--muted);font-weight:400"> 宗</span></div></div>
       </div>
       <p style="font-size:0.75rem;color:var(--muted);margin-bottom:0.5rem">已下架放盤配對到對應成交,計叫價與實際成交嘅落差(負數＝低於叫價成交)。配對靠 座+室+面積+時序,樓層為遮蔽故信心分「高/中」。</p>
-      <div class="table-scroll"><table style="width:100%;border-collapse:collapse">
-        <thead><tr style="text-align:left;color:var(--muted);font-size:0.75rem">
-          <th style="padding:0.3rem 0.5rem 0.3rem 0">屋苑 / 單位</th>
-          <th style="text-align:right;padding:0.3rem 0.5rem">叫價</th>
-          <th style="text-align:right;padding:0.3rem 0.5rem">成交</th>
-          <th style="text-align:right;padding:0.3rem 0.5rem">落差</th>
-          <th style="text-align:right;padding:0.3rem 0 0.3rem 0.5rem">登記 · 信心</th>
-        </tr></thead>
-        <tbody>${rows}</tbody>
-      </table></div>`;
+      <div id="askingSoldWrap"></div>`;
+    renderFrozenTable(
+      document.getElementById('askingSoldWrap'),
+      `<th style="padding:0.3rem 0.5rem 0.3rem 0">屋苑 / 單位</th><th style="text-align:right;padding:0.3rem 0.5rem">叫價</th><th style="text-align:right;padding:0.3rem 0.5rem">成交</th><th style="text-align:right;padding:0.3rem 0.5rem">落差</th><th style="text-align:right;padding:0.3rem 0 0.3rem 0.5rem">登記 · 信心</th>`,
+      rows
+    );
   } catch (e) {
     body.innerHTML = `<span style="color:var(--down)">載入失敗:${escHtml(e.message)}</span>`;
   }
@@ -2547,9 +2569,7 @@ function renderSlTable() {
   }).join('');
   const arrow = k => k !== key ? '' : (dir === 'asc' ? ' ▲' : ' ▼');
   const ths = SL_COLS.map(c => `<th onclick="sortSlComps('${c.key}')" style="text-align:${c.align};padding:0.3rem 0.5rem;cursor:pointer;user-select:none;white-space:nowrap">${c.label}${arrow(c.key)}</th>`).join('');
-  body.innerHTML = `<div class="table-scroll"><table style="width:100%;border-collapse:collapse;font-size:0.85rem">
-    <thead><tr style="text-align:left;color:var(--muted);font-size:0.75rem">${ths}</tr></thead>
-    <tbody>${rows}</tbody></table></div>`;
+  renderFrozenTable(body, ths, rows);
 }
 
 // 撳「N 個」彈出同房數同樓層帶嘅在售盤(可撳表頭排序,預設叫價呎價由平到貴)。
@@ -2616,9 +2636,7 @@ function renderEcTable() {
     </tr>`).join('');
   const arrow = k => k !== key ? '' : (dir === 'asc' ? ' ▲' : ' ▼');
   const ths = EC_COLS.map(col => `<th onclick="sortEcComps('${col.key}')" style="text-align:${col.align};padding:0.3rem 0.5rem;cursor:pointer;user-select:none;white-space:nowrap">${col.label}${arrow(col.key)}</th>`).join('');
-  body.innerHTML = `<div class="table-scroll"><table style="width:100%;border-collapse:collapse;font-size:0.85rem">
-    <thead><tr style="text-align:left;color:var(--muted);font-size:0.75rem">${ths}</tr></thead>
-    <tbody>${rowsHtml}</tbody></table></div>`;
+  renderFrozenTable(body, ths, rowsHtml);
 }
 
 async function openEstateComps(estateId, basis, tier) {
@@ -3154,14 +3172,12 @@ async function loadViewings(estateId) {
         </td>
       </tr>`;
     }).join('');
-    panel.innerHTML = `<div class="listings-section table-scroll">
-      <table class="history-table data-table">
-        <thead><tr>
-          <th>睇樓日期</th><th>單位</th><th>售價</th><th>恒生估值</th><th>相對市價</th><th>類近在售</th><th>上次購買</th><th>成交記錄</th><th>管理費(每月)</th><th>對應放盤</th><th>備注</th><th>圖片</th><th></th>
-        </tr></thead>
-        <tbody>${rows}</tbody>
-      </table>
-    </div>`;
+    panel.innerHTML = `<div class="listings-section" id="viewingsTableWrap"></div>`;
+    renderFrozenTable(
+      document.getElementById('viewingsTableWrap'),
+      `<th>睇樓日期</th><th>單位</th><th>售價</th><th>恒生估值</th><th>相對市價</th><th>類近在售</th><th>上次購買</th><th>成交記錄</th><th>管理費(每月)</th><th>對應放盤</th><th>備注</th><th>圖片</th><th></th>`,
+      rows, 10, 'history-table data-table'
+    );
 
     // Auto-fetch 上次購買 for all rows using DetailByUnitCode
     for (const v of viewings) {
@@ -3496,14 +3512,10 @@ function renderTransactionsTable(estateId, offset, hasMore) {
     <div class="listings-section">
       ${filterBar}
       ${premiumStrip}
-      <div class="table-scroll">
-        <table class="data-table">
-          <thead><tr>${ths}</tr></thead>
-          <tbody>${rows}</tbody>
-        </table>
-        ${hasMore ? `<button class="load-more-btn" onclick="loadTransactions(${estateId}, ${allTransactions.length}, true)">載入更多…</button>` : ''}
-      </div>
+      <div id="txnTableWrap"></div>
+      ${hasMore ? `<button class="load-more-btn" onclick="loadTransactions(${estateId}, ${allTransactions.length}, true)">載入更多…</button>` : ''}
     </div>`;
+  renderFrozenTable(document.getElementById('txnTableWrap'), ths, rows);
 }
 
 function renderFilterBar() {
@@ -3902,38 +3914,7 @@ function renderListingsTable() {
       </tr>`;
     }).join('');
 
-  // 第一步:成個表(thead+tbody)一齊用 auto layout render 一次,純粹用嚟
-  // 量度瀏覽器實際計出嚟嘅每欄闊度(auto layout 會照顧晒全部行嘅內容,
-  // 唔止得第一行)。量完即刻拆做兩個表:表頭獨立一個唔捲動嘅細表格,
-  // 表身留喺可捲動嘅框度,兩個表用返量到嘅欄闊(colgroup + fixed layout)
-  // 鎖定對齊,再用 JS 將表頭嘅橫向位置同表身同步——效果等於「固定表頭」,
-  // 唔使靠 native <thead> sticky(喺呢個表結構下實測唔生效)。
-  el.innerHTML = `<div class="table-scroll table-scroll-capped" id="listingsTableScroll"><table class="data-table" id="listingsMeasureTable"><thead><tr>${ths}</tr></thead><tbody>${rows}</tbody></table></div>`;
-
-  const measureTable = document.getElementById('listingsMeasureTable');
-  const colWidths = Array.from(measureTable.querySelectorAll('thead th')).map(th => th.getBoundingClientRect().width);
-  const totalWidth = colWidths.reduce((a, b) => a + b, 0);
-  const colgroupHtml = colWidths.length ? `<colgroup>${colWidths.map(w => `<col style="width:${w}px">`).join('')}</colgroup>` : '';
-  const fixedStyle = `table-layout:fixed;width:${totalWidth}px`;
-
-  el.innerHTML = `
-    <div class="table-scroll-header" id="listingsHeaderWrap"><table class="data-table" style="${fixedStyle}">${colgroupHtml}<thead><tr>${ths}</tr></thead></table></div>
-    <div class="table-scroll table-scroll-capped" id="listingsTableScroll"><table class="data-table" style="${fixedStyle}">${colgroupHtml}<tbody>${rows}</tbody></table></div>`;
-
-  const headerWrap = document.getElementById('listingsHeaderWrap');
-  const bodyWrap = document.getElementById('listingsTableScroll');
-  let guard = false;
-  headerWrap.onscroll = () => { if (guard) return; guard = true; bodyWrap.scrollLeft = headerWrap.scrollLeft; guard = false; };
-  bodyWrap.onscroll = () => { if (guard) return; guard = true; headerWrap.scrollLeft = bodyWrap.scrollLeft; guard = false; };
-
-  // 淨係顯示約10行高度,之後上下+左右都可以喺個框入面拉。行高唔一致
-  // (有啲盤多個 source/改價會有幾行 sub-text),所以實測前 10 行嘅實際
-  // 高度嚟set max-height,唔靠估一個固定數值。
-  const bodyRows = bodyWrap.querySelectorAll('tbody tr');
-  const rowsToShow = Math.min(10, bodyRows.length);
-  let h = 0;
-  for (let i = 0; i < rowsToShow; i++) h += bodyRows[i].offsetHeight;
-  if (h > 0) bodyWrap.style.maxHeight = h + 'px';
+  renderFrozenTable(el, ths, rows);
 }
 
 function floorClass(floor) {
