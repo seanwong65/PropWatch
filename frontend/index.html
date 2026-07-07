@@ -3831,8 +3831,7 @@ function renderListingsTable() {
   const cols = [
     ...(groupSelectMode ? [{ key: null, label: '' }] : []),
     { key: "first_seen",    label: "上盤日期" },
-    { key: "size_net",      label: "座/樓層/房數/實呎" },
-    { key: "price",         label: "售價" },
+    { key: "price",         label: "座/樓層/房數/實呎/售價" },
     { key: "price_per_ft",  label: "實呎價" },
     { key: "direction",     label: "座向" },
     { key: null,            label: "來源" },
@@ -3846,13 +3845,22 @@ function renderListingsTable() {
     return `<th class="${cls}" onclick="setSort('${c.key}')">${c.label}</th>`;
   }).join('');
 
-  const priceCell = l => l._combined
+  // 座/樓層/房數/實呎 移咗入嚟同售價夾埋一格。
+  const unitHtml = l => `
+    ${escHtml(l.building_name||'-')}
+    <span class="floor-badge ${floorClass(l.floor)}">${escHtml(l.floor||'-')}</span>
+    <span style="margin-left:0.4rem">${escHtml(l.unit||'-')}</span>
+    <div style="color:var(--muted);font-size:0.75rem;margin-top:0.15rem">${l.bedrooms ?? '-'}房 · ${l.size_net ? l.size_net.toLocaleString()+'呎' : '-'}</div>
+    ${l.building_name && l.unit ? `<button class="history-btn" style="font-size:0.7rem;padding:0.1rem 0.4rem;margin-top:0.2rem" onclick="openLineHistory('${escHtml(l.building_name)}','${escHtml(l.unit)}','${escHtml(l.floor||'')}')">上手 ↓</button>` : ''}
+    <div style="border-top:1px solid var(--border);margin:0.35rem 0"></div>`;
+
+  const priceCell = l => unitHtml(l) + (l._combined
     ? `<div style="color:var(--accent);font-weight:600">$${(l.price_min/1e4).toFixed(0)}${l.price_max > l.price_min ? `–${(l.price_max/1e4).toFixed(0)}` : ''}萬</div>
        <div style="font-size:0.72rem;color:var(--muted)">最平 ${sourceLabel(l.sources[0].source)} · ${l.sources.length} 個源</div>`
     : `$${l.price ? (l.price/1e4).toFixed(0)+'萬' : '-'}
        ${priceChangeBadge(l.price, l.prev_price)}
        ${l.price_variants > 1 ? `<div style="font-size:0.72rem;color:${l.price < l.prev_price ? 'var(--up)' : 'var(--accent)'}">改價 ${l.price_variants - 1} 次</div>` : ''}
-       ${l.ref_no ? `<br><button class="history-btn" onclick="showHistory('${escHtml(l.ref_no)}','${escHtml((l.building_name||'')+' '+(l.floor||'')+(l.unit||''))}')">歷史 ↓</button>` : ''}`;
+       ${l.ref_no ? `<br><button class="history-btn" onclick="showHistory('${escHtml(l.ref_no)}','${escHtml((l.building_name||'')+' '+(l.floor||'')+(l.unit||''))}')">歷史 ↓</button>` : ''}`);
 
   const ppfCell = l => {
     const lo = l._combined ? l.ppf_min : l.price_per_ft;
@@ -3898,13 +3906,6 @@ function renderListingsTable() {
         <td class="txn-date">
           ${listingDate(l) || '-'}
           ${l.removed_date ? `<div style="color:var(--down);font-size:0.75rem">下架 ${l.removed_date}</div>` : domBadge(l)}
-        </td>
-        <td>
-          ${escHtml(l.building_name||'-')}
-          <span class="floor-badge ${floorClass(l.floor)}">${escHtml(l.floor||'-')}</span>
-          <span style="margin-left:0.4rem">${escHtml(l.unit||'-')}</span>
-          <div style="color:var(--muted);font-size:0.75rem;margin-top:0.15rem">${l.bedrooms ?? '-'}房 · ${l.size_net ? l.size_net.toLocaleString()+'呎' : '-'}</div>
-          ${l.building_name && l.unit ? `<button class="history-btn" style="font-size:0.7rem;padding:0.1rem 0.4rem;margin-top:0.2rem" onclick="openLineHistory('${escHtml(l.building_name)}','${escHtml(l.unit)}','${escHtml(l.floor||'')}')">上手 ↓</button>` : ''}
         </td>
         <td class="price-cell">${priceCell(l)}</td>
         <td>${ppfCell(l)}</td>
