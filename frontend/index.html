@@ -1228,7 +1228,6 @@ async function showDashboard(estates) {
         <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:0.4rem;margin-bottom:0.75rem">
           <div style="display:flex;gap:0;border-bottom:2px solid var(--border)">
             <button id="dash-tab-today" onclick="switchDashTab('today')" style="background:none;border:none;border-bottom:2px solid var(--accent);margin-bottom:-2px;color:var(--text);font-size:0.9rem;font-weight:600;padding:0.35rem 0.85rem;cursor:pointer">今日動態 <span id="highlights-date" style="font-weight:400;color:var(--muted);font-size:0.8rem"></span></button>
-            <button id="dash-tab-unsold" onclick="switchDashTab('unsold')" style="background:none;border:none;border-bottom:2px solid transparent;margin-bottom:-2px;color:var(--muted);font-size:0.9rem;padding:0.35rem 0.85rem;cursor:pointer">追蹤中放盤</button>
             <button id="dash-tab-spread" onclick="switchDashTab('spread')" style="background:none;border:none;border-bottom:2px solid transparent;margin-bottom:-2px;color:var(--muted);font-size:0.9rem;padding:0.35rem 0.85rem;cursor:pointer">叫價→成交</button>
             <button id="dash-tab-comps" onclick="switchDashTab('comps')" style="background:none;border:none;border-bottom:2px solid transparent;margin-bottom:-2px;color:var(--muted);font-size:0.9rem;padding:0.35rem 0.85rem;cursor:pointer">睇過嘅盤</button>
             <button id="dash-tab-radar" onclick="switchDashTab('radar')" style="background:none;border:none;border-bottom:2px solid transparent;margin-bottom:-2px;color:var(--muted);font-size:0.9rem;padding:0.35rem 0.85rem;cursor:pointer">💎 抵買雷達</button>
@@ -1236,7 +1235,6 @@ async function showDashboard(estates) {
           <button class="history-btn" style="font-size:0.88rem;padding:0.35rem 0.85rem" onclick="showHistoryPage()">歷史動態 →</button>
         </div>
         <div id="dash-panel-today"><div id="highlights-body" style="color:var(--muted);font-size:0.75rem">載入中…</div></div>
-        <div id="dash-panel-unsold" style="display:none"><div id="unsold-body" style="color:var(--muted);font-size:0.75rem">載入中…</div></div>
         <div id="dash-panel-spread" style="display:none"><div id="spread-body" style="color:var(--muted);font-size:0.75rem">載入中…</div></div>
         <div id="dash-panel-comps" style="display:none"><div id="comps-body" style="color:var(--muted);font-size:0.75rem">載入中…</div></div>
         <div id="dash-panel-radar" style="display:none"><div id="radar-body" style="color:var(--muted);font-size:0.75rem">載入中…</div></div>
@@ -1257,14 +1255,13 @@ async function showDashboard(estates) {
   `;
   if (estates.length) loadDashboardChart(estates[0].id);
   loadTodayHighlights();
-  loadUnsoldViewings();
 }
 
 let _spreadLoaded = false;
 let _compsLoaded = false;
 let _radarLoaded = false;
 function switchDashTab(tab) {
-  const tabs = ['today', 'unsold', 'spread', 'comps', 'radar'];
+  const tabs = ['today', 'spread', 'comps', 'radar'];
   for (const id of tabs) {
     const active = id === tab;
     const panel = document.getElementById('dash-panel-' + id);
@@ -1411,6 +1408,23 @@ async function loadViewingComps() {
       body.innerHTML = '<span style="color:var(--muted)">未有睇樓記錄。喺屋苑頁「睇樓記錄」新增,呢度就會顯示參考成交。</span>';
       return;
     }
+    _lastViewings = _compsData;   // 俾 ✓/✕ (confirm/dismiss) 搵返個 viewing
+
+    // 對應在售放盤:攞每個「追蹤中」屋苑嘅在售放盤,計匹配(前身係「追蹤中放盤」
+    // tab,而家併入呢度)。listings 存落 window._matchListingsByEstate,俾
+    // buildMatchCell(靠 allListings) 同 confirm/dismiss re-render 用返啱嘅屋苑。
+    const _listed0 = _compsData.filter(v => v.status !== 'sold');
+    const _estIds = [...new Set(_listed0.map(v => v.estate_id).filter(Boolean))];
+    window._matchListingsByEstate = {};
+    await Promise.all(_estIds.map(async eid => {
+      try { const { listings } = await api(`/api/estates/${eid}/listings`); window._matchListingsByEstate[eid] = listings || []; }
+      catch (_) { window._matchListingsByEstate[eid] = []; }
+    }));
+    const matchHtmlById = {};
+    { const _saved = allListings;
+      for (const v of _listed0) { allListings = window._matchListingsByEstate[v.estate_id] || []; matchHtmlById[v.id] = buildMatchCell(v); }
+      allListings = _saved; }
+
     const cardHead = v => `<div style="display:flex;justify-content:space-between;align-items:baseline;gap:0.5rem;flex-wrap:wrap">
         <div style="font-size:0.9rem;font-weight:600;color:var(--text)">${escHtml(v.estate_name)} · ${_unitTitle(v)}</div>
         <div style="font-size:0.75rem;color:var(--muted)">${v.size_net || '?'}呎${v.bedrooms ? ' · ' + v.bedrooms + '房' : ''}</div>
@@ -1426,6 +1440,15 @@ async function loadViewingComps() {
       const rangeTxt = v.range
         ? `$${_wan(v.range.price_low)}–${_wan(v.range.price_high)}萬 <span style="color:var(--muted);font-size:0.75rem">@$${v.range.ppf_low.toLocaleString()}–${v.range.ppf_high.toLocaleString()}</span>`
         : `<span style="color:var(--muted)">近12個月冇足夠參考成交</span>`;
+      // 對應在售放盤(前身係「追蹤中放盤」tab)。有匹配先顯示;✓/✕ 掣要
+      // stopPropagation,唔好連埋觸發成張卡嘅 openCompModal。
+      const match = matchHtmlById[v.id];
+      const hasMatch = match && match !== '-' && !match.includes('冇匹配');
+      const matchRow = hasMatch
+        ? `<div onclick="event.stopPropagation()" style="margin-top:0.35rem;padding-top:0.35rem;border-top:1px solid var(--border)">
+             <div style="font-size:0.72rem;color:var(--muted);margin-bottom:0.15rem">對應在售放盤</div>
+             <div id="vmatch-${v.id}">${match}</div>
+           </div>` : '';
       return `<div onclick="openCompModal(${v.id})" style="background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:0.7rem 0.85rem;margin-bottom:0.5rem;cursor:pointer">
         ${cardHead(v)}
         <div style="display:flex;justify-content:space-between;align-items:baseline;gap:0.5rem;flex-wrap:wrap;margin-top:0.35rem">
@@ -1436,6 +1459,7 @@ async function loadViewingComps() {
           <div style="font-size:0.8rem;color:var(--accent)">推算 ${rangeTxt}</div>
           <div style="font-size:0.75rem;color:var(--muted);white-space:nowrap">${v.comp_count} 宗參考 ›</div>
         </div>
+        ${matchRow}
       </div>`;
     };
 
@@ -1457,7 +1481,7 @@ async function loadViewingComps() {
     const heading = (t, n) => `<div style="font-size:0.9rem;font-weight:700;color:var(--text);margin:0.2rem 0 0.5rem">${t} <span style="color:var(--muted);font-size:0.75rem;font-weight:400">${n}</span></div>`;
     body.innerHTML =
       (listed.length ? heading('🔍 未成交(追蹤中)', listed.length) +
-        `<p style="font-size:0.75rem;color:var(--muted);margin:-0.2rem 0 0.5rem">配近 12 個月同屋苑可比成交,推算合理價。撳卡睇詳情。</p>` +
+        `<p style="font-size:0.75rem;color:var(--muted);margin:-0.2rem 0 0.5rem">配近 12 個月同屋苑可比成交推算合理價,同埋對應返而家市面嘅在售放盤。撳卡睇詳情。</p>` +
         listed.map(listedCard).join('') : '') +
       (sold.length ? `<div style="height:0.4rem"></div>` + heading('✅ 已成交', sold.length) +
         `<p style="font-size:0.75rem;color:var(--muted);margin:-0.2rem 0 0.5rem">呢啲單位睇完之後已經成交,顯示真實成交價。</p>` +
@@ -1510,53 +1534,6 @@ function openCompModal(id) {
   document.getElementById('compModalOverlay').style.display = 'flex';
 }
 function closeCompModal() { document.getElementById('compModalOverlay').style.display = 'none'; }
-
-async function loadUnsoldViewings() {
-  const body = document.getElementById("unsold-body");
-  if (!body) return;
-  try {
-    const { viewings } = await api("/api/viewings/unsold");
-    if (!viewings.length) { body.innerHTML = '<span style="color:var(--muted)">未有追蹤中放盤</span>'; return; }
-
-    // Fetch listings for each unique estate so buildMatchCell works
-    const estateIds = [...new Set(viewings.map(v => v.estate_id).filter(Boolean))];
-    const listingsByEstate = {};
-    await Promise.all(estateIds.map(async eid => {
-      try {
-        const { listings } = await api(`/api/estates/${eid}/listings`);
-        listingsByEstate[eid] = listings || [];
-      } catch(_) { listingsByEstate[eid] = []; }
-    }));
-
-    const savedAllListings = allListings;
-    const fmt = p => p ? `$${(p/1e4).toFixed(0)}萬` : '-';
-    const rows = viewings.map(v => {
-      const fmtBlock = v.block ? (/座$/.test(v.block) ? v.block : v.block+'座') : null;
-      const fmtFloor = v.floor ? (/樓$|層$/.test(v.floor) ? v.floor : v.floor+'樓') : null;
-      const fmtUnit  = v.unit  ? (/室$|號$/.test(v.unit)  ? v.unit  : v.unit+'室')  : null;
-      const unitStr = [fmtBlock, fmtFloor, fmtUnit].filter(Boolean).join(' ');
-      const psfStr = v.price && v.size_net ? `$${Math.round(v.price/v.size_net).toLocaleString()}/呎` : '';
-      const estateId = v.estate_id || (dashboardEstates.find(e => e.name === v.estate_name)||{}).id || '';
-      allListings = listingsByEstate[v.estate_id] || [];
-      const matchCell = buildMatchCell(v);
-      return `<tr class="hl-tr">
-        <td class="hl-c1"><strong>${escHtml(v.estate_name)}</strong><br><span style="font-size:0.75rem">${escHtml(unitStr)}</span></td>
-        <td class="hl-c2"><span style="font-weight:700;color:var(--accent)">${fmt(v.price)}</span>${psfStr ? `<br><span style="font-size:0.75rem">${psfStr}</span>` : ''}</td>
-        <td class="hl-c3" id="umatch-${v.id}">${matchCell}</td>
-        <td class="hl-c4">${v.notes ? `<span style="background:var(--surface2);border-radius:4px;padding:0.1rem 0.35rem">${escHtml(v.notes)}</span>` : '-'}</td>
-        <td class="hl-c5"><span style="font-size:0.75rem">${v.view_date}</span></td>
-        <td class="hl-c6">${estateId ? `<button class="history-btn" style="font-size:0.75rem;padding:0.15rem 0.5rem" onclick="showEstate(${estateId})">詳情</button>` : ''}</td>
-      </tr>`;
-    }).join('');
-    allListings = savedAllListings;
-
-    body.innerHTML = `<table class="hl-table"><thead><tr class="hl-th">
-      <th class="hl-c1">屋苑 / 單位</th><th class="hl-c2">售價</th><th class="hl-c3">對應放盤</th><th class="hl-c4">備注</th><th class="hl-c5">睇樓日期</th><th class="hl-c6"></th>
-    </tr></thead><tbody>${rows}</tbody></table>`;
-  } catch(e) {
-    if (body) body.innerHTML = `<span style="color:var(--muted)">載入失敗</span>`;
-  }
-}
 
 async function loadTodayHighlights() {
   const body = document.getElementById("highlights-body");
@@ -2801,6 +2778,18 @@ function buildMatchCell(v) {
   }).join('');
 }
 
+// buildMatchCell 靠 allListings。喺「睇過嘅盤」tab 一次過有多個屋苑,re-render
+// 時要用返嗰個 viewing 屋苑嘅在售放盤(存喺 window._matchListingsByEstate);
+// 屋苑頁「睇樓記錄」冇填呢個 map,會 fall back 用返當時嘅 allListings(已經啱)。
+function _matchCellFor(v) {
+  const map = window._matchListingsByEstate;
+  if (map && map[v.estate_id]) {
+    const saved = allListings; allListings = map[v.estate_id];
+    const html = buildMatchCell(v); allListings = saved; return html;
+  }
+  return buildMatchCell(v);
+}
+
 async function dismissViewingListing(viewingId, refNo, reverse = false) {
   const v = _lastViewings?.find(v => v.id === viewingId);
   if (!v) return;
@@ -2809,7 +2798,7 @@ async function dismissViewingListing(viewingId, refNo, reverse = false) {
   v.dismissed_refs = dismissed.size ? JSON.stringify([...dismissed]) : null;
   api(`/api/viewings/${viewingId}`, { method: 'PATCH', body: JSON.stringify({ dismissed_refs: v.dismissed_refs }) }).catch(() => {});
   const cell = document.getElementById(`vmatch-${viewingId}`);
-  if (cell) cell.innerHTML = buildMatchCell(v);
+  if (cell) cell.innerHTML = _matchCellFor(v);
 }
 
 async function confirmViewingListing(viewingId, refNo) {
@@ -2818,7 +2807,7 @@ async function confirmViewingListing(viewingId, refNo) {
   if (!cell) return;
   if (!refNo) {
     const v = _lastViewings?.find(v => v.id === viewingId);
-    if (v) { v.linked_ref_no = null; cell.innerHTML = buildMatchCell(v); }
+    if (v) { v.linked_ref_no = null; cell.innerHTML = _matchCellFor(v); }
     return;
   }
   // highlight confirmed, grey out others, add unlink button

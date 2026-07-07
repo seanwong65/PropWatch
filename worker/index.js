@@ -1098,7 +1098,7 @@ const _pctile = (arr, p) => {
 async function computeViewingComps(db) {
   const { results: viewings } = await db.prepare(`
     SELECT v.id, v.estate_id, e.name AS estate_name, v.block, v.floor, v.unit,
-           v.size_net, v.bedrooms, v.price, v.view_date
+           v.size_net, v.bedrooms, v.price, v.view_date, v.linked_ref_no, v.dismissed_refs
     FROM viewings v JOIN estates e ON e.id = v.estate_id
     ORDER BY v.view_date DESC, v.id DESC
   `).all();
@@ -1177,6 +1177,7 @@ async function computeViewingComps(db) {
     return { id: v.id, estate_id: v.estate_id, estate_name: v.estate_name,
       block: v.block, floor: v.floor, unit: v.unit, size_net: v.size_net, bedrooms: v.bedrooms,
       price: v.price, view_date: v.view_date, status: sold ? "sold" : "listed", sold,
+      linked_ref_no: v.linked_ref_no, dismissed_refs: v.dismissed_refs,
       range, verdict, comp_count: comps.length, comps };
   });
 }
