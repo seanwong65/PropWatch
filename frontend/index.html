@@ -3831,10 +3831,7 @@ function renderListingsTable() {
   const cols = [
     ...(groupSelectMode ? [{ key: null, label: '' }] : []),
     { key: "first_seen",    label: "上盤日期" },
-    { key: "building_name", label: "座" },
-    { key: "floor",         label: "樓層/單位" },
-    { key: "bedrooms",      label: "房數" },
-    { key: "size_net",      label: "實呎" },
+    { key: "size_net",      label: "座/樓層/房數/實呎" },
     { key: "price",         label: "售價" },
     { key: "price_per_ft",  label: "實呎價" },
     { key: "direction",     label: "座向" },
@@ -3902,14 +3899,13 @@ function renderListingsTable() {
           ${listingDate(l) || '-'}
           ${l.removed_date ? `<div style="color:var(--down);font-size:0.75rem">下架 ${l.removed_date}</div>` : domBadge(l)}
         </td>
-        <td>${escHtml(l.building_name||'-')}</td>
         <td>
+          ${escHtml(l.building_name||'-')}
           <span class="floor-badge ${floorClass(l.floor)}">${escHtml(l.floor||'-')}</span>
           <span style="margin-left:0.4rem">${escHtml(l.unit||'-')}</span>
-          ${l.building_name && l.unit ? `<br><button class="history-btn" style="font-size:0.7rem;padding:0.1rem 0.4rem;margin-top:0.2rem" onclick="openLineHistory('${escHtml(l.building_name)}','${escHtml(l.unit)}','${escHtml(l.floor||'')}')">上手 ↓</button>` : ''}
+          <div style="color:var(--muted);font-size:0.75rem;margin-top:0.15rem">${l.bedrooms ?? '-'}房 · ${l.size_net ? l.size_net.toLocaleString()+'呎' : '-'}</div>
+          ${l.building_name && l.unit ? `<button class="history-btn" style="font-size:0.7rem;padding:0.1rem 0.4rem;margin-top:0.2rem" onclick="openLineHistory('${escHtml(l.building_name)}','${escHtml(l.unit)}','${escHtml(l.floor||'')}')">上手 ↓</button>` : ''}
         </td>
-        <td>${l.bedrooms ?? '-'}房</td>
-        <td>${l.size_net ? l.size_net.toLocaleString()+'呎' : '-'}</td>
         <td class="price-cell">${priceCell(l)}</td>
         <td>${ppfCell(l)}</td>
         <td>${escHtml(l.direction||'-')}</td>
