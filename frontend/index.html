@@ -2451,7 +2451,7 @@ function marketVsHtml(v) {
     ? ` <span style="color:var(--accent2)" title="實用 ${v.size_net}呎 × 中位 $${v.sold_med_psf.toLocaleString()}/呎">估值 $${(estVal/1e4).toFixed(0)}萬</span>`
     : '';
   // 「N宗」可撳,彈出組成中位數嗰批成交。
-  const nClick = `<span onclick="openEstateComps(${v.estate_id},'${v.market_basis||'estate'}','${v.floor_tier||''}')" style="cursor:pointer;border-bottom:1px dotted var(--muted)" title="睇成交紀錄">${v.market_n_sold}宗</span>`;
+  const nClick = `<span onclick="openEstateComps(${v.estate_id},'${v.market_basis||'estate'}','${v.floor_tier||''}','${escHtml(String(v.block||''))}','${escHtml(String(v.floor||''))}','${escHtml(String(v.unit||''))}')" style="cursor:pointer;border-bottom:1px dotted var(--muted)" title="睇成交紀錄">${v.market_n_sold}宗</span>`;
   return `<div style="font-size:0.8rem">${badge}${estInline}</div>`
     + `<div class="unit-price" title="${tip}">${label} $${(v.sold_med_psf||0).toLocaleString()} · ${nClick}</div>`;
 }
@@ -2630,7 +2630,7 @@ function renderEcTable() {
   renderFrozenTable(body, ths, rowsHtml);
 }
 
-async function openEstateComps(estateId, basis, tier) {
+async function openEstateComps(estateId, basis, tier, ownBuilding, ownFloor, ownUnit) {
   const overlay = document.createElement('div');
   overlay.className = 'modal-overlay';
   overlay.style.display = 'flex';
@@ -2645,6 +2645,11 @@ async function openEstateComps(estateId, basis, tier) {
   try {
     const params = new URLSearchParams({ estate_id: estateId, basis });
     if (basis === 'tier' && tier) params.set('tier', tier);
+    // 撇除自己嗰宗成交(如果撳緊嗰個 viewing 個單位就係嗰宗成交)——由後端
+    // 用呢三個值 match building/floor/unit 濾走,唔好用自己嚟做自己嘅參考。
+    if (ownBuilding) params.set('own_building', ownBuilding);
+    if (ownFloor) params.set('own_floor', ownFloor);
+    if (ownUnit) params.set('own_unit', ownUnit);
     const { comps, days } = await api('/api/estate-comps?' + params);
     const scope = basis === 'tier' && tier ? `${tier}成交` : '全苑成交';
     document.getElementById('ec-sub').textContent = `${scope}（近${days}日 · ${comps.length}宗，中位呎價基準 · 撳表頭可排序）`;

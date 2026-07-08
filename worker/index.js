@@ -1105,6 +1105,16 @@ const _pctile = (arr, p) => {
   return s[Math.min(s.length - 1, Math.floor(p * (s.length - 1)))];
 };
 
+// 中位數,計法同 soldMedianPsf/soldMedianPsfByTier 嘅 SQL 一致(偶數宗數
+// 取中間兩個平均,用 ROUND(AVG(...)) 嘅捨入方式),俾需要喺 JS 度(例如
+// 逐個 viewing 撇除自己)重新計中位數嘅地方用,結果同 SQL 版本睇齊。
+const _sqlMedian = (arr) => {
+  if (!arr.length) return null;
+  const s = [...arr].sort((a, b) => a - b);
+  const c = s.length, lo = Math.floor((c + 1) / 2), hi = Math.floor((c + 2) / 2);
+  return Math.round((s[lo - 1] + s[hi - 1]) / 2);
+};
+
 async function computeViewingComps(db) {
   // 排序跟屋苑偏好(同側欄屋苑清單一致):已標星最愛優先,再跟手動拖曳嘅
   // sort_order;同一屋苑內嘅卡再按睇樓日期新到舊。
@@ -2853,11 +2863,19 @@ export default {
         // 相對市價（同抵買雷達同一把尺）：優先同層帶（高/中/低層，以該座
         // 成交最高層三等分）嘅近N日中位數，唔夠宗數先 fallback 全苑。
         // 窗口日數／最少宗數都喺 ⚙️ 設定度改（getConfig）。
+        // 每個 viewing 計中位數都要撇除返自己嗰宗成交(如果個單位啱啱賣咗)
+        // ——攞自己嘅成交嚟同自己比較係循環論證,樣本細(n=1)嗰陣個 verdict
+        // 會完全失真(變成「同自己一樣」)。所以呢度攞返 raw 成交,逐個
+        // viewing 喺 JS 度計中位數,而唔係用一個 shared aggregate map。
         const eid = Number(estateId);
         const vcfg = await getConfig(db);
-        const [medMap, tierMap, { results: maxfRows }] = await Promise.all([
-          soldMedianPsf(db, { days: vcfg.market_median_days, estateIds: [eid] }),
-          soldMedianPsfByTier(db, { days: vcfg.market_median_days, estateIds: [eid] }),
+        const [{ results: rawTxns }, { results: maxfRows }] = await Promise.all([
+          db.prepare(`
+            SELECT building, floor, unit, price_per_ft,
+                   CAST(REPLACE(REPLACE(floor,'樓',''),'層','') AS INT) fl
+            FROM transactions
+            WHERE estate_id = ? AND price_per_ft > 0 AND reg_date >= date('now', ?)
+          `).bind(eid, `-${vcfg.market_median_days} days`).all(),
           db.prepare(`
             SELECT building, MAX(CAST(REPLACE(REPLACE(floor,'樓',''),'層','') AS INT)) max_fl
             FROM transactions
@@ -2865,7 +2883,6 @@ export default {
             GROUP BY building
           `).bind(eid).all(),
         ]);
-        const med = medMap.get(eid);
         const maxfMap = new Map(maxfRows.map((r) => [r.building, r.max_fl]));
         for (const v of results) {
           const psf = v.price && v.size_net ? v.price / v.size_net : null;
@@ -2873,8 +2890,17 @@ export default {
           const bldg = v.block ? (/座$/.test(v.block) ? v.block : v.block + "座") : null;
           const maxFl = maxfMap.get(bldg) ?? null;
           const tier = deriveFloorTier(floorNum, maxFl);
-          const tierVerdict = tier ? marketVerdict(tierMap.get(`${eid}|${tier}`), psf, vcfg.market_min_sold) : null;
-          const verdict = tierVerdict ?? marketVerdict(med, psf, vcfg.market_min_sold);
+          const nb = bldg ? _normBldg(bldg) : null, nu = v.unit ? _normUnit(v.unit) : null;
+          const pool = rawTxns.filter((t) =>
+            !(nb && nu && _normBldg(t.building) === nb && _normUnit(t.unit) === nu && t.fl === floorNum)
+          );
+          const tierPool = tier ? pool.filter((t) => deriveFloorTier(t.fl, maxfMap.get(t.building)) === tier) : [];
+          const tierMed = tierPool.length
+            ? { med_psf: _sqlMedian(tierPool.map((t) => t.price_per_ft)), n_sold: tierPool.length } : null;
+          const estMed = pool.length
+            ? { med_psf: _sqlMedian(pool.map((t) => t.price_per_ft)), n_sold: pool.length } : null;
+          const tierVerdict = tier ? marketVerdict(tierMed, psf, vcfg.market_min_sold) : null;
+          const verdict = tierVerdict ?? marketVerdict(estMed, psf, vcfg.market_min_sold);
           v.floor_tier = tier;
           v.tier_max_floor = maxFl;
           v.market_basis = tierVerdict ? "tier" : (verdict ? "estate" : null);
@@ -3172,6 +3198,9 @@ export default {
         if (!eid) return json(400, { error: "estate_id required" });
         const basis = url.searchParams.get("basis");
         const tier = url.searchParams.get("tier");
+        const ownBuilding = url.searchParams.get("own_building");
+        const ownFloor = url.searchParams.get("own_floor");
+        const ownUnit = url.searchParams.get("own_unit");
         const { market_median_days: days } = await getConfig(db);
         const win = `-${days} days`;
         let comps;
@@ -3200,6 +3229,14 @@ export default {
             WHERE estate_id = ? AND price_per_ft > 0 AND reg_date >= date('now', ?)
             ORDER BY reg_date DESC, price_per_ft DESC
           `).bind(eid, win).all());
+        }
+        // 撇除自己嗰宗成交(如果撳「N宗」嗰個 viewing 本身個單位就係嗰宗
+        // 成交)——用自己做自己嘅市場參考冇意義,尤其樣本細嗰陣。
+        if (ownBuilding && ownFloor && ownUnit) {
+          const nb = _normBldg(ownBuilding), nu = _normUnit(ownUnit), nf = String(ownFloor).replace(/\D/g, "");
+          comps = comps.filter((c) =>
+            !(_normBldg(c.building) === nb && _normUnit(c.unit) === nu && String(c.floor || "").replace(/\D/g, "") === nf)
+          );
         }
         return json(200, { comps, tier: basis === "tier" ? tier : null, days });
       }
