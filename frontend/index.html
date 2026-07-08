@@ -3850,8 +3850,10 @@ function renderListingsTable() {
     ${escHtml(l.building_name||'-')}
     <span class="floor-badge ${floorClass(l.floor)}">${escHtml(l.floor||'-')}</span>
     <span style="margin-left:0.4rem">${escHtml(l.unit||'-')}</span>
-    <div style="color:var(--muted);font-size:0.75rem;margin-top:0.15rem">${l.bedrooms ?? '-'}房 · ${l.size_net ? l.size_net.toLocaleString()+'呎' : '-'}</div>
-    ${l.building_name && l.unit ? `<button class="history-btn" style="font-size:0.7rem;padding:0.1rem 0.4rem;margin-top:0.2rem" onclick="openLineHistory('${escHtml(l.building_name)}','${escHtml(l.unit)}','${escHtml(l.floor||'')}')">上手 ↓</button>` : ''}`;
+    <div style="color:var(--muted);font-size:0.75rem;margin-top:0.15rem;display:flex;align-items:center;gap:0.35rem;flex-wrap:wrap">
+      <span>${l.bedrooms ?? '-'}房 · ${l.size_net ? l.size_net.toLocaleString()+'呎' : '-'}</span>
+      ${l.building_name && l.unit ? `<button class="history-btn" style="font-size:0.7rem;padding:0.1rem 0.4rem;margin:0" onclick="openLineHistory('${escHtml(l.building_name)}','${escHtml(l.unit)}','${escHtml(l.floor||'')}')">類近成交 ↓</button>` : ''}
+    </div>`;
 
   const priceCell = l => l._combined
     ? `<div style="color:var(--accent);font-weight:600">$${(l.price_min/1e4).toFixed(0)}${l.price_max > l.price_min ? `–${(l.price_max/1e4).toFixed(0)}` : ''}萬</div>
@@ -4140,9 +4142,9 @@ async function loadMarketTemp(estateId) {
   } catch (_) { card.innerHTML = `<div class="stat-label">市場溫度</div><div style="margin-top:0.35rem;font-size:0.8rem;color:var(--muted)">載入失敗</div>`; }
 }
 
-// 上手成交:一條線(座+室)嘅歷史成交,實際樓層清楚列出俾用戶對返個 band
+// 類近成交:一條線(座+室)嘅歷史成交,實際樓層清楚列出俾用戶對返個 band
 async function openLineHistory(building, unit, floorBand) {
-  document.getElementById('comp-modal-title').textContent = `${building} ${unit} · 上手成交`;
+  document.getElementById('comp-modal-title').textContent = `${building} ${unit} · 類近成交`;
   document.getElementById('comp-modal-body').innerHTML = '<div class="loading"><div class="spinner"></div> 載入中…</div>';
   document.getElementById('compModalOverlay').style.display = 'flex';
   try {
