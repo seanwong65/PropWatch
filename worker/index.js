@@ -658,19 +658,29 @@ async function saveRicacorpListings(db, estateId, listings) {
   const today = hkDateStr();
   let toSave = listings;
 
-  // 攞唔齊全部頁(scrapeRicacorpListings 標 .complete=false):唔好存殘缺
-  // snapshot 令甩咗頁嘅盤扮下架。將上一個 ricacorp snapshot 有、但今次冇
-  // scrape 到嘅盤,原樣 carry forward 落今日,補返甩咗嘅頁。真下架會等到
-  // 有一次完整 scrape 先反映(可接受:假下架 alert 更煩)。
-  if (listings.complete === false) {
+  // 決定要唔要 carry forward(補返上次有、今次冇 scrape 到嘅盤,避免佢哋扮下架):
+  //  (a) scraper 自己知道甩頁/timeout(complete === false);或
+  //  (b) 盤數明顯縮水 —— 今次 < 近14日最高 ricacorp 盤數 × 85%。利嘉閣有時
+  //      會 return 少咗盤但 scraper 仍當自己完整(唔係甩頁),淨靠 complete
+  //      flag 捉唔到,一縮水就會令一批未下架嘅盤扮下架。
+  // baseline 用「近期盤數最多」嗰個 snapshot(唔係上一個),因為上一個可能
+  // 已經係縮水污染咗嘅低位;carry source 都用返嗰個健康 snapshot。
+  const { results: best } = await db.prepare(`
+    SELECT snapshot_date, COUNT(*) n FROM listings
+    WHERE estate_id = ? AND source = 'ricacorp'
+      AND snapshot_date < ? AND snapshot_date >= date(?, '-14 days')
+    GROUP BY snapshot_date ORDER BY n DESC, snapshot_date DESC LIMIT 1
+  `).bind(estateId, today, today).all();
+  const bestPrev = best[0];
+  const shrunk = bestPrev && bestPrev.n > 0 && listings.length < bestPrev.n * 0.85;
+
+  if (listings.complete === false || shrunk) {
     const scraped = new Set(listings.map((l) => l.ref_no));
-    const { results: prev } = await db.prepare(`
+    const { results: prev } = bestPrev ? await db.prepare(`
       SELECT ref_no, building_name, floor, unit, bedrooms, size_net, price, price_per_ft, detail_url, publish_date
       FROM listings
-      WHERE estate_id = ? AND source = 'ricacorp' AND snapshot_date = (
-        SELECT MAX(snapshot_date) FROM listings
-        WHERE estate_id = ? AND source = 'ricacorp' AND snapshot_date < ?)
-    `).bind(estateId, estateId, today).all();
+      WHERE estate_id = ? AND source = 'ricacorp' AND snapshot_date = ?
+    `).bind(estateId, bestPrev.snapshot_date).all() : { results: [] };
     const carried = prev
       .filter((p) => p.ref_no && !scraped.has(p.ref_no))
       .map((p) => ({ ...p, source: "ricacorp" }));
