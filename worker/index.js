@@ -310,6 +310,55 @@ async function authenticate(db, request) {
   return session;
 }
 
+// ── 多用戶個人化 ──────────────────────────────────────────────────────────
+// account_estates:每個 account 自己嘅屋苑訂閱(最愛/排序/加入日)。estates
+// 變返全局 scrape 目錄——佢嘅 is_favourite/sort_order 遷移後唔再讀寫。
+// added_at 係數據可見起點:售價歷史/趨勢/成交列表/動態只顯示由呢日開始
+// 嘅記錄;分析功能(相對市價/類近成交/雷達中位數)照用全部(用戶確認)。
+// viewings/system_parameters 加 account_id;分析參數 settings key 由
+// cfg_<key> 變 cfg_<aid>_<key>。一次性遷移(settings flag 守住):現有嘅
+// 偏好/睇樓/備注/設定全部 map 去 seanwong,added_at 用 estates.first_seen
+// (保留返佢而家見到嘅全部歷史)。
+async function ensureMultiAccount(db) {
+  await db.prepare(`CREATE TABLE IF NOT EXISTS account_estates (
+    account_id INTEGER NOT NULL,
+    estate_id INTEGER NOT NULL,
+    is_favourite INTEGER NOT NULL DEFAULT 0,
+    sort_order INTEGER NOT NULL DEFAULT 0,
+    added_at TEXT NOT NULL DEFAULT (date('now','+8 hours')),
+    PRIMARY KEY (account_id, estate_id)
+  )`).run();
+  try { await db.prepare("ALTER TABLE viewings ADD COLUMN account_id INTEGER").run(); } catch (_) {}
+  try { await db.prepare("ALTER TABLE system_parameters ADD COLUMN account_id INTEGER").run(); } catch (_) {}
+  await db.prepare("CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT)").run();
+  const done = await db.prepare("SELECT 1 FROM settings WHERE key = 'multi_account_migrated'").first();
+  if (done) return;
+  const sean = await db.prepare("SELECT id FROM accounts WHERE username = 'seanwong'").first();
+  if (!sean) return;   // seed 未行,下個 request 再試
+  const aid = sean.id;
+  // added_at 用極早日期:seanwong 係遷移前嘅唯一用戶,「現有 data 全部
+  // map 去佢」= 佢要繼續見到全部歷史(包括成交記錄 tab 嘅 2003 年舊成交),
+  // 唔可以用 first_seen 截。之後新加嘅訂閱先用「今日」做 added_at。
+  await db.prepare(`
+    INSERT OR IGNORE INTO account_estates (account_id, estate_id, is_favourite, sort_order, added_at)
+    SELECT ?, id, COALESCE(is_favourite, 0), COALESCE(sort_order, 0), '2000-01-01'
+    FROM estates WHERE is_disabled = 0 OR is_disabled IS NULL
+  `).bind(aid).run();
+  await db.prepare("UPDATE viewings SET account_id = ? WHERE account_id IS NULL").bind(aid).run();
+  await db.prepare("UPDATE system_parameters SET account_id = ? WHERE account_id IS NULL").bind(aid).run();
+  // cfg_<key> → cfg_<aid>_<key>(逐條抄再刪,喺 JS 對返 CONFIG_DEFS 先郁,
+  // 唔會誤搬第啲 settings row)
+  const { results: cfgRows } = await db.prepare("SELECT key, value FROM settings WHERE key LIKE 'cfg_%'").all();
+  for (const r of cfgRows) {
+    const bare = r.key.slice(4);
+    if (!CONFIG_DEFS.some((d) => d.key === bare)) continue;
+    await db.prepare("INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value")
+      .bind(`cfg_${aid}_${bare}`, r.value).run();
+    await db.prepare("DELETE FROM settings WHERE key = ?").bind(r.key).run();
+  }
+  await db.prepare("INSERT INTO settings (key, value) VALUES ('multi_account_migrated', '1') ON CONFLICT(key) DO UPDATE SET value = '1'").run();
+}
+
 const FETCH_HEADERS = {
   "Content-Type": "application/json",
   "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
@@ -1004,9 +1053,13 @@ async function ensureGroupOverrides(db) {
 const _normBldg = (s) => String(s || "").replace(/[座\s]/g, "").toUpperCase();
 const _normUnit = (s) => String(s || "").replace(/[室號\s]/g, "").toUpperCase();
 
-async function computeAskingSold(db, estateId) {
-  const filter = estateId ? "AND s.estate_id = ?" : "";
-  const binds = estateId ? [estateId] : [];
+async function computeAskingSold(db, estateId, accountId = null) {
+  // Per-account:冇指定 estateId 時(dashboard 全局 view)只計呢個 account
+  // 訂閱嘅屋苑;指定咗 estateId(屋苑頁)就照計嗰個屋苑。
+  const filter = estateId
+    ? "AND s.estate_id = ?"
+    : (accountId != null ? "AND s.estate_id IN (SELECT estate_id FROM account_estates WHERE account_id = ?)" : "");
+  const binds = estateId ? [estateId] : (accountId != null ? [accountId] : []);
 
   // Stacks (座+室+面積) whose last listing snapshot is older than the estate's
   // latest snapshot = they dropped off the market. `ask` = lowest asking on that
@@ -1115,15 +1168,19 @@ const _sqlMedian = (arr) => {
   return Math.round((s[lo - 1] + s[hi - 1]) / 2);
 };
 
-async function computeViewingComps(db) {
+async function computeViewingComps(db, accountId) {
   // 排序跟屋苑偏好(同側欄屋苑清單一致):已標星最愛優先,再跟手動拖曳嘅
-  // sort_order;同一屋苑內嘅卡再按睇樓日期新到舊。
+  // sort_order;同一屋苑內嘅卡再按睇樓日期新到舊。Per-account:只計自己
+  // 嘅睇樓記錄,偏好嚟自 account_estates(冇訂閱嘅排最後)。
   const { results: viewings } = await db.prepare(`
     SELECT v.id, v.estate_id, e.name AS estate_name, v.block, v.floor, v.unit,
            v.size_net, v.bedrooms, v.price, v.view_date, v.linked_ref_no, v.dismissed_refs
-    FROM viewings v JOIN estates e ON e.id = v.estate_id
-    ORDER BY e.is_favourite DESC, e.sort_order ASC, v.view_date DESC, v.id DESC
-  `).all();
+    FROM viewings v
+    JOIN estates e ON e.id = v.estate_id
+    LEFT JOIN account_estates ae ON ae.estate_id = v.estate_id AND ae.account_id = v.account_id
+    WHERE v.account_id = ?
+    ORDER BY COALESCE(ae.is_favourite, 0) DESC, COALESCE(ae.sort_order, 9999) ASC, v.view_date DESC, v.id DESC
+  `).bind(accountId).all();
 
   const estateIds = [...new Set(viewings.map((v) => v.estate_id))];
   let txns = [];
@@ -1282,10 +1339,18 @@ const CONFIG_DEFS = [
 ];
 
 // 讀成 { key: number }，冇存過用預設值；存咗嘅會 clamp 返落 min/max 之內。
-async function getConfig(db) {
+// 分析參數係 per-account:key 存做 cfg_<accountId>_<key>。冇 accountId
+// (cron/email 等冇 session 嘅場景)會 fallback 用 seanwong 嘅設定。
+async function getConfig(db, accountId = null) {
   await db.prepare("CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT)").run();
-  const { results } = await db.prepare("SELECT key, value FROM settings WHERE key LIKE 'cfg_%'").all();
-  const stored = new Map(results.map((r) => [r.key.slice(4), Number(r.value)]));
+  let aid = accountId;
+  if (aid == null) {
+    const sean = await db.prepare("SELECT id FROM accounts WHERE username = 'seanwong'").first();
+    aid = sean?.id ?? 0;
+  }
+  const prefix = `cfg_${aid}_`;
+  const { results } = await db.prepare("SELECT key, value FROM settings WHERE key LIKE ?").bind(`${prefix}%`).all();
+  const stored = new Map(results.map((r) => [r.key.slice(prefix.length), Number(r.value)]));
   const cfg = {};
   for (const d of CONFIG_DEFS) {
     const v = stored.get(d.key);
@@ -1381,14 +1446,23 @@ function deriveFloorTier(floorNum, maxFloor) {
 // 缺數據嘅分項唔計入（按實際權重歸一化），有效權重不足 60 唔俾分數。
 // 全苑中位數係粗略基準——超大型多期屋苑（嘉湖山莊等）唔同期嘅呎價差異大，
 // vs_med_pct 極端值要人手覆核，唔好當保證。
-async function computeBargainRadar(db, { belowPct = null, limit = 30 } = {}) {
-  const cfg = await getConfig(db);
+async function computeBargainRadar(db, { belowPct = null, limit = 30, accountId = null } = {}) {
+  // Per-account:「已標星」嚟自 account_estates;冇 accountId(email cron)
+  // 同 getConfig 一樣 fallback 用 seanwong。
+  let aid = accountId;
+  if (aid == null) {
+    const sean = await db.prepare("SELECT id FROM accounts WHERE username = 'seanwong'").first();
+    aid = sean?.id ?? 0;
+  }
+  const cfg = await getConfig(db, aid);
   const minBelowPct = belowPct ?? cfg.bargain_below_pct;
   const { results: favRows } = await db.prepare(
-    "SELECT id FROM estates WHERE is_disabled = 0 AND is_favourite = 1"
-  ).all();
+    `SELECT e.id FROM account_estates ae JOIN estates e ON e.id = ae.estate_id
+     WHERE ae.account_id = ? AND ae.is_favourite = 1 AND e.is_disabled = 0`
+  ).bind(aid).all();
   const favIds = favRows.map((r) => r.id);
   if (!favIds.length) return { estates: [], listings: [], cfg };
+  const favPh = favIds.map(() => "?").join(",");
 
   // 同一把尺：近 N 日成交呎價中位數（radar + 睇樓記錄共用）。
   const medMap = await soldMedianPsf(db, { days: cfg.market_median_days, estateIds: favIds });
@@ -1417,8 +1491,8 @@ async function computeBargainRadar(db, { belowPct = null, limit = 30 } = {}) {
     JOIN stock s ON s.estate_id = e.id
     LEFT JOIN vol v ON v.estate_id = e.id
     LEFT JOIN loss l ON l.estate_id = e.id
-    WHERE e.is_disabled = 0 AND e.is_favourite = 1
-  `).bind(`-${cfg.absorption_days} days`, `-${cfg.loss_days} days`).all();
+    WHERE e.id IN (${favPh})
+  `).bind(`-${cfg.absorption_days} days`, `-${cfg.loss_days} days`, ...favIds).all();
 
   const clamp01 = (x) => Math.max(0, Math.min(1, x));
   const totalW = cfg.idx_w_spread + cfg.idx_w_cold + cfg.idx_w_loss;
@@ -1473,8 +1547,8 @@ async function computeBargainRadar(db, { belowPct = null, limit = 30 } = {}) {
     FROM cur c
     JOIN estates e ON e.id = c.estate_id
     LEFT JOIN cuts k ON k.ref_no = c.ref_no
-    WHERE c.dup_rn = 1 AND e.is_disabled = 0 AND e.is_favourite = 1
-  `).all();
+    WHERE c.dup_rn = 1 AND e.id IN (${favPh})
+  `).bind(...favIds).all();
 
   const now = Date.now();
   const listings = curRows.map((r) => {
@@ -1534,7 +1608,9 @@ async function sendEmail(apiKey, to, subject, html) {
   return res.json();
 }
 
-async function getTodayHighlights(db) {
+// Per-account:只包括呢個 account 訂閱嘅屋苑,而且動態由訂閱日(added_at)
+// 開始計——B 加入自選之前發生嘅嘢,B 嘅今日/歷史動態唔會見到。
+async function getTodayHighlights(db, accountId) {
   const today = hkDateStr();
   const yesterday = hkDateStr(-1);
 
@@ -1542,15 +1618,18 @@ async function getTodayHighlights(db) {
     db.prepare(`
       SELECT t.*, e.name as estate_name FROM transactions t
       JOIN estates e ON e.id = t.estate_id
+      JOIN account_estates ae ON ae.estate_id = e.id AND ae.account_id = ?
       WHERE t.first_seen = ?
+        AND t.first_seen >= ae.added_at
         AND date(e.first_seen) <= ?
         AND (e.is_disabled = 0 OR e.is_disabled IS NULL)
-      ORDER BY t.price DESC`).bind(today, hkDateStr(-2)).all(),
+      ORDER BY t.price DESC`).bind(accountId, today, hkDateStr(-2)).all(),
     db.prepare(`
       SELECT l.building_name, l.floor, l.unit, l.ref_no, l.price as new_price, ph_prev.price as old_price,
              l.detail_url, l.source, e.name as estate_name
       FROM listings l
       JOIN estates e ON e.id = l.estate_id
+      JOIN account_estates ae ON ae.estate_id = e.id AND ae.account_id = ?
       JOIN listing_price_history ph_prev
         ON ph_prev.ref_no = l.ref_no
         AND ph_prev.snapshot_date = (
@@ -1560,28 +1639,32 @@ async function getTodayHighlights(db) {
       WHERE l.snapshot_date = ?
         AND l.ref_no IS NOT NULL
         AND ABS(l.price - ph_prev.price) > 1000
+        AND ae.added_at <= ?
         AND date(e.first_seen) <= ?
         AND (e.is_disabled = 0 OR e.is_disabled IS NULL)
-      ORDER BY ABS(l.price - ph_prev.price) DESC`).bind(today, today, yesterday).all(),
+      ORDER BY ABS(l.price - ph_prev.price) DESC`).bind(accountId, today, today, yesterday, yesterday).all(),
     db.prepare(`
       SELECT l.building_name, l.floor, l.unit, l.bedrooms, l.price, l.price_per_ft, l.size_net,
              l.detail_url, l.source, e.name as estate_name
       FROM listings l
       JOIN estates e ON e.id = l.estate_id
+      JOIN account_estates ae ON ae.estate_id = e.id AND ae.account_id = ?
       WHERE l.snapshot_date = ?
         AND l.ref_no IS NOT NULL
         AND l.ref_no NOT IN (
           SELECT ref_no FROM listing_price_history
           WHERE estate_id = l.estate_id AND snapshot_date < ?
         )
+        AND ae.added_at <= ?
         AND date(e.first_seen) <= ?
         AND (e.is_disabled = 0 OR e.is_disabled IS NULL)
-      ORDER BY l.price ASC`).bind(today, today, yesterday).all(),
+      ORDER BY l.price ASC`).bind(accountId, today, today, yesterday, yesterday).all(),
     db.prepare(`
       SELECT l.building_name, l.floor, l.unit, l.bedrooms, l.price,
              l.detail_url, l.source, e.name as estate_name
       FROM listings l
       JOIN estates e ON e.id = l.estate_id
+      JOIN account_estates ae ON ae.estate_id = e.id AND ae.account_id = ?
       WHERE l.ref_no IS NOT NULL
         -- 呢行係呢個 ref 喺呢個屋苑最後一次出現嘅 snapshot
         AND l.snapshot_date = (
@@ -1609,8 +1692,9 @@ async function getTodayHighlights(db) {
           >= 0.7 * (SELECT COUNT(*) FROM listings pp
              WHERE pp.estate_id = l.estate_id AND pp.source = l.source AND pp.snapshot_date = l.snapshot_date)
         )
+        AND ae.added_at <= ?
         AND date(e.first_seen) <= ?
-        AND (e.is_disabled = 0 OR e.is_disabled IS NULL)`).bind(today, today, yesterday).all(),
+        AND (e.is_disabled = 0 OR e.is_disabled IS NULL)`).bind(accountId, today, today, yesterday, yesterday).all(),
     db.prepare(`
       SELECT t.building, t.floor, t.unit, t.price AS txn_price, t.size_net, t.reg_date,
              v.price AS view_price, v.view_date, v.id AS viewing_id,
@@ -1618,12 +1702,13 @@ async function getTodayHighlights(db) {
       FROM transactions t
       JOIN estates e ON e.id = t.estate_id
       JOIN viewings v ON v.estate_id = t.estate_id
+        AND v.account_id = ?
         AND t.building = CASE WHEN v.block LIKE '%座' THEN v.block ELSE v.block || '座' END
         AND t.floor    = CASE WHEN v.floor LIKE '%樓' OR v.floor LIKE '%層' THEN v.floor ELSE v.floor || '樓' END
         AND t.unit     = CASE WHEN v.unit LIKE '%室' OR v.unit LIKE '%號' THEN v.unit ELSE v.unit || '室' END
       WHERE t.first_seen = ?
         AND (e.is_disabled = 0 OR e.is_disabled IS NULL)
-      ORDER BY e.name, t.price DESC`).bind(today).all(),
+      ORDER BY e.name, t.price DESC`).bind(accountId, today).all(),
     db.prepare(`
       SELECT v.id AS viewing_id, v.price AS view_price, v.view_date,
              v.block, v.floor AS view_floor, v.unit AS view_unit,
@@ -1639,15 +1724,19 @@ async function getTodayHighlights(db) {
           WHERE ref_no = v.linked_ref_no AND snapshot_date < ?
         )
       WHERE v.linked_ref_no IS NOT NULL
+        AND v.account_id = ?
         AND ABS(l.price - ph_prev.price) > 1000
         AND (e.is_disabled = 0 OR e.is_disabled IS NULL)
-      ORDER BY ABS(l.price - ph_prev.price) DESC`).bind(today, today).all(),
+      ORDER BY ABS(l.price - ph_prev.price) DESC`).bind(today, today, accountId).all(),
   ]);
 
-  // Fetch estate order
+  // Fetch estate order (per-account)
   const { results: estateOrder } = await db.prepare(
-    "SELECT name, sort_order, is_favourite FROM estates WHERE is_disabled = 0 OR is_disabled IS NULL ORDER BY is_favourite DESC, sort_order ASC"
-  ).all();
+    `SELECT e.name, ae.sort_order, ae.is_favourite
+     FROM account_estates ae JOIN estates e ON e.id = ae.estate_id
+     WHERE ae.account_id = ? AND (e.is_disabled = 0 OR e.is_disabled IS NULL)
+     ORDER BY ae.is_favourite DESC, ae.sort_order ASC`
+  ).bind(accountId).all();
   const orderIndex = new Map(estateOrder.map((e, i) => [e.name, i]));
 
   // Group by estate
@@ -1993,9 +2082,14 @@ async function syncOneEstate(db, estate) {
 
 // Sync a slice of estates (ORDER BY id, LIMIT/OFFSET), sequentially and
 // per-estate non-fatal. Returns how many estates the slice actually held.
+// 只 sync 有至少一個 account 訂閱嘅屋苑——就算幾個 account 加咗同一
+// 屋苑,estate row 得一個,每屋苑每晚 fetch 一次。
 async function syncEstatesBatch(db, offset, size) {
   const { results: estates } = await db.prepare(
-    "SELECT * FROM estates WHERE is_disabled = 0 OR is_disabled IS NULL ORDER BY id LIMIT ? OFFSET ?"
+    `SELECT * FROM estates e
+     WHERE (e.is_disabled = 0 OR e.is_disabled IS NULL)
+       AND EXISTS (SELECT 1 FROM account_estates ae WHERE ae.estate_id = e.id)
+     ORDER BY e.id LIMIT ? OFFSET ?`
   ).bind(size, offset).all();
   await Promise.all(estates.map(async (estate) => {
     try { await syncOneEstate(db, estate); } catch (_) { /* non-fatal per estate */ }
@@ -2020,7 +2114,10 @@ const SYNC_SLOTS = { "0 16 * * *": 0, "10 16 * * *": 1, "20 16 * * *": 2 };
 async function sendDailyEmail(db, resendApiKey) {
   if (!resendApiKey) return { error: "no RESEND_API_KEY" };
   try {
-    const highlights = await getTodayHighlights(db);
+    // 每日 email 得一個收件人,維持用 seanwong 嘅視角(訂閱/設定)。
+    const sean = await db.prepare("SELECT id FROM accounts WHERE username = 'seanwong'").first();
+    if (!sean) return { error: "seanwong account not found" };
+    const highlights = await getTodayHighlights(db, sean.id);
     // 筍盤 Top N（數目喺 ⚙️ 設定度改；0=唔要；non-fatal — radar 失敗唔阻住每日通知）
     let bargains = [];
     try {
@@ -2056,11 +2153,19 @@ export default {
   async scheduled(event, env, ctx) {
     // "0 1 * * *" = 09:00 HKT → email only (own fresh subrequest budget).
     // The 00:00/00:10/00:20 HKT sync slots each sync one slice of estates.
+    // ensureMultiAccount:sync/email query 靠 account_estates,cron 可能喺
+    // 冇任何 fetch request 之前行,所以呢度都要 ensure(冪等,好快)。
     if (event.cron === "0 1 * * *") {
-      ctx.waitUntil(sendDailyEmail(env.DB, env.RESEND_API_KEY));
+      ctx.waitUntil((async () => {
+        await ensureMultiAccount(env.DB);
+        await sendDailyEmail(env.DB, env.RESEND_API_KEY);
+      })());
     } else if (event.cron in SYNC_SLOTS) {
       const offset = SYNC_SLOTS[event.cron] * SYNC_SLOT_SIZE;
-      ctx.waitUntil(syncEstatesBatch(env.DB, offset, SYNC_SLOT_SIZE));
+      ctx.waitUntil((async () => {
+        await ensureMultiAccount(env.DB);
+        await syncEstatesBatch(env.DB, offset, SYNC_SLOT_SIZE);
+      })());
     }
   },
 
@@ -2075,6 +2180,7 @@ export default {
     try {
       await ensureAuthTables(db);
       await ensureSourceColumns(db);
+      await ensureMultiAccount(db);
 
       // Login endpoint — public
       if (method === "POST" && path === "/api/login") {
@@ -2130,6 +2236,29 @@ export default {
         return json(200, { ok: true });
       }
 
+      // Register — public。新 account 由零開始(冇訂閱/睇樓/備注),自己加
+      // 屋苑起自己嘅 view。成功即發 session,唔使再 login 一次。
+      if (method === "POST" && path === "/api/register") {
+        const { username, password } = await request.json();
+        const uname = String(username || "").trim();
+        if (!/^[A-Za-z0-9_]{3,20}$/.test(uname))
+          return json(400, { error: "用戶名要 3–20 個字元(英文/數字/底線)" });
+        if (!password || String(password).length < 6)
+          return json(400, { error: "密碼最少 6 個字元" });
+        const dup = await db.prepare("SELECT id FROM accounts WHERE username = ?").bind(uname).first();
+        if (dup) return json(409, { error: "用戶名已被使用" });
+        const hash = await sha256(String(password));
+        const ins = await db.prepare(
+          "INSERT INTO accounts (username, password_hash, expiry_date) VALUES (?, ?, '2099-12-31')"
+        ).bind(uname, hash).run();
+        const now2 = new Date().toISOString();
+        const token = randomToken();
+        const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
+        await db.prepare("INSERT INTO sessions (token, account_id, created_at, expires_at) VALUES (?, ?, ?, ?)")
+          .bind(token, ins.meta.last_row_id, now2, expiresAt).run();
+        return json(200, { token, username: uname });
+      }
+
       if (method === "GET" && path === "/api/debug-ricacorp-pages") {
         // Calls the REAL scrapeRicacorpListings function so this reflects deployed behaviour
         const estateName = url.searchParams.get("name") || "淘大花園";
@@ -2152,16 +2281,21 @@ export default {
       const session = await authenticate(db, request);
       if (!session) return json(401, { error: "請先登入" });
 
+      // Per-account 屋苑清單:訂閱關係/最愛/排序/加入日全部嚟自 account_estates。
       if (method === "GET" && path === "/api/estates") {
         const { results } = await db
           .prepare(
-            `SELECT e.*,
+            `SELECT e.*, ae.is_favourite, ae.sort_order, ae.added_at,
                (SELECT COUNT(*) FROM listings l WHERE l.estate_id = e.id
                 AND l.snapshot_date = (SELECT MAX(snapshot_date) FROM listings WHERE estate_id = e.id)) AS today_count,
                (SELECT COUNT(*) FROM transactions t WHERE t.estate_id = e.id
                 AND t.reg_date >= date('now','+8 hours','-3 months')) AS txn_3m_count
-             FROM estates e WHERE (e.is_disabled = 0 OR e.is_disabled IS NULL) ORDER BY e.is_favourite DESC, e.sort_order ASC`
+             FROM account_estates ae
+             JOIN estates e ON e.id = ae.estate_id
+             WHERE ae.account_id = ? AND (e.is_disabled = 0 OR e.is_disabled IS NULL)
+             ORDER BY ae.is_favourite DESC, ae.sort_order ASC`
           )
+          .bind(session.account_id)
           .all();
         return json(200, { estates: results });
       }
@@ -2199,6 +2333,11 @@ export default {
           await db.prepare("UPDATE estates SET is_disabled = 0 WHERE id = ?").bind(estate.id).run();
           estate = { ...estate, is_disabled: 0 };
         }
+        // 加訂閱(已有就唔郁,保留原本 added_at/偏好)。added_at=今日 =
+        // 呢個 account 由今日開始先見到售價歷史/成交/動態。
+        await db.prepare(
+          "INSERT OR IGNORE INTO account_estates (account_id, estate_id) VALUES (?, ?)"
+        ).bind(session.account_id, estate.id).run();
         const data = await fetchCentanet(name);
         const listings = data.data || [];
         await saveSearchResults(db, estate.id, listings);
@@ -2208,16 +2347,20 @@ export default {
 
       if (method === "GET" && path.match(/^\/api\/estates\/\d+\/listings$/)) {
         const estateId = path.split("/")[3];
+        // 「改價 N 次」/「原價」都係售價歷史嘅衍生——由加入自選日開始計。
+        const lSub = await db.prepare("SELECT added_at FROM account_estates WHERE account_id = ? AND estate_id = ?")
+          .bind(session.account_id, estateId).first();
+        const lAddedAt = lSub?.added_at ?? '9999-12-31';
         const { results } = await db
           .prepare(
             `WITH latest AS (
-               SELECT MAX(snapshot_date) AS d FROM listings WHERE estate_id = ?
+               SELECT MAX(snapshot_date) AS d FROM listings WHERE estate_id = ?1
              ),
              per_listing AS (
                SELECT listing_id,
                  MIN(snapshot_date) AS first_seen,
                  MAX(snapshot_date) AS last_seen
-               FROM listings WHERE estate_id = ?
+               FROM listings WHERE estate_id = ?1
                GROUP BY listing_id
              )
              SELECT l.*,
@@ -2226,7 +2369,7 @@ export default {
                prev.price AS prev_price,
                prev.price_per_ft AS prev_price_per_ft,
                (SELECT COUNT(DISTINCT h.price) FROM listing_price_history h
-                 WHERE h.ref_no = l.ref_no) AS price_variants
+                 WHERE h.ref_no = l.ref_no AND h.snapshot_date >= ?2) AS price_variants
              FROM listings l
              JOIN per_listing pl ON pl.listing_id = l.listing_id
              JOIN latest ON 1=1
@@ -2234,12 +2377,12 @@ export default {
                ON prev.ref_no = l.ref_no
                AND prev.snapshot_date = (
                  SELECT MIN(snapshot_date) FROM listing_price_history
-                 WHERE ref_no = l.ref_no
+                 WHERE ref_no = l.ref_no AND snapshot_date >= ?2
                )
-             WHERE l.estate_id = ? AND l.snapshot_date = pl.last_seen
+             WHERE l.estate_id = ?1 AND l.snapshot_date = pl.last_seen
              ORDER BY removed_date IS NOT NULL ASC, l.price ASC`
           )
-          .bind(estateId, estateId, estateId)
+          .bind(estateId, lAddedAt)
           .all();
         return json(200, { listings: results });
       }
@@ -2342,30 +2485,37 @@ export default {
         return json(200, { ok: true });
       }
 
+      // 售價歷史(歷史 ↓ modal):只顯示由呢個 account 加入自選嗰日開始嘅記錄。
       if (method === "GET" && path.match(/^\/api\/listings\/.+\/history$/)) {
         const refNo = decodeURIComponent(path.split("/")[3]);
-        const [{ results }, listing] = await Promise.all([
-          db.prepare(
-            `SELECT snapshot_date, price, price_per_ft
-             FROM listing_price_history
-             WHERE ref_no = ?
-             ORDER BY snapshot_date ASC`
-          ).bind(refNo).all(),
-          db.prepare(`SELECT source, detail_url FROM listings WHERE ref_no = ? LIMIT 1`).bind(refNo).first(),
-        ]);
+        const listing = await db.prepare(`SELECT estate_id, source, detail_url FROM listings WHERE ref_no = ? LIMIT 1`).bind(refNo).first();
+        const addedAt = listing
+          ? (await db.prepare("SELECT added_at FROM account_estates WHERE account_id = ? AND estate_id = ?")
+              .bind(session.account_id, listing.estate_id).first())?.added_at ?? '9999-12-31'
+          : '9999-12-31';
+        const { results } = await db.prepare(
+          `SELECT snapshot_date, price, price_per_ft
+           FROM listing_price_history
+           WHERE ref_no = ? AND snapshot_date >= ?
+           ORDER BY snapshot_date ASC`
+        ).bind(refNo, addedAt).all();
         return json(200, { history: results, source: listing?.source || 'centanet', detail_url: listing?.detail_url });
       }
 
+      // 趨勢圖:同樣由加入自選日開始。
       if (method === "GET" && path.match(/^\/api\/estates\/\d+\/trends$/)) {
         const estateId = path.split("/")[3];
+        const sub = await db.prepare("SELECT added_at FROM account_estates WHERE account_id = ? AND estate_id = ?")
+          .bind(session.account_id, estateId).first();
+        const addedAt = sub?.added_at ?? '9999-12-31';
         const { results } = await db
           .prepare(
             `SELECT snapshot_date, avg_price_ft, median_price,
                     min_price, max_price, listing_count
-             FROM price_snapshots WHERE estate_id = ?
+             FROM price_snapshots WHERE estate_id = ? AND snapshot_date >= ?
              ORDER BY snapshot_date ASC LIMIT 90`
           )
-          .bind(estateId)
+          .bind(estateId, addedAt)
           .all();
         return json(200, { trends: results });
       }
@@ -2374,6 +2524,12 @@ export default {
         const estateId = path.split("/")[3];
         const estate = await db.prepare("SELECT name FROM estates WHERE id = ?").bind(estateId).first();
         if (!estate) return json(404, { error: "Not found" });
+        // 成交記錄列表由加入自選日開始計(live Centanet 數據冇 first_seen,
+        // 用 reg_date 截)。分析功能(相對市價/類近成交/雷達)另有 code path
+        // 用 DB transactions 表,唔受影響。
+        const txnSub = await db.prepare("SELECT added_at FROM account_estates WHERE account_id = ? AND estate_id = ?")
+          .bind(session.account_id, estateId).first();
+        const txnAddedAt = txnSub?.added_at ?? '9999-12-31';
         const offset = Number(url.searchParams.get("offset") || 0);
         const res = await fetch(CENTANET_TRANS, {
           method: "POST",
@@ -2419,14 +2575,14 @@ export default {
             hs_date: saved ? saved.valuation_date : null,
             source: "centanet",
           };
-        });
+        }).filter(t => (t.reg_date || '9999-12-31') >= txnAddedAt);
 
         // Supplement with 利嘉閣 land-registry deals stored in the DB. Match on
         // 座+樓+室+登記日 (normalised): a match enriches the Centanet row with the
         // 簽約 date; ricacorp-only deals are appended on the first page.
         const { results: ricaTxns } = await db.prepare(
-          "SELECT building, floor, unit, price, size_net, price_per_ft, reg_date, instrument_date FROM transactions WHERE estate_id=? AND source='ricacorp'"
-        ).bind(estateId).all();
+          "SELECT building, floor, unit, price, size_net, price_per_ft, reg_date, instrument_date FROM transactions WHERE estate_id=? AND source='ricacorp' AND reg_date >= ?"
+        ).bind(estateId, txnAddedAt).all();
         const txnKey = (b, f, u, d) => `${_normBldg(b)}|${String(f || "").replace(/\D/g, "")}|${_normUnit(u)}|${d || ""}`;
         const ricaByKey = new Map(ricaTxns.map(r => [txnKey(r.building, r.floor, r.unit, r.reg_date), r]));
         for (const t of txns) {
@@ -2568,7 +2724,7 @@ export default {
       }
 
       if (method === "GET" && path === "/api/today-highlights") {
-        return json(200, await getTodayHighlights(db));
+        return json(200, await getTodayHighlights(db, session.account_id));
       }
 
       if (method === "GET" && path === "/api/history-highlights") {
@@ -2578,15 +2734,20 @@ export default {
         const cutoffStr = cutoff.toISOString().slice(0, 10);
         const today = hkDateStr();
 
+        // Per-account:同 today-highlights 一樣,只包括訂閱屋苑,動態由
+        // added_at 開始計。
+        const hAid = session.account_id;
         const [newTxns, newListings, priceChanges, removedListings, viewedTxns] = await Promise.all([
           db.prepare(`
             SELECT t.*, e.name as estate_name FROM transactions t
             JOIN estates e ON e.id = t.estate_id
+            JOIN account_estates ae ON ae.estate_id = e.id AND ae.account_id = ?
             WHERE t.first_seen >= ? AND t.first_seen <= ?
+              AND t.first_seen >= ae.added_at
               AND date(e.first_seen) < ?
               AND (e.is_disabled = 0 OR e.is_disabled IS NULL)
             ORDER BY t.first_seen DESC, t.price DESC
-          `).bind(cutoffStr, today, cutoffStr).all(),
+          `).bind(hAid, cutoffStr, today, cutoffStr).all(),
 
           db.prepare(`
             SELECT l.building_name, l.floor, l.unit, l.bedrooms, l.price, l.price_per_ft, l.size_net,
@@ -2594,12 +2755,14 @@ export default {
             FROM listing_price_history lph
             JOIN listings l ON l.ref_no = lph.ref_no AND l.estate_id = lph.estate_id
             JOIN estates e ON e.id = lph.estate_id
+            JOIN account_estates ae ON ae.estate_id = e.id AND ae.account_id = ?
             WHERE (e.is_disabled = 0 OR e.is_disabled IS NULL)
             GROUP BY lph.ref_no, lph.estate_id
             HAVING MIN(lph.snapshot_date) >= ?
+              AND MIN(lph.snapshot_date) >= MAX(ae.added_at)
               AND MIN(lph.snapshot_date) > date(e.first_seen)
             ORDER BY first_seen_date DESC, l.price ASC
-          `).bind(cutoffStr).all(),
+          `).bind(hAid, cutoffStr).all(),
 
           db.prepare(`
             SELECT l.building_name, l.floor, l.unit, l.detail_url, e.name as estate_name,
@@ -2611,6 +2774,7 @@ export default {
               GROUP BY ref_no, estate_id
               HAVING COUNT(DISTINCT price) > 1 AND MIN(price) != MAX(price)
             ) changed
+            JOIN account_estates ae ON ae.estate_id = changed.estate_id AND ae.account_id = ?
             JOIN (SELECT DISTINCT ref_no, estate_id, snapshot_date, price FROM listing_price_history) first_p
               ON first_p.ref_no = changed.ref_no AND first_p.estate_id = changed.estate_id AND first_p.snapshot_date = changed.min_d
             JOIN (SELECT DISTINCT ref_no, estate_id, snapshot_date, price FROM listing_price_history) last_p
@@ -2624,17 +2788,20 @@ export default {
             ) l ON l.ref_no = changed.ref_no AND l.estate_id = changed.estate_id
             JOIN estates e ON e.id = changed.estate_id
             WHERE first_p.price != last_p.price
+              AND changed.max_d >= ae.added_at
               AND (e.is_disabled = 0 OR e.is_disabled IS NULL)
             ORDER BY ABS(last_p.price - first_p.price) DESC
-          `).bind(cutoffStr).all(),
+          `).bind(cutoffStr, hAid).all(),
 
           db.prepare(`
             SELECT l.building_name, l.floor, l.unit, l.bedrooms, l.price,
                    l.detail_url, e.name as estate_name, l.snapshot_date as last_seen_date
             FROM listings l
             JOIN estates e ON e.id = l.estate_id
+            JOIN account_estates ae ON ae.estate_id = e.id AND ae.account_id = ?
             WHERE l.snapshot_date >= ?
               AND l.snapshot_date < ?
+              AND l.snapshot_date >= ae.added_at
               AND l.ref_no IS NOT NULL
               -- 連續兩個 sync(今日 T 同前一個 P)都冇再出現先當下架,
               -- 避免一次 scrape 甩漏(利嘉閣分頁)造成嘅假下架喺歷史度閃出閃入。
@@ -2653,7 +2820,7 @@ export default {
               AND (e.is_disabled = 0 OR e.is_disabled IS NULL)
             GROUP BY l.ref_no, l.estate_id
             ORDER BY l.snapshot_date DESC
-          `).bind(cutoffStr, today, today, today).all(),
+          `).bind(hAid, cutoffStr, today, today, today).all(),
 
           db.prepare(`
             SELECT t.building, t.floor, t.unit, t.price AS txn_price, t.size_net, t.reg_date, t.first_seen,
@@ -2662,18 +2829,22 @@ export default {
             FROM transactions t
             JOIN estates e ON e.id = t.estate_id
             JOIN viewings v ON v.estate_id = t.estate_id
+              AND v.account_id = ?
               AND t.building = CASE WHEN v.block LIKE '%座' THEN v.block ELSE v.block || '座' END
               AND t.floor    = CASE WHEN v.floor LIKE '%樓' OR v.floor LIKE '%層' THEN v.floor ELSE v.floor || '樓' END
               AND t.unit     = CASE WHEN v.unit LIKE '%室' OR v.unit LIKE '%號' THEN v.unit ELSE v.unit || '室' END
             WHERE t.first_seen >= ? AND t.first_seen <= ?
               AND (e.is_disabled = 0 OR e.is_disabled IS NULL)
             ORDER BY t.first_seen DESC, e.name
-          `).bind(cutoffStr, today).all(),
+          `).bind(hAid, cutoffStr, today).all(),
         ]);
 
         const { results: estateOrder } = await db.prepare(
-          "SELECT name, sort_order, is_favourite FROM estates WHERE is_disabled = 0 OR is_disabled IS NULL ORDER BY is_favourite DESC, sort_order ASC"
-        ).all();
+          `SELECT e.name, ae.sort_order, ae.is_favourite
+           FROM account_estates ae JOIN estates e ON e.id = ae.estate_id
+           WHERE ae.account_id = ? AND (e.is_disabled = 0 OR e.is_disabled IS NULL)
+           ORDER BY ae.is_favourite DESC, ae.sort_order ASC`
+        ).bind(hAid).all();
         const orderIndex = new Map(estateOrder.map((e, i) => [e.name, i]));
 
         const estateMap = new Map();
@@ -2723,10 +2894,14 @@ export default {
 
       if (method === "POST" && path.match(/^\/api\/estates\/\d+\/favourite$/)) {
         const estateId = path.split("/")[3];
-        const estate = await db.prepare("SELECT is_favourite FROM estates WHERE id = ?").bind(estateId).first();
-        if (!estate) return json(404, { error: "Not found" });
-        const newVal = estate.is_favourite ? 0 : 1;
-        await db.prepare("UPDATE estates SET is_favourite = ? WHERE id = ?").bind(newVal, estateId).run();
+        const sub = await db.prepare(
+          "SELECT is_favourite FROM account_estates WHERE account_id = ? AND estate_id = ?"
+        ).bind(session.account_id, estateId).first();
+        if (!sub) return json(404, { error: "Not found" });
+        const newVal = sub.is_favourite ? 0 : 1;
+        await db.prepare(
+          "UPDATE account_estates SET is_favourite = ? WHERE account_id = ? AND estate_id = ?"
+        ).bind(newVal, session.account_id, estateId).run();
         return json(200, { ok: true, is_favourite: newVal });
       }
 
@@ -2775,14 +2950,17 @@ export default {
 
       if (method === "POST" && path === "/api/estates/reorder") {
         const { order } = await request.json();
-        const stmt = db.prepare("UPDATE estates SET sort_order = ? WHERE id = ?");
-        await db.batch(order.map(({ id, sort_order }) => stmt.bind(sort_order, id)));
+        const stmt = db.prepare("UPDATE account_estates SET sort_order = ? WHERE account_id = ? AND estate_id = ?");
+        await db.batch(order.map(({ id, sort_order }) => stmt.bind(sort_order, session.account_id, id)));
         return json(200, { ok: true });
       }
 
+      // 「刪除屋苑」=刪呢個 account 嘅訂閱。estate row 留低(可能有第二個
+      // account 訂閱緊);冇任何訂閱嘅 estate,sync 嗰邊自然唔會再 sync。
       if (method === "DELETE" && path.match(/^\/api\/estates\/\d+$/)) {
         const estateId = path.split("/")[3];
-        await db.prepare("UPDATE estates SET is_disabled = 1 WHERE id = ?").bind(estateId).run();
+        await db.prepare("DELETE FROM account_estates WHERE account_id = ? AND estate_id = ?")
+          .bind(session.account_id, estateId).run();
         return json(200, { ok: true });
       }
 
@@ -2801,7 +2979,11 @@ export default {
         // All estates in one request (best-effort, immediate feedback). The
         // automated daily sync is split across cron slots to stay under the
         // per-invocation subrequest limit; see the scheduled handler.
-        const { results: estates } = await db.prepare("SELECT * FROM estates WHERE is_disabled = 0 OR is_disabled IS NULL ORDER BY id").all();
+        const { results: estates } = await db.prepare(
+          `SELECT * FROM estates e
+           WHERE (e.is_disabled = 0 OR e.is_disabled IS NULL)
+             AND EXISTS (SELECT 1 FROM account_estates ae WHERE ae.estate_id = e.id)
+           ORDER BY e.id`).all();
         const results = await Promise.all(estates.map(async (estate) => {
           try { return await syncOneEstate(db, estate); }
           catch (err) { return { estate: estate.name, error: err.message, ok: false }; }
@@ -2857,9 +3039,9 @@ export default {
             AND t.floor = CASE WHEN v.floor LIKE '%樓' OR v.floor LIKE '%層' THEN v.floor ELSE v.floor || '樓' END
             AND t.unit = CASE WHEN v.unit LIKE '%室' OR v.unit LIKE '%號' THEN v.unit ELSE v.unit || '室' END
             AND t.rn = 1
-          WHERE v.estate_id = ?
+          WHERE v.estate_id = ? AND v.account_id = ?
           ORDER BY v.view_date DESC, v.created_at DESC
-        `).bind(estateId).all();
+        `).bind(estateId, session.account_id).all();
         // 相對市價（同抵買雷達同一把尺）：優先同層帶（高/中/低層，以該座
         // 成交最高層三等分）嘅近N日中位數，唔夠宗數先 fallback 全苑。
         // 窗口日數／最少宗數都喺 ⚙️ 設定度改（getConfig）。
@@ -2868,7 +3050,7 @@ export default {
         // 會完全失真(變成「同自己一樣」)。所以呢度攞返 raw 成交,逐個
         // viewing 喺 JS 度計中位數,而唔係用一個 shared aggregate map。
         const eid = Number(estateId);
-        const vcfg = await getConfig(db);
+        const vcfg = await getConfig(db, session.account_id);
         const [{ results: rawTxns }, { results: maxfRows }] = await Promise.all([
           db.prepare(`
             SELECT building, floor, unit, price_per_ft,
@@ -2932,9 +3114,10 @@ export default {
             AND t.unit = CASE WHEN v.unit LIKE '%室' OR v.unit LIKE '%號' THEN v.unit ELSE v.unit || '室' END
             AND t.rn = 1
           WHERE (e.is_disabled = 0 OR e.is_disabled IS NULL)
+            AND v.account_id = ?
             AND (t.price IS NULL OR t.reg_date < v.view_date)
           ORDER BY v.view_date DESC, v.created_at DESC
-        `).all();
+        `).bind(session.account_id).all();
         return json(200, { viewings: results });
       }
 
@@ -3061,8 +3244,8 @@ export default {
         const estateId = url.searchParams.get("estate_id");
         if (!estateId) return json(400, { error: "estate_id required" });
         const row = await db.prepare(
-          "SELECT mgmt_fee FROM viewings WHERE estate_id = ? AND mgmt_fee IS NOT NULL ORDER BY created_at DESC LIMIT 1"
-        ).bind(estateId).first();
+          "SELECT mgmt_fee FROM viewings WHERE estate_id = ? AND account_id = ? AND mgmt_fee IS NOT NULL ORDER BY created_at DESC LIMIT 1"
+        ).bind(estateId, session.account_id).first();
         return json(200, { mgmt_fee: row?.mgmt_fee ?? null });
       }
 
@@ -3073,18 +3256,19 @@ export default {
           return json(400, { error: "Missing required fields" });
         await db.prepare("ALTER TABLE viewings ADD COLUMN bedrooms INTEGER").run().catch(() => {});
         const result = await db.prepare(
-          "INSERT INTO viewings (estate_id, view_date, block, floor, unit, size_net, direction, price, mgmt_fee, images, notes, bedrooms) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)"
-        ).bind(estate_id, view_date, block||null, floor, unit, size_net, direction||null, price, mgmt_fee||null, images||null, notes||null, bedrooms||2).run();
+          "INSERT INTO viewings (estate_id, view_date, block, floor, unit, size_net, direction, price, mgmt_fee, images, notes, bedrooms, account_id) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)"
+        ).bind(estate_id, view_date, block||null, floor, unit, size_net, direction||null, price, mgmt_fee||null, images||null, notes||null, bedrooms||2, session.account_id).run();
         return json(200, { ok: true, id: result.meta.last_row_id });
       }
 
+      // 改/刪都帶 account_id 條件——一個 account 掂唔到另一個 account 嘅記錄。
       if (method === "PUT" && path.startsWith("/api/viewings/")) {
         const viewingId = path.split("/").pop();
         const { view_date, block, floor, unit, size_net, direction, price, mgmt_fee, images, notes, bedrooms } = await request.json();
         await db.prepare("ALTER TABLE viewings ADD COLUMN bedrooms INTEGER").run().catch(() => {});
         await db.prepare(
-          "UPDATE viewings SET view_date=?, block=?, floor=?, unit=?, size_net=?, direction=?, price=?, mgmt_fee=?, images=?, notes=?, bedrooms=?, hs_price=NULL WHERE id=?"
-        ).bind(view_date, block||null, floor, unit, size_net, direction||null, price, mgmt_fee||null, images||null, notes||null, bedrooms||2, viewingId).run();
+          "UPDATE viewings SET view_date=?, block=?, floor=?, unit=?, size_net=?, direction=?, price=?, mgmt_fee=?, images=?, notes=?, bedrooms=?, hs_price=NULL WHERE id=? AND account_id=?"
+        ).bind(view_date, block||null, floor, unit, size_net, direction||null, price, mgmt_fee||null, images||null, notes||null, bedrooms||2, viewingId, session.account_id).run();
         return json(200, { ok: true });
       }
 
@@ -3093,19 +3277,19 @@ export default {
         const body = await request.json();
         if ("linked_ref_no" in body) {
           await db.prepare("ALTER TABLE viewings ADD COLUMN linked_ref_no TEXT").run().catch(() => {});
-          await db.prepare("UPDATE viewings SET linked_ref_no=? WHERE id=?").bind(body.linked_ref_no||null, viewingId).run();
+          await db.prepare("UPDATE viewings SET linked_ref_no=? WHERE id=? AND account_id=?").bind(body.linked_ref_no||null, viewingId, session.account_id).run();
         } else if ("dismissed_refs" in body) {
           await db.prepare("ALTER TABLE viewings ADD COLUMN dismissed_refs TEXT").run().catch(() => {});
-          await db.prepare("UPDATE viewings SET dismissed_refs=? WHERE id=?").bind(body.dismissed_refs||null, viewingId).run();
+          await db.prepare("UPDATE viewings SET dismissed_refs=? WHERE id=? AND account_id=?").bind(body.dismissed_refs||null, viewingId, session.account_id).run();
         } else {
-          await db.prepare("UPDATE viewings SET hs_price=? WHERE id=?").bind(body.hs_price||null, viewingId).run();
+          await db.prepare("UPDATE viewings SET hs_price=? WHERE id=? AND account_id=?").bind(body.hs_price||null, viewingId, session.account_id).run();
         }
         return json(200, { ok: true });
       }
 
       if (method === "DELETE" && path.startsWith("/api/viewings/")) {
         const viewingId = path.split("/").pop();
-        await db.prepare("DELETE FROM viewings WHERE id = ?").bind(viewingId).run();
+        await db.prepare("DELETE FROM viewings WHERE id = ? AND account_id = ?").bind(viewingId, session.account_id).run();
         return json(200, { ok: true });
       }
 
@@ -3126,21 +3310,22 @@ export default {
       // ── System parameters — generic per-row CRUD ─────────────────────────
       if (path === "/api/system-params") {
         await ensureSystemParams(db);
+        // 備注選項 per-account:每個 account 自己一套 catalogue。
         if (method === "GET") {
           const category = url.searchParams.get("category");
           const stmt = category
-            ? db.prepare("SELECT id, category, value, sort_order FROM system_parameters WHERE category = ? ORDER BY sort_order, id").bind(category)
-            : db.prepare("SELECT id, category, value, sort_order FROM system_parameters ORDER BY category, sort_order, id");
+            ? db.prepare("SELECT id, category, value, sort_order FROM system_parameters WHERE category = ? AND account_id = ? ORDER BY sort_order, id").bind(category, session.account_id)
+            : db.prepare("SELECT id, category, value, sort_order FROM system_parameters WHERE account_id = ? ORDER BY category, sort_order, id").bind(session.account_id);
           const { results } = await stmt.all();
           return json(200, { items: results });
         }
         if (method === "POST") {
           const { category, value } = await request.json();
           if (!category || !value || !String(value).trim()) return json(400, { error: "category and value required" });
-          const max = await db.prepare("SELECT COALESCE(MAX(sort_order), -1) AS m FROM system_parameters WHERE category = ?").bind(category).first();
+          const max = await db.prepare("SELECT COALESCE(MAX(sort_order), -1) AS m FROM system_parameters WHERE category = ? AND account_id = ?").bind(category, session.account_id).first();
           const so = (max?.m ?? -1) + 1;
-          const res = await db.prepare("INSERT INTO system_parameters (category, value, sort_order) VALUES (?, ?, ?)")
-            .bind(category, String(value).trim(), so).run();
+          const res = await db.prepare("INSERT INTO system_parameters (category, value, sort_order, account_id) VALUES (?, ?, ?, ?)")
+            .bind(category, String(value).trim(), so, session.account_id).run();
           return json(200, { id: res.meta.last_row_id, category, value: String(value).trim(), sort_order: so });
         }
       }
@@ -3152,17 +3337,17 @@ export default {
           const { value, sort_order } = await request.json();
           if (value !== undefined) {
             if (!String(value).trim()) return json(400, { error: "value cannot be empty" });
-            await db.prepare("UPDATE system_parameters SET value = ?, updated_at = datetime('now', '+8 hours') WHERE id = ?")
-              .bind(String(value).trim(), id).run();
+            await db.prepare("UPDATE system_parameters SET value = ?, updated_at = datetime('now', '+8 hours') WHERE id = ? AND account_id = ?")
+              .bind(String(value).trim(), id, session.account_id).run();
           }
           if (sort_order !== undefined) {
-            await db.prepare("UPDATE system_parameters SET sort_order = ?, updated_at = datetime('now', '+8 hours') WHERE id = ?")
-              .bind(sort_order, id).run();
+            await db.prepare("UPDATE system_parameters SET sort_order = ?, updated_at = datetime('now', '+8 hours') WHERE id = ? AND account_id = ?")
+              .bind(sort_order, id, session.account_id).run();
           }
           return json(200, { ok: true });
         }
         if (method === "DELETE") {
-          await db.prepare("DELETE FROM system_parameters WHERE id = ?").bind(id).run();
+          await db.prepare("DELETE FROM system_parameters WHERE id = ? AND account_id = ?").bind(id, session.account_id).run();
           return json(200, { ok: true });
         }
       }
@@ -3170,13 +3355,13 @@ export default {
       // 叫價 → 成交落差:配對已下架放盤同對應成交,計議價幅度
       if (method === "GET" && path === "/api/asking-sold") {
         const estateId = url.searchParams.get("estateId");
-        const result = await computeAskingSold(db, estateId ? Number(estateId) : null);
+        const result = await computeAskingSold(db, estateId ? Number(estateId) : null, session.account_id);
         return json(200, result);
       }
 
       // 睇過嘅盤 · 每個單位配近12個月可比成交 + 推算合理價區間
       if (method === "GET" && path === "/api/viewings/comps") {
-        const items = await computeViewingComps(db);
+        const items = await computeViewingComps(db, session.account_id);
         return json(200, { items });
       }
 
@@ -3186,7 +3371,7 @@ export default {
         const belowPctQ = Number(url.searchParams.get("belowPct"));
         const belowPct = Number.isFinite(belowPctQ) && belowPctQ > 0 ? belowPctQ : null;
         const limit = Math.min(Math.max(1, Number(url.searchParams.get("limit")) || 30), 100);
-        const result = await computeBargainRadar(db, { belowPct, limit });
+        const result = await computeBargainRadar(db, { belowPct, limit, accountId: session.account_id });
         return json(200, result);
       }
 
@@ -3201,7 +3386,7 @@ export default {
         const ownBuilding = url.searchParams.get("own_building");
         const ownFloor = url.searchParams.get("own_floor");
         const ownUnit = url.searchParams.get("own_unit");
-        const { market_median_days: days } = await getConfig(db);
+        const { market_median_days: days } = await getConfig(db, session.account_id);
         const win = `-${days} days`;
         let comps;
         if (basis === "tier" && tier) {
@@ -3242,8 +3427,9 @@ export default {
       }
 
       // 分析參數：GET 攞晒全部定義+現值；PUT 改一個/多個（clamp 落 min/max）。
+      // Per-account:key 存做 cfg_<accountId>_<key>。
       if (method === "GET" && path === "/api/config") {
-        const cfg = await getConfig(db);
+        const cfg = await getConfig(db, session.account_id);
         return json(200, { items: CONFIG_DEFS.map((d) => ({ ...d, value: cfg[d.key] })), groups: CONFIG_GROUPS });
       }
       if (method === "PUT" && path === "/api/config") {
@@ -3257,10 +3443,10 @@ export default {
           const v = Math.max(d.min, Math.min(d.max, n));
           await db.prepare(
             "INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value"
-          ).bind(`cfg_${d.key}`, String(v)).run();
+          ).bind(`cfg_${session.account_id}_${d.key}`, String(v)).run();
           updated.push(d.key);
         }
-        const cfg = await getConfig(db);
+        const cfg = await getConfig(db, session.account_id);
         return json(200, { ok: true, updated, items: CONFIG_DEFS.map((d) => ({ ...d, value: cfg[d.key] })) });
       }
 

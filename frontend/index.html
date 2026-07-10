@@ -938,8 +938,14 @@
       onkeydown="if(event.key==='Enter')document.getElementById('login-password').focus()">
     <input id="login-password" type="password" placeholder="密碼" autocomplete="current-password"
       style="width:100%;padding:0.65rem 0.8rem;background:var(--surface2);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:0.95rem;box-sizing:border-box;margin-bottom:1rem"
-      onkeydown="if(event.key==='Enter')doLogin()">
-    <button onclick="doLogin()" style="width:100%;padding:0.75rem;background:var(--accent);border:none;border-radius:8px;color:var(--on-accent);font-size:1rem;font-weight:600;cursor:pointer">登入</button>
+      onkeydown="if(event.key==='Enter')loginSubmit()">
+    <input id="login-password2" type="password" placeholder="確認密碼" autocomplete="new-password"
+      style="display:none;width:100%;padding:0.65rem 0.8rem;background:var(--surface2);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:0.95rem;box-sizing:border-box;margin-bottom:1rem"
+      onkeydown="if(event.key==='Enter')loginSubmit()">
+    <button id="login-submit-btn" onclick="loginSubmit()" style="width:100%;padding:0.75rem;background:var(--accent);border:none;border-radius:8px;color:var(--on-accent);font-size:1rem;font-weight:600;cursor:pointer">登入</button>
+    <div style="text-align:center;margin-top:0.9rem">
+      <span id="login-mode-toggle" onclick="toggleLoginMode()" style="color:var(--muted);font-size:0.82rem;cursor:pointer;border-bottom:1px dotted var(--muted)">未有帳戶？註冊</span>
+    </div>
   </div>
 </div>
 
@@ -1169,6 +1175,19 @@ function hideLoginScreen() {
   document.getElementById("logout-btn").style.display = "";
 }
 
+// login 頁有兩個 mode:登入(預設)/註冊。註冊成功後端直接發 session,
+// 唔使再入多次密碼。
+let _loginMode = 'login';
+function toggleLoginMode() {
+  _loginMode = _loginMode === 'login' ? 'register' : 'login';
+  const isReg = _loginMode === 'register';
+  document.getElementById('login-password2').style.display = isReg ? '' : 'none';
+  document.getElementById('login-submit-btn').textContent = isReg ? '註冊' : '登入';
+  document.getElementById('login-mode-toggle').textContent = isReg ? '已有帳戶？登入' : '未有帳戶？註冊';
+  document.getElementById('login-error').style.display = 'none';
+}
+function loginSubmit() { _loginMode === 'register' ? doRegister() : doLogin(); }
+
 async function doLogin() {
   const username = document.getElementById("login-username").value.trim();
   const password = document.getElementById("login-password").value;
@@ -1176,6 +1195,33 @@ async function doLogin() {
   errEl.style.display = "none";
   try {
     const data = await fetch(API + "/api/login", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ username, password }),
+    }).then(async r => { const d = await r.json(); if (!r.ok) throw new Error(d.error); return d; });
+    localStorage.setItem("propwatch_token", data.token);
+    hideLoginScreen();
+    loadEstates();
+    loadNotesOptions();
+  } catch (e) {
+    errEl.textContent = e.message;
+    errEl.style.display = "block";
+  }
+}
+
+async function doRegister() {
+  const username = document.getElementById("login-username").value.trim();
+  const password = document.getElementById("login-password").value;
+  const password2 = document.getElementById("login-password2").value;
+  const errEl = document.getElementById("login-error");
+  errEl.style.display = "none";
+  if (password !== password2) {
+    errEl.textContent = "兩次密碼唔一致";
+    errEl.style.display = "block";
+    return;
+  }
+  try {
+    const data = await fetch(API + "/api/register", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ username, password }),
