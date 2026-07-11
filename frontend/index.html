@@ -1322,7 +1322,10 @@ async function showDashboard(estates) {
             <button id="dash-tab-comps" onclick="switchDashTab('comps')" style="background:none;border:none;border-bottom:2px solid transparent;margin-bottom:-2px;color:var(--muted);font-size:0.9rem;padding:0.35rem 0.85rem;cursor:pointer">睇過嘅盤</button>
             <button id="dash-tab-radar" onclick="switchDashTab('radar')" style="background:none;border:none;border-bottom:2px solid transparent;margin-bottom:-2px;color:var(--muted);font-size:0.9rem;padding:0.35rem 0.85rem;cursor:pointer">💎 抵買雷達</button>
           </div>
-          <button class="history-btn" style="font-size:0.88rem;padding:0.35rem 0.85rem" onclick="showHistoryPage()">歷史動態 →</button>
+          <div style="display:flex;align-items:center;gap:0.5rem">
+            <button class="filter-chip hl-pref-toggle active" onclick="toggleHlPrefFilter()" title="用你嘅睇樓偏好（售價/房數/實呎）篩選下面嘅動態" style="display:none">🎯 偏好</button>
+            <button class="history-btn" style="font-size:0.88rem;padding:0.35rem 0.85rem" onclick="showHistoryPage()">歷史動態 →</button>
+          </div>
         </div>
         <div id="dash-panel-today"><div id="highlights-body" style="color:var(--muted);font-size:0.75rem">載入中…</div></div>
         <div id="dash-panel-spread" style="display:none"><div id="spread-body" style="color:var(--muted);font-size:0.75rem">載入中…</div></div>
@@ -1690,7 +1693,14 @@ async function loadTodayHighlights() {
       html += `<div class="highlights-group" style="border:1px solid rgba(248,113,113,0.35);border-radius:8px;padding:0.75rem;background:rgba(248,113,113,0.06);margin-bottom:1rem"><div class="highlights-group-label" style="color:#f87171;font-size:0.9rem;margin-bottom:0.5rem">👀 睇過嘅單位成交 (${allViewedTxns.length})</div>${tbl(TH('屋苑 / 單位','睇樓價','成交價','差價','睇樓日期'), rows)}</div>`;
     }
 
-    for (const { estate, newTransactions = [], priceChanges = [], newListings = [], removedListings = [] } of (data.byEstate || [])) {
+    syncHlPrefChips();
+    for (const _g of (data.byEstate || [])) {
+      const estate = _g.estate;
+      // 跟用戶睇樓偏好篩（🎯 chip 可以熄）；「睇過嘅盤」兩組喺上面，唔經呢度
+      const newTransactions = (_g.newTransactions || []).filter(prefMatchHl);
+      const priceChanges = (_g.priceChanges || []).filter(prefMatchHl);
+      const newListings = (_g.newListings || []).filter(prefMatchHl);
+      const removedListings = (_g.removedListings || []).filter(prefMatchHl);
       let inner = "";
 
       if (newTransactions.length) {
@@ -1776,7 +1786,7 @@ async function loadTodayHighlights() {
       }
     }
 
-    if (!html) html = `<span style="color:var(--muted)">今日暫無更新</span>`;
+    if (!html) html = `<span style="color:var(--muted)">今日暫無更新${_hlPrefFilterOn && _hlPrefsUsable() ? '（🎯 偏好 filter 開緊——右上角撳一下可以睇返全部）' : ''}</span>`;
     body.innerHTML = html;
 
     // Auto-fetch HS valuation for new transactions (throttled to avoid
@@ -1826,6 +1836,7 @@ function showHistoryPage() {
         <div class="highlights-title" style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:0.4rem">
           <span>歷史動態</span>
           <div style="display:flex;align-items:center;gap:0.5rem">
+            <button class="filter-chip hl-pref-toggle ${_hlPrefFilterOn ? 'active' : ''}" onclick="toggleHlPrefFilter()" title="用你嘅睇樓偏好（售價/房數/實呎）篩選下面嘅動態" style="display:${_hlPrefsUsable() ? '' : 'none'}">🎯 偏好</button>
             <select class="filter-select" id="historyMonthsSel" onchange="loadHistoryHighlights(this.value)" style="font-size:0.78rem;padding:0.2rem 0.5rem">
               <option value="1">最近 1 個月</option>
               <option value="3">最近 3 個月</option>
@@ -1897,7 +1908,14 @@ async function loadHistoryHighlights(months) {
       html += `<div class="highlights-group" style="border:1px solid rgba(248,113,113,0.35);border-radius:8px;padding:0.75rem;background:rgba(248,113,113,0.06);margin-bottom:1rem"><div class="highlights-group-label" style="color:#f87171;font-size:0.9rem;margin-bottom:0.5rem">👀 睇過嘅單位成交 (${allViewedTxns.length})</div>${tbl(TH('成交日期','屋苑 / 單位','睇樓價','成交價','差價'), rows)}</div>`;
     }
 
-    for (const { estate, newTransactions = [], priceChanges = [], newListings = [], removedListings = [] } of (data.byEstate || [])) {
+    syncHlPrefChips();
+    for (const _g of (data.byEstate || [])) {
+      const estate = _g.estate;
+      // 跟用戶睇樓偏好篩（🎯 chip 可以熄）
+      const newTransactions = (_g.newTransactions || []).filter(prefMatchHl);
+      const priceChanges = (_g.priceChanges || []).filter(prefMatchHl);
+      const newListings = (_g.newListings || []).filter(prefMatchHl);
+      const removedListings = (_g.removedListings || []).filter(prefMatchHl);
       let inner = "";
 
       if (newTransactions.length) {
@@ -1975,7 +1993,7 @@ async function loadHistoryHighlights(months) {
         html += `<div class="highlights-group">${hdr}${inner}</div>`;
       }
     }
-    if (!html) html = `<span style="color:var(--muted)">所選時段內暫無動態</span>`;
+    if (!html) html = `<span style="color:var(--muted)">所選時段內暫無動態${_hlPrefFilterOn && _hlPrefsUsable() ? '（🎯 偏好 filter 開緊——右上角撳一下可以睇返全部）' : ''}</span>`;
     body.innerHTML = html;
   } catch(e) {
     if (body) body.innerHTML = `<span style="color:var(--muted)">載入失敗</span>`;
@@ -3031,6 +3049,10 @@ async function savePrefsFromModal() {
   } catch (e) { alert('儲存失敗：' + e.message); return; }
   document.getElementById('prefsModalOverlay').style.display = 'none';
   renderPrefsSummary();
+  // 偏好改咗：dashboard 動態即時跟新偏好重篩
+  syncHlPrefChips();
+  if (document.getElementById('highlights-body')) loadTodayHighlights();
+  if (document.getElementById('history-body')) loadHistoryHighlights(document.getElementById('historyMonthsSel')?.value || 1);
 }
 
 // 略過／✕／點背景：淨係 tick 咗「不再提醒」先寫低 dismissed，否則下次登入照提
@@ -3039,6 +3061,48 @@ async function closePrefsModal() {
     try { _userPrefs = (await api('/api/preferences', { method: 'PUT', body: JSON.stringify({ dismissed: true }) })).prefs; } catch (_) {}
   }
   document.getElementById('prefsModalOverlay').style.display = 'none';
+}
+
+// ── Dashboard 動態跟偏好 filter ──
+let _hlPrefFilterOn = true; // 「🎯 偏好」chip：預設開，撳一下睇返全部
+
+// 偏好有冇可以攞嚟篩嘅欄位（dismissed-only 就唔使顯示 chip）
+function _hlPrefsUsable() {
+  const p = _userPrefs || {};
+  return !!(p.price_min || p.price_max || p.beds || p.size_min || p.size_max);
+}
+
+// Highlights row 篩選：欄位缺失（例如成交冇房數）嗰項條件就唔計，唔一刀切走。
+// 「睇過嘅盤」相關組唔經呢度——自己睇過嘅嘢一定要顯示。
+function prefMatchHl(r) {
+  if (!_hlPrefFilterOn || !_hlPrefsUsable()) return true;
+  const p = _userPrefs;
+  const price = r.price ?? r.new_price;
+  if (p.price_min && price != null && price < p.price_min * 1e4) return false;
+  if (p.price_max && price != null && price > p.price_max * 1e4) return false;
+  if (p.beds && r.bedrooms != null) {
+    if (p.beds === '4+' ? r.bedrooms < 4 : String(r.bedrooms) !== p.beds) return false;
+  }
+  if (p.size_min && r.size_net != null && r.size_net < p.size_min) return false;
+  if (p.size_max && r.size_net != null && r.size_net > p.size_max) return false;
+  return true;
+}
+
+function toggleHlPrefFilter() {
+  _hlPrefFilterOn = !_hlPrefFilterOn;
+  document.querySelectorAll('.hl-pref-toggle').forEach(b => b.classList.toggle('active', _hlPrefFilterOn));
+  loadTodayHighlights();
+  if (document.getElementById('history-body')) {
+    loadHistoryHighlights(document.getElementById('historyMonthsSel')?.value || 1);
+  }
+}
+
+// 有可篩偏好先顯示「🎯 偏好」chip
+function syncHlPrefChips() {
+  document.querySelectorAll('.hl-pref-toggle').forEach(b => {
+    b.style.display = _hlPrefsUsable() ? '' : 'none';
+    b.classList.toggle('active', _hlPrefFilterOn);
+  });
 }
 
 function renderPrefsSummary() {
