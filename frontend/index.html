@@ -968,7 +968,7 @@
     </div>
     <div id="fh-estate-picked" style="display:none;font-size:0.8rem;margin-top:0.35rem"></div>
     <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:0.6rem;margin-top:0.7rem">
-      <div><label class="vf-label">座數<span>*</span></label><input class="vf-input" type="text" id="fh-block" placeholder="例：3座"></div>
+      <div><label class="vf-label">座數（單幢留空）</label><input class="vf-input" type="text" id="fh-block" placeholder="例：3座"></div>
       <div><label class="vf-label">樓層<span>*</span></label><input class="vf-input" type="text" id="fh-floor" placeholder="例：28樓"></div>
       <div><label class="vf-label">室<span>*</span></label><input class="vf-input" type="text" id="fh-unit" placeholder="例：E室"></div>
     </div>
@@ -1559,7 +1559,7 @@ async function loadFriendHomes() {
       <td style="padding:0.4rem 0.5rem 0.4rem 0;white-space:nowrap;font-weight:600">${escHtml(h.friend_name)}</td>
       <td style="padding:0.4rem 0.5rem;white-space:nowrap;cursor:pointer" onclick="showEstate(${h.estate_id},'${escJsAttr(h.estate_name)}','')">${escHtml(h.estate_name)} <span style="font-size:0.72rem;color:var(--accent2)">↗</span></td>
       <td style="padding:0.4rem 0.5rem;white-space:nowrap">${fhUnitHtml(h)}</td>
-      <td style="padding:0.4rem 0.5rem;white-space:nowrap">${fhTxnsHtml(h)}</td>
+      <td style="padding:0.4rem 0.5rem;white-space:nowrap" id="fhtxn-${h.id}">${fhTxnsHtml(h)}</td>
       <td style="padding:0.4rem 0.5rem;white-space:nowrap" id="fhhs-${h.id}"><span style="color:var(--muted);font-size:0.75rem">查詢中…</span></td>
       <td style="padding:0.4rem 0.5rem;white-space:nowrap">${fhMarketHtml(h)}</td>
       <td style="padding:0.4rem 0.5rem;white-space:nowrap">${fhSimilarHtml(h)}</td>
@@ -1575,13 +1575,51 @@ async function loadFriendHomes() {
       rows
     );
     _fhAutoFetchHS(homes);
+    _fhAutoFetchTxns(homes);
   } catch (e) {
     body.innerHTML = `<span style="color:var(--down)">載入失敗:${escHtml(e.message)}</span>`;
   }
 }
 
+// 過往成交深歷史：DB 只有近年 scrape 數據（利嘉閣土地註冊處大概 2015 起），
+// async 問 unit-txn all=1（centadata 逐單位全歷史，2001 嗰啲都有）補上去
+function _fhAutoFetchTxns(homes) {
+  const queue = [...homes];
+  const run = async () => {
+    let h;
+    while ((h = queue.shift())) {
+      const cell = document.getElementById(`fhtxn-${h.id}`);
+      if (!cell) continue;
+      try {
+        const params = new URLSearchParams({
+          estate: h.estate_name,
+          building: (h.block || '').trim() || h.estate_name, // 單幢：用屋苑名做 building
+          floor: /[樓層]$/.test(h.floor) ? h.floor : h.floor + '樓',
+          unit: /[室號]$/.test(h.unit) ? h.unit : h.unit + '室',
+          all: '1',
+        });
+        const d = await api(`/api/viewings/unit-txn?${params}`);
+        const txns = d.txns || [];
+        if (txns.length) {
+          const rows = txns.slice(0, 4).map((t, i) =>
+            `<div style="${i ? 'color:var(--muted);font-size:0.75rem' : 'font-weight:600;color:var(--accent)'}">$${(t.price/1e4).toFixed(0)}萬 <span style="color:var(--muted);font-size:0.72rem;font-weight:400">${(t.reg_date||'').slice(0,7)}</span></div>`
+          ).join('');
+          const more = txns.length > 4 ? `<div class="unit-price">+${txns.length - 4} 宗更早</div>` : '';
+          const link = d.estateUrl ? `<div style="margin-top:2px"><a href="${safeUrl(d.estateUrl)}" target="_blank" style="color:var(--accent2);font-size:0.72rem;text-decoration:none">中原記錄 ↗</a></div>` : '';
+          cell.innerHTML = rows + more + link;
+        }
+        // 冇 txns：保留 DB fallback 內容
+      } catch (_) { /* 保留 DB fallback */ }
+    }
+  };
+  for (let i = 0; i < 2; i++) run();
+}
+
 function fhUnitHtml(h) {
-  const bits = [`${escHtml(h.block)}${/座$/.test(h.block) ? '' : '座'} ${escHtml(h.floor)}${/[樓層]$/.test(h.floor) ? '' : '樓'} ${escHtml(h.unit)}${/[室號]$/.test(h.unit) ? '' : '室'}`];
+  // 座：純數字先補「座」；單幢（留空/屋苑名）就照 show 或者唔 show
+  const b = (h.block || '').trim();
+  const blockPart = b ? `${escHtml(b)}${/^\d+$/.test(b) ? '座' : ''} ` : '';
+  const bits = [`${blockPart}${escHtml(h.floor)}${/[樓層]$/.test(h.floor) ? '' : '樓'} ${escHtml(h.unit)}${/[室號]$/.test(h.unit) ? '' : '室'}`];
   const sub = [];
   if (h.bedrooms != null) sub.push(`${h.bedrooms}房`);
   if (h.size_net) sub.push(`${h.size_net}呎`);
@@ -1652,11 +1690,12 @@ function openFhSimilar(fhId) {
 function _fhAutoFetchHS(homes) {
   const queue = [];
   for (const h of homes) {
-    const blockNum = (h.block || '').match(/\d+/)?.[0] || '';
+    // 座冇數字（單幢/屋苑名）：照傳 raw，worker 識用 BuildingValuation 動態搵
+    const blockNum = (h.block || '').match(/\d+/)?.[0] || (h.block || '').trim() || h.estate_name;
     const floorNum = (h.floor || '').match(/\d+/)?.[0] || '';
     const flat = (h.unit || '').replace(/[室號樓層座]/g, '').trim();
     const cell = document.getElementById(`fhhs-${h.id}`);
-    if (!blockNum || !floorNum || !flat) { if (cell) cell.innerHTML = '<span style="color:var(--muted);font-size:0.75rem">-</span>'; continue; }
+    if (!floorNum || !flat) { if (cell) cell.innerHTML = '<span style="color:var(--muted);font-size:0.75rem">-</span>'; continue; }
     queue.push({ h, blockNum, floorNum, flat });
   }
   const run = async () => {

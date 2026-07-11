@@ -1129,6 +1129,18 @@ async function ensureGroupOverrides(db) {
 const _normBldg = (s) => String(s || "").replace(/[座\s]/g, "").toUpperCase();
 const _normUnit = (s) => String(s || "").replace(/[室號\s]/g, "").toUpperCase();
 
+// 樓層 → 數字：'四樓'/'4樓'/'4'/'十六樓' 全部認到。中原/利嘉閣唔同 source
+// 有啲用中文數字，SQL 字串比較會 match 唔到，一律轉數字先比。
+function _floorNum(s) {
+  const str = String(s || "").replace(/[樓層F\/\s]/g, "");
+  if (/^\d+$/.test(str)) return parseInt(str, 10);
+  const d = { 一: 1, 二: 2, 三: 3, 四: 4, 五: 5, 六: 6, 七: 7, 八: 8, 九: 9 };
+  if (!/^[一二三四五六七八九十]+$/.test(str)) return null;
+  if (!str.includes("十")) return d[str] ?? null;
+  const [tens, ones] = str.split("十");
+  return (tens ? d[tens] : 1) * 10 + (ones ? d[ones] ?? 0 : 0);
+}
+
 async function computeAskingSold(db, estateId, accountId = null) {
   // Per-account:冇指定 estateId 時(dashboard 全局 view)只計呢個 account
   // 訂閱嘅屋苑;指定咗 estateId(屋苑頁)就照計嗰個屋苑。
@@ -3243,6 +3255,14 @@ export default {
         const floor      = url.searchParams.get("floor");
         const unit       = url.searchParams.get("unit");
         const viewDate   = url.searchParams.get("view_date");
+        // all=1（朋友屋企用）：回成個單位嘅全部歷史成交，唔係淨係最新嗰宗
+        const wantAll    = url.searchParams.get("all") === "1";
+        const mapTxn = (t) => ({
+          price: t.transactionPrice,
+          reg_date: t.regDate?.slice(0, 10),
+          prev_price: t.prevTransactionPrice || null,
+          held_days: t.heldDay || null,
+        });
         if (!estateName || !building || !floor || !unit) return json(400, { error: "missing params" });
 
         const mapKey = `${estateName}|${building}`;
@@ -3262,14 +3282,10 @@ export default {
               const txns = (detail.recentTransactions || [])
                 .filter(t => t.transactionType === "Sale" || !t.transactionType)
                 .sort((a, b) => b.regDate?.localeCompare(a.regDate));
+              if (wantAll) return json(200, { txns: txns.map(mapTxn), estateUrl });
               const target = viewDate ? txns.find(t => t.regDate?.slice(0,10) < viewDate) : txns[0];
               if (!target) return json(200, { txn: null, estateUrl });
-              return json(200, { txn: {
-                price: target.transactionPrice,
-                reg_date: target.regDate?.slice(0, 10),
-                prev_price: target.prevTransactionPrice || null,
-                held_days: target.heldDay || null,
-              }, estateUrl });
+              return json(200, { txn: mapTxn(target), estateUrl });
             }
           }
           // cuntcode not in map or API failed — return link only
@@ -3299,15 +3315,14 @@ export default {
           : null;
 
         // Also keep shallow fallback from transaction search
-        const results = allData.filter(t => matchBuilding(t.buildingName) && t.yAxis === floor && t.xAxis === unit);
+        // 樓層用 _floorNum 比（舊樓 yAxis 係中文數字「四樓」）；室用 normalize
+        const results = allData.filter(t => matchBuilding(t.buildingName)
+          && _floorNum(t.yAxis) === _floorNum(floor) && _floorNum(floor) != null
+          && _normUnit(t.xAxis) === _normUnit(unit));
         const sorted = results.sort((a, b) => b.regDate?.localeCompare(a.regDate));
         const shallowTarget = viewDate ? sorted.find(t => t.regDate?.slice(0,10) < viewDate) : sorted[0];
-        const shallowTxn = shallowTarget ? {
-          price: shallowTarget.transactionPrice,
-          reg_date: shallowTarget.regDate?.slice(0, 10),
-          prev_price: shallowTarget.prevTransactionPrice || null,
-          held_days: shallowTarget.heldDay || null,
-        } : null;
+        const shallowTxn = shallowTarget ? mapTxn(shallowTarget) : null;
+        const shallowAll = sorted.map(mapTxn);
 
         // Dynamic cuntcode lookup via BuildingValuation — works for any estate, any number of phases
         if (typeCode) {
@@ -3319,12 +3334,13 @@ export default {
             if (bvRes.ok) {
               const bvData = await bvRes.json();
               let cuntcode = null;
-              const floorNum = floor.replace(/[樓層]/g, "");
+              // 用 _floorNum 比樓層——舊樓 BuildingValuation 嘅 yAxis 可能係中文數字
+              const floorNum = _floorNum(floor);
               const unitNorm = unit.replace(/[室號]/g, "");
               for (const f of bvData.floors || []) {
                 if (f.valuationFloorType !== "Floor") continue;
-                const fNum = f.yAxis.split("\n")[0].trim().replace(/[樓層]/g, "");
-                if (fNum !== floorNum) continue;
+                const fNum = _floorNum(f.yAxis.split("\n")[0].trim());
+                if (floorNum == null || fNum !== floorNum) continue;
                 for (const u of f.units || []) {
                   const uNorm = (u.xAxis || "").replace(/[室號]/g, "");
                   if (uNorm === unitNorm && u.cuntcode && u.valuationUnitState !== "NotExist") {
@@ -3340,19 +3356,16 @@ export default {
                   const txns = (detail.recentTransactions || [])
                     .filter(t => t.transactionType === "Sale" || !t.transactionType)
                     .sort((a, b) => b.regDate?.localeCompare(a.regDate));
+                  if (wantAll) return json(200, { txns: txns.map(mapTxn), estateUrl });
                   const target = viewDate ? txns.find(t => t.regDate?.slice(0,10) < viewDate) : txns[0];
-                  if (target) return json(200, { txn: {
-                    price: target.transactionPrice,
-                    reg_date: target.regDate?.slice(0, 10),
-                    prev_price: target.prevTransactionPrice || null,
-                    held_days: target.heldDay || null,
-                  }, estateUrl });
+                  if (target) return json(200, { txn: mapTxn(target), estateUrl });
                 }
               }
             }
           } catch (_) {}
         }
 
+        if (wantAll) return json(200, { txns: shallowAll, estateUrl });
         return json(200, { txn: shallowTxn, estateUrl });
       }
 
@@ -3606,21 +3619,35 @@ export default {
         `).bind(session.account_id).all();
         if (!homes.length) return json(200, { homes: [] });
 
-        // 單位過往成交（全部）——同睇樓記錄同一套 座/樓/室 normalization
-        const { results: txnRows } = await db.prepare(`
-          SELECT f.id AS fh_id, t.price, t.reg_date, t.size_net, t.prev_price, t.held_days
-          FROM friend_homes f
-          JOIN transactions t ON t.estate_id = f.estate_id
-            AND t.building = CASE WHEN f.block LIKE '%座' THEN f.block ELSE f.block || '座' END
-            AND t.floor = CASE WHEN f.floor LIKE '%樓' OR f.floor LIKE '%層' THEN f.floor ELSE f.floor || '樓' END
-            AND t.unit = CASE WHEN f.unit LIKE '%室' OR f.unit LIKE '%號' THEN f.unit ELSE f.unit || '室' END
-          WHERE f.account_id = ?
-          ORDER BY t.reg_date DESC
-        `).bind(session.account_id).all();
+        // 單位過往成交——SQL 字串 JOIN match 唔到真實數據（利嘉閣土地註冊處
+        // building 係 NULL、樓層有中文數字「四樓」），改 JS normalize match。
+        // 呢度係即時 fallback；前端仲會 async 問 unit-txn all=1 攞 centadata
+        // 全歷史（深到 2001 嗰啲）。
+        const fhEstateIds = [...new Set(homes.map((h) => h.estate_id))];
+        const fhPh = fhEstateIds.map(() => "?").join(",");
+        const { results: allTxnRows } = await db.prepare(`
+          SELECT estate_id, building, floor, unit, price, reg_date, size_net, prev_price, held_days
+          FROM transactions WHERE estate_id IN (${fhPh}) ORDER BY reg_date DESC
+        `).bind(...fhEstateIds).all();
         const txnsByHome = new Map();
-        for (const r of txnRows) {
-          if (!txnsByHome.has(r.fh_id)) txnsByHome.set(r.fh_id, []);
-          txnsByHome.get(r.fh_id).push({ price: r.price, reg_date: r.reg_date, size_net: r.size_net, prev_price: r.prev_price, held_days: r.held_days });
+        for (const h of homes) {
+          const hFloor = _floorNum(h.floor);
+          const hUnit = _normUnit(h.unit);
+          const hBldg = _normBldg(h.block || "");
+          const matched = allTxnRows.filter((t) =>
+            t.estate_id === h.estate_id &&
+            _floorNum(t.floor) === hFloor && hFloor != null &&
+            _normUnit(t.unit) === hUnit &&
+            // building 寬鬆：NULL（利嘉閣）/同名/等於屋苑名（單幢）/用戶留空 都算 match
+            (!t.building || !hBldg || _normBldg(t.building) === hBldg || t.building === h.estate_name)
+          );
+          // 同一宗成交可能兩個 source 都有（中原+利嘉閣）——同日同價去重
+          const seen = new Set();
+          txnsByHome.set(h.id, matched.filter((t) => {
+            const k = `${t.reg_date}|${t.price}`;
+            if (seen.has(k)) return false;
+            seen.add(k); return true;
+          }).map((t) => ({ price: t.price, reg_date: t.reg_date, size_net: t.size_net, prev_price: t.prev_price, held_days: t.held_days })));
         }
 
         // 房數/面積自動執：同座同室（stack）嘅放盤通常同則——用戶冇入先用
@@ -3695,8 +3722,9 @@ export default {
         const block = String(b.block || "").trim();
         const floor = String(b.floor || "").trim();
         const unit = String(b.unit || "").trim();
-        if (!friendName || !estateId || !block || !floor || !unit)
-          return json(400, { error: "朋友名/屋苑/座/樓層/室都要填" });
+        // 座數 optional——單幢樓冇分座
+        if (!friendName || !estateId || !floor || !unit)
+          return json(400, { error: "朋友名/屋苑/樓層/室都要填" });
         // 唔使訂閱——one-off 屋苑（有 estate row 就得）都加得朋友屋企
         const est = await db.prepare("SELECT 1 FROM estates WHERE id = ?").bind(estateId).first();
         if (!est) return json(400, { error: "搵唔到呢個屋苑" });
