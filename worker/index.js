@@ -1782,13 +1782,15 @@ async function getTodayHighlights(db, accountId) {
              l.building_name, l.floor, l.unit AS l_unit, l.price AS new_price,
              l.detail_url, ph_prev.price AS old_price, e.name AS estate_name
       FROM viewings v
-      JOIN listings l ON l.ref_no = v.linked_ref_no AND l.snapshot_date = ?
+      -- linked_ref_no 係逗號分隔多 ref（每 source 一個），用包含 match；
+      -- 每個 linked 盤獨立出一行
+      JOIN listings l ON (',' || v.linked_ref_no || ',') LIKE ('%,' || l.ref_no || ',%') AND l.snapshot_date = ?
       JOIN estates e ON e.id = v.estate_id
       JOIN listing_price_history ph_prev
-        ON ph_prev.ref_no = v.linked_ref_no
+        ON ph_prev.ref_no = l.ref_no
         AND ph_prev.snapshot_date = (
           SELECT MAX(snapshot_date) FROM listing_price_history
-          WHERE ref_no = v.linked_ref_no AND snapshot_date < ?
+          WHERE ref_no = l.ref_no AND snapshot_date < ?
         )
       WHERE v.linked_ref_no IS NOT NULL
         AND v.account_id = ?
@@ -2968,13 +2970,14 @@ export default {
             SELECT ref_no, MIN(snapshot_date) as min_d, MAX(snapshot_date) as max_d
             FROM listing_price_history WHERE snapshot_date >= ?
             GROUP BY ref_no HAVING COUNT(DISTINCT price) > 1
-          ) changed ON changed.ref_no = v.linked_ref_no
-          JOIN listing_price_history first_p ON first_p.ref_no = v.linked_ref_no AND first_p.snapshot_date = changed.min_d
-          JOIN listing_price_history last_p  ON last_p.ref_no  = v.linked_ref_no AND last_p.snapshot_date  = changed.max_d
+          -- linked_ref_no 係逗號分隔多 ref（每 source 一個），用包含 match
+          ) changed ON (',' || v.linked_ref_no || ',') LIKE ('%,' || changed.ref_no || ',%')
+          JOIN listing_price_history first_p ON first_p.ref_no = changed.ref_no AND first_p.snapshot_date = changed.min_d
+          JOIN listing_price_history last_p  ON last_p.ref_no  = changed.ref_no AND last_p.snapshot_date  = changed.max_d
           JOIN (
             SELECT ref_no, building_name, floor, unit, price, detail_url
             FROM listings WHERE (ref_no, snapshot_date) IN (SELECT ref_no, MAX(snapshot_date) FROM listings GROUP BY ref_no)
-          ) l ON l.ref_no = v.linked_ref_no
+          ) l ON l.ref_no = changed.ref_no
           WHERE v.linked_ref_no IS NOT NULL AND first_p.price != last_p.price
             AND (e.is_disabled = 0 OR e.is_disabled IS NULL)
           ORDER BY ABS(last_p.price - first_p.price) DESC

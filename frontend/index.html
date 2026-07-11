@@ -2885,43 +2885,59 @@ function findMatchingListings(viewing) {
   });
 }
 
+// linked_ref_no 係逗號分隔多 ref（可以 multi-select，但每個 source 最多一個）
+function _linkedRefs(v) {
+  return (v.linked_ref_no || '').split(',').map(s => s.trim()).filter(Boolean);
+}
+
 function buildMatchCell(v) {
   if (!v.block || !v.unit) return '-';
   const matches = findMatchingListings(v);
-  const confirmed = v.linked_ref_no;
-  if (!matches.length && !confirmed) return '<span style="color:var(--muted);font-size:0.75rem">冇匹配</span>';
+  const confirmedRefs = _linkedRefs(v);
+  const confirmedSet = new Set(confirmedRefs);
+  if (!matches.length && !confirmedRefs.length) return '<span style="color:var(--muted);font-size:0.75rem">冇匹配</span>';
 
-  // If confirmed but listing no longer in allListings, show fallback
-  if (confirmed && !matches.find(l => l.ref_no === confirmed)) {
-    return `<span style="color:var(--muted);font-size:0.75rem">已確認 (已下架)</span>
-      <button onclick="confirmViewingListing(${v.id},null)" style="font-size:0.75rem;background:none;border:none;color:var(--muted);cursor:pointer;padding:0">✕ 取消</button>`;
+  const matchRefs = new Set(matches.map(l => l.ref_no));
+  // 每個 source 一個名額：記低每個 source 揀咗邊個
+  const srcTaken = {};
+  for (const l of matches) if (confirmedSet.has(l.ref_no)) srcTaken[l.source] = l.ref_no;
+
+  let html = '';
+  // 已確認但已經唔喺在售列表嘅 refs（已下架）：逐個顯示 + 可以取消
+  for (const ref of confirmedRefs) {
+    if (!matchRefs.has(ref)) {
+      html += `<div style="font-size:0.78rem;display:flex;align-items:center;gap:0.3rem">
+        <span style="color:var(--muted)">已確認 (已下架)</span>
+        <button onclick="confirmViewingListing(${v.id},'${escJsAttr(ref)}')" style="font-size:0.75rem;background:none;border:none;color:var(--muted);cursor:pointer;padding:0" title="取消">✕ 取消</button>
+      </div>`;
+    }
   }
 
   const dismissed = new Set(JSON.parse(v.dismissed_refs || '[]'));
-  if (!matches.length && !confirmed) return '<span style="color:var(--muted);font-size:0.75rem">冇匹配</span>';
-
-  return matches.map(l => {
-    const isConfirmed = confirmed && l.ref_no === confirmed;
+  html += matches.map(l => {
+    const isConfirmed = confirmedSet.has(l.ref_no);
+    // 同 source 已經揀咗第個：呢行變暗、收埋啲掣（想轉要先取消嗰個）
+    const srcBlocked = !isConfirmed && !!srcTaken[l.source];
     const isDismissed = !isConfirmed && dismissed.has(l.ref_no);
     const price = l.price ? `$${(l.price/1e4).toFixed(0)}萬` : '';
     const floorLabel = escHtml(l.floor || '');
     const linkStyle = `color:var(--accent2);text-decoration:${isDismissed ? 'line-through' : 'none'};opacity:${isDismissed ? '0.4' : '1'}`;
     const srcLabel = sourceLabel(l.source);
     const link = l.detail_url ? `<a href="${safeUrl(l.detail_url)}" target="_blank" style="${linkStyle}">${floorLabel} ${price} (${srcLabel}) ↗</a>` : `<span style="${linkStyle}">${floorLabel} ${price} (${srcLabel})</span>`;
-    const confirmOnclick = isConfirmed ? `confirmViewingListing(${v.id},null)` : `confirmViewingListing(${v.id},'${escHtml(l.ref_no||'')}')`;
     const confirmStyle = isConfirmed
       ? `font-size:0.75rem;background:var(--accent2);border:none;border-radius:4px;color:#fff;cursor:pointer;padding:1px 5px`
-      : `font-size:0.75rem;background:var(--surface2);border:1px solid var(--border);border-radius:4px;color:var(--text);cursor:pointer;padding:1px 5px;display:${(confirmed || isDismissed) ? 'none' : ''}`;
-    const rowOpacity = confirmed && !isConfirmed ? '0.3' : '1';
-    const xBtn = !isConfirmed && !confirmed
+      : `font-size:0.75rem;background:var(--surface2);border:1px solid var(--border);border-radius:4px;color:var(--text);cursor:pointer;padding:1px 5px;display:${(srcBlocked || isDismissed) ? 'none' : ''}`;
+    const rowOpacity = srcBlocked ? '0.3' : '1';
+    const xBtn = !isConfirmed && !srcBlocked
       ? isDismissed
-        ? `<button onclick="dismissViewingListing(${v.id},'${escHtml(l.ref_no||'')}',true)" style="font-size:0.75rem;background:none;border:none;color:var(--muted);cursor:pointer;padding:1px 3px" title="取消刪除線">✕</button>`
-        : `<button onclick="dismissViewingListing(${v.id},'${escHtml(l.ref_no||'')}')" style="font-size:0.75rem;background:none;border:none;color:var(--muted);cursor:pointer;padding:1px 3px" title="唔係呢個">✕</button>`
+        ? `<button onclick="dismissViewingListing(${v.id},'${escJsAttr(l.ref_no||'')}',true)" style="font-size:0.75rem;background:none;border:none;color:var(--muted);cursor:pointer;padding:1px 3px" title="取消刪除線">✕</button>`
+        : `<button onclick="dismissViewingListing(${v.id},'${escJsAttr(l.ref_no||'')}')" style="font-size:0.75rem;background:none;border:none;color:var(--muted);cursor:pointer;padding:1px 3px" title="唔係呢個">✕</button>`
       : '';
     return `<div style="font-size:0.78rem;display:flex;align-items:center;gap:0.3rem;opacity:${rowOpacity}">${link}
-      <button onclick="${confirmOnclick}" style="${confirmStyle}" ${isConfirmed ? 'title="取消"' : ''}>✓</button>${xBtn}
+      <button onclick="confirmViewingListing(${v.id},'${escJsAttr(l.ref_no||'')}')" style="${confirmStyle}" ${isConfirmed ? 'title="取消"' : ''}>✓</button>${xBtn}
     </div>`;
   }).join('');
+  return html;
 }
 
 // buildMatchCell 靠 allListings。喺「睇過嘅盤」tab 一次過有多個屋苑,re-render
@@ -2947,31 +2963,21 @@ async function dismissViewingListing(viewingId, refNo, reverse = false) {
   if (cell) cell.innerHTML = _matchCellFor(v);
 }
 
+// Toggle：撳未揀嘅 → 加入（同一 source 其他選項會變暗）；撳已揀嘅 → 移除。
+// refNo null＝全部清走（兼容舊 DOM）。每次都重 render 個 cell，唔手改 DOM。
 async function confirmViewingListing(viewingId, refNo) {
-  api(`/api/viewings/${viewingId}`, { method: 'PATCH', body: JSON.stringify({ linked_ref_no: refNo }) }).catch(() => {});
-  const cell = document.getElementById(`vmatch-${viewingId}`);
-  if (!cell) return;
-  if (!refNo) {
-    const v = _lastViewings?.find(v => v.id === viewingId);
-    if (v) { v.linked_ref_no = null; cell.innerHTML = _matchCellFor(v); }
-    return;
+  const v = _lastViewings?.find(x => x.id === viewingId);
+  if (!v) return;
+  let refs = _linkedRefs(v);
+  if (!refNo) refs = [];
+  else {
+    const i = refs.indexOf(refNo);
+    if (i >= 0) refs.splice(i, 1); else refs.push(refNo);
   }
-  // highlight confirmed, grey out others, add unlink button
-  cell.querySelectorAll('div').forEach(div => {
-    const btn = div.querySelector('button');
-    if (btn && btn.getAttribute('onclick')?.includes(`'${refNo}'`)) {
-      div.style.opacity = '1';
-      btn.textContent = '✓';
-      btn.style.background = 'var(--accent2)';
-      btn.style.color = '#fff';
-      btn.style.border = 'none';
-      btn.setAttribute('onclick', `confirmViewingListing(${viewingId},null)`);
-      btn.title = '取消';
-    } else {
-      div.style.opacity = '0.3';
-      if (btn) btn.style.display = 'none';
-    }
-  });
+  v.linked_ref_no = refs.length ? refs.join(',') : null;
+  api(`/api/viewings/${viewingId}`, { method: 'PATCH', body: JSON.stringify({ linked_ref_no: v.linked_ref_no }) }).catch(() => {});
+  const cell = document.getElementById(`vmatch-${viewingId}`);
+  if (cell) cell.innerHTML = _matchCellFor(v);
 }
 
 function getNotesOptions() {
