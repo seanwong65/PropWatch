@@ -1145,7 +1145,11 @@ async function computeAskingSold(db, estateId, accountId = null) {
     WHERE 1=1 ${filter}
   `).bind(...binds).all();
 
-  const txnFilter = estateId ? "WHERE estate_id = ?" : "";
+  // 同上面 stacks 用同一套 filter/binds：冇 estateId 時都要跟 account 訂閱範圍，
+  // 否則 binds 有 arg 但 SQL 冇 placeholder → D1 "Wrong number of parameter bindings"
+  const txnFilter = estateId
+    ? "WHERE estate_id = ?"
+    : (accountId != null ? "WHERE estate_id IN (SELECT estate_id FROM account_estates WHERE account_id = ?)" : "");
   const { results: txns } = await db.prepare(
     `SELECT id, estate_id, building, unit, size_net, floor, price, reg_date FROM transactions ${txnFilter}`
   ).bind(...binds).all();
