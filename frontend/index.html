@@ -1377,7 +1377,8 @@ async function loadBargainRadar() {
     // 門檻/窗口由後端 ⚙️ 設定嚟(response 有埋 cfg),前端唔傳 belowPct。
     const r = await api('/api/bargain-radar?limit=40');
     const estates = r.estates || [];
-    const listings = r.listings || [];
+    // 筍盤列表跟用戶睇樓偏好篩（🎯 chip 可以熄）；議價指數係屋苑層面統計，唔篩
+    const listings = (r.listings || []).filter(prefMatchHl);
     const cfg = r.cfg || {};
     const days = cfg.market_median_days ?? 60;
     const belowPct = cfg.bargain_below_pct ?? 8;
@@ -1445,14 +1446,23 @@ async function loadAskingSold() {
   const body = document.getElementById('spread-body');
   try {
     const r = await api('/api/asking-sold');
-    const pairs = r.pairs || [];
-    const s = r.summary || {};
+    const allPairs = r.pairs || [];
+    // 跟用戶睇樓偏好篩（🎯 chip 可以熄）；用成交價做基準，配對冇房數欄位所以房數條件自動唔計
+    const pairs = allPairs.filter(p => prefMatchHl({ price: p.sold ?? p.asking, size_net: p.size_net }));
     if (!pairs.length) {
-      body.innerHTML = '<span style="color:var(--muted)">未有已配對嘅叫價→成交記錄<br><small>系統會持續追蹤放盤,當一個盤下架又出現對應成交時自動配對</small></span>';
+      body.innerHTML = allPairs.length
+        ? '<span style="color:var(--muted)">全部配對都俾 🎯 偏好 filter 隱藏咗——右上角撳一下可以睇返全部</span>'
+        : '<span style="color:var(--muted)">未有已配對嘅叫價→成交記錄<br><small>系統會持續追蹤放盤,當一個盤下架又出現對應成交時自動配對</small></span>';
       return;
     }
-    const medTxt = s.median_spread_pct != null ? (s.median_spread_pct > 0 ? '+' : '') + s.median_spread_pct + '%' : '—';
-    const medColor = s.median_spread_pct <= 0 ? 'var(--up)' : 'var(--down)';
+    // 中位數/宗數用篩選後嘅 set 計，同下面個表一致
+    const spreads = pairs.map(p => p.spread_pct).filter(v => v != null).sort((a, b) => a - b);
+    const medVal = spreads.length
+      ? (spreads.length % 2 ? spreads[(spreads.length - 1) / 2]
+         : Math.round((spreads[spreads.length / 2 - 1] + spreads[spreads.length / 2]) / 2 * 10) / 10)
+      : null;
+    const medTxt = medVal != null ? (medVal > 0 ? '+' : '') + medVal + '%' : '—';
+    const medColor = medVal <= 0 ? 'var(--up)' : 'var(--down)';
     const rows = pairs.map(p => {
       const spreadColor = p.spread_pct <= 0 ? 'var(--up)' : 'var(--down)';
       const spreadTxt = (p.spread_pct > 0 ? '+' : '') + p.spread_pct + '%';
@@ -1470,7 +1480,7 @@ async function loadAskingSold() {
     body.innerHTML = `
       <div style="display:flex;gap:1.2rem;flex-wrap:wrap;margin-bottom:0.75rem">
         <div><div style="font-size:0.75rem;color:var(--muted)">議價幅度中位數</div><div style="font-size:1.4rem;font-weight:600;color:${medColor}">${medTxt}</div></div>
-        <div><div style="font-size:0.75rem;color:var(--muted)">已配對</div><div style="font-size:1.4rem;font-weight:600">${s.count}<span style="font-size:0.8rem;color:var(--muted);font-weight:400"> 宗</span></div></div>
+        <div><div style="font-size:0.75rem;color:var(--muted)">已配對</div><div style="font-size:1.4rem;font-weight:600">${pairs.length}<span style="font-size:0.8rem;color:var(--muted);font-weight:400"> 宗</span></div></div>
       </div>
       <p style="font-size:0.75rem;color:var(--muted);margin-bottom:0.5rem">已下架放盤配對到對應成交,計叫價與實際成交嘅落差(負數＝低於叫價成交)。配對靠 座+室+面積+時序,樓層為遮蔽故信心分「高/中」。</p>
       <div id="askingSoldWrap"></div>`;
@@ -3092,6 +3102,8 @@ function toggleHlPrefFilter() {
   _hlPrefFilterOn = !_hlPrefFilterOn;
   document.querySelectorAll('.hl-pref-toggle').forEach(b => b.classList.toggle('active', _hlPrefFilterOn));
   loadTodayHighlights();
+  if (_spreadLoaded && document.getElementById('spread-body')) loadAskingSold();
+  if (_radarLoaded && document.getElementById('radar-body')) loadBargainRadar();
   if (document.getElementById('history-body')) {
     loadHistoryHighlights(document.getElementById('historyMonthsSel')?.value || 1);
   }
