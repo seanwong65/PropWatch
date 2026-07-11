@@ -958,7 +958,7 @@
     <p style="font-size:0.8rem;color:var(--muted);margin:0.25rem 0 1rem">入朋友名同單位，自動搵過往成交、恆生估值、相對市價同類近在售。</p>
     <label class="vf-label">朋友名<span>*</span></label>
     <input class="vf-input" type="text" id="fh-name" placeholder="例：阿明">
-    <label class="vf-label" style="margin-top:0.7rem">屋苑<span>*</span>（搜尋——未追蹤嘅屋苑會自動加入追蹤）</label>
+    <label class="vf-label" style="margin-top:0.7rem">屋苑<span>*</span>（搜尋——未追蹤嘅屋苑會一次過抓數據，唔會加入追蹤）</label>
     <div style="position:relative">
       <input class="vf-input" type="text" id="fh-estate-input" placeholder="輸入屋苑名搜尋…" autocomplete="off">
       <div class="autocomplete hidden" id="fh-autocomplete"></div>
@@ -1738,7 +1738,7 @@ async function _fhSearchEstates(keyword) {
       const code = r.bigestcode || r.bigCode || '';
       return `<div class="autocomplete-item" onclick="_fhPickExtEstate('${escJsAttr(name)}','${escJsAttr(code)}','${escJsAttr(r.districtName || r.district || '')}',${r.isBigest ? 1 : 0})">
         <div class="autocomplete-name">${escHtml(name)}</div>
-        <div class="autocomplete-meta">未追蹤 · 會自動加入追蹤${r.districtName || r.district ? ' · ' + escHtml(r.districtName || r.district) : ''}</div>
+        <div class="autocomplete-meta">未追蹤 · 一次過抓數據（唔入追蹤清單）${r.districtName || r.district ? ' · ' + escHtml(r.districtName || r.district) : ''}</div>
       </div>`;
     }).join('');
     if (html) { ac.innerHTML = html; ac.classList.remove('hidden'); }
@@ -1770,18 +1770,19 @@ async function submitFriendHome() {
   }
   try {
     let estateId = _fhSelEstate.id;
-    // 未追蹤嘅屋苑：先 track（會抓初始數據，等陣）
+    // 未追蹤嘅屋苑：one-off 抓一次齊料數據（各源放盤+成交），唔加入追蹤——
+    // sidebar 唔會見到，daily sync 亦唔會 sync 佢
     if (!estateId) {
       errEl.style.color = 'var(--muted)';
-      errEl.textContent = `正在抓取 ${_fhSelEstate.name} 資料，請等等…`;
+      errEl.textContent = `正在抓取 ${_fhSelEstate.name} 資料（放盤+成交），要等半分鐘左右…`;
       errEl.style.display = 'block';
       const t = await api('/api/track', { method: 'POST', body: JSON.stringify({
         name: _fhSelEstate.name, bigestcode: _fhSelEstate.bigestcode,
         district: _fhSelEstate.district, isBigest: _fhSelEstate.isBigest,
+        subscribe: false,
       }) });
       estateId = t.estate.id;
       _fhSelEstate.id = estateId;
-      loadEstates(); // sidebar 加返個新屋苑
       errEl.style.display = 'none';
       errEl.style.color = 'var(--down)';
     }

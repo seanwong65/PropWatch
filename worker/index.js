@@ -2414,7 +2414,10 @@ export default {
       }
 
       if (method === "POST" && path === "/api/track") {
-        const { name, bigestcode, district, isBigest } = await request.json();
+        // subscribe:false = one-off（朋友屋企用）：開 estate row + 即場抓一次
+        // 齊料數據（各源放盤+成交），但唔加訂閱——sidebar 唔會見到，daily sync
+        // 嘅 EXISTS(account_estates) filter 亦會自動跳過佢。
+        const { name, bigestcode, district, isBigest, subscribe } = await request.json();
         if (!name || !bigestcode) return json(400, { error: "缺少屋苑資料" });
 
         let estate = await db
@@ -2438,6 +2441,12 @@ export default {
         } else if (estate.is_disabled) {
           await db.prepare("UPDATE estates SET is_disabled = 0 WHERE id = ?").bind(estate.id).run();
           estate = { ...estate, is_disabled: 0 };
+        }
+        if (subscribe === false) {
+          // one-off：抓齊各源放盤+成交（syncOneEstate），唔訂閱
+          let changes = null;
+          try { changes = await syncOneEstate(db, estate); } catch (_) { /* 部分失敗照返 estate */ }
+          return json(200, { ok: true, estate, oneOff: true, changes });
         }
         // 加訂閱(已有就唔郁,保留原本 added_at/偏好)。added_at=今日 =
         // 呢個 account 由今日開始先見到售價歷史/成交/動態。
@@ -3688,9 +3697,9 @@ export default {
         const unit = String(b.unit || "").trim();
         if (!friendName || !estateId || !block || !floor || !unit)
           return json(400, { error: "朋友名/屋苑/座/樓層/室都要填" });
-        const sub = await db.prepare("SELECT 1 FROM account_estates WHERE account_id = ? AND estate_id = ?")
-          .bind(session.account_id, estateId).first();
-        if (!sub) return json(400, { error: "要先追蹤呢個屋苑先可以加朋友屋企" });
+        // 唔使訂閱——one-off 屋苑（有 estate row 就得）都加得朋友屋企
+        const est = await db.prepare("SELECT 1 FROM estates WHERE id = ?").bind(estateId).first();
+        if (!est) return json(400, { error: "搵唔到呢個屋苑" });
         const ins = await db.prepare(`
           INSERT INTO friend_homes (account_id, friend_name, estate_id, block, floor, unit, size_net, bedrooms)
           VALUES (?, ?, ?, ?, ?, ?, ?, ?)
