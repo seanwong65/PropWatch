@@ -1718,11 +1718,15 @@ function _fhInitEstateSearch() {
   input.addEventListener('blur', () => setTimeout(() => ac.classList.add('hidden'), 200));
 }
 
+// 用 pointerdown（比 input blur 早 fire）——onclick 會同 blur-hide 鬥快，
+// 撳得慢半拍個 dropdown 已經 hide 咗，個掣就「禁唔到」。
+let _fhSearchSeq = 0; // 防止遲返嚟嘅舊搜尋 result 蓋走新 list
 async function _fhSearchEstates(keyword) {
   const ac = document.getElementById('fh-autocomplete');
+  const seq = ++_fhSearchSeq;
   // 已追蹤：本地即刻 match
   const local = (dashboardEstates || []).filter(e => e.name.includes(keyword));
-  let html = local.map(e => `<div class="autocomplete-item" onclick="_fhPickEstate(${e.id},'${escJsAttr(e.name)}')">
+  let html = local.map(e => `<div class="autocomplete-item" onpointerdown="_fhPickEstate(${e.id},'${escJsAttr(e.name)}')">
     <div class="autocomplete-name">${escHtml(e.name)}</div>
     <div class="autocomplete-meta">★ 已追蹤${e.district ? ' · ' + escHtml(e.district) : ''}</div>
   </div>`).join('');
@@ -1731,12 +1735,13 @@ async function _fhSearchEstates(keyword) {
   // 外部搜尋（同 sidebar 搜尋同一個 API）
   try {
     const { results } = await api('/api/search', { method: 'POST', body: JSON.stringify({ keyword }) });
+    if (seq !== _fhSearchSeq) return; // 已經有新一輪搜尋，唔好蓋佢
     const localNames = new Set(local.map(e => e.name));
     const ext = (results || []).filter(r => !localNames.has(r.bigEstateName || r.name)).slice(0, 6);
     html += ext.map(r => {
       const name = r.bigEstateName || r.name || '';
       const code = r.bigestcode || r.bigCode || '';
-      return `<div class="autocomplete-item" onclick="_fhPickExtEstate('${escJsAttr(name)}','${escJsAttr(code)}','${escJsAttr(r.districtName || r.district || '')}',${r.isBigest ? 1 : 0})">
+      return `<div class="autocomplete-item" onpointerdown="_fhPickExtEstate('${escJsAttr(name)}','${escJsAttr(code)}','${escJsAttr(r.districtName || r.district || '')}',${r.isBigest ? 1 : 0})">
         <div class="autocomplete-name">${escHtml(name)}</div>
         <div class="autocomplete-meta">未追蹤 · 一次過抓數據（唔入追蹤清單）${r.districtName || r.district ? ' · ' + escHtml(r.districtName || r.district) : ''}</div>
       </div>`;
@@ -1744,7 +1749,7 @@ async function _fhSearchEstates(keyword) {
     if (html) { ac.innerHTML = html; ac.classList.remove('hidden'); }
     else { ac.innerHTML = '<div class="autocomplete-item" style="color:var(--muted)">沒有結果</div>'; }
   } catch (_) {
-    if (!local.length) ac.innerHTML = '<div class="autocomplete-item" style="color:var(--muted)">搜尋失敗</div>';
+    if (seq === _fhSearchSeq && !local.length) ac.innerHTML = '<div class="autocomplete-item" style="color:var(--muted)">搜尋失敗</div>';
   }
 }
 
