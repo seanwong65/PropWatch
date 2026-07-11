@@ -1357,7 +1357,7 @@ async function loadBargainRadar() {
       if (l.days_on_market != null && l.days_on_market >= staleDom) badges.push(badge(`⏳擺賣${l.days_on_market}日`, 'var(--muted)'));
       if (l.loss_zone) badges.push(badge('💔蝕讓區', 'var(--up)'));
       const srcName = l.source === 'ricacorp' ? '利嘉閣' : l.source === 'hkp' ? '香港置業' : '中原';
-      const link = l.detail_url ? `<a href="${escHtml(l.detail_url)}" target="_blank" style="color:var(--accent2);font-size:0.75rem;text-decoration:none">${srcName} ↗</a>` : `<span style="color:var(--muted);font-size:0.75rem">${srcName}</span>`;
+      const link = l.detail_url ? `<a href="${safeUrl(l.detail_url)}" target="_blank" style="color:var(--accent2);font-size:0.75rem;text-decoration:none">${srcName} ↗</a>` : `<span style="color:var(--muted);font-size:0.75rem">${srcName}</span>`;
       return `<tr class="hl-tr">
         <td style="padding:0.4rem 0.5rem 0.4rem 0">${escHtml(l.estate_name)}<br><span style="color:var(--muted);font-size:0.75rem">${escHtml(l.building_name||'')} ${escHtml(l.floor||'')} ${escHtml(l.unit||'')} · ${l.size_net||'?'}呎${l.bedrooms != null ? ' · ' + l.bedrooms + '房' : ''}</span></td>
         <td style="text-align:right;padding:0.4rem 0.5rem;white-space:nowrap;font-weight:700;color:var(--accent)">$${(l.price/10000).toLocaleString()}萬<br><span style="font-weight:400;color:var(--muted);font-size:0.75rem">$${(l.psf||0).toLocaleString()}/呎</span></td>
@@ -1595,7 +1595,7 @@ async function loadTodayHighlights() {
     const srcLink = (url, source) => {
       const label = sourceLabel(source);
       return url
-        ? `<a href="${url}" target="_blank" class="hl-link" style="font-size:0.75rem">${label} ↗</a>`
+        ? `<a href="${safeUrl(url)}" target="_blank" class="hl-link" style="font-size:0.75rem">${label} ↗</a>`
         : `<span style="font-size:0.75rem;color:var(--muted)">${label}</span>`;
     };
     const TR = (c1, c2, c3, c4, c5='') =>
@@ -1614,7 +1614,7 @@ async function loadTodayHighlights() {
       for (const c of linkedChanges) {
         const diff = c.new_price - c.old_price;
         const diffHtml = `<span style="color:${diff<=0?'var(--up)':'var(--down)'}">${diff<=0?'▼':'▲'} ${fmt(Math.abs(diff))}</span>`;
-        const link = c.detail_url ? `<a href="${escHtml(c.detail_url)}" target="_blank" style="color:var(--accent2);text-decoration:none">↗</a>` : '';
+        const link = c.detail_url ? `<a href="${safeUrl(c.detail_url)}" target="_blank" style="color:var(--accent2);text-decoration:none">↗</a>` : '';
         rows += TR(
           `<strong>${escHtml(c.estate_name||'')}</strong> ${escHtml(c.building_name||'')} ${escHtml(c.floor||'')} ${escHtml(c.l_unit||'')} ${link}`,
           c.view_price ? fmt(c.view_price) : '-',
@@ -1672,7 +1672,7 @@ async function loadTodayHighlights() {
             <td class="hl-c3"><span style="font-weight:700;color:var(--accent)">${t.price ? fmt(t.price) : '-'}</span><span id="${rowId}-diff"></span></td>
             <td class="hl-c4">${heldStr}<div class="unit-price">${gainHtml}</div></td>
             <td class="hl-c5"><span id="${rowId}-val" style="color:var(--accent)"></span></td>
-            <td class="hl-c6">${t.detail_url ? `<a href="${escHtml(t.detail_url)}" target="_blank" class="hl-link">詳情 ↗</a>` : ''}</td>
+            <td class="hl-c6">${t.detail_url ? `<a href="${safeUrl(t.detail_url)}" target="_blank" class="hl-link">詳情 ↗</a>` : ''}</td>
           </tr>`;
           hlTxnQueue.push({ rowId, estate, t });
         }
@@ -1761,7 +1761,7 @@ async function loadTodayHighlights() {
             if (diffSpan) diffSpan.innerHTML = hsDiffHtml(hp, t.price);
             const valSpan = document.getElementById(rowId + '-val');
             if (valSpan) {
-              valSpan.innerHTML = `${hsValHtml(hp)}<button class="history-btn" style="display:block;margin-top:3px" onclick="showHSHistory('${blockNum}','${floorNum}','${flatLetter}','${eid}')">歷史</button>`;
+              valSpan.innerHTML = `${hsValHtml(hp)}<button class="history-btn" style="display:block;margin-top:3px" onclick="showHSHistory('${escJsAttr(blockNum)}','${escJsAttr(floorNum)}','${escJsAttr(flatLetter)}','${eid}')">歷史</button>`;
             }
           }
         } catch {}
@@ -1805,7 +1805,7 @@ async function loadHistoryHighlights(months) {
     const data = await api(`/api/history-highlights?months=${months}`);
     const fmt = p => p ? `$${(p/1e4).toFixed(0)}萬` : "-";
     const pct = (n, o) => o ? ((n-o)/o*100).toFixed(1) : null;
-    const lnk = url => url ? `<a href="${url}" target="_blank" class="hl-link">詳情 ↗</a>` : '';
+    const lnk = url => url ? `<a href="${safeUrl(url)}" target="_blank" class="hl-link">詳情 ↗</a>` : '';
     const TR = (c1, c2, c3, c4, c5='') =>
       `<tr class="hl-tr"><td class="hl-c1">${c1}</td><td class="hl-c2">${c2}</td><td class="hl-c3">${c3}</td><td class="hl-c4">${c4}</td><td class="hl-c5">${c5}</td></tr>`;
     const TH = (h1, h2, h3, h4, h5='') =>
@@ -1821,7 +1821,7 @@ async function loadHistoryHighlights(months) {
       for (const c of linkedChanges) {
         const diff = c.new_price - c.old_price;
         const diffHtml = `<span style="color:${diff<=0?'var(--up)':'var(--down)'}">${diff<=0?'▼':'▲'} ${fmt(Math.abs(diff))}</span>`;
-        const link = c.detail_url ? `<a href="${escHtml(c.detail_url)}" target="_blank" style="color:var(--accent2);text-decoration:none">↗</a>` : '';
+        const link = c.detail_url ? `<a href="${safeUrl(c.detail_url)}" target="_blank" style="color:var(--accent2);text-decoration:none">↗</a>` : '';
         rows += TR(
           `<strong>${escHtml(c.estate_name||'')}</strong> ${escHtml(c.building_name||'')} ${escHtml(c.floor||'')} ${escHtml(c.l_unit||'')} ${link}`,
           c.view_price ? fmt(c.view_price) : '-',
@@ -2497,7 +2497,7 @@ function marketVsHtml(v) {
     ? ` <span style="color:var(--accent2)" title="實用 ${v.size_net}呎 × 中位 $${v.sold_med_psf.toLocaleString()}/呎">估值 $${(estVal/1e4).toFixed(0)}萬</span>`
     : '';
   // 「N宗」可撳,彈出組成中位數嗰批成交。
-  const nClick = `<span onclick="openEstateComps(${v.estate_id},'${v.market_basis||'estate'}','${v.floor_tier||''}','${escHtml(String(v.block||''))}','${escHtml(String(v.floor||''))}','${escHtml(String(v.unit||''))}')" style="cursor:pointer;border-bottom:1px dotted var(--muted)" title="睇成交紀錄">${v.market_n_sold}宗</span>`;
+  const nClick = `<span onclick="openEstateComps(${v.estate_id},'${v.market_basis||'estate'}','${v.floor_tier||''}','${escJsAttr(v.block||'')}','${escJsAttr(v.floor||'')}','${escJsAttr(v.unit||'')}')" style="cursor:pointer;border-bottom:1px dotted var(--muted)" title="睇成交紀錄">${v.market_n_sold}宗</span>`;
   return `<div style="font-size:0.8rem">${badge}${estInline}</div>`
     + `<div class="unit-price" title="${tip}">${label} $${(v.sold_med_psf||0).toLocaleString()} · ${nClick}</div>`;
 }
@@ -2594,7 +2594,7 @@ function renderSlTable() {
   }).map(l => {
     const unit = [l.building_name, l.floor, l.unit].filter(Boolean).map(escHtml).join(' ');
     const link = l.detail_url
-      ? `<a href="${escHtml(l.detail_url)}" target="_blank" style="color:var(--accent2);text-decoration:none">${_slSrcName(l.source)} ↗</a>`
+      ? `<a href="${safeUrl(l.detail_url)}" target="_blank" style="color:var(--accent2);text-decoration:none">${_slSrcName(l.source)} ↗</a>`
       : `<span style="color:var(--muted)">${_slSrcName(l.source)}</span>`;
     return `<tr class="hl-tr">
       <td style="padding:0.4rem 0.5rem 0.4rem 0">${unit}${l.direction ? ` <span style="color:var(--muted);font-size:0.72rem">向${escHtml(l.direction)}</span>` : ''}</td>
@@ -2716,7 +2716,7 @@ async function fetchHSVal(rowId, estate, block, floor, flat, estateId, txnPrice)
     const params = new URLSearchParams({ estate, block, floor, flat });
     if (estateId) params.set('estateId', estateId);
     const data = await api(`/api/hangseng-valuation?${params}`);
-    const histBtn = `<div style="margin-top:4px"><button class="history-btn" onclick="showHSHistory('${block}','${floor}','${flat}','${estateId}')">歷史</button></div>`;
+    const histBtn = `<div style="margin-top:4px"><button class="history-btn" onclick="showHSHistory('${escJsAttr(block)}','${escJsAttr(floor)}','${escJsAttr(flat)}','${estateId}')">歷史</button></div>`;
     span.innerHTML = hsValHtml(Number(data.price)) + histBtn;
     const diffSpan = document.getElementById(rowId + '-diff');
     if (diffSpan) diffSpan.innerHTML = hsDiffHtml(Number(data.price), txnPrice);
@@ -2826,7 +2826,7 @@ function buildMatchCell(v) {
     const floorLabel = escHtml(l.floor || '');
     const linkStyle = `color:var(--accent2);text-decoration:${isDismissed ? 'line-through' : 'none'};opacity:${isDismissed ? '0.4' : '1'}`;
     const srcLabel = sourceLabel(l.source);
-    const link = l.detail_url ? `<a href="${escHtml(l.detail_url)}" target="_blank" style="${linkStyle}">${floorLabel} ${price} (${srcLabel}) ↗</a>` : `<span style="${linkStyle}">${floorLabel} ${price} (${srcLabel})</span>`;
+    const link = l.detail_url ? `<a href="${safeUrl(l.detail_url)}" target="_blank" style="${linkStyle}">${floorLabel} ${price} (${srcLabel}) ↗</a>` : `<span style="${linkStyle}">${floorLabel} ${price} (${srcLabel})</span>`;
     const confirmOnclick = isConfirmed ? `confirmViewingListing(${v.id},null)` : `confirmViewingListing(${v.id},'${escHtml(l.ref_no||'')}')`;
     const confirmStyle = isConfirmed
       ? `font-size:0.75rem;background:var(--accent2);border:none;border-radius:4px;color:#fff;cursor:pointer;padding:1px 5px`
@@ -3058,7 +3058,7 @@ function openViewingModal(viewing = null) {
       _viewingImages.push({ dataUrl });
       const thumb = document.createElement('div');
       thumb.className = 'vf-img-thumb';
-      thumb.innerHTML = `<img src="${dataUrl}"><button type="button" class="vf-img-rm" onclick="removeViewingImg(${idx})">✕</button>`;
+      thumb.innerHTML = `<img src="${safeImgSrc(dataUrl)}"><button type="button" class="vf-img-rm" onclick="removeViewingImg(${idx})">✕</button>`;
       preview.appendChild(thumb);
     });
   }
@@ -3083,7 +3083,7 @@ function previewImages(input) {
       _viewingImages.push({ dataUrl: e.target.result, file });
       const thumb = document.createElement('div');
       thumb.className = 'vf-img-thumb';
-      thumb.innerHTML = `<img src="${e.target.result}"><button type="button" class="vf-img-rm" onclick="removeViewingImg(${idx})">✕</button>`;
+      thumb.innerHTML = `<img src="${safeImgSrc(e.target.result)}"><button type="button" class="vf-img-rm" onclick="removeViewingImg(${idx})">✕</button>`;
       preview.appendChild(thumb);
     };
     reader.readAsDataURL(file);
@@ -3194,7 +3194,7 @@ async function loadViewings(estateId) {
       const imgs = v.images ? JSON.parse(v.images) : [];
       window._viewingImgsMap[v.id] = imgs;
       window._viewingMap[v.id] = v;
-      const imgHtml = imgs.length ? `<img class="viewing-card-img" src="${imgs[0]}" onclick="viewImgFull(${v.id},0)" style="height:56px;border-radius:4px;cursor:pointer;margin-top:0.3rem">${imgs.length>1?`<span style="font-size:0.75rem;color:var(--muted);display:block;margin-top:2px">+${imgs.length-1} 張</span>`:''}` : '';
+      const imgHtml = imgs.length ? `<img class="viewing-card-img" src="${safeImgSrc(imgs[0])}" onclick="viewImgFull(${v.id},0)" style="height:56px;border-radius:4px;cursor:pointer;margin-top:0.3rem">${imgs.length>1?`<span style="font-size:0.75rem;color:var(--muted);display:block;margin-top:2px">+${imgs.length-1} 張</span>`:''}` : '';
       const fmtBlock = v.block ? ((/座$/.test(v.block) ? v.block : v.block+'座')) : null;
       const fmtFloor = v.floor ? ((/樓$/.test(v.floor)||/層$/.test(v.floor) ? v.floor : v.floor+'樓')) : null;
       const fmtUnit = v.unit ? ((/室$/.test(v.unit)||/號$/.test(v.unit) ? v.unit : v.unit+'室')) : null;
@@ -3258,12 +3258,12 @@ async function fetchUnitTxn(viewingId) {
     const t = data.txn;
     if (!t?.price) {
       cell.innerHTML = data.estateUrl
-        ? `<a href="${data.estateUrl}" target="_blank" style="color:var(--muted);font-size:0.75rem">查歷史↗</a>`
+        ? `<a href="${safeUrl(data.estateUrl)}" target="_blank" style="color:var(--muted);font-size:0.75rem">查歷史↗</a>`
         : '-';
       return;
     }
     const dateStr = t.reg_date ? t.reg_date.slice(0, 7) : null;
-    const linkStart = data.estateUrl ? `<a href="${data.estateUrl}" target="_blank" style="text-decoration:none">` : '';
+    const linkStart = data.estateUrl ? `<a href="${safeUrl(data.estateUrl)}" target="_blank" style="text-decoration:none">` : '';
     const linkEnd = data.estateUrl ? '</a>' : '';
     cell.innerHTML = `${linkStart}<span style="color:var(--muted)"><strong>${fmt(t.price)}</strong></span>${dateStr ? `<br><span style="color:var(--muted);font-size:0.75rem">${dateStr}</span>` : ''}${linkEnd}`;
   } catch { cell.innerHTML = '-'; }
@@ -3285,12 +3285,12 @@ function viewImgFull(viewingId, startIdx) {
   ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.92);z-index:9999;display:flex;flex-direction:column;align-items:center;justify-content:center';
 
   const render = () => {
-    const thumbs = images.map((src, i) => `<img src="${src}" data-i="${i}" style="height:64px;width:64px;object-fit:cover;border-radius:4px;cursor:pointer;flex-shrink:0;border:2.5px solid ${i===cur?'#e53e3e':'transparent'};opacity:${i===cur?1:0.6};transition:border 0.15s,opacity 0.15s">`).join('');
+    const thumbs = images.map((src, i) => `<img src="${safeImgSrc(src)}" data-i="${i}" style="height:64px;width:64px;object-fit:cover;border-radius:4px;cursor:pointer;flex-shrink:0;border:2.5px solid ${i===cur?'#e53e3e':'transparent'};opacity:${i===cur?1:0.6};transition:border 0.15s,opacity 0.15s">`).join('');
     ov.innerHTML = `
       <button onclick="document.getElementById('img-lightbox').remove()" style="position:absolute;top:1rem;right:1.2rem;background:none;border:none;color:#fff;font-size:2rem;cursor:pointer;line-height:1;z-index:1">✕</button>
       <div style="position:relative;display:flex;align-items:center;justify-content:center;width:100%;max-height:78vh">
         ${images.length>1?`<button onclick="event.stopPropagation();_lbNav(-1)" style="position:absolute;left:1rem;background:rgba(255,255,255,0.15);border:none;color:#fff;font-size:2rem;padding:0.4rem 0.8rem;border-radius:6px;cursor:pointer;z-index:1">‹</button>`:''}
-        <img id="lb-main" src="${images[cur]}" style="max-width:88vw;max-height:76vh;border-radius:6px;box-shadow:0 8px 32px rgba(0,0,0,0.7);object-fit:contain">
+        <img id="lb-main" src="${safeImgSrc(images[cur])}" style="max-width:88vw;max-height:76vh;border-radius:6px;box-shadow:0 8px 32px rgba(0,0,0,0.7);object-fit:contain">
         ${images.length>1?`<button onclick="event.stopPropagation();_lbNav(1)" style="position:absolute;right:1rem;background:rgba(255,255,255,0.15);border:none;color:#fff;font-size:2rem;padding:0.4rem 0.8rem;border-radius:6px;cursor:pointer;z-index:1">›</button>`:''}
       </div>
       ${images.length>1?`<div id="lb-thumbs" style="display:flex;gap:0.5rem;margin-top:1rem;overflow-x:auto;max-width:92vw;padding:0.3rem 0.5rem">${thumbs}</div>`:''}
@@ -3494,7 +3494,7 @@ function renderTransactionsTable(estateId, offset, hasMore) {
       <td>${annualHtml}${totalHtml}</td>
       <td>${hsValCell}</td>
       <td>${hsQueryCell}</td>
-      <td>${t.detail_url ? `<a href="${escHtml(t.detail_url)}" target="_blank" class="detail-link">詳情 ↗</a>` : ''}</td>
+      <td>${t.detail_url ? `<a href="${safeUrl(t.detail_url)}" target="_blank" class="detail-link">詳情 ↗</a>` : ''}</td>
     </tr>`;
   }).join('');
 
@@ -3581,7 +3581,7 @@ function renderFilterBar() {
   const buildings = ["all", ...Array.from(new Set((allListings||[]).map(l=>l.building_name).filter(Boolean))).sort()];
   const units = ["all", ...Array.from(new Set((allListings||[]).map(l=>l.unit).filter(Boolean))).sort()];
   const sel = (key, opts, labelFn) =>
-    `<select class="filter-select" onchange="setFilter('${key}',this.value)">${opts.map(o=>`<option value="${o}"${filters[key]===o?'selected':''}>${labelFn(o)}</option>`).join('')}</select>`;
+    `<select class="filter-select" onchange="setFilter('${key}',this.value)">${opts.map(o=>`<option value="${escHtml(o)}"${filters[key]===o?'selected':''}>${escHtml(labelFn(o))}</option>`).join('')}</select>`;
   bar.innerHTML = `
     <div class="filter-bar">
       <div class="filter-pair">
@@ -3923,7 +3923,7 @@ function renderListingsTable() {
   const sourceCell = l => {
     if (l._combined) {
       const links = l.sources.map(s => s.detail_url
-        ? `<a href="${escHtml(s.detail_url)}" target="_blank" class="detail-link" style="font-size:0.72rem;white-space:nowrap">${sourceLabel(s.source)} $${(s.price/1e4).toFixed(0)} ↗</a>`
+        ? `<a href="${safeUrl(s.detail_url)}" target="_blank" class="detail-link" style="font-size:0.72rem;white-space:nowrap">${sourceLabel(s.source)} $${(s.price/1e4).toFixed(0)} ↗</a>`
         : `<span style="font-size:0.72rem;white-space:nowrap;color:var(--muted)">${sourceLabel(s.source)} $${(s.price/1e4).toFixed(0)}</span>`
       ).join('<br>');
       const refs = l.sources.map(s => s.ref_no).filter(Boolean);
@@ -3935,7 +3935,7 @@ function renderListingsTable() {
       return links + '<br>' + undoBtn;
     }
     const link = l.detail_url
-      ? `<a href="${escHtml(l.detail_url)}" target="_blank" class="detail-link" style="font-size:0.75rem">${sourceLabel(l.source)} ↗</a>`
+      ? `<a href="${safeUrl(l.detail_url)}" target="_blank" class="detail-link" style="font-size:0.75rem">${sourceLabel(l.source)} ↗</a>`
       : `<span style="font-size:0.75rem">${sourceLabel(l.source)}</span>`;
     const hasOverride = l.ref_no && groupOverrides[l.ref_no];
     const resetBtn = hasOverride
@@ -4147,7 +4147,7 @@ async function showHistory(refNo, label) {
     const srcLabel = sourceLabel(source);
     const sub = document.getElementById("historyModalSub");
     if (sub) sub.innerHTML = `放盤編號：${detail_url
-      ? `<a href="${escHtml(detail_url)}" target="_blank" class="detail-link">${escHtml(refNo)} ↗</a>`
+      ? `<a href="${safeUrl(detail_url)}" target="_blank" class="detail-link">${escHtml(refNo)} ↗</a>`
       : escHtml(refNo)
     } &nbsp;<span style="font-size:0.75rem;color:var(--muted);background:var(--surface2);border-radius:4px;padding:0.1rem 0.4rem">${srcLabel}</span>`;
     const content = document.getElementById("historyContent");
@@ -4245,6 +4245,24 @@ function priceChangeBadge(price, prevPrice) {
 
 function escHtml(s) {
   return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
+}
+
+// 插入 onclick='fn("…")' 呢類 inline JS 字串參數用：escHtml 唔會 escape 單引號，
+// 一定要行埋呢個，否則一個 ' 就爆得出嚟注入 JS
+function escJsAttr(s) {
+  return escHtml(String(s ?? '').replace(/\\/g, '\\\\').replace(/'/g, "\\'"));
+}
+
+// href 一定要行呢個：escHtml 擋唔到 javascript: URL，只准 http(s)
+function safeUrl(u) {
+  const s = String(u || '');
+  return /^https?:\/\//i.test(s) ? escHtml(s) : '#';
+}
+
+// img src 用：准 http(s) 同 data:image（用戶上載嘅相係 data URL）
+function safeImgSrc(u) {
+  const s = String(u || '');
+  return (/^https?:\/\//i.test(s) || /^data:image\//i.test(s)) ? escHtml(s) : '';
 }
 
 // Init

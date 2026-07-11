@@ -1,8 +1,26 @@
+// 冇 Allow-Origin：由 fetch 出口統一按 allow-list reflect（見 applyCors）。
 const CORS = {
-  "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Methods": "GET, POST, PUT, PATCH, DELETE, OPTIONS",
   "Access-Control-Allow-Headers": "Content-Type, Authorization",
 };
+
+// 瀏覽器跨域只准自己嘅前端；curl/server-side 唔受 CORS 限（靠 auth + rate limit 守）。
+function isAllowedOrigin(origin) {
+  if (origin === "https://propwatch.pages.dev") return true;
+  if (/^https:\/\/[a-z0-9-]+\.propwatch\.pages\.dev$/.test(origin)) return true; // Pages preview deploys
+  if (origin === "http://localhost:3456" || origin === "http://127.0.0.1:3456") return true; // local dev
+  return false;
+}
+
+function applyCors(resp, request) {
+  const origin = request.headers.get("Origin");
+  if (!origin) return resp; // same-origin / curl — 唔使 CORS header
+  if (!isAllowedOrigin(origin)) return resp; // 唔喺 allow-list：唔俾 ACAO，瀏覽器會封鎖個 response
+  const h = new Headers(resp.headers);
+  h.set("Access-Control-Allow-Origin", origin);
+  h.append("Vary", "Origin");
+  return new Response(resp.body, { status: resp.status, headers: h });
+}
 
 const CENTANET_SEARCH = "https://hk.centanet.com/findproperty/api/Post/Search";
 const CENTANET_TRANS  = "https://hk.centanet.com/findproperty/api/Transaction/Search";
@@ -256,6 +274,51 @@ function json(status, data) {
 async function sha256(text) {
   const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text));
   return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, "0")).join("");
+}
+
+// ── Rate limiting ────────────────────────────────────────────────────────────
+// 數字參數係「全局」security 設定：settings 表 sec_* key，code 有 default。
+// 特登唔擺入 per-account ⚙️ CONFIG_DEFS——否則攻擊者可以自己較大自己個上限。
+// 要改：直接落 D1 改 settings，例如
+//   INSERT INTO settings (key,value) VALUES ('sec_api_rpm','500')
+//   ON CONFLICT(key) DO UPDATE SET value=excluded.value;
+const SEC_DEFAULTS = {
+  sec_api_rpm: 240,   // 已登入 API：每個帳戶(或 IP)每分鐘 request 上限
+  sec_auth_rpm: 10,   // login/register：每個 IP 每分鐘試嘅次數上限
+};
+let _secCfgCache = { at: 0, vals: null };
+async function getSecCfg(db) {
+  const now = Date.now();
+  if (_secCfgCache.vals && now - _secCfgCache.at < 60000) return _secCfgCache.vals;
+  const vals = { ...SEC_DEFAULTS };
+  try {
+    const { results } = await db.prepare("SELECT key, value FROM settings WHERE key LIKE 'sec_%'").all();
+    for (const r of results) {
+      const n = Number(r.value);
+      if (Number.isFinite(n) && n > 0 && r.key in SEC_DEFAULTS) vals[r.key] = n;
+    }
+  } catch (_) { /* settings 表未有都照用 default */ }
+  _secCfgCache = { at: now, vals };
+  return vals;
+}
+
+// In-memory fixed-window counter（per isolate）。isolate 回收會重置——擋高速
+// 暴力/scraping 夠用；真正嘅帳戶鎖靠 login 嘅 failed_attempts（durable，喺 D1）。
+const RATE_BUCKETS = new Map(); // key -> { windowStart, count }
+function rateLimited(key, limit, windowMs = 60000) {
+  const now = Date.now();
+  let b = RATE_BUCKETS.get(key);
+  if (!b || now - b.windowStart >= windowMs) {
+    b = { windowStart: now, count: 0 };
+    RATE_BUCKETS.set(key, b);
+  }
+  b.count++;
+  if (RATE_BUCKETS.size > 5000) {
+    for (const [k, v] of RATE_BUCKETS) {
+      if (now - v.windowStart >= windowMs) RATE_BUCKETS.delete(k);
+    }
+  }
+  return b.count > limit;
 }
 
 function randomToken() {
@@ -2170,6 +2233,12 @@ export default {
   },
 
   async fetch(request, env, ctx) {
+    // 所有 response 經 applyCors：只 reflect allow-list 內嘅 Origin
+    const resp = await this.handleRequest(request, env, ctx);
+    return applyCors(resp, request);
+  },
+
+  async handleRequest(request, env, ctx) {
     const url = new URL(request.url);
     const path = url.pathname;
     const method = request.method;
@@ -2181,6 +2250,23 @@ export default {
       await ensureAuthTables(db);
       await ensureSourceColumns(db);
       await ensureMultiAccount(db);
+
+      // ── Rate limiting ──
+      const clientIp = request.headers.get("CF-Connecting-IP") || "unknown";
+      const sec = await getSecCfg(db);
+      if (path === "/api/login" || path === "/api/register") {
+        // 認證入口：per-IP 較嚴（擋暴力試密碼／狂開帳戶）
+        if (rateLimited(`auth:${clientIp}`, sec.sec_auth_rpm)) {
+          return json(429, { error: "請求太頻密，請一分鐘後再試" });
+        }
+      } else if (path.startsWith("/api/")) {
+        // 一般 API：per-token（未帶 token 就 per-IP），擋高速抽數據
+        const authHdr = request.headers.get("Authorization") || "";
+        const rlKey = authHdr ? `tok:${authHdr.slice(7, 23)}` : `ip:${clientIp}`;
+        if (rateLimited(rlKey, sec.sec_api_rpm)) {
+          return json(429, { error: "請求太頻密，請稍後再試" });
+        }
+      }
 
       // Login endpoint — public
       if (method === "POST" && path === "/api/login") {
@@ -2259,6 +2345,11 @@ export default {
         return json(200, { token, username: uname });
       }
 
+      // Auth guard for all other routes
+      const session = await authenticate(db, request);
+      if (!session) return json(401, { error: "請先登入" });
+
+      // （安全修正：以下兩條 route 以前公開，而家一定要登入先用得）
       if (method === "GET" && path === "/api/debug-ricacorp-pages") {
         // Calls the REAL scrapeRicacorpListings function so this reflects deployed behaviour
         const estateName = url.searchParams.get("name") || "淘大花園";
@@ -2276,10 +2367,6 @@ export default {
         const result = await sendDailyEmail(db, env.RESEND_API_KEY);
         return json(200, { ok: !result?.error, result });
       }
-
-      // Auth guard for all other routes
-      const session = await authenticate(db, request);
-      if (!session) return json(401, { error: "請先登入" });
 
       // Per-account 屋苑清單:訂閱關係/最愛/排序/加入日全部嚟自 account_estates。
       if (method === "GET" && path === "/api/estates") {

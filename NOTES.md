@@ -69,11 +69,32 @@ Capacity = slots × `SYNC_SLOT_SIZE` (12). Add a slot cron to grow. Manual
 
 ## Auth
 
-Single user (`seanwong`). SHA-256 passwords, 30-day Bearer sessions in
-`localStorage` (`propwatch_token`). All routes need auth except `/api/login`,
-`/api/logout`, `/api/send-today-email`. **5 failed logins → account disabled**
-(`is_active=0`); all failures return a generic `用戶名或密碼錯誤` (no count).
+Multi-account (register page open; original data all mapped to `seanwong`).
+SHA-256 passwords, 30-day Bearer sessions in `localStorage` (`propwatch_token`).
+All routes need auth except `/api/login`, `/api/logout`, `/api/register`
+(`/api/send-today-email` and `/api/debug-ricacorp-pages` used to be public —
+moved behind auth in the security hardening pass). **5 failed logins → account
+disabled** (`is_active=0`); all failures return a generic `用戶名或密碼錯誤` (no count).
 Re-enable: `UPDATE accounts SET is_active=1, failed_attempts=0 WHERE username='seanwong';`
+
+## Security (conventions — follow for ALL new features)
+
+See `CLAUDE.md` for the enforced conventions. Quick facts:
+
+- **CORS**: allow-list only (`propwatch.pages.dev`, `*.propwatch.pages.dev`,
+  `localhost:3456`) — reflected per-request by `applyCors()` at the single
+  `fetch` exit; `json()` no longer sets `Access-Control-Allow-Origin` itself.
+- **Rate limits**: in-memory fixed-window per isolate. Global (NOT per-account)
+  settings keys with code defaults: `sec_auth_rpm` (login/register per-IP,
+  default 10/min), `sec_api_rpm` (per-token/IP, default 240/min). Change via D1:
+  `INSERT INTO settings (key,value) VALUES ('sec_api_rpm','500') ON CONFLICT(key) DO UPDATE SET value=excluded.value;`
+- **Frontend escaping helpers** (bottom of index.html): `escHtml` (HTML text),
+  `safeUrl` (hrefs — blocks `javascript:`), `safeImgSrc` (img src — http(s)/data:image
+  only), `escJsAttr` (string args inside inline `onclick='fn("…")'` — escHtml
+  alone does NOT escape single quotes).
+- **Pages `_headers`**: CSP locks `connect-src` to the worker only and
+  `img-src` to self+data: — injected script can't exfiltrate to third parties;
+  `frame-ancestors 'none'` stops clickjacking.
 
 ## DB tables
 
