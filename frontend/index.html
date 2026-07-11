@@ -958,8 +958,11 @@
     <p style="font-size:0.8rem;color:var(--muted);margin:0.25rem 0 1rem">入朋友名同單位，自動搵過往成交、恆生估值、相對市價同類近在售。</p>
     <label class="vf-label">朋友名<span>*</span></label>
     <input class="vf-input" type="text" id="fh-name" placeholder="例：阿明">
-    <label class="vf-label" style="margin-top:0.7rem">屋苑<span>*</span></label>
-    <select class="vf-input" id="fh-estate"></select>
+    <label class="vf-label" style="margin-top:0.7rem">屋苑<span>*</span>（搜尋——未追蹤嘅屋苑會自動加入追蹤）</label>
+    <div style="position:relative">
+      <input class="vf-input" type="text" id="fh-estate-input" placeholder="輸入屋苑名搜尋…" autocomplete="off">
+      <div class="autocomplete hidden" id="fh-autocomplete"></div>
+    </div>
     <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:0.6rem;margin-top:0.7rem">
       <div><label class="vf-label">座數<span>*</span></label><input class="vf-input" type="text" id="fh-block" placeholder="例：3座"></div>
       <div><label class="vf-label">樓層<span>*</span></label><input class="vf-input" type="text" id="fh-floor" placeholder="例：28樓"></div>
@@ -1673,13 +1676,17 @@ function _fhAutoFetchHS(homes) {
   for (let i = 0; i < conc; i++) run();
 }
 
+// 揀咗嘅屋苑：{ id, name }（已追蹤）或者 { bigestcode, name, district, isBigest }（未追蹤，儲存時先 track）
+let _fhSelEstate = null;
+
 function openFriendModal(fhId = null) {
   _fhEditingId = fhId;
   const h = fhId ? _fhHomes.find(x => x.id === fhId) : null;
   document.getElementById('friend-modal-title').textContent = h ? '✏️ 編輯朋友屋企' : '👥 新增朋友屋企';
-  // 屋苑 dropdown：已訂閱屋苑
-  document.getElementById('fh-estate').innerHTML = (dashboardEstates || [])
-    .map(e => `<option value="${e.id}"${h && h.estate_id === e.id ? ' selected' : ''}>${escHtml(e.name)}</option>`).join('');
+  _fhSelEstate = h ? { id: h.estate_id, name: h.estate_name } : null;
+  _fhInitEstateSearch();
+  document.getElementById('fh-estate-input').value = h ? h.estate_name : '';
+  document.getElementById('fh-autocomplete').classList.add('hidden');
   document.getElementById('fh-name').value = h ? h.friend_name : '';
   document.getElementById('fh-block').value = h ? h.block : '';
   document.getElementById('fh-floor').value = h ? h.floor : '';
@@ -1694,24 +1701,105 @@ function closeFriendModal() {
   document.getElementById('friendModalOverlay').style.display = 'none';
 }
 
+// 屋苑搜尋 autocomplete：已追蹤即時 match，同時查埋外部（未追蹤，揀咗儲存時自動 track）
+let _fhSearchTimer = null;
+function _fhInitEstateSearch() {
+  const input = document.getElementById('fh-estate-input');
+  const ac = document.getElementById('fh-autocomplete');
+  if (!input || input._fhWired) return;
+  input._fhWired = true;
+  input.addEventListener('input', () => {
+    _fhSelEstate = null; // 打字即係重新揀
+    clearTimeout(_fhSearchTimer);
+    const val = input.value.trim();
+    if (val.length < 2) { ac.classList.add('hidden'); return; }
+    _fhSearchTimer = setTimeout(() => _fhSearchEstates(val), 350);
+  });
+  input.addEventListener('blur', () => setTimeout(() => ac.classList.add('hidden'), 200));
+}
+
+async function _fhSearchEstates(keyword) {
+  const ac = document.getElementById('fh-autocomplete');
+  // 已追蹤：本地即刻 match
+  const local = (dashboardEstates || []).filter(e => e.name.includes(keyword));
+  let html = local.map(e => `<div class="autocomplete-item" onclick="_fhPickEstate(${e.id},'${escJsAttr(e.name)}')">
+    <div class="autocomplete-name">${escHtml(e.name)}</div>
+    <div class="autocomplete-meta">★ 已追蹤${e.district ? ' · ' + escHtml(e.district) : ''}</div>
+  </div>`).join('');
+  ac.innerHTML = html || '<div class="autocomplete-item" style="color:var(--muted)">搜尋緊…</div>';
+  ac.classList.remove('hidden');
+  // 外部搜尋（同 sidebar 搜尋同一個 API）
+  try {
+    const { results } = await api('/api/search', { method: 'POST', body: JSON.stringify({ keyword }) });
+    const localNames = new Set(local.map(e => e.name));
+    const ext = (results || []).filter(r => !localNames.has(r.bigEstateName || r.name)).slice(0, 6);
+    html += ext.map(r => {
+      const name = r.bigEstateName || r.name || '';
+      const code = r.bigestcode || r.bigCode || '';
+      return `<div class="autocomplete-item" onclick="_fhPickExtEstate('${escJsAttr(name)}','${escJsAttr(code)}','${escJsAttr(r.districtName || r.district || '')}',${r.isBigest ? 1 : 0})">
+        <div class="autocomplete-name">${escHtml(name)}</div>
+        <div class="autocomplete-meta">未追蹤 · 會自動加入追蹤${r.districtName || r.district ? ' · ' + escHtml(r.districtName || r.district) : ''}</div>
+      </div>`;
+    }).join('');
+    if (html) { ac.innerHTML = html; ac.classList.remove('hidden'); }
+    else { ac.innerHTML = '<div class="autocomplete-item" style="color:var(--muted)">沒有結果</div>'; }
+  } catch (_) {
+    if (!local.length) ac.innerHTML = '<div class="autocomplete-item" style="color:var(--muted)">搜尋失敗</div>';
+  }
+}
+
+function _fhPickEstate(id, name) {
+  _fhSelEstate = { id, name };
+  document.getElementById('fh-estate-input').value = name;
+  document.getElementById('fh-autocomplete').classList.add('hidden');
+}
+
+function _fhPickExtEstate(name, bigestcode, district, isBigest) {
+  _fhSelEstate = { bigestcode, name, district, isBigest: !!isBigest };
+  document.getElementById('fh-estate-input').value = name;
+  document.getElementById('fh-autocomplete').classList.add('hidden');
+}
+
 async function submitFriendHome() {
   const errEl = document.getElementById('fh-error');
   errEl.style.display = 'none';
-  const body = {
-    friend_name: document.getElementById('fh-name').value.trim(),
-    estate_id: Number(document.getElementById('fh-estate').value),
-    block: document.getElementById('fh-block').value.trim(),
-    floor: document.getElementById('fh-floor').value.trim(),
-    unit: document.getElementById('fh-unit').value.trim(),
-    size_net: document.getElementById('fh-size').value || null,
-    bedrooms: document.getElementById('fh-beds').value || null,
-  };
+  if (!_fhSelEstate) {
+    errEl.textContent = '請喺下拉選單度揀返個屋苑';
+    errEl.style.display = 'block';
+    return;
+  }
   try {
+    let estateId = _fhSelEstate.id;
+    // 未追蹤嘅屋苑：先 track（會抓初始數據，等陣）
+    if (!estateId) {
+      errEl.style.color = 'var(--muted)';
+      errEl.textContent = `正在抓取 ${_fhSelEstate.name} 資料，請等等…`;
+      errEl.style.display = 'block';
+      const t = await api('/api/track', { method: 'POST', body: JSON.stringify({
+        name: _fhSelEstate.name, bigestcode: _fhSelEstate.bigestcode,
+        district: _fhSelEstate.district, isBigest: _fhSelEstate.isBigest,
+      }) });
+      estateId = t.estate.id;
+      _fhSelEstate.id = estateId;
+      loadEstates(); // sidebar 加返個新屋苑
+      errEl.style.display = 'none';
+      errEl.style.color = 'var(--down)';
+    }
+    const body = {
+      friend_name: document.getElementById('fh-name').value.trim(),
+      estate_id: estateId,
+      block: document.getElementById('fh-block').value.trim(),
+      floor: document.getElementById('fh-floor').value.trim(),
+      unit: document.getElementById('fh-unit').value.trim(),
+      size_net: document.getElementById('fh-size').value || null,
+      bedrooms: document.getElementById('fh-beds').value || null,
+    };
     if (_fhEditingId) await api(`/api/friend-homes/${_fhEditingId}`, { method: 'PUT', body: JSON.stringify(body) });
     else await api('/api/friend-homes', { method: 'POST', body: JSON.stringify(body) });
     closeFriendModal();
     loadFriendHomes();
   } catch (e) {
+    errEl.style.color = 'var(--down)';
     errEl.textContent = e.message;
     errEl.style.display = 'block';
   }
