@@ -147,6 +147,9 @@
     }
     .search-btn:hover { background: var(--btn-hover); }
 
+    /* classList.add('hidden') 靠呢條 rule 先真係閂到——之前一直冇定義，
+       dropdown 加咗 class 都照display，撳完個掣好似冇反應咁 */
+    .autocomplete.hidden { display: none; }
     .autocomplete {
       position: absolute;
       top: calc(100% + 4px);
@@ -963,6 +966,7 @@
       <input class="vf-input" type="text" id="fh-estate-input" placeholder="輸入屋苑名搜尋…" autocomplete="off">
       <div class="autocomplete hidden" id="fh-autocomplete"></div>
     </div>
+    <div id="fh-estate-picked" style="display:none;font-size:0.8rem;margin-top:0.35rem"></div>
     <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:0.6rem;margin-top:0.7rem">
       <div><label class="vf-label">座數<span>*</span></label><input class="vf-input" type="text" id="fh-block" placeholder="例：3座"></div>
       <div><label class="vf-label">樓層<span>*</span></label><input class="vf-input" type="text" id="fh-floor" placeholder="例：28樓"></div>
@@ -1687,6 +1691,8 @@ function openFriendModal(fhId = null) {
   _fhInitEstateSearch();
   document.getElementById('fh-estate-input').value = h ? h.estate_name : '';
   document.getElementById('fh-autocomplete').classList.add('hidden');
+  if (h) _fhShowPicked(`${h.estate_name}（已追蹤）`);
+  else document.getElementById('fh-estate-picked').style.display = 'none';
   document.getElementById('fh-name').value = h ? h.friend_name : '';
   document.getElementById('fh-block').value = h ? h.block : '';
   document.getElementById('fh-floor').value = h ? h.floor : '';
@@ -1710,6 +1716,7 @@ function _fhInitEstateSearch() {
   input._fhWired = true;
   input.addEventListener('input', () => {
     _fhSelEstate = null; // 打字即係重新揀
+    document.getElementById('fh-estate-picked').style.display = 'none';
     clearTimeout(_fhSearchTimer);
     const val = input.value.trim();
     if (val.length < 2) { ac.classList.add('hidden'); return; }
@@ -1753,16 +1760,27 @@ async function _fhSearchEstates(keyword) {
   }
 }
 
+// 揀完要有明顯 feedback——唔係淨係收埋 dropdown，用戶會以為撳唔中
+function _fhShowPicked(text) {
+  const el = document.getElementById('fh-estate-picked');
+  el.innerHTML = `<span style="color:var(--up)">✓ 已揀：${escHtml(text)}</span>`;
+  el.style.display = '';
+}
+
 function _fhPickEstate(id, name) {
+  _fhSearchSeq++; // 作廢 in-flight 搜尋——唔係佢遲啲返嚟會再打開 dropdown，好似「禁唔到」咁
   _fhSelEstate = { id, name };
   document.getElementById('fh-estate-input').value = name;
   document.getElementById('fh-autocomplete').classList.add('hidden');
+  _fhShowPicked(`${name}（已追蹤）`);
 }
 
 function _fhPickExtEstate(name, bigestcode, district, isBigest) {
+  _fhSearchSeq++; // 同上：pick 咗就唔准舊搜尋 response 再郁個 dropdown
   _fhSelEstate = { bigestcode, name, district, isBigest: !!isBigest };
   document.getElementById('fh-estate-input').value = name;
   document.getElementById('fh-autocomplete').classList.add('hidden');
+  _fhShowPicked(`${name}${district ? '（' + district + '）' : ''}——儲存時會一次過抓數據`);
 }
 
 async function submitFriendHome() {
