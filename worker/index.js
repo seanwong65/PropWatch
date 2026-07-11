@@ -3537,6 +3537,34 @@ export default {
         return json(200, { ok: true, updated, items: CONFIG_DEFS.map((d) => ({ ...d, value: cfg[d.key] })) });
       }
 
+      // ── 睇樓偏好（首次登入 popup + filter auto-apply）──
+      // 一個 per-account JSON key：pref_<accountId>
+      // { price_min, price_max, beds, size_min, size_max, dismissed }
+      // 全部欄位 optional；dismissed=true 即係「以後不再提醒」
+      if (method === "GET" && path === "/api/preferences") {
+        const row = await db.prepare("SELECT value FROM settings WHERE key = ?")
+          .bind(`pref_${session.account_id}`).first();
+        let prefs = null;
+        if (row) { try { prefs = JSON.parse(row.value); } catch (_) {} }
+        return json(200, { prefs });
+      }
+      if (method === "PUT" && path === "/api/preferences") {
+        const body = await request.json();
+        const prefs = {};
+        // 數字欄位：淨係收有效正數，其他一律唔存（optional）
+        for (const k of ["price_min", "price_max", "size_min", "size_max"]) {
+          const n = Number(body[k]);
+          if (Number.isFinite(n) && n > 0) prefs[k] = n;
+        }
+        if (["1", "2", "3", "4+"].includes(String(body.beds))) prefs.beds = String(body.beds);
+        if (body.dismissed === true) prefs.dismissed = true;
+        await db.prepare("CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT)").run();
+        await db.prepare(
+          "INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value"
+        ).bind(`pref_${session.account_id}`, JSON.stringify(prefs)).run();
+        return json(200, { ok: true, prefs });
+      }
+
       if (method === "POST" && path === "/api/admin/migrate-centanet-enabled") {
         await db.prepare("ALTER TABLE estates ADD COLUMN centanet_enabled INTEGER DEFAULT 1").run().catch(() => {});
         await db.prepare("UPDATE estates SET centanet_enabled = 1 WHERE centanet_enabled IS NULL").run();

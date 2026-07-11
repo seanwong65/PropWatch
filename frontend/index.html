@@ -950,6 +950,42 @@
 </div>
 
 <!-- Settings Modal -->
+<!-- 首次登入睇樓偏好 Modal -->
+<div class="modal-overlay" id="prefsModalOverlay" style="display:none" onclick="if(event.target===this)closePrefsModal()">
+  <div class="modal" style="max-width:420px">
+    <button class="modal-close" onclick="closePrefsModal()">✕</button>
+    <div class="modal-title">🎯 睇樓偏好</div>
+    <p style="font-size:0.82rem;color:var(--muted);margin:0.25rem 0 1rem">話俾系統知你想搵咩樓，開「最新放盤」時會自動幫你 filter。全部 optional，之後喺 ⚙️ 設定都改到。</p>
+    <label class="vf-label">想睇幾錢嘅樓（萬）</label>
+    <div style="display:flex;align-items:center;gap:0.5rem">
+      <input class="vf-input" type="number" id="pref-price-min" placeholder="最低" style="margin:0">
+      <span style="color:var(--muted)">–</span>
+      <input class="vf-input" type="number" id="pref-price-max" placeholder="最高" style="margin:0">
+    </div>
+    <label class="vf-label" style="margin-top:0.9rem">目標房數</label>
+    <div id="pref-beds" style="display:flex;gap:0.4rem;flex-wrap:wrap">
+      <button type="button" class="filter-chip active" data-beds="" onclick="setPrefBeds(this)">唔限</button>
+      <button type="button" class="filter-chip" data-beds="1" onclick="setPrefBeds(this)">1房</button>
+      <button type="button" class="filter-chip" data-beds="2" onclick="setPrefBeds(this)">2房</button>
+      <button type="button" class="filter-chip" data-beds="3" onclick="setPrefBeds(this)">3房</button>
+      <button type="button" class="filter-chip" data-beds="4+" onclick="setPrefBeds(this)">4+房</button>
+    </div>
+    <label class="vf-label" style="margin-top:0.9rem">實呎</label>
+    <div style="display:flex;align-items:center;gap:0.5rem">
+      <input class="vf-input" type="number" id="pref-size-min" placeholder="最低" style="margin:0">
+      <span style="color:var(--muted)">–</span>
+      <input class="vf-input" type="number" id="pref-size-max" placeholder="最高" style="margin:0">
+    </div>
+    <label style="display:flex;align-items:center;gap:0.45rem;margin-top:1.1rem;font-size:0.85rem;color:var(--muted);cursor:pointer">
+      <input type="checkbox" id="pref-dismiss" style="accent-color:var(--accent)"> 以後不再提醒
+    </label>
+    <div style="display:flex;gap:0.5rem;margin-top:1rem">
+      <button class="vf-submit" onclick="savePrefsFromModal()" style="flex:1;margin:0">儲存</button>
+      <button class="vf-submit" onclick="closePrefsModal()" style="flex:1;margin:0;background:var(--surface2);color:var(--text)">略過</button>
+    </div>
+  </div>
+</div>
+
 <div class="modal-overlay" id="settingsModalOverlay" style="display:none" onclick="if(event.target===this)closeSettingsModal()">
   <div class="modal" style="max-width:460px;max-height:90vh;overflow-y:auto">
     <button class="modal-close" onclick="closeSettingsModal()">✕</button>
@@ -961,6 +997,12 @@
       <input id="settings-notes-new" placeholder="新增選項…" onkeydown="if(event.key==='Enter')addNotesOption()"
         style="flex:1;background:var(--surface2);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:0.9rem;padding:0.5rem 0.6rem;box-sizing:border-box;font-family:inherit">
       <button class="vf-submit" onclick="addNotesOption()" style="width:auto;padding:0.5rem 1rem;margin:0;white-space:nowrap">＋ 新增</button>
+    </div>
+    <div class="modal-sub" style="margin-top:1.25rem">🎯 睇樓偏好</div>
+    <p style="font-size:0.78rem;color:var(--muted);margin:0.25rem 0 0.5rem">開「最新放盤」時自動 apply 嘅 filter（售價／房數／實呎），留空＝唔限</p>
+    <div style="display:flex;align-items:center;gap:0.6rem">
+      <span id="settings-prefs-summary" style="flex:1;font-size:0.85rem"></span>
+      <button class="vf-submit" style="width:auto;padding:0.5rem 1rem;margin:0;white-space:nowrap" onclick="openPrefsModal(_userPrefs||{})">修改</button>
     </div>
     <div class="modal-sub" style="margin-top:1.25rem;display:flex;align-items:center;justify-content:space-between;gap:0.6rem">
       <span>📐 分析參數</span>
@@ -1203,6 +1245,7 @@ async function doLogin() {
     hideLoginScreen();
     loadEstates();
     loadNotesOptions();
+    checkFirstLoginPrefs();
   } catch (e) {
     errEl.textContent = e.message;
     errEl.style.display = "block";
@@ -1230,6 +1273,7 @@ async function doRegister() {
     hideLoginScreen();
     loadEstates();
     loadNotesOptions();
+    checkFirstLoginPrefs();
   } catch (e) {
     errEl.textContent = e.message;
     errEl.style.display = "block";
@@ -2411,7 +2455,16 @@ async function showEstate(id, name, district) {
       allListings = listings;
       sortCol = "price";
       sortDir = "asc";
-      filters = { beds: "all", floor: "all", building: "all", unit: "all", minPrice: "", maxPrice: "", minSize: "", maxSize: "", priceChanged: "all", source: "all", dom: "all" };
+      // 開頁時 auto-apply 用戶睇樓偏好（⚙️ 設定可改）；user 之後照可以手動改 filter
+      filters = {
+        beds: (_userPrefs && _userPrefs.beds) || "all",
+        floor: "all", building: "all", unit: "all",
+        minPrice: (_userPrefs && _userPrefs.price_min) || "",
+        maxPrice: (_userPrefs && _userPrefs.price_max) || "",
+        minSize: (_userPrefs && _userPrefs.size_min) || "",
+        maxSize: (_userPrefs && _userPrefs.size_max) || "",
+        priceChanged: "all", source: "all", dom: "all",
+      };
       renderFilterBar();
       renderSourceToggles();
       renderListingsTable();
@@ -2925,9 +2978,79 @@ async function openSettingsModal() {
   document.getElementById('settingsModalOverlay').style.display = 'flex';
   renderNotesOptions();
   renderCfgOptions();
-  await Promise.all([loadNotesOptions(), loadAppConfig()]);
+  renderPrefsSummary();
+  await Promise.all([loadNotesOptions(), loadAppConfig(), loadPreferences()]);
   renderNotesOptions();
   renderCfgOptions();
+  renderPrefsSummary();
+}
+
+// ── 睇樓偏好（首次登入 popup + filter auto-apply + ⚙️ 可改）──
+let _userPrefs = null; // { price_min, price_max, beds, size_min, size_max, dismissed } | null（未設定過）
+
+async function loadPreferences() {
+  try { _userPrefs = (await api('/api/preferences')).prefs; } catch (_) {}
+  return _userPrefs;
+}
+
+// login 成功／有現存 session 開 app 時 call：未設定過偏好（連 dismissed 都冇）就彈 popup
+async function checkFirstLoginPrefs() {
+  await loadPreferences();
+  if (_userPrefs === null) openPrefsModal();
+}
+
+function openPrefsModal(prefill) {
+  const p = prefill || {};
+  document.getElementById('pref-price-min').value = p.price_min || '';
+  document.getElementById('pref-price-max').value = p.price_max || '';
+  document.getElementById('pref-size-min').value = p.size_min || '';
+  document.getElementById('pref-size-max').value = p.size_max || '';
+  document.querySelectorAll('#pref-beds .filter-chip').forEach(b =>
+    b.classList.toggle('active', (b.dataset.beds || '') === (p.beds || '')));
+  document.getElementById('pref-dismiss').checked = false;
+  document.getElementById('prefsModalOverlay').style.display = 'flex';
+}
+
+function setPrefBeds(btn) {
+  document.querySelectorAll('#pref-beds .filter-chip').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+}
+
+async function savePrefsFromModal() {
+  const body = {
+    price_min: document.getElementById('pref-price-min').value,
+    price_max: document.getElementById('pref-price-max').value,
+    size_min: document.getElementById('pref-size-min').value,
+    size_max: document.getElementById('pref-size-max').value,
+    beds: document.querySelector('#pref-beds .filter-chip.active')?.dataset.beds || '',
+  };
+  if (document.getElementById('pref-dismiss').checked) body.dismissed = true;
+  try {
+    const d = await api('/api/preferences', { method: 'PUT', body: JSON.stringify(body) });
+    _userPrefs = d.prefs;
+  } catch (e) { alert('儲存失敗：' + e.message); return; }
+  document.getElementById('prefsModalOverlay').style.display = 'none';
+  renderPrefsSummary();
+}
+
+// 略過／✕／點背景：淨係 tick 咗「不再提醒」先寫低 dismissed，否則下次登入照提
+async function closePrefsModal() {
+  if (document.getElementById('pref-dismiss').checked && !(_userPrefs && _userPrefs.dismissed)) {
+    try { _userPrefs = (await api('/api/preferences', { method: 'PUT', body: JSON.stringify({ dismissed: true }) })).prefs; } catch (_) {}
+  }
+  document.getElementById('prefsModalOverlay').style.display = 'none';
+}
+
+function renderPrefsSummary() {
+  const el = document.getElementById('settings-prefs-summary');
+  if (!el) return;
+  const p = _userPrefs || {};
+  const parts = [];
+  if (p.price_min || p.price_max) parts.push(`$${p.price_min || '?'}–${p.price_max || '?'}萬`);
+  if (p.beds) parts.push(`${p.beds}房`);
+  if (p.size_min || p.size_max) parts.push(`${p.size_min || '?'}–${p.size_max || '?'}呎`);
+  el.textContent = parts.length ? parts.join(' · ') : '未設定';
+  el.style.color = parts.length ? 'var(--text)' : 'var(--muted)';
 }
 
 // 分析參數列表：label + number input + 說明。onchange 即刻 PUT,後端 clamp
@@ -4270,6 +4393,7 @@ if (getToken()) {
   hideLoginScreen();
   loadEstates();
   loadNotesOptions();
+  checkFirstLoginPrefs();
 } else {
   showLoginScreen();
 }
