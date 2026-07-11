@@ -950,6 +950,30 @@
 </div>
 
 <!-- Settings Modal -->
+<!-- 朋友屋企 Modal -->
+<div class="modal-overlay" id="friendModalOverlay" style="display:none" onclick="if(event.target===this)closeFriendModal()">
+  <div class="modal" style="max-width:440px;max-height:90vh;overflow-y:auto">
+    <button class="modal-close" onclick="closeFriendModal()">✕</button>
+    <div class="modal-title" id="friend-modal-title">👥 新增朋友屋企</div>
+    <p style="font-size:0.8rem;color:var(--muted);margin:0.25rem 0 1rem">入朋友名同單位，自動搵過往成交、恆生估值、相對市價同類近在售。</p>
+    <label class="vf-label">朋友名<span>*</span></label>
+    <input class="vf-input" type="text" id="fh-name" placeholder="例：阿明">
+    <label class="vf-label" style="margin-top:0.7rem">屋苑<span>*</span></label>
+    <select class="vf-input" id="fh-estate"></select>
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:0.6rem;margin-top:0.7rem">
+      <div><label class="vf-label">座數<span>*</span></label><input class="vf-input" type="text" id="fh-block" placeholder="例：3座"></div>
+      <div><label class="vf-label">樓層<span>*</span></label><input class="vf-input" type="text" id="fh-floor" placeholder="例：28樓"></div>
+      <div><label class="vf-label">室<span>*</span></label><input class="vf-input" type="text" id="fh-unit" placeholder="例：E室"></div>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.6rem;margin-top:0.7rem">
+      <div><label class="vf-label">實呎（可留空，自動由成交/放盤執）</label><input class="vf-input" type="number" id="fh-size"></div>
+      <div><label class="vf-label">房數（可留空）</label><input class="vf-input" type="number" id="fh-beds"></div>
+    </div>
+    <button class="vf-submit" style="margin-top:1.1rem" onclick="submitFriendHome()">儲存</button>
+    <div id="fh-error" style="display:none;color:var(--down);font-size:0.82rem;margin-top:0.5rem"></div>
+  </div>
+</div>
+
 <!-- 首次登入睇樓偏好 Modal -->
 <div class="modal-overlay" id="prefsModalOverlay" style="display:none" onclick="if(event.target===this)closePrefsModal()">
   <div class="modal" style="max-width:420px">
@@ -1311,6 +1335,8 @@ let dashboardMetric = "count"; // "count" | "price"
 
 async function showDashboard(estates) {
   dashboardEstates = estates;
+  // panels 重建晒做「載入中…」，flags 要一齊 reset，唔係 switch 返去會困死
+  _spreadLoaded = false; _compsLoaded = false; _radarLoaded = false; _friendsLoaded = false;
   const main = document.getElementById("main");
   main.innerHTML = `
     <div class="dashboard">
@@ -1321,6 +1347,7 @@ async function showDashboard(estates) {
             <button id="dash-tab-spread" onclick="switchDashTab('spread')" style="background:none;border:none;border-bottom:2px solid transparent;margin-bottom:-2px;color:var(--muted);font-size:0.9rem;padding:0.35rem 0.85rem;cursor:pointer">叫價→成交</button>
             <button id="dash-tab-comps" onclick="switchDashTab('comps')" style="background:none;border:none;border-bottom:2px solid transparent;margin-bottom:-2px;color:var(--muted);font-size:0.9rem;padding:0.35rem 0.85rem;cursor:pointer">睇過嘅盤</button>
             <button id="dash-tab-radar" onclick="switchDashTab('radar')" style="background:none;border:none;border-bottom:2px solid transparent;margin-bottom:-2px;color:var(--muted);font-size:0.9rem;padding:0.35rem 0.85rem;cursor:pointer">💎 抵買雷達</button>
+            <button id="dash-tab-friends" onclick="switchDashTab('friends')" style="background:none;border:none;border-bottom:2px solid transparent;margin-bottom:-2px;color:var(--muted);font-size:0.9rem;padding:0.35rem 0.85rem;cursor:pointer">👥 朋友屋企</button>
           </div>
           <div style="display:flex;align-items:center;gap:0.5rem">
             <button class="filter-chip hl-pref-toggle active" onclick="toggleHlPrefFilter()" title="用你嘅睇樓偏好（售價/房數/實呎）篩選下面嘅動態" style="display:none">🎯 偏好</button>
@@ -1331,6 +1358,7 @@ async function showDashboard(estates) {
         <div id="dash-panel-spread" style="display:none"><div id="spread-body" style="color:var(--muted);font-size:0.75rem">載入中…</div></div>
         <div id="dash-panel-comps" style="display:none"><div id="comps-body" style="color:var(--muted);font-size:0.75rem">載入中…</div></div>
         <div id="dash-panel-radar" style="display:none"><div id="radar-body" style="color:var(--muted);font-size:0.75rem">載入中…</div></div>
+        <div id="dash-panel-friends" style="display:none"><div id="friends-body" style="color:var(--muted);font-size:0.75rem">載入中…</div></div>
       </div>
       <div class="dashboard-chart-section" style="margin-top:1.25rem">
         <div class="dashboard-chart-header">
@@ -1353,8 +1381,9 @@ async function showDashboard(estates) {
 let _spreadLoaded = false;
 let _compsLoaded = false;
 let _radarLoaded = false;
+let _friendsLoaded = false;
 function switchDashTab(tab) {
-  const tabs = ['today', 'spread', 'comps', 'radar'];
+  const tabs = ['today', 'spread', 'comps', 'radar', 'friends'];
   for (const id of tabs) {
     const active = id === tab;
     const panel = document.getElementById('dash-panel-' + id);
@@ -1369,6 +1398,7 @@ function switchDashTab(tab) {
   if (tab === 'spread' && !_spreadLoaded) { _spreadLoaded = true; loadAskingSold(); }
   if (tab === 'comps' && !_compsLoaded) { _compsLoaded = true; loadViewingComps(); }
   if (tab === 'radar' && !_radarLoaded) { _radarLoaded = true; loadBargainRadar(); }
+  if (tab === 'friends' && !_friendsLoaded) { _friendsLoaded = true; loadFriendHomes(); }
 }
 
 async function loadBargainRadar() {
@@ -1492,6 +1522,206 @@ async function loadAskingSold() {
   } catch (e) {
     body.innerHTML = `<span style="color:var(--down)">載入失敗:${escHtml(e.message)}</span>`;
   }
+}
+
+// ── 朋友屋企 ──────────────────────────────────────────────────────────────
+// 入朋友名+單位 → 過往成交/恆生估值/相對市價/類近在售（重用睇樓記錄嗰套）
+let _fhHomes = [];
+let _fhEditingId = null;
+window._fhListingsByEstate = window._fhListingsByEstate || {};
+
+async function loadFriendHomes() {
+  const body = document.getElementById('friends-body');
+  if (!body) return;
+  try {
+    const { homes } = await api('/api/friend-homes');
+    _fhHomes = homes;
+    // 類近在售要每個屋苑嘅在售放盤（同「睇過嘅盤」tab 同一做法）
+    const eids = [...new Set(homes.map(h => h.estate_id))].filter(id => !window._fhListingsByEstate[id]);
+    await Promise.all(eids.map(async eid => {
+      try { const { listings } = await api(`/api/estates/${eid}/listings`); window._fhListingsByEstate[eid] = listings || []; }
+      catch (_) { window._fhListingsByEstate[eid] = []; }
+    }));
+
+    const addBtn = `<button class="vf-submit" style="width:auto;padding:0.45rem 1rem;margin:0 0 0.75rem" onclick="openFriendModal()">＋ 新增朋友屋企</button>`;
+    if (!homes.length) {
+      body.innerHTML = addBtn + '<div style="color:var(--muted);font-size:0.85rem">未有記錄——加個朋友屋企，自動搵過往成交、估值同市價參考。</div>';
+      return;
+    }
+    const rows = homes.map(h => `<tr class="hl-tr">
+      <td style="padding:0.4rem 0.5rem 0.4rem 0;white-space:nowrap;font-weight:600">${escHtml(h.friend_name)}</td>
+      <td style="padding:0.4rem 0.5rem;white-space:nowrap;cursor:pointer" onclick="showEstate(${h.estate_id},'${escJsAttr(h.estate_name)}','')">${escHtml(h.estate_name)} <span style="font-size:0.72rem;color:var(--accent2)">↗</span></td>
+      <td style="padding:0.4rem 0.5rem;white-space:nowrap">${fhUnitHtml(h)}</td>
+      <td style="padding:0.4rem 0.5rem;white-space:nowrap">${fhTxnsHtml(h)}</td>
+      <td style="padding:0.4rem 0.5rem;white-space:nowrap" id="fhhs-${h.id}"><span style="color:var(--muted);font-size:0.75rem">查詢中…</span></td>
+      <td style="padding:0.4rem 0.5rem;white-space:nowrap">${fhMarketHtml(h)}</td>
+      <td style="padding:0.4rem 0.5rem;white-space:nowrap">${fhSimilarHtml(h)}</td>
+      <td style="padding:0.4rem 0 0.4rem 0.5rem;white-space:nowrap;text-align:right">
+        <button onclick="openFriendModal(${h.id})" style="background:none;border:none;cursor:pointer;font-size:0.85rem" title="編輯">✏️</button>
+        <button onclick="deleteFriendHome(${h.id})" style="background:none;border:none;cursor:pointer;font-size:0.85rem" title="刪除">🗑</button>
+      </td>
+    </tr>`).join('');
+    body.innerHTML = addBtn + '<div id="fhTableWrap"></div>';
+    renderFrozenTable(
+      document.getElementById('fhTableWrap'),
+      `<th style="padding:0.3rem 0.5rem 0.3rem 0">朋友</th><th style="padding:0.3rem 0.5rem">屋苑</th><th style="padding:0.3rem 0.5rem">單位</th><th style="padding:0.3rem 0.5rem">過往成交</th><th style="padding:0.3rem 0.5rem">恆生估值</th><th style="padding:0.3rem 0.5rem">相對市價</th><th style="padding:0.3rem 0.5rem">類近在售</th><th style="padding:0.3rem 0 0.3rem 0.5rem"></th>`,
+      rows
+    );
+    _fhAutoFetchHS(homes);
+  } catch (e) {
+    body.innerHTML = `<span style="color:var(--down)">載入失敗:${escHtml(e.message)}</span>`;
+  }
+}
+
+function fhUnitHtml(h) {
+  const bits = [`${escHtml(h.block)}${/座$/.test(h.block) ? '' : '座'} ${escHtml(h.floor)}${/[樓層]$/.test(h.floor) ? '' : '樓'} ${escHtml(h.unit)}${/[室號]$/.test(h.unit) ? '' : '室'}`];
+  const sub = [];
+  if (h.bedrooms != null) sub.push(`${h.bedrooms}房`);
+  if (h.size_net) sub.push(`${h.size_net}呎`);
+  return `<div>${bits[0]}</div>${sub.length ? `<div class="unit-price">${sub.join(' · ')}</div>` : ''}`;
+}
+
+// 過往成交：最新嗰宗大字，再舊嘅細字（最多display 4宗）
+function fhTxnsHtml(h) {
+  const txns = h.unit_txns || [];
+  if (!txns.length) return '<span style="color:var(--muted);font-size:0.75rem">冇記錄</span>';
+  const rows = txns.slice(0, 4).map((t, i) =>
+    `<div style="${i ? 'color:var(--muted);font-size:0.75rem' : 'font-weight:600;color:var(--accent)'}">$${(t.price/1e4).toFixed(0)}萬 <span style="color:var(--muted);font-size:0.72rem;font-weight:400">${(t.reg_date||'').slice(0,7)}</span></div>`
+  ).join('');
+  const more = txns.length > 4 ? `<div class="unit-price">+${txns.length - 4} 宗更早</div>` : '';
+  return rows + more;
+}
+
+// 相對市價：朋友屋企冇售價，出「市場估值」（中位呎價 × 實呎）+ 基準；N宗可撳
+function fhMarketHtml(h) {
+  if (!h.sold_med_psf) return '<span style="color:var(--muted);font-size:0.75rem">-</span>';
+  const label = h.market_basis === 'tier' ? `${h.floor_tier}中位` : '全苑中位';
+  const est = h.est_value
+    ? `<div style="font-size:0.8rem"><span style="color:var(--accent2)" title="實用 ${h.size_net}呎 × 中位 $${h.sold_med_psf.toLocaleString()}/呎">市場估值 $${(h.est_value/1e4).toFixed(0)}萬</span></div>`
+    : '';
+  const nClick = `<span onclick="openEstateComps(${h.estate_id},'${h.market_basis||'estate'}','${h.floor_tier||''}','${escJsAttr(h.block)}','${escJsAttr(h.floor)}','${escJsAttr(h.unit)}')" style="cursor:pointer;border-bottom:1px dotted var(--muted)" title="睇成交紀錄">${h.market_n_sold}宗</span>`;
+  return `${est}<div class="unit-price">${label} $${h.sold_med_psf.toLocaleString()} · ${nClick}</div>`;
+}
+
+// 類近在售：同房數+同樓層帶在售盤（similarListings 靠 allListings，臨時換入該苑）
+function _fhSimilar(h) {
+  const saved = allListings;
+  allListings = window._fhListingsByEstate[h.estate_id] || [];
+  const sim = similarListings(h);
+  allListings = saved;
+  return sim;
+}
+
+function fhSimilarHtml(h) {
+  if (!h.floor_tier || h.bedrooms == null) return '<span style="color:var(--muted);font-size:0.75rem" title="未有房數/樓層帶">－</span>';
+  const sim = _fhSimilar(h);
+  if (!sim.length) return '<span style="color:var(--muted);font-size:0.75rem">0 個</span>';
+  const medPsf = _median(sim.map(s => s.price_per_ft).filter(Boolean));
+  const nClick = `<span onclick="openFhSimilar(${h.id})" style="cursor:pointer;border-bottom:1px dotted var(--muted)" title="睇 ${h.bedrooms}房 ${h.floor_tier} 在售盤">${sim.length} 個</span>`;
+  return `<div class="unit-price">${medPsf ? `${h.floor_tier}中位 $${medPsf.toLocaleString()}/呎 · ` : ''}${nClick}</div>`;
+}
+
+// 類近在售 popup — 直接重用睇樓記錄嗰個 _slRows/renderSlTable
+function openFhSimilar(fhId) {
+  const h = _fhHomes.find(x => x.id === fhId);
+  if (!h) return;
+  _slRows = _fhSimilar(h);
+  _slSort = { key: 'price_per_ft', dir: 'asc' };
+  const overlay = document.createElement('div');
+  overlay.className = 'modal-overlay';
+  overlay.style.display = 'flex';
+  overlay.onclick = (e) => { if (e.target === overlay) overlay.remove(); };
+  overlay.innerHTML = `<div class="modal" style="max-width:560px;max-height:90vh;overflow-y:auto">
+    <button class="modal-close" onclick="this.closest('.modal-overlay').remove()">✕</button>
+    <div class="modal-title">類近在售盤</div>
+    <div class="modal-sub">${escHtml(h.estate_name)} · ${h.bedrooms}房 · ${h.floor_tier} · ${_slRows.length}個（撳表頭可排序）</div>
+    <div id="sl-body" style="margin-top:0.5rem"></div>
+  </div>`;
+  document.body.appendChild(overlay);
+  renderSlTable();
+}
+
+// 恆生估值自動查（同今日動態同一 throttle 做法）
+function _fhAutoFetchHS(homes) {
+  const queue = [];
+  for (const h of homes) {
+    const blockNum = (h.block || '').match(/\d+/)?.[0] || '';
+    const floorNum = (h.floor || '').match(/\d+/)?.[0] || '';
+    const flat = (h.unit || '').replace(/[室號樓層座]/g, '').trim();
+    const cell = document.getElementById(`fhhs-${h.id}`);
+    if (!blockNum || !floorNum || !flat) { if (cell) cell.innerHTML = '<span style="color:var(--muted);font-size:0.75rem">-</span>'; continue; }
+    queue.push({ h, blockNum, floorNum, flat });
+  }
+  const run = async () => {
+    let item;
+    while ((item = queue.shift())) {
+      const { h, blockNum, floorNum, flat } = item;
+      const cell = document.getElementById(`fhhs-${h.id}`);
+      if (!cell) continue;
+      try {
+        const params = new URLSearchParams({ estate: h.estate_name, block: blockNum, floor: floorNum, flat, estateId: h.estate_id });
+        const data = await api(`/api/hangseng-valuation?${params}`);
+        cell.innerHTML = data?.price
+          ? `${hsValHtml(Number(data.price))}<div style="margin-top:3px"><button class="history-btn" onclick="showHSHistory('${escJsAttr(blockNum)}','${escJsAttr(floorNum)}','${escJsAttr(flat)}','${h.estate_id}')">歷史</button></div>`
+          : '<span style="color:var(--muted);font-size:0.75rem">冇估值</span>';
+      } catch (_) {
+        cell.innerHTML = '<span style="color:var(--muted);font-size:0.75rem">查唔到</span>';
+      }
+    }
+  };
+  const conc = _appCfg.hs_autofetch_concurrency ?? 3;
+  for (let i = 0; i < conc; i++) run();
+}
+
+function openFriendModal(fhId = null) {
+  _fhEditingId = fhId;
+  const h = fhId ? _fhHomes.find(x => x.id === fhId) : null;
+  document.getElementById('friend-modal-title').textContent = h ? '✏️ 編輯朋友屋企' : '👥 新增朋友屋企';
+  // 屋苑 dropdown：已訂閱屋苑
+  document.getElementById('fh-estate').innerHTML = (dashboardEstates || [])
+    .map(e => `<option value="${e.id}"${h && h.estate_id === e.id ? ' selected' : ''}>${escHtml(e.name)}</option>`).join('');
+  document.getElementById('fh-name').value = h ? h.friend_name : '';
+  document.getElementById('fh-block').value = h ? h.block : '';
+  document.getElementById('fh-floor').value = h ? h.floor : '';
+  document.getElementById('fh-unit').value = h ? h.unit : '';
+  document.getElementById('fh-size').value = h && h.size_net ? h.size_net : '';
+  document.getElementById('fh-beds').value = h && h.bedrooms != null ? h.bedrooms : '';
+  document.getElementById('fh-error').style.display = 'none';
+  document.getElementById('friendModalOverlay').style.display = 'flex';
+}
+
+function closeFriendModal() {
+  document.getElementById('friendModalOverlay').style.display = 'none';
+}
+
+async function submitFriendHome() {
+  const errEl = document.getElementById('fh-error');
+  errEl.style.display = 'none';
+  const body = {
+    friend_name: document.getElementById('fh-name').value.trim(),
+    estate_id: Number(document.getElementById('fh-estate').value),
+    block: document.getElementById('fh-block').value.trim(),
+    floor: document.getElementById('fh-floor').value.trim(),
+    unit: document.getElementById('fh-unit').value.trim(),
+    size_net: document.getElementById('fh-size').value || null,
+    bedrooms: document.getElementById('fh-beds').value || null,
+  };
+  try {
+    if (_fhEditingId) await api(`/api/friend-homes/${_fhEditingId}`, { method: 'PUT', body: JSON.stringify(body) });
+    else await api('/api/friend-homes', { method: 'POST', body: JSON.stringify(body) });
+    closeFriendModal();
+    loadFriendHomes();
+  } catch (e) {
+    errEl.textContent = e.message;
+    errEl.style.display = 'block';
+  }
+}
+
+async function deleteFriendHome(fhId) {
+  const h = _fhHomes.find(x => x.id === fhId);
+  if (!confirm(`刪除 ${h ? h.friend_name : ''} 嘅屋企記錄？`)) return;
+  try { await api(`/api/friend-homes/${fhId}`, { method: 'DELETE' }); } catch (_) {}
+  loadFriendHomes();
 }
 
 let _compsData = [];

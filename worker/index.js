@@ -393,6 +393,19 @@ async function ensureMultiAccount(db) {
   )`).run();
   try { await db.prepare("ALTER TABLE viewings ADD COLUMN account_id INTEGER").run(); } catch (_) {}
   try { await db.prepare("ALTER TABLE system_parameters ADD COLUMN account_id INTEGER").run(); } catch (_) {}
+  // 朋友屋企：per-account 記錄朋友住邊個單位，攞成交/估值/市價參考
+  await db.prepare(`CREATE TABLE IF NOT EXISTS friend_homes (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    account_id INTEGER NOT NULL,
+    friend_name TEXT NOT NULL,
+    estate_id INTEGER NOT NULL,
+    block TEXT NOT NULL,
+    floor TEXT NOT NULL,
+    unit TEXT NOT NULL,
+    size_net INTEGER,
+    bedrooms INTEGER,
+    created_at TEXT DEFAULT (datetime('now'))
+  )`).run();
   await db.prepare("CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT)").run();
   const done = await db.prepare("SELECT 1 FROM settings WHERE key = 'multi_account_migrated'").first();
   if (done) return;
@@ -3570,6 +3583,142 @@ export default {
           "INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value"
         ).bind(`pref_${session.account_id}`, JSON.stringify(prefs)).run();
         return json(200, { ok: true, prefs });
+      }
+
+      // ── 朋友屋企 ──────────────────────────────────────────────────────────
+      // 入朋友名+屋苑單位，自動搵：過往成交、分層成交中位（相對市價基準）。
+      // 恆生估值/類近在售由前端用現有 API/放盤數據做。全部 per-account。
+      if (method === "GET" && path === "/api/friend-homes") {
+        const { results: homes } = await db.prepare(`
+          SELECT f.*, e.name AS estate_name
+          FROM friend_homes f JOIN estates e ON e.id = f.estate_id
+          WHERE f.account_id = ?
+          ORDER BY f.friend_name COLLATE NOCASE, f.id
+        `).bind(session.account_id).all();
+        if (!homes.length) return json(200, { homes: [] });
+
+        // 單位過往成交（全部）——同睇樓記錄同一套 座/樓/室 normalization
+        const { results: txnRows } = await db.prepare(`
+          SELECT f.id AS fh_id, t.price, t.reg_date, t.size_net, t.prev_price, t.held_days
+          FROM friend_homes f
+          JOIN transactions t ON t.estate_id = f.estate_id
+            AND t.building = CASE WHEN f.block LIKE '%座' THEN f.block ELSE f.block || '座' END
+            AND t.floor = CASE WHEN f.floor LIKE '%樓' OR f.floor LIKE '%層' THEN f.floor ELSE f.floor || '樓' END
+            AND t.unit = CASE WHEN f.unit LIKE '%室' OR f.unit LIKE '%號' THEN f.unit ELSE f.unit || '室' END
+          WHERE f.account_id = ?
+          ORDER BY t.reg_date DESC
+        `).bind(session.account_id).all();
+        const txnsByHome = new Map();
+        for (const r of txnRows) {
+          if (!txnsByHome.has(r.fh_id)) txnsByHome.set(r.fh_id, []);
+          txnsByHome.get(r.fh_id).push({ price: r.price, reg_date: r.reg_date, size_net: r.size_net, prev_price: r.prev_price, held_days: r.held_days });
+        }
+
+        // 房數/面積自動執：同座同室（stack）嘅放盤通常同則——用戶冇入先用
+        const { results: lsRows } = await db.prepare(`
+          SELECT f.id AS fh_id, l.bedrooms, l.size_net
+          FROM friend_homes f
+          JOIN listings l ON l.estate_id = f.estate_id
+            AND l.building_name = CASE WHEN f.block LIKE '%座' THEN f.block ELSE f.block || '座' END
+            AND l.unit = CASE WHEN f.unit LIKE '%室' OR f.unit LIKE '%號' THEN f.unit ELSE f.unit || '室' END
+          WHERE f.account_id = ? AND (l.bedrooms IS NOT NULL OR l.size_net IS NOT NULL)
+        `).bind(session.account_id).all();
+        const lsByHome = new Map();
+        for (const r of lsRows) if (!lsByHome.has(r.fh_id)) lsByHome.set(r.fh_id, r);
+
+        // 相對市價基準：同睇樓記錄同一把尺（分層中位，唔夠宗數 fallback 全苑；
+        // 撇除單位自己嘅成交）
+        const fhCfg = await getConfig(db, session.account_id);
+        const estateIds = [...new Set(homes.map((h) => h.estate_id))];
+        const ph = estateIds.map(() => "?").join(",");
+        const [{ results: rawTxns }, { results: maxfRows }] = await Promise.all([
+          db.prepare(`
+            SELECT estate_id, building, floor, unit, price_per_ft,
+                   CAST(REPLACE(REPLACE(floor,'樓',''),'層','') AS INT) fl
+            FROM transactions
+            WHERE estate_id IN (${ph}) AND price_per_ft > 0 AND reg_date >= date('now', ?)
+          `).bind(...estateIds, `-${fhCfg.market_median_days} days`).all(),
+          db.prepare(`
+            SELECT estate_id, building, MAX(CAST(REPLACE(REPLACE(floor,'樓',''),'層','') AS INT)) max_fl
+            FROM transactions
+            WHERE estate_id IN (${ph}) AND CAST(REPLACE(REPLACE(floor,'樓',''),'層','') AS INT) > 0
+            GROUP BY estate_id, building
+          `).bind(...estateIds).all(),
+        ]);
+        const maxfMap = new Map(maxfRows.map((r) => [`${r.estate_id}|${r.building}`, r.max_fl]));
+
+        for (const h of homes) {
+          h.unit_txns = txnsByHome.get(h.id) || [];
+          const ls = lsByHome.get(h.id);
+          if (h.size_net == null) h.size_net = h.unit_txns[0]?.size_net ?? ls?.size_net ?? null;
+          if (h.bedrooms == null) h.bedrooms = ls?.bedrooms ?? null;
+
+          const floorNum = parseInt(String(h.floor ?? "").replace(/[樓層]/g, ""), 10) || null;
+          const bldg = h.block ? (/座$/.test(h.block) ? h.block : h.block + "座") : null;
+          const maxFl = maxfMap.get(`${h.estate_id}|${bldg}`) ?? null;
+          const tier = deriveFloorTier(floorNum, maxFl);
+          const nb = bldg ? _normBldg(bldg) : null, nu = h.unit ? _normUnit(h.unit) : null;
+          const pool = rawTxns.filter((t) =>
+            t.estate_id === h.estate_id &&
+            !(nb && nu && _normBldg(t.building) === nb && _normUnit(t.unit) === nu && t.fl === floorNum)
+          );
+          const tierPool = tier ? pool.filter((t) => deriveFloorTier(t.fl, maxfMap.get(`${t.estate_id}|${t.building}`)) === tier) : [];
+          // 朋友屋企冇售價，出唔到貴/平 verdict——淨係俾中位基準 + 市場估值
+          const pick = (tier && tierPool.length >= fhCfg.market_min_sold)
+            ? { basis: "tier", med_psf: _sqlMedian(tierPool.map((t) => t.price_per_ft)), n_sold: tierPool.length }
+            : (pool.length >= fhCfg.market_min_sold)
+              ? { basis: "estate", med_psf: _sqlMedian(pool.map((t) => t.price_per_ft)), n_sold: pool.length }
+              : null;
+          h.floor_tier = tier;
+          h.tier_max_floor = maxFl;
+          h.market_basis = pick?.basis ?? null;
+          h.sold_med_psf = pick?.med_psf ?? null;
+          h.market_n_sold = pick?.n_sold ?? null;
+          h.est_value = (pick?.med_psf && h.size_net) ? Math.round(pick.med_psf * h.size_net) : null;
+        }
+        return json(200, { homes });
+      }
+
+      if (method === "POST" && path === "/api/friend-homes") {
+        const b = await request.json();
+        const friendName = String(b.friend_name || "").trim();
+        const estateId = Number(b.estate_id);
+        const block = String(b.block || "").trim();
+        const floor = String(b.floor || "").trim();
+        const unit = String(b.unit || "").trim();
+        if (!friendName || !estateId || !block || !floor || !unit)
+          return json(400, { error: "朋友名/屋苑/座/樓層/室都要填" });
+        const sub = await db.prepare("SELECT 1 FROM account_estates WHERE account_id = ? AND estate_id = ?")
+          .bind(session.account_id, estateId).first();
+        if (!sub) return json(400, { error: "要先追蹤呢個屋苑先可以加朋友屋企" });
+        const ins = await db.prepare(`
+          INSERT INTO friend_homes (account_id, friend_name, estate_id, block, floor, unit, size_net, bedrooms)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        `).bind(session.account_id, friendName, estateId, block, floor, unit,
+                Number(b.size_net) > 0 ? Number(b.size_net) : null,
+                Number.isFinite(Number(b.bedrooms)) && b.bedrooms !== "" && b.bedrooms !== null ? Number(b.bedrooms) : null).run();
+        return json(200, { ok: true, id: ins.meta.last_row_id });
+      }
+
+      if (method === "PUT" && path.match(/^\/api\/friend-homes\/\d+$/)) {
+        const fhId = Number(path.split("/").pop());
+        const b = await request.json();
+        await db.prepare(`
+          UPDATE friend_homes SET friend_name = ?, block = ?, floor = ?, unit = ?, size_net = ?, bedrooms = ?
+          WHERE id = ? AND account_id = ?
+        `).bind(String(b.friend_name || "").trim(), String(b.block || "").trim(),
+                String(b.floor || "").trim(), String(b.unit || "").trim(),
+                Number(b.size_net) > 0 ? Number(b.size_net) : null,
+                Number.isFinite(Number(b.bedrooms)) && b.bedrooms !== "" && b.bedrooms !== null ? Number(b.bedrooms) : null,
+                fhId, session.account_id).run();
+        return json(200, { ok: true });
+      }
+
+      if (method === "DELETE" && path.match(/^\/api\/friend-homes\/\d+$/)) {
+        const fhId = Number(path.split("/").pop());
+        await db.prepare("DELETE FROM friend_homes WHERE id = ? AND account_id = ?")
+          .bind(fhId, session.account_id).run();
+        return json(200, { ok: true });
       }
 
       if (method === "POST" && path === "/api/admin/migrate-centanet-enabled") {
