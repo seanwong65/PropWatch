@@ -1602,9 +1602,13 @@ function _fhAutoFetchTxns(homes) {
     let h;
     while ((h = queue.shift())) {
       try {
+        // 座：數字（或數字+字母，如 1A）補「座」；空 → 用屋苑名（單幢）
+        const blk = (h.block || '').trim();
+        const building = !blk ? h.estate_name
+          : (/^\d+[A-Za-z]?$/.test(blk) ? blk + '座' : blk);
         const params = new URLSearchParams({
           estate: h.estate_name,
-          building: (h.block || '').trim() || h.estate_name, // 單幢：用屋苑名做 building
+          building,
           floor: /[樓層]$/.test(h.floor) ? h.floor : h.floor + '樓',
           unit: /[室號]$/.test(h.unit) ? h.unit : h.unit + '室',
           all: '1',

@@ -3296,7 +3296,8 @@ export default {
         const searchRes = await fetch(CENTANET_TRANS, {
           method: "POST",
           headers: FETCH_HEADERS,
-          body: JSON.stringify({ postType: "Sale", size: 50, offset: 0, keyword: estateName,
+          // size 100 係 API 上限（200 會回空）——成交疏嘅座要搵夠深先撞到 typeCode
+          body: JSON.stringify({ postType: "Sale", size: 100, offset: 0, keyword: estateName,
             buildingName: building }),
           ...CF_OPTIONS,
         });
@@ -3304,10 +3305,17 @@ export default {
         const raw = await searchRes.json();
         const allData = raw.data || [];
 
-        // Match building name flexibly — Centanet may return without 座 suffix for single-building estates
-        const buildingAlt = building.replace(/座$/, '');
-        const matchBuilding = b => b === building || b === buildingAlt;
-        const anyResult = allData.find(t => matchBuilding(t.buildingName) && t.typeCode);
+        // Match building name flexibly — 用 _normBldg（除「座」/空格/大小寫）比：
+        // 用戶入「3」、中原回「3座」都要 match 到；單幢入屋苑名都得
+        const nbTarget = _normBldg(building);
+        const matchBuilding = b => _normBldg(b) === nbTarget;
+        // keyword search 會撈埋同名/近名屋苑（「天晉」會出埋「海天晉」，
+        // 兩邊都有 3座 但 typeCode 唔同）——要 estate 名都啱先算；
+        // 全部唔啱先 fallback 淨 building match（好過冇）
+        const estMatch = t => t.estateName === estateName || t.bigEstateName === estateName;
+        let bldgRows = allData.filter(t => estMatch(t) && matchBuilding(t.buildingName));
+        if (!bldgRows.length) bldgRows = allData.filter(t => matchBuilding(t.buildingName));
+        const anyResult = bldgRows.find(t => t.typeCode);
         const matchedBuilding = anyResult?.buildingName || building;
         const typeCode = anyResult?.typeCode;
         const estateUrl = typeCode
@@ -3316,8 +3324,8 @@ export default {
 
         // Also keep shallow fallback from transaction search
         // 樓層用 _floorNum 比（舊樓 yAxis 係中文數字「四樓」）；室用 normalize
-        const results = allData.filter(t => matchBuilding(t.buildingName)
-          && _floorNum(t.yAxis) === _floorNum(floor) && _floorNum(floor) != null
+        const results = bldgRows.filter(t =>
+          _floorNum(t.yAxis) === _floorNum(floor) && _floorNum(floor) != null
           && _normUnit(t.xAxis) === _normUnit(unit));
         const sorted = results.sort((a, b) => b.regDate?.localeCompare(a.regDate));
         const shallowTarget = viewDate ? sorted.find(t => t.regDate?.slice(0,10) < viewDate) : sorted[0];
