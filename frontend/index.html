@@ -1686,7 +1686,7 @@ function openFhSimilar(fhId) {
   const h = _fhHomes.find(x => x.id === fhId);
   if (!h) return;
   _slRows = _fhSimilar(h);
-  _slSort = { key: 'price_per_ft', dir: 'asc' };
+  _slRef = { block: h.block, unit: h.unit };
   const overlay = document.createElement('div');
   overlay.className = 'modal-overlay';
   overlay.style.display = 'flex';
@@ -1694,7 +1694,7 @@ function openFhSimilar(fhId) {
   overlay.innerHTML = `<div class="modal" style="max-width:560px;max-height:90vh;overflow-y:auto">
     <button class="modal-close" onclick="this.closest('.modal-overlay').remove()">✕</button>
     <div class="modal-title">類近在售盤</div>
-    <div class="modal-sub">${escHtml(h.estate_name)} · ${h.bedrooms}房 · ${h.floor_tier} · ${_slRows.length}個（撳表頭可排序）</div>
+    <div class="modal-sub">${escHtml(h.estate_name)} · ${h.bedrooms}房 · ${h.floor_tier} · ${_slRows.length}個</div>
     <div id="sl-body" style="margin-top:0.5rem"></div>
   </div>`;
   document.body.appendChild(overlay);
@@ -3039,64 +3039,65 @@ function similarListingsHtml(v) {
     + `<div class="unit-price" title="${tip}">${medPsf ? `${v.floor_tier}中位 $${medPsf.toLocaleString()}/呎 · ` : ''}${nClick}</div>`;
 }
 
-// 類近在售盤 popup — 全部欄位可撳表頭排序（同成交紀錄 popup 一致）。
+// 類近在售盤 popup — 分組版面同「參考成交」一致：①同座同室 ②同座 ③其他座。
 let _slRows = [];
-let _slSort = { key: 'price_per_ft', dir: 'asc' };   // 預設叫價呎價由平到貴
-const SL_COLS = [
-  { key: 'unit',         label: '單位', align: 'left' },
-  { key: 'size_net',     label: '面積', align: 'right' },
-  { key: 'price',        label: '叫價', align: 'right' },
-  { key: 'price_per_ft', label: '呎價', align: 'right' },
-  { key: 'source',       label: '來源', align: 'right' },
-];
+let _slRef = {};   // 參考單位 { block, unit } —— 用嚟分 tier
 const _slSrcName = s => s === 'ricacorp' ? '利嘉閣' : s === 'hkp' ? '香港置業' : '中原';
-function _slSortVal(l, key) {
-  if (key === 'unit') return `${l.building_name||''} ${l.floor||''} ${l.unit||''}`;
-  if (key === 'source') return _slSrcName(l.source);
-  return l[key];
-}
+// 座：抽數字（"7座"→"7"）；室：淨低字母
+const _feNormBlk = s => { const r = String(s || '').replace(/[座\s]/g, '').toUpperCase(); const m = r.match(/\d+/); return m ? m[0] : r; };
+const _feNormUnit = s => String(s || '').replace(/[室號\s]/g, '').toUpperCase();
 
-function sortSlComps(key) {
-  if (_slSort.key === key) _slSort.dir = _slSort.dir === 'asc' ? 'desc' : 'asc';
-  else _slSort = { key, dir: (key === 'unit' || key === 'source') ? 'asc' : 'asc' };
-  renderSlTable();
+// 把類近在售盤按同「參考成交」一樣嘅 tier 分組（相對參考單位嘅座/室）
+function _slGroupByTier(rows, ref) {
+  const rBlk = _feNormBlk(ref.block), rUnit = _feNormUnit(ref.unit);
+  const t1 = [], t2 = [], t3 = [];
+  for (const l of rows) {
+    const lBlk = _feNormBlk(l.building_name), lUnit = _feNormUnit(l.unit);
+    if (rBlk && lBlk === rBlk && rUnit && lUnit === rUnit) t1.push(l);
+    else if (rBlk && lBlk === rBlk) t2.push(l);
+    else t3.push(l);
+  }
+  const byPsf = (a, b) => (a.price_per_ft || Infinity) - (b.price_per_ft || Infinity); // 平呎價行先
+  return [
+    { label: '① 同一線（同座同室）', rows: t1.sort(byPsf) },
+    { label: '② 同座 · 其他單位',   rows: t2.sort(byPsf) },
+    { label: '③ 其他座',            rows: t3.sort(byPsf) },
+  ];
 }
 
 function renderSlTable() {
   const body = document.getElementById('sl-body');
   if (!body) return;
   if (!_slRows.length) { body.innerHTML = '<div style="color:var(--muted)">冇類近在售盤</div>'; return; }
-  const { key, dir } = _slSort;
   const fmt = p => p ? `$${(p/1e4).toFixed(0)}萬` : '-';
-  const rows = [..._slRows].sort((a, b) => {
-    let av = _slSortVal(a, key), bv = _slSortVal(b, key);
-    if (typeof av === 'string') { return dir === 'asc' ? (av||'').localeCompare(bv||'') : (bv||'').localeCompare(av||''); }
-    av = av ?? -Infinity; bv = bv ?? -Infinity;
-    return dir === 'asc' ? av - bv : bv - av;
-  }).map(l => {
-    const unit = [l.building_name, l.floor, l.unit].filter(Boolean).map(escHtml).join(' ');
-    const link = l.detail_url
-      ? `<a href="${safeUrl(l.detail_url)}" target="_blank" style="color:var(--accent2);text-decoration:none">${_slSrcName(l.source)} ↗</a>`
-      : `<span style="color:var(--muted)">${_slSrcName(l.source)}</span>`;
-    return `<tr class="hl-tr">
-      <td style="padding:0.4rem 0.5rem 0.4rem 0">${unit}${l.direction ? ` <span style="color:var(--muted);font-size:0.72rem">向${escHtml(l.direction)}</span>` : ''}</td>
-      <td style="text-align:right;padding:0.4rem 0.5rem;white-space:nowrap;color:var(--muted)">${l.size_net ? l.size_net+'呎' : '-'}</td>
-      <td style="text-align:right;padding:0.4rem 0.5rem;white-space:nowrap;font-weight:600;color:var(--accent)">${fmt(l.price)}</td>
-      <td style="text-align:right;padding:0.4rem 0.5rem;white-space:nowrap">${l.price_per_ft ? '$'+Math.round(l.price_per_ft).toLocaleString() : '-'}</td>
-      <td style="text-align:right;padding:0.4rem 0 0.4rem 0.5rem;white-space:nowrap;font-size:0.75rem">${link}</td>
-    </tr>`;
-  }).join('');
-  const arrow = k => k !== key ? '' : (dir === 'asc' ? ' ▲' : ' ▼');
-  const ths = SL_COLS.map(c => `<th onclick="sortSlComps('${c.key}')" style="text-align:${c.align};padding:0.3rem 0.5rem;cursor:pointer;user-select:none;white-space:nowrap">${c.label}${arrow(c.key)}</th>`).join('');
-  renderFrozenTable(body, ths, rows);
+  let html = '';
+  for (const g of _slGroupByTier(_slRows, _slRef)) {
+    if (!g.rows.length) continue;
+    html += `<div style="font-size:0.78rem;color:var(--muted);margin:0.75rem 0 0.35rem">${g.label}</div>`;
+    html += `<table style="width:100%;border-collapse:collapse;font-size:0.82rem"><tbody>` + g.rows.map(l => {
+      const unit = [l.building_name, l.floor, l.unit].filter(Boolean).map(escHtml).join(' ');
+      const link = l.detail_url
+        ? `<a href="${safeUrl(l.detail_url)}" target="_blank" style="color:var(--accent2);text-decoration:none">${_slSrcName(l.source)} ↗</a>`
+        : `<span style="color:var(--muted)">${_slSrcName(l.source)}</span>`;
+      return `<tr style="border-top:1px solid var(--border)">
+        <td style="padding:0.35rem 0.4rem 0.35rem 0;color:var(--text)">${unit}${l.direction ? ` <span style="color:var(--muted);font-size:0.72rem">向${escHtml(l.direction)}</span>` : ''}</td>
+        <td style="text-align:right;padding:0.35rem 0.4rem;white-space:nowrap;color:var(--muted)">${l.size_net ? l.size_net + '呎' : '-'}</td>
+        <td style="text-align:right;padding:0.35rem 0.4rem;white-space:nowrap;font-weight:600;color:var(--accent)">${fmt(l.price)}</td>
+        <td style="text-align:right;padding:0.35rem 0.4rem;white-space:nowrap;color:var(--muted)">${l.price_per_ft ? '@$' + Math.round(l.price_per_ft).toLocaleString() : '-'}</td>
+        <td style="text-align:right;padding:0.35rem 0 0.35rem 0.4rem;white-space:nowrap;font-size:0.75rem">${link}</td>
+      </tr>`;
+    }).join('') + `</tbody></table>`;
+  }
+  if (!html) html = '<div style="color:var(--muted)">冇類近在售盤</div>';
+  body.innerHTML = html;
 }
 
-// 撳「N 個」彈出同房數同樓層帶嘅在售盤(可撳表頭排序,預設叫價呎價由平到貴)。
+// 撳「N 個」彈出同房數同樓層帶嘅在售盤，按①同座同室 ②同座 ③其他座 分組。
 function openSimilarListings(viewingId) {
   const v = window._viewingMap?.[viewingId];
   if (!v) return;
   _slRows = similarListings(v);
-  _slSort = { key: 'price_per_ft', dir: 'asc' };
+  _slRef = { block: v.block, unit: v.unit };
   const overlay = document.createElement('div');
   overlay.className = 'modal-overlay';
   overlay.style.display = 'flex';
@@ -3104,7 +3105,7 @@ function openSimilarListings(viewingId) {
   overlay.innerHTML = `<div class="modal" style="max-width:560px;max-height:90vh;overflow-y:auto">
     <button class="modal-close" onclick="this.closest('.modal-overlay').remove()">✕</button>
     <div class="modal-title">類近在售盤</div>
-    <div class="modal-sub">${escHtml(_viewingEstateName||'')} · ${v.bedrooms}房 · ${v.floor_tier} · ${_slRows.length}個（撳表頭可排序）</div>
+    <div class="modal-sub">${escHtml(_viewingEstateName||'')} · ${v.bedrooms}房 · ${v.floor_tier} · ${_slRows.length}個</div>
     <div id="sl-body" style="margin-top:0.5rem"></div>
   </div>`;
   document.body.appendChild(overlay);
