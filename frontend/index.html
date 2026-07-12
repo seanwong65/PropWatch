@@ -1559,8 +1559,8 @@ async function loadFriendHomes() {
       <td style="padding:0.4rem 0.5rem 0.4rem 0;white-space:nowrap;font-weight:600">${escHtml(h.friend_name)}</td>
       <td style="padding:0.4rem 0.5rem;white-space:nowrap;cursor:pointer" onclick="showEstate(${h.estate_id},'${escJsAttr(h.estate_name)}','')">${escHtml(h.estate_name)} <span style="font-size:0.72rem;color:var(--accent2)">↗</span></td>
       <td style="padding:0.4rem 0.5rem;white-space:nowrap">${fhUnitHtml(h)}</td>
-      <td style="padding:0.4rem 0.5rem;white-space:nowrap" id="fhtxn-${h.id}">${fhTxnsHtml(h)}</td>
-      <td style="padding:0.4rem 0.5rem;white-space:nowrap" id="fhhs-${h.id}"><span style="color:var(--muted);font-size:0.75rem">查詢中…</span></td>
+      <td style="padding:0.4rem 0.5rem;white-space:nowrap">${fhTxnsHtml(h)}</td>
+      <td style="padding:0.4rem 0.5rem;white-space:nowrap">${fhHsHtml(h)}</td>
       <td style="padding:0.4rem 0.5rem;white-space:nowrap">${fhMarketHtml(h)}</td>
       <td style="padding:0.4rem 0.5rem;white-space:nowrap">${fhSimilarHtml(h)}</td>
       <td style="padding:0.4rem 0 0.4rem 0.5rem;white-space:nowrap;text-align:right">
@@ -1569,71 +1569,15 @@ async function loadFriendHomes() {
       </td>
     </tr>`).join('');
     body.innerHTML = addBtn + '<div id="fhTableWrap"></div>';
-    window._fhTableWrapRef = renderFrozenTable(document.getElementById('fhTableWrap'), FH_THEAD, rows);
-    _fhAutoFetchHS(homes);
-    _fhAutoFetchTxns(homes);
+    renderFrozenTable(document.getElementById('fhTableWrap'), FH_THEAD, rows);
+    // 過往成交/估值而家由後端 enrich 一次存 DB、GET 直接俾——render 完就得，
+    // 唔使再逐 cell async 抓（快好多，亦冇 stale-DOM / 重算高度問題）
   } catch (e) {
     body.innerHTML = `<span style="color:var(--down)">載入失敗:${escHtml(e.message)}</span>`;
   }
 }
 
 const FH_THEAD = `<th style="padding:0.3rem 0.5rem 0.3rem 0">朋友</th><th style="padding:0.3rem 0.5rem">屋苑</th><th style="padding:0.3rem 0.5rem">單位</th><th style="padding:0.3rem 0.5rem">過往成交</th><th style="padding:0.3rem 0.5rem">恆生估值</th><th style="padding:0.3rem 0.5rem">相對市價</th><th style="padding:0.3rem 0.5rem">類近在售</th><th style="padding:0.3rem 0 0.3rem 0.5rem"></th>`;
-
-// renderFrozenTable render 嗰刻鎖死咗欄闊同容器高度；async 補完內容
-// 闊/高都會變（一行「冇記錄」→ 四行歷史），要成個 table 重新 render
-// 重計。debounce 合併多個 cell 嘅更新。
-let _fhResyncTimer = null;
-function _fhSyncTableHeight() {
-  clearTimeout(_fhResyncTimer);
-  _fhResyncTimer = setTimeout(() => {
-    const container = document.getElementById('fhTableWrap');
-    const wrap = window._fhTableWrapRef;
-    if (!container || !wrap || !wrap.bodyWrap) return;
-    const tbody = wrap.bodyWrap.querySelector('tbody');
-    if (tbody) window._fhTableWrapRef = renderFrozenTable(container, FH_THEAD, tbody.innerHTML);
-  }, 150);
-}
-
-// 過往成交深歷史：DB 只有近年 scrape 數據（利嘉閣土地註冊處大概 2015 起），
-// async 問 unit-txn all=1（centadata 逐單位全歷史，2001 嗰啲都有）補上去
-function _fhAutoFetchTxns(homes) {
-  const queue = [...homes];
-  const run = async () => {
-    let h;
-    while ((h = queue.shift())) {
-      try {
-        // 座：數字（或數字+字母，如 1A）補「座」；空 → 用屋苑名（單幢）
-        const blk = (h.block || '').trim();
-        const building = !blk ? h.estate_name
-          : (/^\d+[A-Za-z]?$/.test(blk) ? blk + '座' : blk);
-        const params = new URLSearchParams({
-          estate: h.estate_name,
-          building,
-          floor: /[樓層]$/.test(h.floor) ? h.floor : h.floor + '樓',
-          unit: /[室號]$/.test(h.unit) ? h.unit : h.unit + '室',
-          estateId: h.estate_id, // 俾後端由 bigestcode 解座 code（成交疏嘅座）
-          all: '1',
-        });
-        const d = await api(`/api/viewings/unit-txn?${params}`);
-        // await 完先攞 element——中途可能 re-render 過，攞早咗會寫落 detached DOM
-        const cell = document.getElementById(`fhtxn-${h.id}`);
-        if (!cell) continue;
-        const txns = d.txns || [];
-        if (txns.length) {
-          const rows = txns.slice(0, 4).map((t, i) =>
-            `<div style="${i ? 'color:var(--muted);font-size:0.75rem' : 'font-weight:600;color:var(--accent)'}">$${(t.price/1e4).toFixed(0)}萬 <span style="color:var(--muted);font-size:0.72rem;font-weight:400">${(t.reg_date||'').slice(0,7)}</span></div>`
-          ).join('');
-          const more = txns.length > 4 ? `<div class="unit-price">+${txns.length - 4} 宗更早</div>` : '';
-          const link = d.estateUrl ? `<div style="margin-top:2px"><a href="${safeUrl(d.estateUrl)}" target="_blank" style="color:var(--accent2);font-size:0.72rem;text-decoration:none">中原記錄 ↗</a></div>` : '';
-          cell.innerHTML = rows + more + link;
-          _fhSyncTableHeight();
-        }
-        // 冇 txns：保留 DB fallback 內容
-      } catch (_) { /* 保留 DB fallback */ }
-    }
-  };
-  for (let i = 0; i < 2; i++) run();
-}
 
 function fhUnitHtml(h) {
   // 座：純數字先補「座」；單幢（留空/屋苑名）就照 show 或者唔 show
@@ -1646,15 +1590,31 @@ function fhUnitHtml(h) {
   return `<div>${bits[0]}</div>${sub.length ? `<div class="unit-price">${sub.join(' · ')}</div>` : ''}`;
 }
 
-// 過往成交：最新嗰宗大字，再舊嘅細字（最多display 4宗）
+// 過往成交：最新嗰宗大字，再舊嘅細字（最多display 4宗）。數據由後端 enrich
+// 存 DB（h.past_txns/h.est_url），未 enrich（h.enriched=false）就顯示「抓取中」。
 function fhTxnsHtml(h) {
+  if (!h.enriched) return '<span style="color:var(--muted);font-size:0.75rem">⏳ 抓取中…</span>';
   const txns = h.unit_txns || [];
   if (!txns.length) return '<span style="color:var(--muted);font-size:0.75rem">冇記錄</span>';
   const rows = txns.slice(0, 4).map((t, i) =>
     `<div style="${i ? 'color:var(--muted);font-size:0.75rem' : 'font-weight:600;color:var(--accent)'}">$${(t.price/1e4).toFixed(0)}萬 <span style="color:var(--muted);font-size:0.72rem;font-weight:400">${(t.reg_date||'').slice(0,7)}</span></div>`
   ).join('');
   const more = txns.length > 4 ? `<div class="unit-price">+${txns.length - 4} 宗更早</div>` : '';
-  return rows + more;
+  const link = h.est_url ? `<div style="margin-top:2px"><a href="${safeUrl(h.est_url)}" target="_blank" style="color:var(--accent2);font-size:0.72rem;text-decoration:none">中原記錄 ↗</a></div>` : '';
+  return rows + more + link;
+}
+
+// 恆生估值：由後端 enrich 存 DB（h.hs_price）；「歷史」掣用回原本 showHSHistory。
+function fhHsHtml(h) {
+  if (!h.enriched) return '<span style="color:var(--muted);font-size:0.75rem">⏳ 抓取中…</span>';
+  if (!h.hs_price) return '<span style="color:var(--muted);font-size:0.75rem">查唔到</span>';
+  const blockNum = (h.block || '').match(/\d+/)?.[0] || (h.block || '').trim() || h.estate_name;
+  const floorNum = (h.floor || '').match(/\d+/)?.[0] || '';
+  const flat = (h.unit || '').replace(/[室號樓層座]/g, '').trim();
+  const histBtn = (floorNum && flat)
+    ? `<div style="margin-top:3px"><button class="history-btn" onclick="showHSHistory('${escJsAttr(blockNum)}','${escJsAttr(floorNum)}','${escJsAttr(flat)}','${h.estate_id}')">歷史</button></div>`
+    : '';
+  return `${hsValHtml(Number(h.hs_price))}${histBtn}`;
 }
 
 // 相對市價：朋友屋企冇售價，出「市場估值」（中位呎價 × 實呎）+ 基準；N宗可撳
@@ -1704,44 +1664,6 @@ function openFhSimilar(fhId) {
   </div>`;
   document.body.appendChild(overlay);
   renderSlTable();
-}
-
-// 恆生估值自動查（同今日動態同一 throttle 做法）
-function _fhAutoFetchHS(homes) {
-  const queue = [];
-  for (const h of homes) {
-    // 座冇數字（單幢/屋苑名）：照傳 raw，worker 識用 BuildingValuation 動態搵
-    const blockNum = (h.block || '').match(/\d+/)?.[0] || (h.block || '').trim() || h.estate_name;
-    const floorNum = (h.floor || '').match(/\d+/)?.[0] || '';
-    const flat = (h.unit || '').replace(/[室號樓層座]/g, '').trim();
-    const cell = document.getElementById(`fhhs-${h.id}`);
-    if (!floorNum || !flat) { if (cell) cell.innerHTML = '<span style="color:var(--muted);font-size:0.75rem">-</span>'; continue; }
-    queue.push({ h, blockNum, floorNum, flat });
-  }
-  const run = async () => {
-    let item;
-    while ((item = queue.shift())) {
-      const { h, blockNum, floorNum, flat } = item;
-      let cell = document.getElementById(`fhhs-${h.id}`);
-      if (!cell) continue;
-      try {
-        const params = new URLSearchParams({ estate: h.estate_name, block: blockNum, floor: floorNum, flat, estateId: h.estate_id });
-        const data = await api(`/api/hangseng-valuation?${params}`);
-        // await 完重新攞——中途可能 re-render 過（見 _fhSyncTableHeight）
-        cell = document.getElementById(`fhhs-${h.id}`);
-        if (!cell) continue;
-        cell.innerHTML = data?.price
-          ? `${hsValHtml(Number(data.price))}<div style="margin-top:3px"><button class="history-btn" onclick="showHSHistory('${escJsAttr(blockNum)}','${escJsAttr(floorNum)}','${escJsAttr(flat)}','${h.estate_id}')">歷史</button></div>`
-          : '<span style="color:var(--muted);font-size:0.75rem">冇估值</span>';
-        _fhSyncTableHeight();
-      } catch (_) {
-        cell = document.getElementById(`fhhs-${h.id}`);
-        if (cell) { cell.innerHTML = '<span style="color:var(--muted);font-size:0.75rem">查唔到</span>'; _fhSyncTableHeight(); }
-      }
-    }
-  };
-  const conc = _appCfg.hs_autofetch_concurrency ?? 3;
-  for (let i = 0; i < conc; i++) run();
 }
 
 // 揀咗嘅屋苑：{ id, name }（已追蹤）或者 { bigestcode, name, district, isBigest }（未追蹤，儲存時先 track）
@@ -1849,47 +1771,48 @@ function _fhPickExtEstate(name, bigestcode, district, isBigest) {
 
 async function submitFriendHome() {
   const errEl = document.getElementById('fh-error');
+  errEl.style.color = 'var(--down)';
   errEl.style.display = 'none';
-  if (!_fhSelEstate) {
-    errEl.textContent = '請喺下拉選單度揀返個屋苑';
-    errEl.style.display = 'block';
-    return;
-  }
+  // 驗證（喺閂 modal 前先做，唔啱就留喺 modal 顯示錯誤）
+  const name = document.getElementById('fh-name').value.trim();
+  const floor = document.getElementById('fh-floor').value.trim();
+  const unit = document.getElementById('fh-unit').value.trim();
+  if (!_fhSelEstate) { errEl.textContent = '請喺下拉選單度揀返個屋苑'; errEl.style.display = 'block'; return; }
+  if (!name || !floor || !unit) { errEl.textContent = '朋友名／樓層／室都要填'; errEl.style.display = 'block'; return; }
+
+  const body = {
+    friend_name: name, block: document.getElementById('fh-block').value.trim(),
+    floor, unit,
+    size_net: document.getElementById('fh-size').value || null,
+    bedrooms: document.getElementById('fh-beds').value || null,
+  };
+  const sel = _fhSelEstate, editingId = _fhEditingId;
+  // 即刻閂 modal，唔 hold 住 user；之後喺 tab 度顯示進度
+  closeFriendModal();
+  toast('已儲存，正在抓取過往成交同估值，約 30 秒後自動更新…', 'info');
+
   try {
-    let estateId = _fhSelEstate.id;
-    // 未追蹤嘅屋苑：one-off 抓一次齊料數據（各源放盤+成交），唔加入追蹤——
-    // sidebar 唔會見到，daily sync 亦唔會 sync 佢
+    let estateId = sel.id;
+    // 未追蹤嘅屋苑：one-off 抓一次齊料數據（放盤+成交），唔加入追蹤清單
     if (!estateId) {
-      errEl.style.color = 'var(--muted)';
-      errEl.textContent = `正在抓取 ${_fhSelEstate.name} 資料（放盤+成交），要等半分鐘左右…`;
-      errEl.style.display = 'block';
       const t = await api('/api/track', { method: 'POST', body: JSON.stringify({
-        name: _fhSelEstate.name, bigestcode: _fhSelEstate.bigestcode,
-        district: _fhSelEstate.district, isBigest: _fhSelEstate.isBigest,
+        name: sel.name, bigestcode: sel.bigestcode, district: sel.district, isBigest: sel.isBigest,
         subscribe: false,
       }) });
       estateId = t.estate.id;
-      _fhSelEstate.id = estateId;
-      errEl.style.display = 'none';
-      errEl.style.color = 'var(--down)';
     }
-    const body = {
-      friend_name: document.getElementById('fh-name').value.trim(),
-      estate_id: estateId,
-      block: document.getElementById('fh-block').value.trim(),
-      floor: document.getElementById('fh-floor').value.trim(),
-      unit: document.getElementById('fh-unit').value.trim(),
-      size_net: document.getElementById('fh-size').value || null,
-      bedrooms: document.getElementById('fh-beds').value || null,
-    };
-    if (_fhEditingId) await api(`/api/friend-homes/${_fhEditingId}`, { method: 'PUT', body: JSON.stringify(body) });
-    else await api('/api/friend-homes', { method: 'POST', body: JSON.stringify(body) });
-    closeFriendModal();
-    loadFriendHomes();
+    body.estate_id = estateId;
+    let fhId = editingId;
+    if (editingId) await api(`/api/friend-homes/${editingId}`, { method: 'PUT', body: JSON.stringify(body) });
+    else fhId = (await api('/api/friend-homes', { method: 'POST', body: JSON.stringify(body) })).id;
+    await loadFriendHomes();          // 行先出，過往成交/估值顯示「⏳ 抓取中」
+    // enrich：抓過往成交+估值存 DB（慢），完成再 refresh
+    await api(`/api/friend-homes/${fhId}/enrich`, { method: 'POST' });
+    await loadFriendHomes();
+    toast('完成 ✓', 'success');
   } catch (e) {
-    errEl.style.color = 'var(--down)';
-    errEl.textContent = e.message;
-    errEl.style.display = 'block';
+    toast('抓取失敗：' + e.message, 'error');
+    loadFriendHomes();
   }
 }
 
