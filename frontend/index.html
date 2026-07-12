@@ -1569,16 +1569,29 @@ async function loadFriendHomes() {
       </td>
     </tr>`).join('');
     body.innerHTML = addBtn + '<div id="fhTableWrap"></div>';
-    renderFrozenTable(
-      document.getElementById('fhTableWrap'),
-      `<th style="padding:0.3rem 0.5rem 0.3rem 0">朋友</th><th style="padding:0.3rem 0.5rem">屋苑</th><th style="padding:0.3rem 0.5rem">單位</th><th style="padding:0.3rem 0.5rem">過往成交</th><th style="padding:0.3rem 0.5rem">恆生估值</th><th style="padding:0.3rem 0.5rem">相對市價</th><th style="padding:0.3rem 0.5rem">類近在售</th><th style="padding:0.3rem 0 0.3rem 0.5rem"></th>`,
-      rows
-    );
+    window._fhTableWrapRef = renderFrozenTable(document.getElementById('fhTableWrap'), FH_THEAD, rows);
     _fhAutoFetchHS(homes);
     _fhAutoFetchTxns(homes);
   } catch (e) {
     body.innerHTML = `<span style="color:var(--down)">載入失敗:${escHtml(e.message)}</span>`;
   }
+}
+
+const FH_THEAD = `<th style="padding:0.3rem 0.5rem 0.3rem 0">朋友</th><th style="padding:0.3rem 0.5rem">屋苑</th><th style="padding:0.3rem 0.5rem">單位</th><th style="padding:0.3rem 0.5rem">過往成交</th><th style="padding:0.3rem 0.5rem">恆生估值</th><th style="padding:0.3rem 0.5rem">相對市價</th><th style="padding:0.3rem 0.5rem">類近在售</th><th style="padding:0.3rem 0 0.3rem 0.5rem"></th>`;
+
+// renderFrozenTable render 嗰刻鎖死咗欄闊同容器高度；async 補完內容
+// 闊/高都會變（一行「冇記錄」→ 四行歷史），要成個 table 重新 render
+// 重計。debounce 合併多個 cell 嘅更新。
+let _fhResyncTimer = null;
+function _fhSyncTableHeight() {
+  clearTimeout(_fhResyncTimer);
+  _fhResyncTimer = setTimeout(() => {
+    const container = document.getElementById('fhTableWrap');
+    const wrap = window._fhTableWrapRef;
+    if (!container || !wrap || !wrap.bodyWrap) return;
+    const tbody = wrap.bodyWrap.querySelector('tbody');
+    if (tbody) window._fhTableWrapRef = renderFrozenTable(container, FH_THEAD, tbody.innerHTML);
+  }, 150);
 }
 
 // 過往成交深歷史：DB 只有近年 scrape 數據（利嘉閣土地註冊處大概 2015 起），
@@ -1588,8 +1601,6 @@ function _fhAutoFetchTxns(homes) {
   const run = async () => {
     let h;
     while ((h = queue.shift())) {
-      const cell = document.getElementById(`fhtxn-${h.id}`);
-      if (!cell) continue;
       try {
         const params = new URLSearchParams({
           estate: h.estate_name,
@@ -1599,6 +1610,9 @@ function _fhAutoFetchTxns(homes) {
           all: '1',
         });
         const d = await api(`/api/viewings/unit-txn?${params}`);
+        // await 完先攞 element——中途可能 re-render 過，攞早咗會寫落 detached DOM
+        const cell = document.getElementById(`fhtxn-${h.id}`);
+        if (!cell) continue;
         const txns = d.txns || [];
         if (txns.length) {
           const rows = txns.slice(0, 4).map((t, i) =>
@@ -1607,6 +1621,7 @@ function _fhAutoFetchTxns(homes) {
           const more = txns.length > 4 ? `<div class="unit-price">+${txns.length - 4} 宗更早</div>` : '';
           const link = d.estateUrl ? `<div style="margin-top:2px"><a href="${safeUrl(d.estateUrl)}" target="_blank" style="color:var(--accent2);font-size:0.72rem;text-decoration:none">中原記錄 ↗</a></div>` : '';
           cell.innerHTML = rows + more + link;
+          _fhSyncTableHeight();
         }
         // 冇 txns：保留 DB fallback 內容
       } catch (_) { /* 保留 DB fallback */ }
@@ -1702,16 +1717,21 @@ function _fhAutoFetchHS(homes) {
     let item;
     while ((item = queue.shift())) {
       const { h, blockNum, floorNum, flat } = item;
-      const cell = document.getElementById(`fhhs-${h.id}`);
+      let cell = document.getElementById(`fhhs-${h.id}`);
       if (!cell) continue;
       try {
         const params = new URLSearchParams({ estate: h.estate_name, block: blockNum, floor: floorNum, flat, estateId: h.estate_id });
         const data = await api(`/api/hangseng-valuation?${params}`);
+        // await 完重新攞——中途可能 re-render 過（見 _fhSyncTableHeight）
+        cell = document.getElementById(`fhhs-${h.id}`);
+        if (!cell) continue;
         cell.innerHTML = data?.price
           ? `${hsValHtml(Number(data.price))}<div style="margin-top:3px"><button class="history-btn" onclick="showHSHistory('${escJsAttr(blockNum)}','${escJsAttr(floorNum)}','${escJsAttr(flat)}','${h.estate_id}')">歷史</button></div>`
           : '<span style="color:var(--muted);font-size:0.75rem">冇估值</span>';
+        _fhSyncTableHeight();
       } catch (_) {
-        cell.innerHTML = '<span style="color:var(--muted);font-size:0.75rem">查唔到</span>';
+        cell = document.getElementById(`fhhs-${h.id}`);
+        if (cell) { cell.innerHTML = '<span style="color:var(--muted);font-size:0.75rem">查唔到</span>'; _fhSyncTableHeight(); }
       }
     }
   };
