@@ -1611,6 +1611,7 @@ function _fhAutoFetchTxns(homes) {
           building,
           floor: /[樓層]$/.test(h.floor) ? h.floor : h.floor + '樓',
           unit: /[室號]$/.test(h.unit) ? h.unit : h.unit + '室',
+          estateId: h.estate_id, // 俾後端由 bigestcode 解座 code（成交疏嘅座）
           all: '1',
         });
         const d = await api(`/api/viewings/unit-txn?${params}`);

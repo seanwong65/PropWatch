@@ -1129,6 +1129,50 @@ async function ensureGroupOverrides(db) {
 const _normBldg = (s) => String(s || "").replace(/[座\s]/g, "").toUpperCase();
 const _normUnit = (s) => String(s || "").replace(/[室號\s]/g, "").toUpperCase();
 
+// 由中原 centadata 頁嘅「座」dropdown 解 building typeCode。
+// 成交搜尋條路唔穩陣：成交疏嘅座唔會喺最近100宗出現、keyword 又會撈埋
+// 同名屋苑（「天晉」出埋「海天晉」、「Seasons」出埋日出康城）。
+// centadata 頁 SSR 咗成個 dropdown：<li data-value="1-XXX"><a>18座</a>
+// （1- 係座、2- 係期）——用屋苑 bigestcode 開頁，搵唔到就逐期頁搵。
+async function resolveBuildingCode(bigestcode, block) {
+  if (!bigestcode || !block) return null;
+  const nb = _normBldg(block);
+  const parse = (html) => {
+    const out = [];
+    const re = /data-value="((?:1|2)-[A-Z]+)"[^>]*>\s*<a[^>]*>([^<]+)<\/a>/g;
+    let m;
+    while ((m = re.exec(html))) out.push({ code: m[1], name: m[2].trim() });
+    return out;
+  };
+  const fetchPage = async (code) => {
+    try {
+      const r = await fetch(
+        `https://hk.centanet.com/findproperty/centadata-details/x_${encodeURIComponent(code)}`,
+        { headers: FETCH_HEADERS, ...CF_OPTIONS }
+      );
+      return r.ok ? await r.text() : "";
+    } catch (_) { return ""; }
+  };
+  const phases = [];
+  const seenPhase = new Set();
+  const scan = (items) => {
+    for (const it of items) {
+      if (it.code.startsWith("1-") && _normBldg(it.name) === nb) return it.code;
+      if (it.code.startsWith("2-") && !seenPhase.has(it.code)) { seenPhase.add(it.code); phases.push(it.code); }
+    }
+    return null;
+  };
+  // bigestcode 有時帶 1- 前綴有時冇（搜尋 API 兩款都出過）
+  const estCode = bigestcode.includes("-") ? bigestcode : `1-${bigestcode}`;
+  let hit = scan(parse(await fetchPage(estCode)));
+  if (hit) return hit;
+  for (const p of phases.slice(0, 6)) { // 多期屋苑逐期頁搵，有上限
+    hit = scan(parse(await fetchPage(p)));
+    if (hit) return hit;
+  }
+  return null;
+}
+
 // 樓層 → 數字：'四樓'/'4樓'/'4'/'十六樓' 全部認到。中原/利嘉閣唔同 source
 // 有啲用中文數字，SQL 字串比較會 match 唔到，一律轉數字先比。
 function _floorNum(s) {
@@ -3317,7 +3361,15 @@ export default {
         if (!bldgRows.length) bldgRows = allData.filter(t => matchBuilding(t.buildingName));
         const anyResult = bldgRows.find(t => t.typeCode);
         const matchedBuilding = anyResult?.buildingName || building;
-        const typeCode = anyResult?.typeCode;
+        let typeCode = anyResult?.typeCode;
+        // 成交搜尋搵唔到（成交疏嘅座唔喺最近100宗）：用 centadata 頁座 dropdown 解
+        if (!typeCode) {
+          const estIdParam = url.searchParams.get("estateId");
+          if (estIdParam) {
+            const estRow = await db.prepare("SELECT bigestcode FROM estates WHERE id = ?").bind(Number(estIdParam)).first();
+            if (estRow?.bigestcode) typeCode = await resolveBuildingCode(estRow.bigestcode, building);
+          }
+        }
         const estateUrl = typeCode
           ? `https://hk.centanet.com/CentaEstimate/estate-${encodeURIComponent(estateName)}-${encodeURIComponent(matchedBuilding)}_${typeCode}?tab=history`
           : null;
