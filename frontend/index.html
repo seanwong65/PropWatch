@@ -936,7 +936,7 @@
       <div style="font-size:1.4rem;font-weight:700;color:var(--accent)">PropWatch</div>
     </div>
     <div id="login-error" style="color:#e57373;font-size:0.85rem;margin-bottom:0.75rem;display:none"></div>
-    <input id="login-username" type="text" placeholder="用戶名" autocomplete="username"
+    <input id="login-email" type="email" placeholder="電郵" autocomplete="email"
       style="width:100%;padding:0.65rem 0.8rem;background:var(--surface2);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:0.95rem;box-sizing:border-box;margin-bottom:0.75rem"
       onkeydown="if(event.key==='Enter')document.getElementById('login-password').focus()">
     <input id="login-password" type="password" placeholder="密碼" autocomplete="current-password"
@@ -945,8 +945,6 @@
     <input id="login-password2" type="password" placeholder="確認密碼" autocomplete="new-password"
       style="display:none;width:100%;padding:0.65rem 0.8rem;background:var(--surface2);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:0.95rem;box-sizing:border-box;margin-bottom:1rem"
       onkeydown="if(event.key==='Enter')loginSubmit()">
-    <input id="login-email" type="email" placeholder="電郵（收每日通知）" autocomplete="email"
-      style="display:none;width:100%;padding:0.65rem 0.8rem;background:var(--surface2);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:0.95rem;box-sizing:border-box;margin-bottom:1rem">
     <div id="login-otp-row" style="display:none;gap:0.5rem;margin-bottom:1rem">
       <input id="login-otp" type="text" inputmode="numeric" placeholder="電郵驗證碼" autocomplete="one-time-code"
         style="flex:1;padding:0.65rem 0.8rem;background:var(--surface2);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:0.95rem;box-sizing:border-box;min-width:0"
@@ -1264,7 +1262,6 @@ function toggleLoginMode() {
   _loginMode = _loginMode === 'login' ? 'register' : 'login';
   const isReg = _loginMode === 'register';
   document.getElementById('login-password2').style.display = isReg ? '' : 'none';
-  document.getElementById('login-email').style.display = isReg ? '' : 'none';
   document.getElementById('login-otp-row').style.display = isReg ? 'flex' : 'none';
   document.getElementById('login-submit-btn').textContent = isReg ? '註冊' : '登入';
   document.getElementById('login-mode-toggle').textContent = isReg ? '已有帳戶？登入' : '未有帳戶？註冊';
@@ -1277,10 +1274,9 @@ async function requestRegisterOtp() {
   const errEl = document.getElementById('login-error');
   const btn = document.getElementById('login-otp-btn');
   errEl.style.display = 'none';
-  const username = document.getElementById('login-username').value.trim();
   const email = document.getElementById('login-email').value.trim();
-  if (!username || !email) {
-    errEl.textContent = '先填用戶名同電郵，再攞驗證碼';
+  if (!email) {
+    errEl.textContent = '先填電郵，再攞驗證碼';
     errEl.style.display = 'block';
     return;
   }
@@ -1290,7 +1286,7 @@ async function requestRegisterOtp() {
     await fetch(API + '/api/register-otp', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ username, email }),
+      body: JSON.stringify({ email }),
     }).then(async r => { const d = await r.json(); if (!r.ok) throw new Error(d.error); return d; });
     let left = 60;
     btn.textContent = `已寄出(${left})`;
@@ -1310,7 +1306,7 @@ async function requestRegisterOtp() {
 function loginSubmit() { _loginMode === 'register' ? doRegister() : doLogin(); }
 
 async function doLogin() {
-  const username = document.getElementById("login-username").value.trim();
+  const email = document.getElementById("login-email").value.trim();
   const password = document.getElementById("login-password").value;
   const errEl = document.getElementById("login-error");
   errEl.style.display = "none";
@@ -1318,7 +1314,7 @@ async function doLogin() {
     const data = await fetch(API + "/api/login", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ username, password }),
+      body: JSON.stringify({ email, password }),
     }).then(async r => { const d = await r.json(); if (!r.ok) throw new Error(d.error); return d; });
     localStorage.setItem("propwatch_token", data.token);
     hideLoginScreen();
@@ -1332,7 +1328,6 @@ async function doLogin() {
 }
 
 async function doRegister() {
-  const username = document.getElementById("login-username").value.trim();
   const password = document.getElementById("login-password").value;
   const password2 = document.getElementById("login-password2").value;
   const email = document.getElementById("login-email").value.trim();
@@ -1353,7 +1348,7 @@ async function doRegister() {
     const data = await fetch(API + "/api/register", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ username, password, email, otp }),
+      body: JSON.stringify({ password, email, otp }),
     }).then(async r => { const d = await r.json(); if (!r.ok) throw new Error(d.error); return d; });
     localStorage.setItem("propwatch_token", data.token);
     hideLoginScreen();

@@ -2571,15 +2571,16 @@ export default {
 
       // Login endpoint — public
       if (method === "POST" && path === "/api/login") {
-        const { username, password } = await request.json();
-        if (!username || !password) return json(400, { error: "請輸入用戶名及密碼" });
+        const { email, password } = await request.json();
+        const emailNorm = String(email || "").trim().toLowerCase();
+        if (!emailNorm || !password) return json(400, { error: "請輸入電郵及密碼" });
 
-        // Generic failure — never reveals whether the username exists, how many
+        // Generic failure — never reveals whether the email exists, how many
         // attempts remain, or that an account is disabled/expired, so an attacker
         // cannot enumerate accounts. Status details are only surfaced to someone
         // who supplies the CORRECT password (i.e. the genuine owner).
-        const BAD = { error: "用戶名或密碼錯誤" };
-        const account = await db.prepare("SELECT * FROM accounts WHERE username = ?").bind(username).first();
+        const BAD = { error: "電郵或密碼錯誤" };
+        const account = await db.prepare("SELECT * FROM accounts WHERE email = ?").bind(emailNorm).first();
         if (!account) return json(401, BAD);
 
         const now = new Date().toISOString();
@@ -2612,7 +2613,7 @@ export default {
         const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
         await db.prepare("INSERT INTO sessions (token, account_id, created_at, expires_at) VALUES (?, ?, ?, ?)")
           .bind(token, account.id, now, expiresAt).run();
-        return json(200, { token, username: account.username });
+        return json(200, { token, email: account.email });
       }
 
       // Logout endpoint
@@ -2628,15 +2629,10 @@ export default {
       // 註冊第一步：寄 6 位 OTP 去用戶 email（10 分鐘有效）。公開 route，
       // 行 auth 級 rate limit（sec_auth_rpm per-IP）擋狂寄。
       if (method === "POST" && path === "/api/register-otp") {
-        const { username, email } = await request.json();
-        const uname = String(username || "").trim();
+        const { email } = await request.json();
         const em = String(email || "").trim().toLowerCase();
-        if (!/^[A-Za-z0-9_]{3,20}$/.test(uname))
-          return json(400, { error: "用戶名要 3–20 個字元(英文/數字/底線)" });
         if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(em))
           return json(400, { error: "電郵格式唔啱" });
-        const dup = await db.prepare("SELECT id FROM accounts WHERE username = ?").bind(uname).first();
-        if (dup) return json(409, { error: "用戶名已被使用" });
         const dupEm = await db.prepare("SELECT id FROM accounts WHERE email = ?").bind(em).first();
         if (dupEm) return json(409, { error: "呢個電郵已經註冊咗" });
         const code = String(crypto.getRandomValues(new Uint32Array(1))[0] % 900000 + 100000);
@@ -2658,19 +2654,15 @@ export default {
         return json(200, { ok: true });
       }
 
-      // 註冊第二步：驗 OTP 先開戶（email 綁落帳戶，每日通知寄呢度）
+      // 註冊第二步：驗 OTP 先開戶（email 就係登入 ID，冇獨立用戶名——
+      // username 欄位喺 schema 仲係 UNIQUE NOT NULL，內部照存埋 email 個值）
       if (method === "POST" && path === "/api/register") {
-        const { username, password, email, otp } = await request.json();
-        const uname = String(username || "").trim();
+        const { password, email, otp } = await request.json();
         const em = String(email || "").trim().toLowerCase();
-        if (!/^[A-Za-z0-9_]{3,20}$/.test(uname))
-          return json(400, { error: "用戶名要 3–20 個字元(英文/數字/底線)" });
         if (!password || String(password).length < 6)
           return json(400, { error: "密碼最少 6 個字元" });
         if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(em))
           return json(400, { error: "電郵格式唔啱" });
-        const dup = await db.prepare("SELECT id FROM accounts WHERE username = ?").bind(uname).first();
-        if (dup) return json(409, { error: "用戶名已被使用" });
         const dupEm = await db.prepare("SELECT id FROM accounts WHERE email = ?").bind(em).first();
         if (dupEm) return json(409, { error: "呢個電郵已經註冊咗" });
         // OTP 驗證：過期/未寄/試錯超過 5 次都要重新攞
@@ -2687,13 +2679,13 @@ export default {
         const hash = await sha256(String(password));
         const ins = await db.prepare(
           "INSERT INTO accounts (username, password_hash, expiry_date, email) VALUES (?, ?, '2099-12-31', ?)"
-        ).bind(uname, hash, em).run();
+        ).bind(em, hash, em).run();
         const now2 = new Date().toISOString();
         const token = randomToken();
         const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
         await db.prepare("INSERT INTO sessions (token, account_id, created_at, expires_at) VALUES (?, ?, ?, ?)")
           .bind(token, ins.meta.last_row_id, now2, expiresAt).run();
-        return json(200, { token, username: uname });
+        return json(200, { token, email: em });
       }
 
       // Auth guard for all other routes
