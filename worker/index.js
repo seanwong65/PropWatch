@@ -2430,6 +2430,28 @@ const SYNC_SLOTS = { "0 16 * * *": 0, "10 16 * * *": 1, "20 16 * * *": 2 };
 // its own Worker invocation with a fresh subrequest budget — a full sync
 // nearly exhausts the per-invocation subrequest limit, which is why the email
 // step failed when both ran together.
+// 讀某帳戶嘅睇樓偏好（settings key pref_<accountId>）
+async function getPrefs(db, accountId) {
+  const row = await db.prepare("SELECT value FROM settings WHERE key = ?").bind(`pref_${accountId}`).first();
+  if (!row) return null;
+  try { return JSON.parse(row.value); } catch (_) { return null; }
+}
+function prefsUsable(p) {
+  return !!(p && (p.price_min || p.price_max || p.beds || p.size_min || p.size_max));
+}
+// 對齊前端 prefMatchHl：欄位缺失（例如售價變動冇房數）嗰項條件唔計。
+function prefMatchRow(p, r) {
+  const price = r.price ?? r.new_price;
+  if (p.price_min && price != null && price < p.price_min * 1e4) return false;
+  if (p.price_max && price != null && price > p.price_max * 1e4) return false;
+  if (p.beds && r.bedrooms != null) {
+    if (p.beds === "4+" ? r.bedrooms < 4 : String(r.bedrooms) !== p.beds) return false;
+  }
+  if (p.size_min && r.size_net != null && r.size_net < p.size_min) return false;
+  if (p.size_max && r.size_net != null && r.size_net > p.size_max) return false;
+  return true;
+}
+
 async function sendDailyEmail(db, env) {
   if (!env?.GMAIL_REFRESH_TOKEN) return { error: "no GMAIL credentials" };
   // 逐個有 email 嘅帳戶寄——各自用自己嘅訂閱/設定/雷達視角。
@@ -2444,6 +2466,18 @@ async function sendDailyEmail(db, env) {
   for (const acc of accounts) {
     try {
       const highlights = await getTodayHighlights(db, acc.id);
+      // 跟用戶睇樓偏好篩 email 內容（揀咗 ≤800萬 就唔會出 1000萬嘅盤，
+      // 同 dashboard 個 🎯 filter 一致）。「睇過嘅單位成交」唔篩——自己
+      // 睇過嘅嘢一定要出。
+      const prefs = await getPrefs(db, acc.id);
+      if (prefsUsable(prefs)) {
+        for (const e of highlights.byEstate) {
+          e.newTransactions = e.newTransactions.filter((r) => prefMatchRow(prefs, r));
+          e.priceChanges    = e.priceChanges.filter((r) => prefMatchRow(prefs, r));
+          e.newListings     = e.newListings.filter((r) => prefMatchRow(prefs, r));
+          e.removedListings = e.removedListings.filter((r) => prefMatchRow(prefs, r));
+        }
+      }
       // 筍盤 Top N（每個帳戶自己嘅 ⚙️ 設定；0=唔要；non-fatal）
       let bargains = [];
       try {
@@ -2451,6 +2485,7 @@ async function sendDailyEmail(db, env) {
         if (emailTop > 0) {
           const radar = await computeBargainRadar(db, { limit: emailTop, accountId: acc.id });
           bargains = radar.listings;
+          if (prefsUsable(prefs)) bargains = bargains.filter((r) => prefMatchRow(prefs, r));
         }
       } catch (e) { /* non-fatal */ }
       const { byEstate } = highlights;
