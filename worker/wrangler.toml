@@ -14,4 +14,4 @@ database_id = "b4330ef2-78c4-48be-ae88-b1d94614faad"
 #   "20 16 * * *" = 00:20 HKT → sync slot 2 (estates 24–35)
 #   "0 1 * * *"   = 09:00 HKT → "今日動態" email (separate invocation)
 [triggers]
-crons = ["0 16 * * *", "10 16 * * *", "20 16 * * *", "0 1 * * *"]
+crons = ["0 16 * * *", "10 16 * * *", "20 16 * * *", "30 16 * * *", "0 1 * * *"]

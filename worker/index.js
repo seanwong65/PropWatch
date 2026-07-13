@@ -687,15 +687,20 @@ export async function scrapeRicacorpListings(ricacorpUrl) {
   // snapshot(殘缺 snapshot 會令甩咗頁嘅盤扮下架)。
   let incomplete = false;
   let reachedEnd = false;
+  // 總時間預算：ricacorp 近排會 hang（bot 擋），一頁 25s×3 retry 可以燒到
+  // 75s+，會拖死成個屋苑 sync（甚至個 cron batch）。超過 deadline 就停，
+  // 當唔完整（saveRicacorpListings carry forward 上次嘅盤，唔會扮下架）。
+  const deadline = Date.now() + 30000;
 
   for (let page = 1; page <= 15; page++) {
+    if (Date.now() > deadline) { incomplete = true; break; }
     const url = page === 1 ? ricacorpUrl : `${canonicalBase};page=${page}`;
-    // Pages are 1MB+ and flaky. Retry up to 3× (any failure, incl. non-200)
-    // with a generous timeout.
+    // Pages are 1MB+ and flaky. Retry up to 2× with a tighter timeout so a
+    // hanging page fails fast instead of burning the whole budget.
     let html = null;
-    for (let attempt = 0; attempt < 3 && html === null; attempt++) {
+    for (let attempt = 0; attempt < 2 && html === null; attempt++) {
       try {
-        const res = await fetch(url, { headers: { "User-Agent": UA }, signal: AbortSignal.timeout(25000) });
+        const res = await fetch(url, { headers: { "User-Agent": UA }, signal: AbortSignal.timeout(10000) });
         if (res.ok) html = await res.text();
       } catch { /* retry */ }
     }
@@ -868,17 +873,19 @@ export async function scrapeRicacorpTransactions(estateName) {
   // The page embeds each unit's full history; keep only recent registrations
   // (matches the ;registrationDateFrom=1095 window ≈ 3 years).
   const cutoff = new Date(Date.now() - 1100 * 86400000).toISOString().slice(0, 10);
+  const deadline = Date.now() + 25000; // 總預算，防 hang 拖死 sync（成交係補充，非 critical）
 
   for (let page = 1; page <= 10; page++) {
+    if (Date.now() > deadline) break;
     const url = page === 1 ? base : `${base};page=${page}`;
     let html = null;
-    for (let a = 0; a < 3 && html === null; a++) {
+    for (let a = 0; a < 2 && html === null; a++) {
       try {
-        const res = await fetch(url, { headers: { "User-Agent": RICA_UA }, signal: AbortSignal.timeout(25000) });
+        const res = await fetch(url, { headers: { "User-Agent": RICA_UA }, signal: AbortSignal.timeout(10000) });
         if (res.ok) html = await res.text();
       } catch { /* retry */ }
     }
-    if (html === null) { if (++failStreak >= 3) break; continue; }
+    if (html === null) { if (++failStreak >= 2) break; continue; }
     failStreak = 0;
     html = html.replace(/&q;/g, '"');
 
@@ -2423,8 +2430,11 @@ async function syncEstatesBatch(db, offset, size) {
 // across several staggered cron triggers — each fires its OWN invocation with a
 // fresh subrequest budget and syncs one SYNC_SLOT_SIZE slice of estates.
 // SYNC_SLOTS maps each sync cron to a slice index. Capacity = slots × size.
-const SYNC_SLOT_SIZE = 12;
-const SYNC_SLOTS = { "0 16 * * *": 0, "10 16 * * *": 1, "20 16 * * *": 2 };
+// 每個 cron slot 只 sync 幾個屋苑——一次過並行 12 個會撞 CF 時間/subrequest
+// 上限（大屋苑 + flaky source 尤甚），大部分靜靜 fail。細 batch 更穩。
+// 容量 = slots × size = 4 × 4 = 16，夠 cover 15 個訂閱屋苑 + 少少 headroom。
+const SYNC_SLOT_SIZE = 4;
+const SYNC_SLOTS = { "0 16 * * *": 0, "10 16 * * *": 1, "20 16 * * *": 2, "30 16 * * *": 3 };
 
 // Send the "今日動態" digest email. Kept SEPARATE from the sync so it runs in
 // its own Worker invocation with a fresh subrequest budget — a full sync
