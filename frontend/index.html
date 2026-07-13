@@ -1218,7 +1218,7 @@ let groupSelectMode = false;
 let groupSelected = new Set();
 let sortCol = "price";
 let sortDir = "asc";
-let filters = { beds: "all", floor: "all", building: "all", unit: "all", minPrice: "", maxPrice: "", minSize: "", maxSize: "", priceChanged: "all", source: "all", dom: "all" };
+let filters = { beds: "all", floor: "all", building: "all", unit: "all", minPrice: "", maxPrice: "", minSize: "", maxSize: "", priceChanged: "all", source: "all", dom: "all", hideRemoved: true };
 
 // ── Toast ──────────────────────────────────────────────────────
 function toast(msg, type = "info") {
@@ -2878,7 +2878,7 @@ async function showEstate(id, name, district) {
         maxPrice: (_userPrefs && _userPrefs.price_max) || "",
         minSize: (_userPrefs && _userPrefs.size_min) || "",
         maxSize: (_userPrefs && _userPrefs.size_max) || "",
-        priceChanged: "all", source: "all", dom: "all",
+        priceChanged: "all", source: "all", dom: "all", hideRemoved: true,
       };
       renderFilterBar();
       renderSourceToggles();
@@ -4226,6 +4226,13 @@ function renderFilterBar() {
           ${[['all','全部'],['30','30日+'],['60','60日+'],['90','90日+'],['180','180日+']].map(([v,t]) => `<button class="filter-chip ${filters.dom===v?'active':''}" onclick="setFilter('dom','${v}')">${t}</button>`).join('')}
         </div>
       </div>
+      <div class="filter-sep"></div>
+      <div class="filter-pair">
+        <label style="display:flex;align-items:center;gap:0.35rem;font-size:0.82rem;color:var(--text);cursor:pointer;white-space:nowrap">
+          <input type="checkbox" ${filters.hideRemoved ? 'checked' : ''} onchange="setFilter('hideRemoved',this.checked)" style="accent-color:var(--accent)">
+          隱藏已下架
+        </label>
+      </div>
       <span class="filter-count" id="filterCount"></span>
     </div>
   `;
@@ -4274,6 +4281,7 @@ function setRangeFilter(key, val) {
 
 function applyFilters(listings) {
   return listings.filter(l => {
+    if (filters.hideRemoved && l.removed_date) return false;
     if (filters.beds !== "all") {
       const b = l.bedrooms ?? 0;
       if (filters.beds === "4+" && b < 4) return false;
