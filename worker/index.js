@@ -393,6 +393,14 @@ async function ensureMultiAccount(db) {
   )`).run();
   try { await db.prepare("ALTER TABLE viewings ADD COLUMN account_id INTEGER").run(); } catch (_) {}
   try { await db.prepare("ALTER TABLE system_parameters ADD COLUMN account_id INTEGER").run(); } catch (_) {}
+  // 每日 email 逐帳戶寄去自己嘅 email（註冊時經 OTP 驗證）
+  try { await db.prepare("ALTER TABLE accounts ADD COLUMN email TEXT").run(); } catch (_) {}
+  await db.prepare(`CREATE TABLE IF NOT EXISTS email_otps (
+    email TEXT PRIMARY KEY,
+    code TEXT NOT NULL,
+    expires_at TEXT NOT NULL,
+    attempts INTEGER NOT NULL DEFAULT 0
+  )`).run();
   // 朋友屋企：per-account 記錄朋友住邊個單位，攞成交/估值/市價參考
   await db.prepare(`CREATE TABLE IF NOT EXISTS friend_homes (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -1862,24 +1870,58 @@ function marketVerdict(med, psf, minSold = 5) {
   };
 }
 
-async function sendEmail(apiKey, to, subject, html) {
-  const res = await fetch("https://api.resend.com/emails", {
+// ── Gmail API 寄信 ──────────────────────────────────────────────────────────
+// 取代 Resend：resend.dev sandbox 只寄到帳戶擁有人，Gmail 冇呢個限制，
+// 可以逐帳戶寄去各自嘅 email。OAuth2 refresh token 喺 wrangler secrets
+// （GMAIL_CLIENT_ID / GMAIL_CLIENT_SECRET / GMAIL_REFRESH_TOKEN）。
+let _gmailToken = null; // { token, exp } — 同一次 invocation 內重用
+async function gmailAccessToken(env) {
+  if (_gmailToken && Date.now() < _gmailToken.exp) return _gmailToken.token;
+  const res = await fetch("https://oauth2.googleapis.com/token", {
     method: "POST",
-    headers: {
-      "Authorization": `Bearer ${apiKey}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      from: "PropWatch <onboarding@resend.dev>",
-      to: [to],
-      subject,
-      html,
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({
+      client_id: env.GMAIL_CLIENT_ID,
+      client_secret: env.GMAIL_CLIENT_SECRET,
+      refresh_token: env.GMAIL_REFRESH_TOKEN,
+      grant_type: "refresh_token",
     }),
   });
-  if (!res.ok) {
-    const err = await res.text();
-    throw new Error(`Resend error ${res.status}: ${err}`);
-  }
+  if (!res.ok) throw new Error(`gmail token error ${res.status}: ${await res.text()}`);
+  const d = await res.json();
+  _gmailToken = { token: d.access_token, exp: Date.now() + (d.expires_in - 60) * 1000 };
+  return _gmailToken.token;
+}
+
+// UTF-8 → base64（btoa 本身唔食多字節字元）
+function _b64utf8(str) {
+  const bytes = new TextEncoder().encode(str);
+  let bin = "";
+  for (const b of bytes) bin += String.fromCharCode(b);
+  return btoa(bin);
+}
+
+async function sendEmail(env, to, subject, html) {
+  if (!env.GMAIL_REFRESH_TOKEN) throw new Error("no GMAIL credentials");
+  const token = await gmailAccessToken(env);
+  // 中文 subject 用 RFC 2047 encoded-word；body 用 base64 transfer encoding
+  const mime = [
+    `From: PropWatch <surive02@gmail.com>`,
+    `To: ${to}`,
+    `Subject: =?UTF-8?B?${_b64utf8(subject)}?=`,
+    `MIME-Version: 1.0`,
+    `Content-Type: text/html; charset=UTF-8`,
+    `Content-Transfer-Encoding: base64`,
+    ``,
+    _b64utf8(html),
+  ].join("\r\n");
+  const raw = _b64utf8(mime).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+  const res = await fetch("https://gmail.googleapis.com/gmail/v1/users/me/messages/send", {
+    method: "POST",
+    headers: { "Authorization": `Bearer ${token}`, "Content-Type": "application/json" },
+    body: JSON.stringify({ raw }),
+  });
+  if (!res.ok) throw new Error(`gmail send error ${res.status}: ${await res.text()}`);
   return res.json();
 }
 
@@ -2388,42 +2430,52 @@ const SYNC_SLOTS = { "0 16 * * *": 0, "10 16 * * *": 1, "20 16 * * *": 2 };
 // its own Worker invocation with a fresh subrequest budget — a full sync
 // nearly exhausts the per-invocation subrequest limit, which is why the email
 // step failed when both ran together.
-async function sendDailyEmail(db, resendApiKey) {
-  if (!resendApiKey) return { error: "no RESEND_API_KEY" };
-  try {
-    // 每日 email 得一個收件人,維持用 seanwong 嘅視角(訂閱/設定)。
-    const sean = await db.prepare("SELECT id FROM accounts WHERE username = 'seanwong'").first();
-    if (!sean) return { error: "seanwong account not found" };
-    const highlights = await getTodayHighlights(db, sean.id);
-    // 筍盤 Top N（數目喺 ⚙️ 設定度改；0=唔要；non-fatal — radar 失敗唔阻住每日通知）
-    let bargains = [];
+async function sendDailyEmail(db, env) {
+  if (!env?.GMAIL_REFRESH_TOKEN) return { error: "no GMAIL credentials" };
+  // 逐個有 email 嘅帳戶寄——各自用自己嘅訂閱/設定/雷達視角。
+  // 冇訂閱任何屋苑嘅帳戶跳過（新用戶未加屋苑，冇嘢好通知）。
+  const { results: accounts } = await db.prepare(`
+    SELECT a.id, a.username, a.email FROM accounts a
+    WHERE a.email IS NOT NULL AND a.email != ''
+      AND (a.is_active IS NULL OR a.is_active = 1)
+      AND EXISTS (SELECT 1 FROM account_estates ae WHERE ae.account_id = a.id)
+  `).all();
+  const out = [];
+  for (const acc of accounts) {
     try {
-      const emailTop = (await getConfig(db)).email_bargain_top;
-      if (emailTop > 0) {
-        const radar = await computeBargainRadar(db, { limit: emailTop });
-        bargains = radar.listings;
-      }
-    } catch (e) { /* non-fatal */ }
-    const { byEstate } = highlights;
-    const totalTxns    = byEstate.reduce((s, e) => s + e.newTransactions.length, 0);
-    const totalPrice   = byEstate.reduce((s, e) => s + e.priceChanges.length, 0);
-    const totalNew     = byEstate.reduce((s, e) => s + e.newListings.length, 0);
-    const totalDel     = byEstate.reduce((s, e) => s + e.removedListings.length, 0);
-    const totalViewed  = byEstate.reduce((s, e) => s + e.viewedTxns.length, 0);
-    const hasChanges = totalTxns + totalPrice + totalNew + totalDel + totalViewed > 0;
-    const parts = [];
-    if (totalViewed) parts.push(`${totalViewed} 個睇過嘅單位成交`);
-    if (totalTxns)   parts.push(`${totalTxns} 個新成交`);
-    if (totalPrice)  parts.push(`${totalPrice} 個價格變動`);
-    if (totalNew)    parts.push(`${totalNew} 個新放盤`);
-    if (totalDel)    parts.push(`${totalDel} 個已下架`);
-    if (bargains.length) parts.push(`${bargains.length} 個筍盤`);
-    const subject = hasChanges || bargains.length ? `PropWatch 通知：${parts.join("、")}` : "PropWatch 通知：今日無更新";
-    return await sendEmail(resendApiKey, "johnwong777@hotmail.com", subject, buildEmailHtml(highlights, bargains));
-  } catch (err) {
-    console.error("Email send failed:", err.message);
-    return { error: err.message };
+      const highlights = await getTodayHighlights(db, acc.id);
+      // 筍盤 Top N（每個帳戶自己嘅 ⚙️ 設定；0=唔要；non-fatal）
+      let bargains = [];
+      try {
+        const emailTop = (await getConfig(db, acc.id)).email_bargain_top;
+        if (emailTop > 0) {
+          const radar = await computeBargainRadar(db, { limit: emailTop, accountId: acc.id });
+          bargains = radar.listings;
+        }
+      } catch (e) { /* non-fatal */ }
+      const { byEstate } = highlights;
+      const totalTxns    = byEstate.reduce((s, e) => s + e.newTransactions.length, 0);
+      const totalPrice   = byEstate.reduce((s, e) => s + e.priceChanges.length, 0);
+      const totalNew     = byEstate.reduce((s, e) => s + e.newListings.length, 0);
+      const totalDel     = byEstate.reduce((s, e) => s + e.removedListings.length, 0);
+      const totalViewed  = byEstate.reduce((s, e) => s + e.viewedTxns.length, 0);
+      const hasChanges = totalTxns + totalPrice + totalNew + totalDel + totalViewed > 0;
+      const parts = [];
+      if (totalViewed) parts.push(`${totalViewed} 個睇過嘅單位成交`);
+      if (totalTxns)   parts.push(`${totalTxns} 個新成交`);
+      if (totalPrice)  parts.push(`${totalPrice} 個價格變動`);
+      if (totalNew)    parts.push(`${totalNew} 個新放盤`);
+      if (totalDel)    parts.push(`${totalDel} 個已下架`);
+      if (bargains.length) parts.push(`${bargains.length} 個筍盤`);
+      const subject = hasChanges || bargains.length ? `PropWatch 通知：${parts.join("、")}` : "PropWatch 通知：今日無更新";
+      await sendEmail(env, acc.email, subject, buildEmailHtml(highlights, bargains));
+      out.push({ account: acc.username, to: acc.email, ok: true });
+    } catch (err) {
+      console.error(`Email to ${acc.username} failed:`, err.message);
+      out.push({ account: acc.username, error: err.message });
+    }
   }
+  return { sent: out };
 }
 
 export default {
@@ -2435,7 +2487,7 @@ export default {
     if (event.cron === "0 1 * * *") {
       ctx.waitUntil((async () => {
         await ensureMultiAccount(env.DB);
-        await sendDailyEmail(env.DB, env.RESEND_API_KEY);
+        await sendDailyEmail(env.DB, env);
       })());
     } else if (event.cron in SYNC_SLOTS) {
       const offset = SYNC_SLOTS[event.cron] * SYNC_SLOT_SIZE;
@@ -2468,7 +2520,7 @@ export default {
       // ── Rate limiting ──
       const clientIp = request.headers.get("CF-Connecting-IP") || "unknown";
       const sec = await getSecCfg(db);
-      if (path === "/api/login" || path === "/api/register") {
+      if (path === "/api/login" || path === "/api/register" || path === "/api/register-otp") {
         // 認證入口：per-IP 較嚴（擋暴力試密碼／狂開帳戶）
         if (rateLimited(`auth:${clientIp}`, sec.sec_auth_rpm)) {
           return json(429, { error: "請求太頻密，請一分鐘後再試" });
@@ -2538,19 +2590,69 @@ export default {
 
       // Register — public。新 account 由零開始(冇訂閱/睇樓/備注),自己加
       // 屋苑起自己嘅 view。成功即發 session,唔使再 login 一次。
-      if (method === "POST" && path === "/api/register") {
-        const { username, password } = await request.json();
+      // 註冊第一步：寄 6 位 OTP 去用戶 email（10 分鐘有效）。公開 route，
+      // 行 auth 級 rate limit（sec_auth_rpm per-IP）擋狂寄。
+      if (method === "POST" && path === "/api/register-otp") {
+        const { username, email } = await request.json();
         const uname = String(username || "").trim();
+        const em = String(email || "").trim().toLowerCase();
+        if (!/^[A-Za-z0-9_]{3,20}$/.test(uname))
+          return json(400, { error: "用戶名要 3–20 個字元(英文/數字/底線)" });
+        if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(em))
+          return json(400, { error: "電郵格式唔啱" });
+        const dup = await db.prepare("SELECT id FROM accounts WHERE username = ?").bind(uname).first();
+        if (dup) return json(409, { error: "用戶名已被使用" });
+        const dupEm = await db.prepare("SELECT id FROM accounts WHERE email = ?").bind(em).first();
+        if (dupEm) return json(409, { error: "呢個電郵已經註冊咗" });
+        const code = String(crypto.getRandomValues(new Uint32Array(1))[0] % 900000 + 100000);
+        const expires = new Date(Date.now() + 10 * 60 * 1000).toISOString();
+        await db.prepare(
+          "INSERT INTO email_otps (email, code, expires_at, attempts) VALUES (?,?,?,0) ON CONFLICT(email) DO UPDATE SET code=excluded.code, expires_at=excluded.expires_at, attempts=0"
+        ).bind(em, code, expires).run();
+        try {
+          await sendEmail(env, em, "PropWatch 註冊驗證碼",
+            `<div style="font-family:-apple-system,sans-serif;max-width:420px;margin:0 auto;padding:20px">
+              <h2 style="color:#f59e0b">PropWatch</h2>
+              <p>你嘅註冊驗證碼係：</p>
+              <p style="font-size:30px;font-weight:700;letter-spacing:6px;color:#0f172a">${code}</p>
+              <p style="color:#64748b;font-size:13px">10 分鐘內有效。如果唔係你操作，直接無視呢封信就得。</p>
+            </div>`);
+        } catch (err) {
+          return json(502, { error: "寄唔到驗證碼，請遲啲再試" });
+        }
+        return json(200, { ok: true });
+      }
+
+      // 註冊第二步：驗 OTP 先開戶（email 綁落帳戶，每日通知寄呢度）
+      if (method === "POST" && path === "/api/register") {
+        const { username, password, email, otp } = await request.json();
+        const uname = String(username || "").trim();
+        const em = String(email || "").trim().toLowerCase();
         if (!/^[A-Za-z0-9_]{3,20}$/.test(uname))
           return json(400, { error: "用戶名要 3–20 個字元(英文/數字/底線)" });
         if (!password || String(password).length < 6)
           return json(400, { error: "密碼最少 6 個字元" });
+        if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(em))
+          return json(400, { error: "電郵格式唔啱" });
         const dup = await db.prepare("SELECT id FROM accounts WHERE username = ?").bind(uname).first();
         if (dup) return json(409, { error: "用戶名已被使用" });
+        const dupEm = await db.prepare("SELECT id FROM accounts WHERE email = ?").bind(em).first();
+        if (dupEm) return json(409, { error: "呢個電郵已經註冊咗" });
+        // OTP 驗證：過期/未寄/試錯超過 5 次都要重新攞
+        const rec = await db.prepare("SELECT * FROM email_otps WHERE email = ?").bind(em).first();
+        if (!rec || rec.expires_at < new Date().toISOString())
+          return json(400, { error: "驗證碼過期或未發送，請撳「攞驗證碼」" });
+        if (rec.attempts >= 5)
+          return json(429, { error: "驗證碼試錯太多次，請重新攞過" });
+        if (String(otp || "").trim() !== rec.code) {
+          await db.prepare("UPDATE email_otps SET attempts = attempts + 1 WHERE email = ?").bind(em).run();
+          return json(400, { error: "驗證碼唔啱" });
+        }
+        await db.prepare("DELETE FROM email_otps WHERE email = ?").bind(em).run();
         const hash = await sha256(String(password));
         const ins = await db.prepare(
-          "INSERT INTO accounts (username, password_hash, expiry_date) VALUES (?, ?, '2099-12-31')"
-        ).bind(uname, hash).run();
+          "INSERT INTO accounts (username, password_hash, expiry_date, email) VALUES (?, ?, '2099-12-31', ?)"
+        ).bind(uname, hash, em).run();
         const now2 = new Date().toISOString();
         const token = randomToken();
         const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
@@ -2578,7 +2680,7 @@ export default {
       }
 
       if (method === "POST" && path === "/api/send-today-email") {
-        const result = await sendDailyEmail(db, env.RESEND_API_KEY);
+        const result = await sendDailyEmail(db, env);
         return json(200, { ok: !result?.error, result });
       }
 
@@ -3304,7 +3406,7 @@ export default {
 
       if (method === "POST" && path === "/api/test-email") {
         const result = await sendEmail(
-          env.RESEND_API_KEY,
+          env,
           "johnwong777@hotmail.com",
           "PropWatch 測試郵件",
           buildEmailHtml({

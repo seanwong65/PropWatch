@@ -945,6 +945,15 @@
     <input id="login-password2" type="password" placeholder="確認密碼" autocomplete="new-password"
       style="display:none;width:100%;padding:0.65rem 0.8rem;background:var(--surface2);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:0.95rem;box-sizing:border-box;margin-bottom:1rem"
       onkeydown="if(event.key==='Enter')loginSubmit()">
+    <input id="login-email" type="email" placeholder="電郵（收每日通知）" autocomplete="email"
+      style="display:none;width:100%;padding:0.65rem 0.8rem;background:var(--surface2);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:0.95rem;box-sizing:border-box;margin-bottom:1rem">
+    <div id="login-otp-row" style="display:none;gap:0.5rem;margin-bottom:1rem">
+      <input id="login-otp" type="text" inputmode="numeric" placeholder="電郵驗證碼" autocomplete="one-time-code"
+        style="flex:1;padding:0.65rem 0.8rem;background:var(--surface2);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:0.95rem;box-sizing:border-box;min-width:0"
+        onkeydown="if(event.key==='Enter')loginSubmit()">
+      <button id="login-otp-btn" onclick="requestRegisterOtp()"
+        style="padding:0.65rem 0.9rem;background:var(--surface2);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:0.85rem;cursor:pointer;white-space:nowrap">攞驗證碼</button>
+    </div>
     <button id="login-submit-btn" onclick="loginSubmit()" style="width:100%;padding:0.75rem;background:var(--accent);border:none;border-radius:8px;color:var(--on-accent);font-size:1rem;font-weight:600;cursor:pointer">登入</button>
     <div style="text-align:center;margin-top:0.9rem">
       <span id="login-mode-toggle" onclick="toggleLoginMode()" style="color:var(--muted);font-size:0.82rem;cursor:pointer;border-bottom:1px dotted var(--muted)">未有帳戶？註冊</span>
@@ -1255,9 +1264,48 @@ function toggleLoginMode() {
   _loginMode = _loginMode === 'login' ? 'register' : 'login';
   const isReg = _loginMode === 'register';
   document.getElementById('login-password2').style.display = isReg ? '' : 'none';
+  document.getElementById('login-email').style.display = isReg ? '' : 'none';
+  document.getElementById('login-otp-row').style.display = isReg ? 'flex' : 'none';
   document.getElementById('login-submit-btn').textContent = isReg ? '註冊' : '登入';
   document.getElementById('login-mode-toggle').textContent = isReg ? '已有帳戶？登入' : '未有帳戶？註冊';
   document.getElementById('login-error').style.display = 'none';
+}
+
+// 寄 OTP 去用戶 email；60 秒 cooldown 防狂撳
+let _otpCooldown = null;
+async function requestRegisterOtp() {
+  const errEl = document.getElementById('login-error');
+  const btn = document.getElementById('login-otp-btn');
+  errEl.style.display = 'none';
+  const username = document.getElementById('login-username').value.trim();
+  const email = document.getElementById('login-email').value.trim();
+  if (!username || !email) {
+    errEl.textContent = '先填用戶名同電郵，再攞驗證碼';
+    errEl.style.display = 'block';
+    return;
+  }
+  btn.disabled = true;
+  btn.textContent = '寄緊…';
+  try {
+    await fetch(API + '/api/register-otp', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username, email }),
+    }).then(async r => { const d = await r.json(); if (!r.ok) throw new Error(d.error); return d; });
+    let left = 60;
+    btn.textContent = `已寄出(${left})`;
+    clearInterval(_otpCooldown);
+    _otpCooldown = setInterval(() => {
+      left--;
+      if (left <= 0) { clearInterval(_otpCooldown); btn.disabled = false; btn.textContent = '攞驗證碼'; }
+      else btn.textContent = `已寄出(${left})`;
+    }, 1000);
+  } catch (e) {
+    btn.disabled = false;
+    btn.textContent = '攞驗證碼';
+    errEl.textContent = e.message;
+    errEl.style.display = 'block';
+  }
 }
 function loginSubmit() { _loginMode === 'register' ? doRegister() : doLogin(); }
 
@@ -1287,6 +1335,8 @@ async function doRegister() {
   const username = document.getElementById("login-username").value.trim();
   const password = document.getElementById("login-password").value;
   const password2 = document.getElementById("login-password2").value;
+  const email = document.getElementById("login-email").value.trim();
+  const otp = document.getElementById("login-otp").value.trim();
   const errEl = document.getElementById("login-error");
   errEl.style.display = "none";
   if (password !== password2) {
@@ -1294,11 +1344,16 @@ async function doRegister() {
     errEl.style.display = "block";
     return;
   }
+  if (!email || !otp) {
+    errEl.textContent = "要填電郵同驗證碼（撳「攞驗證碼」寄去你電郵）";
+    errEl.style.display = "block";
+    return;
+  }
   try {
     const data = await fetch(API + "/api/register", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ username, password }),
+      body: JSON.stringify({ username, password, email, otp }),
     }).then(async r => { const d = await r.json(); if (!r.ok) throw new Error(d.error); return d; });
     localStorage.setItem("propwatch_token", data.token);
     hideLoginScreen();
