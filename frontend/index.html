@@ -2800,7 +2800,7 @@ async function showEstate(id, name, district) {
             const lo = (Math.min(...prices)/1e4).toFixed(0);
             const hi = (Math.max(...prices)/1e4).toFixed(0);
             const ftPart = vals.length
-              ? `<div style="font-size:0.75rem;color:var(--muted)">$${Math.round(Math.min(...vals)).toLocaleString()} - $${Math.round(Math.max(...vals)).toLocaleString()} /呎 (${grp.length}個)</div>`
+              ? `<div style="font-size:0.75rem"><span class="stat-value" style="font-size:0.75rem">$${Math.round(Math.min(...vals)).toLocaleString()} - $${Math.round(Math.max(...vals)).toLocaleString()}</span><span style="color:var(--muted)"> /呎 (${grp.length}個)</span></div>`
               : '';
             return `<div style="margin-top:0.5rem"><span style="font-size:0.75rem;color:var(--muted)">${b}房</span> <span class="stat-value" style="font-size:1.1rem">$${lo}萬</span><span class="stat-unit"> - </span><span class="stat-value" style="font-size:1.1rem">$${hi}萬</span>${ftPart}</div>`;
           }).join('')}
