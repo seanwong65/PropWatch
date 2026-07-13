@@ -1564,6 +1564,7 @@ async function loadFriendHomes() {
       <td style="padding:0.4rem 0.5rem;white-space:nowrap">${fhMarketHtml(h)}</td>
       <td style="padding:0.4rem 0.5rem;white-space:nowrap">${fhSimilarHtml(h)}</td>
       <td style="padding:0.4rem 0 0.4rem 0.5rem;white-space:nowrap;text-align:right">
+        <button onclick="refreshFriendHome(${h.id})" style="background:none;border:none;cursor:pointer;font-size:0.85rem" title="更新過往成交同估值">🔄</button>
         <button onclick="openFriendModal(${h.id})" style="background:none;border:none;cursor:pointer;font-size:0.85rem" title="編輯">✏️</button>
         <button onclick="deleteFriendHome(${h.id})" style="background:none;border:none;cursor:pointer;font-size:0.85rem" title="刪除">🗑</button>
       </td>
@@ -1821,6 +1822,18 @@ async function deleteFriendHome(fhId) {
   if (!confirm(`刪除 ${h ? h.friend_name : ''} 嘅屋企記錄？`)) return;
   try { await api(`/api/friend-homes/${fhId}`, { method: 'DELETE' }); } catch (_) {}
   loadFriendHomes();
+}
+
+// 🔄 重新抓過往成交同估值（cache 咗嘅數據唔會自動更新，撳先更新）
+async function refreshFriendHome(fhId) {
+  toast('正在更新過往成交同估值，約 30 秒…', 'info');
+  try {
+    await api(`/api/friend-homes/${fhId}/enrich`, { method: 'POST' });
+    await loadFriendHomes();
+    toast('已更新 ✓', 'success');
+  } catch (e) {
+    toast('更新失敗：' + e.message, 'error');
+  }
 }
 
 let _compsData = [];
