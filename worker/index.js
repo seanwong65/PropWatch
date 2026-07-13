@@ -1906,7 +1906,7 @@ async function sendEmail(env, to, subject, html) {
   const token = await gmailAccessToken(env);
   // 中文 subject 用 RFC 2047 encoded-word；body 用 base64 transfer encoding
   const mime = [
-    `From: PropWatch <surive02@gmail.com>`,
+    `From: PropWatch <hkbuyhouse@gmail.com>`,
     `To: ${to}`,
     `Subject: =?UTF-8?B?${_b64utf8(subject)}?=`,
     `MIME-Version: 1.0`,
