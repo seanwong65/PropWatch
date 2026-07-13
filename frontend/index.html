@@ -4377,11 +4377,21 @@ function makeCombined(items, isManual) {
 // saved overrides: a ref_no marked 'ungrouped' is always forced solo (breaks
 // out of whatever auto/manual grouping it would otherwise join); refs sharing
 // a manual 'grouped' group_key are combined unconditionally.
+//
+// `listings` 入嚟之前已經由 applySortAndFilter() 排好序（例如售價）。
+// 分組 key（building+樓層帶+室+呎）唔理日期/來源，所以同一個實體單位
+// 喺唔同時期重覆放盤（例如舊 ref_no 下架，之後再上）會撞正同一個 key。
+// 當呢批同 key 嘅 item 唔夠條件合併（唔同源+差價>5%，或者乾脆同源），
+// 佢哋會全部走呢個 fallback：逐個 push——如果攞唔到自己喺 sorted array
+// 入面嘅原本位置，就會齊齊塞喺個 key 第一次出現嘅位（通常係嗰批入面最平
+// 嗰個嘅位置），將排序中間本來屬於第二平嘅盤逼去後面，睇落好似跳號。
+// 所以呢度用 idx 記住每個 item 原本喺 `listings` 嘅位置，冇合併嘅就用
+// 自己個 idx；合併咗嘅（變咗一行）用嗰組入面最細嗰個 idx（即最平嗰個，
+// 因為輸入已經由平到貴），最後成批用 idx 重新排返，先返回。
 function groupListings(listings) {
-  const groups = new Map();
-  const order = [];
+  const buckets = new Map();
   let soloId = 0;
-  for (const l of listings) {
+  listings.forEach((l, idx) => {
     const ov = l.ref_no && groupOverrides[l.ref_no];
     let key;
     if (ov && ov.status === 'grouped' && ov.group_key) key = `m|${ov.group_key}`;
@@ -4389,25 +4399,33 @@ function groupListings(listings) {
     else key = (l.building_name && l.unit && l.size_net)
       ? `g|${l.building_name}|${l.floor || ''}|${l.unit}|${l.size_net}`
       : `s|${soloId++}`;
-    if (!groups.has(key)) { groups.set(key, []); order.push(key); }
-    groups.get(key).push(l);
-  }
-  const rows = [];
-  for (const key of order) {
-    const items = groups.get(key);
+    if (!buckets.has(key)) buckets.set(key, []);
+    buckets.get(key).push({ l, idx });
+  });
+
+  const output = [];
+  for (const [key, entries] of buckets) {
+    const minIdx = Math.min(...entries.map(e => e.idx));
     if (key.startsWith('m|')) {
-      rows.push(items.length > 1 ? makeCombined(items, true) : items[0]);
+      output.push({ idx: minIdx, row: entries.length > 1 ? makeCombined(entries.map(e => e.l), true) : entries[0].l });
       continue;
     }
+    const items = entries.map(e => e.l);
     const nSrc = new Set(items.map(i => i.source)).size;
     if (items.length > 1 && nSrc > 1) {
       const prices = items.map(i => i.price).filter(Boolean);
       const min = Math.min(...prices), max = Math.max(...prices);
-      if (min > 0 && (max - min) / min <= 0.05) { rows.push(makeCombined(items)); continue; }
+      if (min > 0 && (max - min) / min <= 0.05) {
+        output.push({ idx: minIdx, row: makeCombined(items) });
+        continue;
+      }
     }
-    for (const i of items) rows.push(i);
+    // 唔夠條件合併：每個各自留返自己喺 sorted 輸入入面嘅位置，唔好齊齊
+    // 卡喺 key 第一次出現嗰位（否則就係本次修嘅個 bug）。
+    for (const e of entries) output.push({ idx: e.idx, row: e.l });
   }
-  return rows;
+  output.sort((a, b) => a.idx - b.idx);
+  return output.map(o => o.row);
 }
 
 // Persist a group-override action then refresh the current estate's listings.
