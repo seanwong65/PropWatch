@@ -2791,23 +2791,18 @@ async function showEstate(id, name, district) {
       <div id="tab-listings">
       <div class="stats-row">
         <div class="stat-card">
-          <div class="stat-label">實呎價範圍</div>
+          <div class="stat-label">售價 / 實呎價範圍</div>
           ${bedOrder.filter(b => bedGroups[b]?.length).map(b => {
             const grp = bedGroups[b];
+            const prices = grp.map(l => l.price).filter(Boolean);
             const vals = grp.map(l => l.price_per_ft).filter(Boolean);
-            if (!vals.length) return '';
-            const lo = Math.min(...vals), hi = Math.max(...vals);
-            return `<div style="margin-top:0.35rem"><span style="font-size:0.75rem;color:var(--muted)">${b}房</span> <span class="stat-value" style="font-size:1.1rem">$${Math.round(lo).toLocaleString()}</span><span class="stat-unit"> - </span><span class="stat-value" style="font-size:1.1rem">$${Math.round(hi).toLocaleString()}</span><span class="stat-unit"> /呎</span> <span style="font-size:0.75rem;color:var(--muted)">(${grp.length}個)</span></div>`;
-          }).join('')}
-        </div>
-        <div class="stat-card">
-          <div class="stat-label">售價範圍</div>
-          ${bedOrder.filter(b => bedGroups[b]?.length).map(b => {
-            const prices = bedGroups[b].map(l => l.price).filter(Boolean);
             if (!prices.length) return '';
             const lo = (Math.min(...prices)/1e4).toFixed(0);
             const hi = (Math.max(...prices)/1e4).toFixed(0);
-            return `<div style="margin-top:0.35rem"><span style="font-size:0.75rem;color:var(--muted)">${b}房</span> <span class="stat-value" style="font-size:1.1rem">$${lo}萬</span><span class="stat-unit"> - </span><span class="stat-value" style="font-size:1.1rem">$${hi}萬</span></div>`;
+            const ftPart = vals.length
+              ? `<div style="font-size:0.75rem;color:var(--muted)">$${Math.round(Math.min(...vals)).toLocaleString()} - $${Math.round(Math.max(...vals)).toLocaleString()} /呎 (${grp.length}個)</div>`
+              : '';
+            return `<div style="margin-top:0.5rem"><span style="font-size:0.75rem;color:var(--muted)">${b}房</span> <span class="stat-value" style="font-size:1.1rem">$${lo}萬</span><span class="stat-unit"> - </span><span class="stat-value" style="font-size:1.1rem">$${hi}萬</span>${ftPart}</div>`;
           }).join('')}
         </div>
         <div class="stat-card" id="market-temp-card">
