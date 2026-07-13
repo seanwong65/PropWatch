@@ -3432,6 +3432,9 @@ async function checkFirstLoginPrefs() {
 }
 
 function openPrefsModal(prefill) {
+  // 由「⚙️ 設定」嘅「修改」掣撳入嚟嗰陣，先閂設定 window，唔好兩個疊埋一齊顯示
+  const settingsOverlay = document.getElementById('settingsModalOverlay');
+  if (settingsOverlay && settingsOverlay.style.display !== 'none') closeSettingsModal();
   const p = prefill || {};
   document.getElementById('pref-price-min').value = p.price_min || '';
   document.getElementById('pref-price-max').value = p.price_max || '';
