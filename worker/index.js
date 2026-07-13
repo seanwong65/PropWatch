@@ -2802,8 +2802,12 @@ export default {
         const lAddedAt = lSub?.added_at ?? '9999-12-31';
         const { results } = await db
           .prepare(
-            `WITH latest AS (
-               SELECT MAX(snapshot_date) AS d FROM listings WHERE estate_id = ?1
+            // 「已下架」判斷要 per-source：同自己 source 嘅最新 snapshot 比，
+            // 唔可以同屋苑整體最新比。否則某個 source（例如 HKP）落後一日
+            // 未 sync，佢全部盤都會被誤判下架（last_seen < 其他 source 嘅
+            // 今日 snapshot），成個 source 消失。
+            `WITH src_latest AS (
+               SELECT source, MAX(snapshot_date) AS d FROM listings WHERE estate_id = ?1 GROUP BY source
              ),
              per_listing AS (
                SELECT listing_id,
@@ -2814,14 +2818,14 @@ export default {
              )
              SELECT l.*,
                pl.first_seen,
-               CASE WHEN pl.last_seen < latest.d THEN pl.last_seen ELSE NULL END AS removed_date,
+               CASE WHEN pl.last_seen < sl.d THEN pl.last_seen ELSE NULL END AS removed_date,
                prev.price AS prev_price,
                prev.price_per_ft AS prev_price_per_ft,
                (SELECT COUNT(DISTINCT h.price) FROM listing_price_history h
                  WHERE h.ref_no = l.ref_no AND h.snapshot_date >= ?2) AS price_variants
              FROM listings l
              JOIN per_listing pl ON pl.listing_id = l.listing_id
-             JOIN latest ON 1=1
+             JOIN src_latest sl ON sl.source = l.source
              LEFT JOIN listing_price_history prev
                ON prev.ref_no = l.ref_no
                AND prev.snapshot_date = (
