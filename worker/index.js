@@ -360,13 +360,19 @@ async function ensureAuthTables(db) {
   }
 }
 
+// 角色權限：admin 先可以改「分析參數」(⚙️ CONFIG_DEFS)。一般 user(註冊嘅)
+// 淨係可以改自己嘅睇樓偏好。seanwong 係系統 owner(seed);ADMIN_EMAILS 係
+// 指定 admin。喺呢度加 email(小寫)就係加 admin。
+const ADMIN_EMAILS = new Set(["johnwong777@hotmail.com"]);
+const isAdminSession = (session) => (session?.role || "user") === "admin";
+
 async function authenticate(db, request) {
   const auth = request.headers.get("Authorization") || "";
   const token = auth.startsWith("Bearer ") ? auth.slice(7) : null;
   if (!token) return null;
   const now = new Date().toISOString();
   const session = await db.prepare(
-    "SELECT s.*, a.username, a.expiry_date FROM sessions s JOIN accounts a ON a.id = s.account_id WHERE s.token = ? AND s.expires_at > ?"
+    "SELECT s.*, a.username, a.expiry_date, a.role FROM sessions s JOIN accounts a ON a.id = s.account_id WHERE s.token = ? AND s.expires_at > ?"
   ).bind(token, now).first();
   if (!session) return null;
   if (session.expiry_date < now.slice(0, 10)) return null;
@@ -395,6 +401,16 @@ async function ensureMultiAccount(db) {
   try { await db.prepare("ALTER TABLE system_parameters ADD COLUMN account_id INTEGER").run(); } catch (_) {}
   // 每日 email 逐帳戶寄去自己嘅 email（註冊時經 OTP 驗證）
   try { await db.prepare("ALTER TABLE accounts ADD COLUMN email TEXT").run(); } catch (_) {}
+  // 角色：user(預設) / admin。unconditional promote — 令指定 email 遲啲先註冊
+  // 都會自動升做 admin(冇 demote，重跑無害;accounts 表得幾行，成本可忽略)。
+  try { await db.prepare("ALTER TABLE accounts ADD COLUMN role TEXT NOT NULL DEFAULT 'user'").run(); } catch (_) {}
+  {
+    const adminEmails = [...ADMIN_EMAILS];
+    const placeholders = adminEmails.map(() => "?").join(",");
+    await db.prepare(
+      `UPDATE accounts SET role='admin' WHERE role != 'admin' AND (username='seanwong' OR lower(email) IN (${placeholders}))`
+    ).bind(...adminEmails).run();
+  }
   await db.prepare(`CREATE TABLE IF NOT EXISTS email_otps (
     email TEXT PRIMARY KEY,
     code TEXT NOT NULL,
@@ -2704,7 +2720,7 @@ export default {
         const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
         await db.prepare("INSERT INTO sessions (token, account_id, created_at, expires_at) VALUES (?, ?, ?, ?)")
           .bind(token, account.id, now, expiresAt).run();
-        return json(200, { token, email: account.email });
+        return json(200, { token, email: account.email, role: account.role || "user" });
       }
 
       // Logout endpoint
@@ -2768,15 +2784,16 @@ export default {
         }
         await db.prepare("DELETE FROM email_otps WHERE email = ?").bind(em).run();
         const hash = await sha256(String(password));
+        const role = ADMIN_EMAILS.has(em) ? "admin" : "user";
         const ins = await db.prepare(
-          "INSERT INTO accounts (username, password_hash, expiry_date, email) VALUES (?, ?, '2099-12-31', ?)"
-        ).bind(em, hash, em).run();
+          "INSERT INTO accounts (username, password_hash, expiry_date, email, role) VALUES (?, ?, '2099-12-31', ?, ?)"
+        ).bind(em, hash, em, role).run();
         const now2 = new Date().toISOString();
         const token = randomToken();
         const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
         await db.prepare("INSERT INTO sessions (token, account_id, created_at, expires_at) VALUES (?, ?, ?, ?)")
           .bind(token, ins.meta.last_row_id, now2, expiresAt).run();
-        return json(200, { token, email: em });
+        return json(200, { token, email: em, role });
       }
 
       // Auth guard for all other routes
@@ -3884,9 +3901,11 @@ export default {
       // Per-account:key 存做 cfg_<accountId>_<key>。
       if (method === "GET" && path === "/api/config") {
         const cfg = await getConfig(db, session.account_id);
-        return json(200, { items: CONFIG_DEFS.map((d) => ({ ...d, value: cfg[d.key] })), groups: CONFIG_GROUPS });
+        return json(200, { items: CONFIG_DEFS.map((d) => ({ ...d, value: cfg[d.key] })), groups: CONFIG_GROUPS, role: session.role || "user" });
       }
       if (method === "PUT" && path === "/api/config") {
+        // 分析參數淨係 admin 可以改（一般 user 得睇樓偏好）
+        if (!isAdminSession(session)) return json(403, { error: "只有管理員可以修改分析參數" });
         const body = await request.json();
         await db.prepare("CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT)").run();
         const updated = [];

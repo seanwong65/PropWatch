@@ -1049,13 +1049,16 @@
       <span id="settings-prefs-summary" style="flex:1;font-size:0.85rem"></span>
       <button class="vf-submit" style="width:auto;padding:0.5rem 1rem;margin:0;white-space:nowrap" onclick="openPrefsModal(_userPrefs||{})">修改</button>
     </div>
-    <div class="modal-sub" style="margin-top:1.25rem;display:flex;align-items:center;justify-content:space-between;gap:0.6rem">
-      <span>📐 分析參數</span>
-      <select id="settings-cfg-group" onchange="_cfgGroup=this.value;renderCfgOptions()"
-        style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:0.85rem;padding:0.35rem 0.5rem;font-family:inherit"></select>
+    <!-- 分析參數：淨係 admin 睇到（一般 user 得睇樓偏好）。由 applyRoleToSettings() 控制顯示 -->
+    <div id="settings-cfg-section" style="display:none">
+      <div class="modal-sub" style="margin-top:1.25rem;display:flex;align-items:center;justify-content:space-between;gap:0.6rem">
+        <span>📐 分析參數</span>
+        <select id="settings-cfg-group" onchange="_cfgGroup=this.value;renderCfgOptions()"
+          style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:0.85rem;padding:0.35rem 0.5rem;font-family:inherit"></select>
+      </div>
+      <p style="font-size:0.78rem;color:var(--muted);margin:0.25rem 0 0.75rem">相對市價／抵買雷達／議價指數／email 用嘅數字，改完即時生效（有上下限自動修正）。用右上角揀分類，睇某個 tab／功能用嘅參數。</p>
+      <div id="settings-cfg-list" style="display:flex;flex-direction:column;gap:0.7rem"></div>
     </div>
-    <p style="font-size:0.78rem;color:var(--muted);margin:0.25rem 0 0.75rem">相對市價／抵買雷達／議價指數／email 用嘅數字，改完即時生效（有上下限自動修正）。用右上角揀分類，睇某個 tab／功能用嘅參數。</p>
-    <div id="settings-cfg-list" style="display:flex;flex-direction:column;gap:0.7rem"></div>
   </div>
 </div>
 
@@ -2533,13 +2536,23 @@ let _appCfg = {};
 let _cfgDefs = [];
 let _cfgGroups = [];
 let _cfgGroup = '全部';   // 設定 modal 揀緊嘅分類
+let _userRole = 'user';   // 'admin' 先可以改「分析參數」；一般 user 得睇樓偏好
 async function loadAppConfig() {
   try {
-    const { items, groups } = await api('/api/config');
+    const { items, groups, role } = await api('/api/config');
     _cfgDefs = items || [];
     _cfgGroups = groups || [];
     _appCfg = Object.fromEntries(_cfgDefs.map(d => [d.key, d.value]));
+    if (role) _userRole = role;
+    applyRoleToSettings();
   } catch { /* 用預設值照行 */ }
+}
+
+// 分析參數 section：admin 先顯示（一般 user 隱藏）。後端 PUT /api/config
+// 都有 admin gate，所以就算有人改 DOM 都改唔到。
+function applyRoleToSettings() {
+  const sec = document.getElementById('settings-cfg-section');
+  if (sec) sec.style.display = _userRole === 'admin' ? '' : 'none';
 }
 
 async function loadEstates() {
