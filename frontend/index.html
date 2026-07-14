@@ -1024,19 +1024,26 @@
   </div>
 </div>
 
+<!-- 備注選項編輯 popup（由睇樓表格「備注」區嘅「編輯選項」掣開） -->
+<div class="modal-overlay" id="notesOptModalOverlay" style="display:none" onclick="if(event.target===this)closeNotesOptEditor()">
+  <div class="modal" style="max-width:400px;max-height:90vh;overflow-y:auto">
+    <button class="modal-close" onclick="closeNotesOptEditor()">✕</button>
+    <div class="modal-title">📝 備注選項</div>
+    <p style="font-size:0.78rem;color:var(--muted);margin:0.25rem 0 0.75rem">增刪／改名快速選項，改動即時生效，睇樓表格即刻更新</p>
+    <div id="notesOptList" style="display:flex;flex-direction:column;gap:0.4rem;margin-bottom:0.6rem"></div>
+    <div style="display:flex;gap:0.4rem">
+      <input id="notesOptNew" placeholder="新增選項…" onkeydown="if(event.key==='Enter')addNotesOption()"
+        style="flex:1;background:var(--surface2);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:0.9rem;padding:0.5rem 0.6rem;box-sizing:border-box;font-family:inherit">
+      <button class="vf-submit" onclick="addNotesOption()" style="width:auto;padding:0.5rem 1rem;margin:0;white-space:nowrap">＋ 新增</button>
+    </div>
+  </div>
+</div>
+
 <div class="modal-overlay" id="settingsModalOverlay" style="display:none" onclick="if(event.target===this)closeSettingsModal()">
   <div class="modal" style="max-width:460px;max-height:90vh;overflow-y:auto">
     <button class="modal-close" onclick="closeSettingsModal()">✕</button>
     <div class="modal-title">⚙️ 設定</div>
-    <div class="modal-sub">備注選項</div>
-    <p style="font-size:0.78rem;color:var(--muted);margin:0.25rem 0 0.75rem">每個選項獨立儲存，改動即時生效</p>
-    <div id="settings-notes-list" style="display:flex;flex-direction:column;gap:0.4rem;margin-bottom:0.6rem"></div>
-    <div style="display:flex;gap:0.4rem">
-      <input id="settings-notes-new" placeholder="新增選項…" onkeydown="if(event.key==='Enter')addNotesOption()"
-        style="flex:1;background:var(--surface2);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:0.9rem;padding:0.5rem 0.6rem;box-sizing:border-box;font-family:inherit">
-      <button class="vf-submit" onclick="addNotesOption()" style="width:auto;padding:0.5rem 1rem;margin:0;white-space:nowrap">＋ 新增</button>
-    </div>
-    <div class="modal-sub" style="margin-top:1.25rem">🎯 睇樓偏好</div>
+    <div class="modal-sub" style="margin-top:0">🎯 睇樓偏好</div>
     <p style="font-size:0.78rem;color:var(--muted);margin:0.25rem 0 0.5rem">開「最新放盤」時自動 apply 嘅 filter（售價／房數／實呎），留空＝唔限</p>
     <div style="display:flex;align-items:center;gap:0.6rem">
       <span id="settings-prefs-summary" style="flex:1;font-size:0.85rem"></span>
@@ -1121,7 +1128,10 @@
         </div>
       </div>
 
-      <label class="vf-label">備注</label>
+      <label class="vf-label" style="display:flex;align-items:center;justify-content:space-between;gap:0.5rem">
+        <span>備注</span>
+        <span onclick="openNotesOptEditor()" style="font-size:0.75rem;color:var(--accent2);cursor:pointer;font-weight:400">✏️ 編輯選項</span>
+      </label>
       <div id="vf-notes-chips" style="display:flex;flex-wrap:wrap;gap:0.4rem;margin-bottom:0.45rem"></div>
       <textarea class="vf-input" id="vf-notes-text" placeholder="自由輸入備注…" rows="2" style="margin-bottom:0.6rem;resize:vertical;font-family:inherit;font-size:inherit"></textarea>
 
@@ -3379,11 +3389,9 @@ function getNotesValue() {
 
 async function openSettingsModal() {
   document.getElementById('settingsModalOverlay').style.display = 'flex';
-  renderNotesOptions();
   renderCfgOptions();
   renderPrefsSummary();
-  await Promise.all([loadNotesOptions(), loadAppConfig(), loadPreferences()]);
-  renderNotesOptions();
+  await Promise.all([loadAppConfig(), loadPreferences()]);
   renderCfgOptions();
   renderPrefsSummary();
 }
@@ -3568,8 +3576,18 @@ function closeSettingsModal() {
   document.getElementById('settingsModalOverlay').style.display = 'none';
 }
 
+// 備注選項編輯 popup（喺睇樓表格「備注」區撳「編輯選項」開）
+function openNotesOptEditor() {
+  document.getElementById('notesOptModalOverlay').style.display = 'flex';
+  renderNotesOptions();
+  loadNotesOptions().then(renderNotesOptions);
+}
+function closeNotesOptEditor() {
+  document.getElementById('notesOptModalOverlay').style.display = 'none';
+}
+
 function renderNotesOptions() {
-  const list = document.getElementById('settings-notes-list');
+  const list = document.getElementById('notesOptList');
   if (!list) return;
   if (!_notesParams.length) {
     list.innerHTML = `<div style="font-size:0.8rem;color:var(--muted);padding:0.3rem 0">未有選項，喺下面新增。</div>`;
@@ -3584,14 +3602,23 @@ function renderNotesOptions() {
     </div>`).join('');
 }
 
+// 改完選項即時 refresh 睇樓表格啲 chips（保留當前已揀嘅備注）
+function _refreshViewingNotesChips() {
+  if (document.getElementById('viewingModalOverlay')?.style.display === 'flex'
+      && document.getElementById('vf-notes-chips')) {
+    populateNotesSelect(getNotesValue());
+  }
+}
+
 async function addNotesOption() {
-  const input = document.getElementById('settings-notes-new');
+  const input = document.getElementById('notesOptNew');
   const value = input.value.trim();
   if (!value) return;
   await api('/api/system-params', { method: 'POST', body: JSON.stringify({ category: 'notes_option', value }) });
   input.value = '';
   await loadNotesOptions();
   renderNotesOptions();
+  _refreshViewingNotesChips();
 }
 
 async function updateNotesOption(id, value) {
@@ -3600,12 +3627,14 @@ async function updateNotesOption(id, value) {
   await api('/api/system-params/' + id, { method: 'PUT', body: JSON.stringify({ value: val }) });
   await loadNotesOptions();
   renderNotesOptions();
+  _refreshViewingNotesChips();
 }
 
 async function deleteNotesOption(id) {
   await api('/api/system-params/' + id, { method: 'DELETE' });
   await loadNotesOptions();
   renderNotesOptions();
+  _refreshViewingNotesChips();
 }
 
 function openViewingModal(viewing = null) {
