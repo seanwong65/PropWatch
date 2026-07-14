@@ -3955,7 +3955,7 @@ let txnEstateId = null;
 let allTransactions = [];
 let txnSortCol = "reg_date";
 let txnSortDir = "desc";
-let txnFilters = { dateMonths: 0, heldMin: '', heldMax: '', building: 'all', unit: 'all' };
+let txnFilters = { dateMonths: 0, heldMin: '', heldMax: '', building: 'all', unit: 'all', sizeMin: '', sizeMax: '' };
 
 function setTxnFilter(key, val) {
   txnFilters[key] = val;
@@ -3965,6 +3965,12 @@ function setTxnFilter(key, val) {
 function applyHeldFilter() {
   txnFilters.heldMin = document.getElementById('txnHeldMin')?.value || '';
   txnFilters.heldMax = document.getElementById('txnHeldMax')?.value || '';
+  renderTransactionsTable(txnEstateId, txnOffset, !!document.querySelector(".load-more-btn"));
+}
+
+function applySizeFilter() {
+  txnFilters.sizeMin = document.getElementById('txnSizeMin')?.value || '';
+  txnFilters.sizeMax = document.getElementById('txnSizeMax')?.value || '';
   renderTransactionsTable(txnEstateId, txnOffset, !!document.querySelector(".load-more-btn"));
 }
 
@@ -3980,6 +3986,8 @@ function applyTxnFilters(txns) {
     if (txnFilters.heldMax !== '' && (years === null || years > Number(txnFilters.heldMax))) return false;
     if (txnFilters.building !== 'all' && t.building !== txnFilters.building) return false;
     if (txnFilters.unit !== 'all' && t.unit !== txnFilters.unit) return false;
+    if (txnFilters.sizeMin !== '' && (t.size_net == null || t.size_net < Number(txnFilters.sizeMin))) return false;
+    if (txnFilters.sizeMax !== '' && (t.size_net == null || t.size_net > Number(txnFilters.sizeMax))) return false;
     return true;
   });
 }
@@ -3991,7 +3999,7 @@ async function loadTransactions(estateId, offset, append) {
 
   if (!append) {
     panel.innerHTML = '<div class="listings-section"><div class="loading"><div class="spinner"></div> 載入中…</div></div>';
-    txnFilters = { dateMonths: 0, heldMin: '', heldMax: '', building: 'all', unit: 'all' };
+    txnFilters = { dateMonths: 0, heldMin: '', heldMax: '', building: 'all', unit: 'all', sizeMin: '', sizeMax: '' };
   } else {
     const btn = document.querySelector(".load-more-btn");
     if (btn) { btn.disabled = true; btn.textContent = '載入中…'; }
@@ -4163,6 +4171,17 @@ function renderTransactionsTable(estateId, offset, hasMore) {
           <input class="filter-input" id="txnHeldMax" type="text" inputmode="decimal" placeholder="最多" value="${txnFilters.heldMax}" style="width:52px">
           <span class="filter-label">年</span>
           <button class="filter-chip" onclick="applyHeldFilter()">搜尋</button>
+        </div>
+      </div>
+      <div class="filter-sep"></div>
+      <div class="filter-pair">
+        <span class="filter-label">實用呎數</span>
+        <div class="filter-group">
+          <input class="filter-input" id="txnSizeMin" type="text" inputmode="numeric" placeholder="最少" value="${txnFilters.sizeMin}" style="width:52px">
+          <span style="color:var(--muted);font-size:0.75rem">–</span>
+          <input class="filter-input" id="txnSizeMax" type="text" inputmode="numeric" placeholder="最多" value="${txnFilters.sizeMax}" style="width:52px">
+          <span class="filter-label">呎</span>
+          <button class="filter-chip" onclick="applySizeFilter()">搜尋</button>
         </div>
       </div>
       <span class="filter-count">${filtered.length !== allTransactions.length ? `${filtered.length} / ${allTransactions.length} 條` : `${allTransactions.length} 條`}</span>
