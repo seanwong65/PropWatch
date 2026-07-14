@@ -4087,6 +4087,8 @@ function renderTransactionsTable(estateId, offset, hasMore) {
       : '-';
     const srcBadge = t.source === 'ricacorp'
       ? `<span style="font-size:0.68rem;color:var(--accent);background:rgba(251,191,36,0.12);border-radius:4px;padding:1px 5px;margin-left:5px">利嘉閣</span>`
+      : t.source === 'hkp'
+      ? `<span style="font-size:0.68rem;color:var(--accent2);background:rgba(96,165,250,0.12);border-radius:4px;padding:1px 5px;margin-left:5px">香港置業</span>`
       : `<span style="font-size:0.68rem;color:var(--muted);margin-left:5px">中原</span>`;
     return `<tr>
       <td class="txn-date">${t.reg_date || '-'}${t.instrument_date && t.instrument_date !== t.reg_date ? `<div class="unit-price">簽約 ${t.instrument_date.slice(5)}</div>` : ''}</td>

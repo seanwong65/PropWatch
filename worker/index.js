@@ -1026,6 +1026,80 @@ async function saveHkpListings(db, estateId, listings) {
   await db.batch(batch);
 }
 
+// ── 香港置業 成交（補充 source）──────────────────────────────────────────
+// data.hkp.com.hk/search/v1/transactions?tx_type=S（土地註冊處成交）。
+// dedup 靠 transactions 嘅 combo 唯一索引，格式要同 centanet 一致：
+// building '2座'、floor '53樓'、unit 'E室'、reg_date 用 HKT 日期。重複會被
+// INSERT OR IGNORE 擋走，只入 HKP 獨有嘅新成交。
+function parseHkpTransaction(t) {
+  const toHkDate = (iso) => iso ? new Date(Date.parse(iso) + 8 * 3600 * 1000).toISOString().slice(0, 10) : null;
+  const reg_date = toHkDate(t.tx_date);
+  const prevDate = toHkDate(t.last_tx_date);
+  const held_days = (reg_date && prevDate)
+    ? Math.round((Date.parse(reg_date) - Date.parse(prevDate)) / 86400000) : null;
+  return {
+    transaction_id: t.id || null,
+    building: t.building?.name || null,
+    floor: (t.floor != null && t.floor !== "") ? `${t.floor}樓` : null,
+    unit: (t.flat != null && t.flat !== "") ? `${t.flat}室` : null,
+    price: t.price || null,
+    size_net: t.net_area || null,
+    price_per_ft: t.unit_price_net || (t.net_area ? Math.round(t.price / t.net_area) : null),
+    reg_date,
+    prev_price: t.last_price || null,
+    gain_pct: (typeof t.gain === "number") ? t.gain : null,
+    held_days,
+    source: "hkp",
+  };
+}
+
+export async function scrapeHkpTransactions(estateName) {
+  const token = await hkpGetToken();
+  if (!token) return [];
+  const ac = await hkpApi(`/search/v1/autocomplete/estates?text=${encodeURIComponent(estateName)}`, token);
+  const estId = ac?.[0]?.result?.[0]?.search?.id;
+  if (!estId) return [];
+  const txns = [];
+  const seen = new Set();
+  const limit = 50;
+  const cutoff = new Date(Date.now() - 1100 * 86400000).toISOString().slice(0, 10); // ~3年，同利嘉閣一致
+  const deadline = Date.now() + 25000; // 成交係補充非 critical，設總預算防拖死 sync
+  for (let page = 1; page <= 10; page++) {
+    if (Date.now() > deadline) break;
+    const data = await hkpApi(`/search/v1/transactions?est_ids=${estId}&tx_type=S&limit=${limit}&page=${page}`, token);
+    const results = data?.result || [];
+    if (!results.length) break;
+    let belowCutoff = false;
+    for (const t of results) {
+      const rec = parseHkpTransaction(t);
+      if (!rec.price || !rec.reg_date) continue;
+      if (rec.reg_date < cutoff) { belowCutoff = true; continue; } // 出窗（結果 newest-first）
+      const key = rec.transaction_id || `${rec.building}|${rec.floor}|${rec.unit}|${rec.reg_date}|${rec.price}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      txns.push(rec);
+    }
+    if (belowCutoff || results.length < limit) break;
+  }
+  return txns;
+}
+
+async function saveHkpTransactions(db, estateId, txns) {
+  if (!txns.length) return;
+  const today = hkDateStr();
+  const stmt = db.prepare(
+    `INSERT OR IGNORE INTO transactions
+     (estate_id, transaction_id, building, floor, unit, price, size_net, price_per_ft,
+      reg_date, prev_price, gain_pct, held_days, source, first_seen)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+  );
+  const batch = txns.map(t => stmt.bind(
+    estateId, t.transaction_id, t.building, t.floor, normalizeUnit(t.unit),
+    t.price, t.size_net, t.price_per_ft, t.reg_date, t.prev_price, t.gain_pct, t.held_days, t.source, today
+  ));
+  await db.batch(batch);
+}
+
 // ── Listing sources registry ───────────────────────────────────────────────
 // One place that describes every listing source. Add a source here (+ its
 // scrape/save fns) and it auto-applies to daily sync, manual sync, the per-
@@ -2400,6 +2474,13 @@ async function syncOneEstate(db, estate) {
       await saveRicacorpTransactions(db, estate.id, ricaTxns);
     } catch (e) { /* non-fatal */ }
   }
+  // 再補香港置業成交（土地註冊處，dedup 靠 combo 索引，只入新嘅）（non-fatal）。
+  if (estate.hkp_enabled) {
+    try {
+      const hkpTxns = await scrapeHkpTransactions(estate.name);
+      await saveHkpTransactions(db, estate.id, hkpTxns);
+    } catch (e) { /* non-fatal */ }
+  }
   const listings = await syncEstateListings(db, estate);
   const changes = await detectChanges(db, estate.id, estate.name, listings);
   changes.newTransactions = newTxns;
@@ -3042,12 +3123,31 @@ export default {
           const m = ricaByKey.get(txnKey(t.building, t.floor, t.unit, t.reg_date));
           if (m) { t.instrument_date = m.instrument_date; ricaByKey.delete(txnKey(m.building, m.floor, m.unit, m.reg_date)); }
         }
+        // 再補香港置業成交（DB）：HKP 用「簽約日」，中原/利嘉閣用「登記日」，
+        // 同一宗會差幾日到兩星期，所以唔可以靠日期夾——用「同座+樓+室+成交價」
+        // 去重（同單位同價幾乎肯定係同一宗）。hkp-only 喺第一頁 append。
+        const { results: hkpTxns } = await db.prepare(
+          "SELECT building, floor, unit, price, size_net, price_per_ft, reg_date, prev_price, gain_pct, held_days FROM transactions WHERE estate_id=? AND source='hkp' AND reg_date >= ?"
+        ).bind(estateId, txnAddedAt).all();
+        const priceKey = (b, f, u, p) => `${_normBldg(b)}|${String(f || "").replace(/\D/g, "")}|${_normUnit(u)}|${p}`;
+        const seenPriceKeys = new Set();
+        for (const t of txns) seenPriceKeys.add(priceKey(t.building, t.floor, t.unit, t.price));
+        for (const r of ricaByKey.values()) seenPriceKeys.add(priceKey(r.building, r.floor, r.unit, r.price));
+        const hkpNew = hkpTxns.filter(r => !seenPriceKeys.has(priceKey(r.building, r.floor, r.unit, r.price)));
         if (offset === 0) {
           for (const r of ricaByKey.values()) {
             txns.push({
               building: r.building, floor: r.floor, unit: r.unit,
               price: r.price, size_net: r.size_net, price_per_ft_net: r.price_per_ft,
               reg_date: r.reg_date, instrument_date: r.instrument_date, source: "ricacorp",
+            });
+          }
+          for (const r of hkpNew) {
+            txns.push({
+              building: r.building, floor: r.floor, unit: r.unit,
+              price: r.price, size_net: r.size_net, price_per_ft_net: r.price_per_ft,
+              reg_date: r.reg_date, prev_price: r.prev_price, gain_pct: r.gain_pct, held_days: r.held_days,
+              source: "hkp",
             });
           }
           txns.sort((a, b) => (b.reg_date || "").localeCompare(a.reg_date || ""));
