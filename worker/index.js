@@ -1239,6 +1239,57 @@ async function ensureGroupOverrides(db) {
 const _normBldg = (s) => String(s || "").replace(/[座\s]/g, "").toUpperCase();
 const _normUnit = (s) => String(s || "").replace(/[室號\s]/g, "").toUpperCase();
 
+// 房數推斷器：成交（土地註冊處）只有面積冇房數，用同屋苑在售 listings
+// （有齊 座/室/呎/房數）反推。①夾「座+室」入面「最接近實呎」嗰個 sample 嘅
+// 房數（同一室位可有多種則，例：2座E室 491呎=2房、510呎=1房，要連面積夾）
+// ②夾唔到（舊記錄冇座）就用全屋苑「最接近實呎 ±25呎 範圍內最常見房數」。
+// 成交表同走勢圖（成交線 + 房數 filter）共用呢個 helper。
+async function makeBedInferrer(db, estateId) {
+  const { results: bedRef } = await db.prepare(
+    "SELECT building_name, unit, size_net, bedrooms FROM listings WHERE estate_id = ? AND bedrooms IS NOT NULL"
+  ).bind(estateId).all();
+  const modeOf = (counts) => Number(Object.entries(counts).sort((a, b) => b[1] - a[1])[0][0]);
+  const byUnit = new Map();   // 座+室 → [{ size_net, bedrooms }]
+  for (const l of bedRef) {
+    const k = `${_normBldg(l.building_name)}|${_normUnit(l.unit)}`;
+    if (!byUnit.has(k)) byUnit.set(k, []);
+    byUnit.get(k).push(l);
+  }
+  const sizeSamples = bedRef.filter(l => l.size_net);
+  const nearestBed = (samples, size) => {
+    if (size) {
+      let best = null, bestD = Infinity;
+      for (const s of samples) {
+        if (s.size_net == null) continue;
+        const d = Math.abs(s.size_net - size);
+        if (d < bestD) { bestD = d; best = s.bedrooms; }
+      }
+      if (best != null) return best;
+    }
+    const counts = {};
+    for (const s of samples) counts[s.bedrooms] = (counts[s.bedrooms] || 0) + 1;
+    return samples.length ? modeOf(counts) : null;
+  };
+  const inferBySize = (size) => {
+    if (!size || !sizeSamples.length) return null;
+    const near = sizeSamples.filter(l => Math.abs(l.size_net - size) <= 25);
+    if (!near.length) return null;
+    const counts = {};
+    for (const l of near) counts[l.bedrooms] = (counts[l.bedrooms] || 0) + 1;
+    return modeOf(counts);
+  };
+  return {
+    hasData: bedRef.length > 0,
+    infer(building, unit, size) {
+      const uk = `${_normBldg(building)}|${_normUnit(unit)}`;
+      const samples = byUnit.get(uk);
+      return samples ? nearestBed(samples, size) : inferBySize(size);
+    },
+  };
+}
+// beds filter：'all' 全通過；'4+' = >=4；其餘 exact match。
+const _bedMatch = (beds, b) => beds === "all" ? true : (b != null && (beds === "4+" ? b >= 4 : String(b) === beds));
+
 // 由中原 centadata 頁嘅「座」dropdown 解 building typeCode。
 // 成交搜尋條路唔穩陣：成交疏嘅座唔會喺最近100宗出現、keyword 又會撈埋
 // 同名屋苑（「天晉」出埋「海天晉」、「Seasons」出埋日出康城）。
@@ -3180,19 +3231,71 @@ export default {
       // 趨勢圖:同樣由加入自選日開始。
       if (method === "GET" && path.match(/^\/api\/estates\/\d+\/trends$/)) {
         const estateId = path.split("/")[3];
+        const beds = url.searchParams.get("beds") || "all";   // all|1|2|3|4+
         const sub = await db.prepare("SELECT added_at FROM account_estates WHERE account_id = ? AND estate_id = ?")
           .bind(session.account_id, estateId).first();
         const addedAt = sub?.added_at ?? '9999-12-31';
-        const { results } = await db
-          .prepare(
-            `SELECT snapshot_date, avg_price_ft, median_price,
-                    min_price, max_price, listing_count
+
+        // ── 在售趨勢（平均實呎價 / 放盤數量）──
+        // beds=all 用預先 aggregate 好嘅 price_snapshots（快）；指定房數就由
+        // listing_price_history + 每個 ref 嘅房數即場 aggregate（重建歷史分房數）。
+        let trends;
+        if (beds === "all") {
+          trends = (await db.prepare(
+            `SELECT snapshot_date, avg_price_ft, median_price, min_price, max_price, listing_count
              FROM price_snapshots WHERE estate_id = ? AND snapshot_date >= ?
              ORDER BY snapshot_date ASC LIMIT 90`
-          )
-          .bind(estateId, addedAt)
-          .all();
-        return json(200, { trends: results });
+          ).bind(estateId, addedAt).all()).results;
+        } else {
+          // 由 listings 表（有 bedrooms + 每日 snapshot）即場 aggregate。限 centanet
+          // 一個 source，同 price_snapshots（centanet-only）同一基準，令「全部」同
+          // 「分房數」條數對得返（唔會出現 2房比全部仲多）。
+          const { results: rows } = await db.prepare(
+            `SELECT snapshot_date, bedrooms, price_per_ft FROM listings
+             WHERE estate_id = ? AND snapshot_date >= ? AND source = 'centanet'
+               AND price_per_ft IS NOT NULL`
+          ).bind(estateId, addedAt).all();
+          const byDate = new Map();
+          for (const r of rows) {
+            if (!_bedMatch(beds, r.bedrooms)) continue;
+            if (!byDate.has(r.snapshot_date)) byDate.set(r.snapshot_date, []);
+            byDate.get(r.snapshot_date).push(r.price_per_ft);
+          }
+          trends = [...byDate.entries()].sort((a, b) => a[0].localeCompare(b[0])).slice(-90)
+            .map(([d, vals]) => ({
+              snapshot_date: d,
+              avg_price_ft: Math.round(vals.reduce((s, v) => s + v, 0) / vals.length),
+              listing_count: vals.length,
+            }));
+        }
+
+        // ── 成交趨勢（實呎價，trailing median）──
+        // 成交疏（可能一個月幾宗），所以每個 snapshot date 畫「近 N 日成交呎價中位數」
+        // （N = market_median_days，⚙️ 可改），得出一條平滑嘅成交參考線同叫價比較。
+        // 房數靠 makeBedInferrer 推斷（成交本身冇房數）。
+        const soldWindow = (await getConfig(db, session.account_id)).market_median_days ?? 60;
+        const bedInfer = await makeBedInferrer(db, estateId);
+        const { results: rawTxns } = await db.prepare(
+          `SELECT reg_date, price_per_ft, building, unit, size_net FROM transactions
+           WHERE estate_id = ? AND price_per_ft IS NOT NULL AND reg_date IS NOT NULL`
+        ).bind(estateId).all();
+        const soldPts = rawTxns
+          .map(t => ({ date: t.reg_date, ppf: t.price_per_ft, bed: bedInfer.infer(t.building, t.unit, t.size_net) }))
+          .filter(t => _bedMatch(beds, t.bed));
+        const median = (arr) => {
+          if (!arr.length) return null;
+          const s = [...arr].sort((a, b) => a - b);
+          const m = Math.floor(s.length / 2);
+          return s.length % 2 ? s[m] : Math.round((s[m - 1] + s[m]) / 2);
+        };
+        const soldTrend = trends.map(pt => {
+          const d = pt.snapshot_date;
+          const lo = new Date(Date.parse(d) - soldWindow * 86400000).toISOString().slice(0, 10);
+          const vals = soldPts.filter(t => t.date <= d && t.date >= lo).map(t => t.ppf);
+          return { snapshot_date: d, sold_ppf: median(vals) };
+        });
+
+        return json(200, { trends, soldTrend });
       }
 
       if (method === "GET" && path.match(/^\/api\/estates\/\d+\/transactions$/)) {
@@ -3294,52 +3397,10 @@ export default {
           txns.sort((a, b) => (b.reg_date || "").localeCompare(a.reg_date || ""));
         }
 
-        // 房數推斷：成交（土地註冊處）本身只有面積冇房數，用同屋苑在售 listings
-        // （有齊 座/室/呎/房數）反推。①「座+室」入面揀最接近實呎嗰個 sample 嘅
-        // 房數——因為同一室位可以有兩種則（例：2座E室 491呎=2房、510呎=1房），
-        // 淨係夾室位會撈亂，要連埋面積先準。②夾唔到（舊記錄冇座）就 fallback 用
-        // 全屋苑「最接近實呎 ±25呎 範圍內最常見嘅房數」（density 處理面積 overlap）。
-        // 純參考，估唔到就 null（前端唔顯示）。
-        const { results: bedRef } = await db.prepare(
-          "SELECT building_name, unit, size_net, bedrooms FROM listings WHERE estate_id = ? AND bedrooms IS NOT NULL"
-        ).bind(estateId).all();
-        if (bedRef.length) {
-          const modeOf = (counts) => Number(Object.entries(counts).sort((a, b) => b[1] - a[1])[0][0]);
-          const byUnit = new Map();   // 座+室 → [{ size_net, bedrooms }]
-          for (const l of bedRef) {
-            const k = `${_normBldg(l.building_name)}|${_normUnit(l.unit)}`;
-            if (!byUnit.has(k)) byUnit.set(k, []);
-            byUnit.get(k).push(l);
-          }
-          const sizeSamples = bedRef.filter(l => l.size_net);
-          // 一堆 sample 入面揀最接近 size 嘅房數；size 缺失就取眾數。
-          const nearestBed = (samples, size) => {
-            if (size) {
-              let best = null, bestD = Infinity;
-              for (const s of samples) {
-                if (s.size_net == null) continue;
-                const d = Math.abs(s.size_net - size);
-                if (d < bestD) { bestD = d; best = s.bedrooms; }
-              }
-              if (best != null) return best;
-            }
-            const counts = {};
-            for (const s of samples) counts[s.bedrooms] = (counts[s.bedrooms] || 0) + 1;
-            return modeOf(counts);
-          };
-          const inferBedBySize = (size) => {
-            if (!size) return null;
-            const near = sizeSamples.filter(l => Math.abs(l.size_net - size) <= 25);
-            if (!near.length) return null;
-            const counts = {};
-            for (const l of near) counts[l.bedrooms] = (counts[l.bedrooms] || 0) + 1;
-            return modeOf(counts);
-          };
-          for (const t of txns) {
-            const uk = `${_normBldg(t.building)}|${_normUnit(t.unit)}`;
-            const samples = byUnit.get(uk);
-            t.bedrooms = samples ? nearestBed(samples, t.size_net) : inferBedBySize(t.size_net);
-          }
+        // 房數推斷（見 makeBedInferrer）：純參考，估唔到就 null（前端唔顯示）。
+        const bedInfer = await makeBedInferrer(db, estateId);
+        if (bedInfer.hasData) {
+          for (const t of txns) t.bedrooms = bedInfer.infer(t.building, t.unit, t.size_net);
         }
         return json(200, { transactions: txns, total: raw.data?.length ?? 0 });
       }
