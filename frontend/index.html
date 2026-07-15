@@ -4020,17 +4020,20 @@ function renderTransactionsTable(estateId, offset, hasMore) {
     { key: "reg_date",     label: "登記日期" },
     { key: null,           label: "單位" },
     { key: "price",        label: "成交價" },
-    { key: "price_per_ft", label: "實呎價" },
+    { key: "price_per_ft", label: "實呎價", sub: "*房數為估算" },
     { key: "held_days",    label: "持有年期" },
     { key: "gain_annual",  label: "升跌" },
     { key: "hs_price",     label: "恆生估值" },
     { key: null,           label: "查估值" },
     { key: null,           label: "" },
   ];
+  const thLabel = (c) => c.sub
+    ? `${c.label}<div style="font-size:0.65rem;font-weight:400;color:var(--muted)">${c.sub}</div>`
+    : c.label;
   const ths = thCols.map(c => {
-    if (!c.key) return `<th>${c.label}</th>`;
+    if (!c.key) return `<th>${thLabel(c)}</th>`;
     const cls = txnSortCol === c.key ? `sortable sort-${txnSortDir}` : "sortable";
-    return `<th class="${cls}" onclick="setTxnSort('${c.key}')">${c.label}</th>`;
+    return `<th class="${cls}" onclick="setTxnSort('${c.key}')">${thLabel(c)}</th>`;
   }).join('');
 
   const rows = sorted.map((t, i) => {
@@ -4122,7 +4125,6 @@ function renderTransactionsTable(estateId, offset, hasMore) {
       <div class="filter-pair">
         <span class="filter-label">房數</span>
         <div class="filter-group">${txnSel('beds', txnBeds, o => o==='all' ? '全部' : o+'房')}</div>
-        <span style="font-size:0.68rem;color:var(--muted)">*房數為估算</span>
       </div>
       <div class="filter-sep"></div>
       <div class="filter-pair">
