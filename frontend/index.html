@@ -949,12 +949,13 @@
       <input id="login-otp" type="text" inputmode="numeric" placeholder="電郵驗證碼" autocomplete="one-time-code"
         style="flex:1;padding:0.65rem 0.8rem;background:var(--surface2);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:0.95rem;box-sizing:border-box;min-width:0"
         onkeydown="if(event.key==='Enter')loginSubmit()">
-      <button id="login-otp-btn" onclick="requestRegisterOtp()"
+      <button id="login-otp-btn" onclick="requestOtp()"
         style="padding:0.65rem 0.9rem;background:var(--surface2);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:0.85rem;cursor:pointer;white-space:nowrap">攞驗證碼</button>
     </div>
     <button id="login-submit-btn" onclick="loginSubmit()" style="width:100%;padding:0.75rem;background:var(--accent);border:none;border-radius:8px;color:var(--on-accent);font-size:1rem;font-weight:600;cursor:pointer">登入</button>
-    <div style="text-align:center;margin-top:0.9rem">
-      <span id="login-mode-toggle" onclick="toggleLoginMode()" style="color:var(--muted);font-size:0.82rem;cursor:pointer;border-bottom:1px dotted var(--muted)">未有帳戶？註冊</span>
+    <div style="text-align:center;margin-top:0.9rem;display:flex;flex-direction:column;gap:0.5rem">
+      <span id="login-mode-toggle" onclick="onAuthToggle()" style="color:var(--muted);font-size:0.82rem;cursor:pointer;border-bottom:1px dotted var(--muted);align-self:center">未有帳戶？註冊</span>
+      <span id="login-forgot-toggle" onclick="setLoginMode('forgot')" style="color:var(--muted);font-size:0.82rem;cursor:pointer;border-bottom:1px dotted var(--muted);align-self:center">忘記密碼？</span>
     </div>
   </div>
 </div>
@@ -1261,6 +1262,7 @@ function showLoginScreen() {
   localStorage.removeItem("propwatch_token");
   document.getElementById("login-screen").style.display = "flex";
   document.getElementById("logout-btn").style.display = "none";
+  setLoginMode("login");   // 每次返 login 頁都重設做登入 mode（唔好卡喺註冊/忘記密碼）
 }
 
 function hideLoginScreen() {
@@ -1270,20 +1272,32 @@ function hideLoginScreen() {
 
 // login 頁有兩個 mode:登入(預設)/註冊。註冊成功後端直接發 session,
 // 唔使再入多次密碼。
+// 三個模式：login / register / forgot（忘記密碼，email OTP 重設）
 let _loginMode = 'login';
-function toggleLoginMode() {
-  _loginMode = _loginMode === 'login' ? 'register' : 'login';
-  const isReg = _loginMode === 'register';
+function setLoginMode(mode) {
+  _loginMode = mode;
+  const isReg = mode === 'register';
+  const isForgot = mode === 'forgot';
+  const needOtp = isReg || isForgot;   // register + forgot 都要 email OTP
   document.getElementById('login-password2').style.display = isReg ? '' : 'none';
-  document.getElementById('login-otp-row').style.display = isReg ? 'flex' : 'none';
-  document.getElementById('login-submit-btn').textContent = isReg ? '註冊' : '登入';
-  document.getElementById('login-mode-toggle').textContent = isReg ? '已有帳戶？登入' : '未有帳戶？註冊';
+  document.getElementById('login-otp-row').style.display = needOtp ? 'flex' : 'none';
+  const pw = document.getElementById('login-password');
+  pw.placeholder = isForgot ? '新密碼' : '密碼';
+  pw.value = '';
+  pw.setAttribute('autocomplete', needOtp ? 'new-password' : 'current-password');
+  if (!needOtp) document.getElementById('login-otp').value = '';
+  document.getElementById('login-submit-btn').textContent = isReg ? '註冊' : isForgot ? '重設密碼' : '登入';
+  document.getElementById('login-mode-toggle').textContent =
+    mode === 'login' ? '未有帳戶？註冊' : isForgot ? '返回登入' : '已有帳戶？登入';
+  document.getElementById('login-forgot-toggle').style.display = mode === 'login' ? '' : 'none';
   document.getElementById('login-error').style.display = 'none';
 }
+// 底部第一條 link：login↔register 切換（forgot 模式就返回 login）
+function onAuthToggle() { setLoginMode(_loginMode === 'login' ? 'register' : 'login'); }
 
-// 寄 OTP 去用戶 email；60 秒 cooldown 防狂撳
+// 寄 OTP 去用戶 email；60 秒 cooldown 防狂撳。register 同 forgot 用唔同 endpoint。
 let _otpCooldown = null;
-async function requestRegisterOtp() {
+async function requestOtp() {
   const errEl = document.getElementById('login-error');
   const btn = document.getElementById('login-otp-btn');
   errEl.style.display = 'none';
@@ -1296,7 +1310,8 @@ async function requestRegisterOtp() {
   btn.disabled = true;
   btn.textContent = '寄緊…';
   try {
-    await fetch(API + '/api/register-otp', {
+    const endpoint = _loginMode === 'forgot' ? '/api/forgot-otp' : '/api/register-otp';
+    await fetch(API + endpoint, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ email }),
@@ -1316,7 +1331,44 @@ async function requestRegisterOtp() {
     errEl.style.display = 'block';
   }
 }
-function loginSubmit() { _loginMode === 'register' ? doRegister() : doLogin(); }
+function loginSubmit() {
+  if (_loginMode === 'register') return doRegister();
+  if (_loginMode === 'forgot') return doResetPassword();
+  return doLogin();
+}
+
+async function doResetPassword() {
+  const email = document.getElementById("login-email").value.trim();
+  const password = document.getElementById("login-password").value;
+  const otp = document.getElementById("login-otp").value.trim();
+  const errEl = document.getElementById("login-error");
+  errEl.style.display = "none";
+  if (!email || !otp) {
+    errEl.textContent = "要填電郵同驗證碼（撳「攞驗證碼」寄去你電郵）";
+    errEl.style.display = "block";
+    return;
+  }
+  if (password.length < 6) {
+    errEl.textContent = "新密碼最少 6 個字元";
+    errEl.style.display = "block";
+    return;
+  }
+  try {
+    const data = await fetch(API + "/api/reset-password", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email, otp, password }),
+    }).then(async r => { const d = await r.json(); if (!r.ok) throw new Error(d.error); return d; });
+    localStorage.setItem("propwatch_token", data.token);
+    hideLoginScreen();
+    loadEstates();
+    loadNotesOptions();
+    checkFirstLoginPrefs();
+  } catch (e) {
+    errEl.textContent = e.message;
+    errEl.style.display = "block";
+  }
+}
 
 async function doLogin() {
   const email = document.getElementById("login-email").value.trim();

@@ -2724,8 +2724,9 @@ export default {
       // ── Rate limiting ──
       const clientIp = request.headers.get("CF-Connecting-IP") || "unknown";
       const sec = await getSecCfg(db);
-      if (path === "/api/login" || path === "/api/register" || path === "/api/register-otp") {
-        // 認證入口：per-IP 較嚴（擋暴力試密碼／狂開帳戶）
+      if (path === "/api/login" || path === "/api/register" || path === "/api/register-otp"
+          || path === "/api/forgot-otp" || path === "/api/reset-password") {
+        // 認證入口：per-IP 較嚴（擋暴力試密碼／狂開帳戶／狂寄重設信）
         if (rateLimited(`auth:${clientIp}`, sec.sec_auth_rpm)) {
           return json(429, { error: "請求太頻密，請一分鐘後再試" });
         }
@@ -2856,6 +2857,67 @@ export default {
         await db.prepare("INSERT INTO sessions (token, account_id, created_at, expires_at) VALUES (?, ?, ?, ?)")
           .bind(token, ins.meta.last_row_id, now2, expiresAt).run();
         return json(200, { token, email: em, role });
+      }
+
+      // ── 忘記密碼（email OTP 重設）── public auth route。
+      // 用戶忘記密碼 / 帳戶試錯鎖死（is_active=0）都靠呢度自救——重設密碼會
+      // 順便解鎖（failed_attempts=0, is_active=1）。同 login/register 一樣係
+      // 認證入口，唔會漏任何 data：即使 email 唔存在都回同一句（防帳戶枚舉）。
+      // 第一步：寄 OTP。
+      if (method === "POST" && path === "/api/forgot-otp") {
+        const { email } = await request.json();
+        const em = String(email || "").trim().toLowerCase();
+        if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(em))
+          return json(400, { error: "電郵格式唔啱" });
+        // 只有真存在嘅帳戶先寄 OTP，但回應永遠一樣（唔洩露 email 存唔存在）。
+        const acc = await db.prepare("SELECT id FROM accounts WHERE email = ?").bind(em).first();
+        if (acc) {
+          const code = String(crypto.getRandomValues(new Uint32Array(1))[0] % 900000 + 100000);
+          const expires = new Date(Date.now() + 10 * 60 * 1000).toISOString();
+          await db.prepare(
+            "INSERT INTO email_otps (email, code, expires_at, attempts) VALUES (?,?,?,0) ON CONFLICT(email) DO UPDATE SET code=excluded.code, expires_at=excluded.expires_at, attempts=0"
+          ).bind(em, code, expires).run();
+          try {
+            await sendEmail(env, em, "PropWatch 重設密碼驗證碼",
+              `<div style="font-family:-apple-system,sans-serif;max-width:420px;margin:0 auto;padding:20px">
+                <h2 style="color:#f59e0b">PropWatch</h2>
+                <p>你嘅重設密碼驗證碼係：</p>
+                <p style="font-size:30px;font-weight:700;letter-spacing:6px;color:#0f172a">${code}</p>
+                <p style="color:#64748b;font-size:13px">10 分鐘內有效。如果唔係你操作，直接無視呢封信，你嘅密碼唔會變。</p>
+              </div>`);
+          } catch (err) { /* 寄唔到都回 ok，唔洩露 email 是否存在；用戶收唔到自然會重試 */ }
+        }
+        return json(200, { ok: true });
+      }
+
+      // 第二步：驗 OTP → 設新密碼 + 解鎖帳戶。成功即發 session（唔使再 login）。
+      if (method === "POST" && path === "/api/reset-password") {
+        const { email, otp, password } = await request.json();
+        const em = String(email || "").trim().toLowerCase();
+        if (!password || String(password).length < 6)
+          return json(400, { error: "密碼最少 6 個字元" });
+        const rec = await db.prepare("SELECT * FROM email_otps WHERE email = ?").bind(em).first();
+        if (!rec || rec.expires_at < new Date().toISOString())
+          return json(400, { error: "驗證碼過期或未發送，請撳「攞驗證碼」" });
+        if (rec.attempts >= 5)
+          return json(429, { error: "驗證碼試錯太多次，請重新攞過" });
+        if (String(otp || "").trim() !== rec.code) {
+          await db.prepare("UPDATE email_otps SET attempts = attempts + 1 WHERE email = ?").bind(em).run();
+          return json(400, { error: "驗證碼唔啱" });
+        }
+        const account = await db.prepare("SELECT * FROM accounts WHERE email = ?").bind(em).first();
+        if (!account) return json(400, { error: "帳戶唔存在" });
+        await db.prepare("DELETE FROM email_otps WHERE email = ?").bind(em).run();
+        const hash = await sha256(String(password));
+        // 重設密碼順便解鎖：清 failed_attempts、locked_until，重新啟用（解決「鎖咗開唔返」）。
+        await db.prepare("UPDATE accounts SET password_hash = ?, failed_attempts = 0, locked_until = NULL, is_active = 1 WHERE id = ?")
+          .bind(hash, account.id).run();
+        const now2 = new Date().toISOString();
+        const token = randomToken();
+        const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
+        await db.prepare("INSERT INTO sessions (token, account_id, created_at, expires_at) VALUES (?, ?, ?, ?)")
+          .bind(token, account.id, now2, expiresAt).run();
+        return json(200, { token, email: em, role: account.role || "user" });
       }
 
       // Auth guard for all other routes
