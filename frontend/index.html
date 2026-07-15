@@ -3906,7 +3906,7 @@ let txnEstateId = null;
 let allTransactions = [];
 let txnSortCol = "reg_date";
 let txnSortDir = "desc";
-let txnFilters = { dateMonths: 0, heldMin: '', heldMax: '', building: 'all', unit: 'all', sizeMin: '', sizeMax: '' };
+let txnFilters = { dateMonths: 0, heldMin: '', heldMax: '', building: 'all', unit: 'all', sizeMin: '', sizeMax: '', beds: 'all' };
 
 function setTxnFilter(key, val) {
   txnFilters[key] = val;
@@ -3939,6 +3939,10 @@ function applyTxnFilters(txns) {
     if (txnFilters.unit !== 'all' && t.unit !== txnFilters.unit) return false;
     if (txnFilters.sizeMin !== '' && (t.size_net == null || t.size_net < Number(txnFilters.sizeMin))) return false;
     if (txnFilters.sizeMax !== '' && (t.size_net == null || t.size_net > Number(txnFilters.sizeMax))) return false;
+    if (txnFilters.beds !== 'all') {
+      if (t.bedrooms == null) return false;
+      if (txnFilters.beds === '4+' ? t.bedrooms < 4 : String(t.bedrooms) !== txnFilters.beds) return false;
+    }
     return true;
   });
 }
@@ -3950,7 +3954,7 @@ async function loadTransactions(estateId, offset, append) {
 
   if (!append) {
     panel.innerHTML = '<div class="listings-section"><div class="loading"><div class="spinner"></div> 載入中…</div></div>';
-    txnFilters = { dateMonths: 0, heldMin: '', heldMax: '', building: 'all', unit: 'all', sizeMin: '', sizeMax: '' };
+    txnFilters = { dateMonths: 0, heldMin: '', heldMax: '', building: 'all', unit: 'all', sizeMin: '', sizeMax: '', beds: 'all' };
   } else {
     const btn = document.querySelector(".load-more-btn");
     if (btn) { btn.disabled = true; btn.textContent = '載入中…'; }
@@ -4093,8 +4097,9 @@ function renderTransactionsTable(estateId, offset, hasMore) {
   ];
   const txnBuildings = ["all", ...Array.from(new Set(allTransactions.map(t=>t.building).filter(Boolean))).sort()];
   const txnUnits = ["all", ...Array.from(new Set(allTransactions.map(t=>t.unit).filter(Boolean))).sort()];
-  const txnSel = (key, opts) =>
-    `<select class="filter-select" onchange="setTxnFilter('${key}',this.value)">${opts.map(o=>`<option value="${o}"${txnFilters[key]===o?'selected':''}>${o==='all'?'全部':o}</option>`).join('')}</select>`;
+  const txnBeds = ["all", "1", "2", "3", "4+"];
+  const txnSel = (key, opts, labelFn) =>
+    `<select class="filter-select" onchange="setTxnFilter('${key}',this.value)">${opts.map(o=>`<option value="${o}"${txnFilters[key]===o?'selected':''}>${labelFn ? labelFn(o) : (o==='all'?'全部':o)}</option>`).join('')}</select>`;
   const filterBar = `
     <div class="filter-bar">
       <div class="filter-pair">
@@ -4112,6 +4117,11 @@ function renderTransactionsTable(estateId, offset, hasMore) {
       <div class="filter-pair">
         <span class="filter-label">單位</span>
         <div class="filter-group">${txnSel('unit', txnUnits)}</div>
+      </div>
+      <div class="filter-sep"></div>
+      <div class="filter-pair">
+        <span class="filter-label">房數</span>
+        <div class="filter-group">${txnSel('beds', txnBeds, o => o==='all' ? '全部' : o+'房')}</div>
       </div>
       <div class="filter-sep"></div>
       <div class="filter-pair">
