@@ -1453,7 +1453,9 @@ function goHome() {
 // ── Dashboard ──────────────────────────────────────────────────
 let dashboardEstates = [];
 
-let dashboardMetric = "count"; // "count" | "price"
+let estateChartMetric = "price"; // "price"(平均實呎價,預設) | "count"(放盤數量)
+let _estateTrends = [];          // 現時屋苑 view 嘅 trends（切 metric 時重畫用）
+let _estateOverlay = null;       // 全組合 overlay（呎價指數，只喺 price metric 顯示）
 
 async function showDashboard(estates) {
   dashboardEstates = estates;
@@ -1482,21 +1484,8 @@ async function showDashboard(estates) {
         <div id="dash-panel-radar" style="display:none"><div id="radar-body" style="color:var(--muted);font-size:0.75rem">載入中…</div></div>
         <div id="dash-panel-friends" style="display:none"><div id="friends-body" style="color:var(--muted);font-size:0.75rem">載入中…</div></div>
       </div>
-      <div class="dashboard-chart-section" style="margin-top:1.25rem">
-        <div class="dashboard-chart-header">
-          <div style="display:flex;gap:0.4rem">
-            <button class="filter-chip ${dashboardMetric==='count'?'active':''}" onclick="setDashboardMetric('count')">放盤數量</button>
-            <button class="filter-chip ${dashboardMetric==='price'?'active':''}" onclick="setDashboardMetric('price')">平均實呎價</button>
-          </div>
-          <select class="estate-select" id="dashboardSelect" onchange="loadDashboardChart(this.value)">
-            ${estates.map(e => `<option value="${e.id}">${escHtml(e.name)}</option>`).join('')}
-          </select>
-        </div>
-        <div class="chart-wrap" style="height:240px"><canvas id="dashboardChart"></canvas></div>
-      </div>
     </div>
   `;
-  if (estates.length) loadDashboardChart(estates[0].id);
   loadTodayHighlights();
 }
 
@@ -2467,119 +2456,17 @@ async function loadHistoryHighlights(months) {
   }
 }
 
-function setDashboardMetric(metric) {
-  dashboardMetric = metric;
-  const sel = document.getElementById("dashboardSelect");
-  if (sel) loadDashboardChart(sel.value);
-  // update chip active states
-  document.querySelectorAll(".dashboard-chart-section .filter-chip").forEach(btn => {
-    btn.classList.toggle("active", btn.textContent.trim() === (metric === "count" ? "放盤數量" : "平均實呎價"));
+// 屋苑走勢圖 metric 切換（平均實呎價 / 放盤數量）。price 帶「全組合」overlay,
+// count 淨係本屋苑。trends / overlay 存喺 showEstate,切 metric 即刻重畫。
+function setEstateChartMetric(metric) {
+  estateChartMetric = metric;
+  document.querySelectorAll("#estate-chart-toggle .filter-chip").forEach(btn => {
+    btn.classList.toggle("active", btn.dataset.metric === metric);
   });
-}
-
-async function loadDashboardChart(estateId) {
-  try {
-    const { trends } = await api(`/api/estates/${estateId}/trends`);
-    drawDashboardChart(trends);
-  } catch (err) {
-    console.error(err);
-  }
-}
-
-function drawDashboardChart(trends) {
-  const canvas = document.getElementById("dashboardChart");
-  if (!canvas || trends.length < 2) return;
-
-  const isPrice = dashboardMetric === "price";
-  const labels = trends.map(t => t.snapshot_date.slice(5));
-  const data = trends.map(t => isPrice ? t.avg_price_ft : t.listing_count);
-  const color = isPrice ? "#f59e0b" : "#3b82f6";
-
-  const W = canvas.parentElement.offsetWidth;
-  const H = 200;
-  canvas.width = W;
-  canvas.height = H;
-
-  const ctx = canvas.getContext("2d");
-  const pad = { top: 20, right: 16, bottom: 28, left: 44 };
-  const w = W - pad.left - pad.right;
-  const h = H - pad.top - pad.bottom;
-
-  const minV = Math.max(0, Math.min(...data) - 2);
-  const maxV = Math.max(...data) + 2;
-
-  ctx.clearRect(0, 0, W, H);
-
-  // Grid lines
-  ctx.strokeStyle = "rgba(31,45,66,0.8)";
-  ctx.lineWidth = 1;
-  for (let i = 0; i <= 4; i++) {
-    const y = pad.top + (h / 4) * i;
-    ctx.beginPath(); ctx.moveTo(pad.left, y); ctx.lineTo(pad.left + w, y); ctx.stroke();
-  }
-
-  // X labels
-  ctx.fillStyle = "#64748b";
-  ctx.font = "10px -apple-system,sans-serif";
-  ctx.textAlign = "center";
-  const step = Math.ceil(labels.length / 8);
-  labels.forEach((l, i) => {
-    if (i % step === 0) {
-      const x = pad.left + (w / Math.max(data.length - 1, 1)) * i;
-      ctx.fillText(l, x, H - 6);
-    }
-  });
-
-  // Y label formatting
-  const fmtY = v => isPrice ? `$${Math.round(v).toLocaleString()}` : String(Math.round(v));
-  ctx.fillStyle = "#64748b";
-  ctx.font = "10px -apple-system,sans-serif";
-  ctx.textAlign = "right";
-  for (let i = 0; i <= 4; i++) {
-    const y = pad.top + (h / 4) * i;
-    const val = maxV - ((maxV - minV) / 4) * i;
-    ctx.fillText(fmtY(val), pad.left - 6, y + 4);
-  }
-
-  // Gradient fill
-  const grad = ctx.createLinearGradient(0, pad.top, 0, pad.top + h);
-  const rgb = isPrice ? "251,191,36" : "59,130,246";
-  grad.addColorStop(0, `rgba(${rgb},0.28)`);
-  grad.addColorStop(1, `rgba(${rgb},0)`);
-
-  ctx.beginPath();
-  data.forEach((v, i) => {
-    const x = pad.left + (w / Math.max(data.length - 1, 1)) * i;
-    const y = pad.top + h - ((v - minV) / (maxV - minV)) * h;
-    i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
-  });
-  ctx.lineTo(pad.left + w, pad.top + h);
-  ctx.lineTo(pad.left, pad.top + h);
-  ctx.closePath();
-  ctx.fillStyle = grad;
-  ctx.fill();
-
-  // Line
-  ctx.beginPath();
-  ctx.strokeStyle = color;
-  ctx.lineWidth = 2;
-  ctx.lineJoin = "round";
-  data.forEach((v, i) => {
-    const x = pad.left + (w / Math.max(data.length - 1, 1)) * i;
-    const y = pad.top + h - ((v - minV) / (maxV - minV)) * h;
-    i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
-  });
-  ctx.stroke();
-
-  // Dots
-  data.forEach((v, i) => {
-    const x = pad.left + (w / Math.max(data.length - 1, 1)) * i;
-    const y = pad.top + h - ((v - minV) / (maxV - minV)) * h;
-    ctx.beginPath();
-    ctx.arc(x, y, i === data.length - 1 ? 4 : 2.5, 0, Math.PI * 2);
-    ctx.fillStyle = color;
-    ctx.fill();
-  });
+  const titleEl = document.getElementById("estate-chart-title");
+  if (titleEl) titleEl.textContent = metric === "count" ? "放盤數量趨勢" : "實用呎價趨勢";
+  // count 唔顯示全組合 overlay（overlay 係呎價指數，同數量冇得比）
+  drawChart(_estateTrends, metric === "price" ? _estateOverlay : null);
 }
 
 // ── Estate list ────────────────────────────────────────────────
@@ -2886,7 +2773,13 @@ async function showEstate(id, name, district) {
         </div>
       </div>
         <div class="chart-section">
-          <div class="section-title">實用呎價趨勢</div>
+          <div style="display:flex;align-items:center;justify-content:space-between;gap:0.6rem;flex-wrap:wrap;margin-bottom:0.5rem">
+            <div class="section-title" id="estate-chart-title" style="margin:0">${estateChartMetric === 'count' ? '放盤數量趨勢' : '實用呎價趨勢'}</div>
+            <div id="estate-chart-toggle" style="display:flex;gap:0.4rem">
+              <button class="filter-chip ${estateChartMetric === 'price' ? 'active' : ''}" data-metric="price" onclick="setEstateChartMetric('price')">平均實呎價</button>
+              <button class="filter-chip ${estateChartMetric === 'count' ? 'active' : ''}" data-metric="count" onclick="setEstateChartMetric('count')">放盤數量</button>
+            </div>
+          </div>
           ${trends.length < 2
             ? '<div class="no-data">需要至少 2 天數據才能顯示趨勢圖<br><small>每日 09:00 自動更新</small></div>'
             : '<div class="chart-wrap"><canvas id="trendChart"></canvas></div>'
@@ -2922,9 +2815,12 @@ async function showEstate(id, name, district) {
       </div>
     `;
 
-    // Draw chart, then overlay the portfolio index (async, non-blocking)
+    // Draw chart, then overlay the portfolio index (async, non-blocking)。
+    // trends/overlay 存起，等 metric 切換（setEstateChartMetric）可即刻重畫。
+    _estateTrends = trends;
+    _estateOverlay = null;
     if (trends.length >= 2) {
-      drawChart(trends);
+      drawChart(trends, estateChartMetric === "price" ? _estateOverlay : null);
       api('/api/market-index').then(({ index }) => {
         if (!index || index.length < 2 || activeEstateId !== id) return;
         const idxMap = new Map(index.map(r => [r.snapshot_date, r.idx]));
@@ -2935,7 +2831,10 @@ async function showEstate(id, name, district) {
           if (base === null) base = { idx: v, ppf: t.avg_price_ft };
           return base.ppf * (v / base.idx);
         });
-        if (overlay.filter(Boolean).length >= 2) drawChart(trends, overlay);
+        if (overlay.filter(Boolean).length >= 2) {
+          _estateOverlay = overlay;
+          if (estateChartMetric === "price") drawChart(trends, overlay);
+        }
       }).catch(() => {});
     }
     loadMarketTemp(id);
@@ -4716,10 +4615,16 @@ function sourceEnabledFE(est, id) {
 // ── Chart ──────────────────────────────────────────────────────
 function drawChart(trends, overlay) {
   const canvas = document.getElementById("trendChart");
-  if (!canvas) return;
+  if (!canvas || !trends || trends.length < 2) return;
+
+  // metric: price(平均實呎價,帶全組合 overlay) | count(放盤數量,純本屋苑)
+  const isPrice = estateChartMetric !== "count";
+  const mainColor = isPrice ? "#f59e0b" : "#3b82f6";
+  const fillRgb = isPrice ? "251,191,36" : "59,130,246";
+  const fmtY = v => isPrice ? "$" + Math.round(v).toLocaleString() : String(Math.round(v));
 
   const labels = trends.map(t => t.snapshot_date.slice(5));
-  const data = trends.map(t => t.avg_price_ft);
+  const data = trends.map(t => isPrice ? t.avg_price_ft : t.listing_count);
 
   const W = canvas.parentElement.offsetWidth;
   const H = 160;
@@ -4732,8 +4637,9 @@ function drawChart(trends, overlay) {
   const h = H - pad.top - pad.bottom;
 
   const allVals = data.concat((overlay || []).filter(v => v != null));
-  const minV = Math.min(...allVals) * 0.98;
-  const maxV = Math.max(...allVals) * 1.02;
+  // count 用整數 padding（唔想 0-5 個放盤被 *0.98 壓到冇分別）；price 用比例。
+  const minV = isPrice ? Math.min(...allVals) * 0.98 : Math.max(0, Math.min(...allVals) - 2);
+  const maxV = isPrice ? Math.max(...allVals) * 1.02 : Math.max(...allVals) + 2;
 
   ctx.clearRect(0, 0, W, H);
 
@@ -4751,7 +4657,7 @@ function drawChart(trends, overlay) {
     ctx.fillStyle = "#64748b";
     ctx.font = "10px -apple-system, sans-serif";
     ctx.textAlign = "right";
-    ctx.fillText("$" + Math.round(val).toLocaleString(), pad.left - 6, y + 4);
+    ctx.fillText(fmtY(val), pad.left - 6, y + 4);
   }
 
   // X labels
@@ -4767,8 +4673,8 @@ function drawChart(trends, overlay) {
 
   // Gradient fill
   const grad = ctx.createLinearGradient(0, pad.top, 0, pad.top + h);
-  grad.addColorStop(0, "rgba(251,191,36,0.25)");
-  grad.addColorStop(1, "rgba(251,191,36,0)");
+  grad.addColorStop(0, `rgba(${fillRgb},0.25)`);
+  grad.addColorStop(1, `rgba(${fillRgb},0)`);
 
   ctx.beginPath();
   data.forEach((v, i) => {
@@ -4784,7 +4690,7 @@ function drawChart(trends, overlay) {
 
   // Line
   ctx.beginPath();
-  ctx.strokeStyle = "#f59e0b";
+  ctx.strokeStyle = mainColor;
   ctx.lineWidth = 2;
   ctx.lineJoin = "round";
   data.forEach((v, i) => {
@@ -4800,7 +4706,7 @@ function drawChart(trends, overlay) {
   const ly = pad.top + h - ((lv - minV) / (maxV - minV)) * h;
   ctx.beginPath();
   ctx.arc(lx, ly, 4, 0, Math.PI * 2);
-  ctx.fillStyle = "#f59e0b";
+  ctx.fillStyle = mainColor;
   ctx.fill();
 
   // 全組合指數 overlay — dashed blue line, scaled to start at the estate's
