@@ -2022,6 +2022,41 @@ async function sendEmail(env, to, subject, html) {
   return res.json();
 }
 
+// ── Cron 出錯通知 ────────────────────────────────────────────────────────────
+// 每日 sync/email cron 以前靜靜 fail 完全冇通知。呢度收到 detail 寄畀 admin
+// role(有 email)嘅帳戶(即 seanwong)等佢知道去 fix。
+function _escHtmlW(s) {
+  return String(s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+}
+function _errDetail(e) {
+  const msg = e?.message || String(e);
+  return e?.stack ? `${msg}\n${e.stack}` : msg;
+}
+function buildAlertHtml(taskName, lines) {
+  const when = new Date(Date.now() + 8 * 3600 * 1000).toISOString().replace("T", " ").slice(0, 19);
+  const items = lines.map((l) =>
+    `<li style="margin-bottom:10px"><pre style="white-space:pre-wrap;word-break:break-word;font-family:ui-monospace,Menlo,monospace;font-size:12px;margin:0;color:#b91c1c">${_escHtmlW(l)}</pre></li>`
+  ).join("");
+  return `<div style="font-family:system-ui,-apple-system,sans-serif;max-width:640px">
+    <h2 style="color:#b91c1c;margin:0 0 4px">⚠️ ${_escHtmlW(taskName)} 失敗</h2>
+    <p style="color:#666;font-size:13px;margin:0 0 12px">香港時間 ${when}（UTC+8）· 共 ${lines.length} 項</p>
+    <ul style="padding-left:18px;margin:0">${items}</ul>
+    <p style="color:#999;font-size:12px;margin-top:16px">呢封係 PropWatch cron task 自動出錯通知。</p>
+  </div>`;
+}
+// 寄畀所有 admin role(有 email)嘅帳戶。通知本身 fail 唔可以連累 task,全程 swallow。
+async function sendAdminAlert(db, env, subject, html) {
+  if (!env?.GMAIL_REFRESH_TOKEN) return;
+  try {
+    const { results: admins } = await db.prepare(
+      "SELECT email FROM accounts WHERE role = 'admin' AND email IS NOT NULL AND email != '' AND (is_active IS NULL OR is_active = 1)"
+    ).all();
+    for (const a of admins) {
+      try { await sendEmail(env, a.email, subject, html); } catch (err) { console.error("admin alert send failed:", err?.message); }
+    }
+  } catch (err) { console.error("sendAdminAlert failed:", err?.message); }
+}
+
 // Per-account:只包括呢個 account 訂閱嘅屋苑,而且動態由訂閱日(added_at)
 // 開始計——B 加入自選之前發生嘅嘢,B 嘅今日/歷史動態唔會見到。
 async function getTodayHighlights(db, accountId) {
@@ -2514,10 +2549,13 @@ async function syncEstatesBatch(db, offset, size) {
        AND EXISTS (SELECT 1 FROM account_estates ae WHERE ae.estate_id = e.id)
      ORDER BY e.id LIMIT ? OFFSET ?`
   ).bind(size, offset).all();
+  const failures = [];
   await Promise.all(estates.map(async (estate) => {
-    try { await syncOneEstate(db, estate); } catch (_) { /* non-fatal per estate */ }
+    // Per-estate non-fatal:一個屋苑爆咗唔阻其他,但要收集返 detail 通知 admin。
+    try { await syncOneEstate(db, estate); }
+    catch (e) { failures.push(`${estate.name} (id=${estate.id}): ${_errDetail(e)}`); }
   }));
-  return estates.length;
+  return { count: estates.length, failures };
 }
 
 // ── Chunked daily sync via cron slots ───────────────────────────────────────
@@ -2628,14 +2666,38 @@ export default {
     // 冇任何 fetch request 之前行,所以呢度都要 ensure(冪等,好快)。
     if (event.cron === "0 1 * * *") {
       ctx.waitUntil((async () => {
-        await ensureMultiAccount(env.DB);
-        await sendDailyEmail(env.DB, env);
+        // 逐帳戶寄信 fail(res.sent 有 error)通知 admin;top-level 爆(DB/token 等)都通知。
+        try {
+          await ensureMultiAccount(env.DB);
+          const res = await sendDailyEmail(env.DB, env);
+          const failed = (res?.sent || []).filter((r) => r.error);
+          if (res?.error) {
+            await sendAdminAlert(env.DB, env, "🚨 PropWatch 每日 email 冇寄到", buildAlertHtml("每日 email task", [res.error]));
+          } else if (failed.length) {
+            await sendAdminAlert(env.DB, env, `⚠️ PropWatch 每日 email 有 ${failed.length} 個帳戶寄失敗`,
+              buildAlertHtml("每日 email task", failed.map((f) => `${f.account}: ${f.error}`)));
+          }
+        } catch (e) {
+          await sendAdminAlert(env.DB, env, "🚨 PropWatch 每日 email task 整個失敗",
+            buildAlertHtml("每日 email task（top-level）", [_errDetail(e)]));
+        }
       })());
     } else if (event.cron in SYNC_SLOTS) {
-      const offset = SYNC_SLOTS[event.cron] * SYNC_SLOT_SIZE;
+      const slot = SYNC_SLOTS[event.cron];
+      const offset = slot * SYNC_SLOT_SIZE;
       ctx.waitUntil((async () => {
-        await ensureMultiAccount(env.DB);
-        await syncEstatesBatch(env.DB, offset, SYNC_SLOT_SIZE);
+        // 個別屋苑 fail 收集晒一次過通知;整個 batch 爆(DB query 等)另一封。
+        try {
+          await ensureMultiAccount(env.DB);
+          const { failures } = await syncEstatesBatch(env.DB, offset, SYNC_SLOT_SIZE);
+          if (failures.length) {
+            await sendAdminAlert(env.DB, env, `⚠️ PropWatch 同步 slot ${slot} 有 ${failures.length} 個屋苑失敗`,
+              buildAlertHtml(`每日同步 slot ${slot}（cron ${event.cron}）`, failures));
+          }
+        } catch (e) {
+          await sendAdminAlert(env.DB, env, `🚨 PropWatch 同步 slot ${slot} 整個失敗`,
+            buildAlertHtml(`每日同步 slot ${slot}（cron ${event.cron}，top-level）`, [_errDetail(e)]));
+        }
       })());
     }
   },
