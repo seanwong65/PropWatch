@@ -4068,7 +4068,7 @@ function renderTransactionsTable(estateId, offset, hasMore) {
       <td><span class="price-cell">$${t.price ? (t.price/1e4).toFixed(0)+'萬' : '-'}</span><span id="${rowId}-diff">${t.hs_price ? hsDiffHtml(t.hs_price, t.price) : ''}</span></td>
       <td>
         <div>$${t.price_per_ft_net ? t.price_per_ft_net.toLocaleString() : '-'}/呎</div>
-        <div class="unit-price">實${t.size_net ? t.size_net+'呎' : ''}</div>
+        <div class="unit-price">實${t.size_net ? t.size_net+'呎' : ''}${t.bedrooms != null ? ` · ${t.bedrooms}房` : ''}</div>
       </td>
       <td>${heldStr}</td>
       <td>${annualHtml}${totalHtml}</td>

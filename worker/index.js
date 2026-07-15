@@ -3293,6 +3293,54 @@ export default {
           }
           txns.sort((a, b) => (b.reg_date || "").localeCompare(a.reg_date || ""));
         }
+
+        // 房數推斷：成交（土地註冊處）本身只有面積冇房數，用同屋苑在售 listings
+        // （有齊 座/室/呎/房數）反推。①「座+室」入面揀最接近實呎嗰個 sample 嘅
+        // 房數——因為同一室位可以有兩種則（例：2座E室 491呎=2房、510呎=1房），
+        // 淨係夾室位會撈亂，要連埋面積先準。②夾唔到（舊記錄冇座）就 fallback 用
+        // 全屋苑「最接近實呎 ±25呎 範圍內最常見嘅房數」（density 處理面積 overlap）。
+        // 純參考，估唔到就 null（前端唔顯示）。
+        const { results: bedRef } = await db.prepare(
+          "SELECT building_name, unit, size_net, bedrooms FROM listings WHERE estate_id = ? AND bedrooms IS NOT NULL"
+        ).bind(estateId).all();
+        if (bedRef.length) {
+          const modeOf = (counts) => Number(Object.entries(counts).sort((a, b) => b[1] - a[1])[0][0]);
+          const byUnit = new Map();   // 座+室 → [{ size_net, bedrooms }]
+          for (const l of bedRef) {
+            const k = `${_normBldg(l.building_name)}|${_normUnit(l.unit)}`;
+            if (!byUnit.has(k)) byUnit.set(k, []);
+            byUnit.get(k).push(l);
+          }
+          const sizeSamples = bedRef.filter(l => l.size_net);
+          // 一堆 sample 入面揀最接近 size 嘅房數；size 缺失就取眾數。
+          const nearestBed = (samples, size) => {
+            if (size) {
+              let best = null, bestD = Infinity;
+              for (const s of samples) {
+                if (s.size_net == null) continue;
+                const d = Math.abs(s.size_net - size);
+                if (d < bestD) { bestD = d; best = s.bedrooms; }
+              }
+              if (best != null) return best;
+            }
+            const counts = {};
+            for (const s of samples) counts[s.bedrooms] = (counts[s.bedrooms] || 0) + 1;
+            return modeOf(counts);
+          };
+          const inferBedBySize = (size) => {
+            if (!size) return null;
+            const near = sizeSamples.filter(l => Math.abs(l.size_net - size) <= 25);
+            if (!near.length) return null;
+            const counts = {};
+            for (const l of near) counts[l.bedrooms] = (counts[l.bedrooms] || 0) + 1;
+            return modeOf(counts);
+          };
+          for (const t of txns) {
+            const uk = `${_normBldg(t.building)}|${_normUnit(t.unit)}`;
+            const samples = byUnit.get(uk);
+            t.bedrooms = samples ? nearestBed(samples, t.size_net) : inferBedBySize(t.size_net);
+          }
+        }
         return json(200, { transactions: txns, total: raw.data?.length ?? 0 });
       }
 
