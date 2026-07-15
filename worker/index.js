@@ -2757,7 +2757,7 @@ export default {
         const passwordOk = (await sha256(password)) === account.password_hash;
 
         if (account.is_active === 0) {
-          return json(403, passwordOk ? { error: "帳戶已被停用，請重設密碼" } : BAD);
+          return json(403, passwordOk ? { error: "帳戶已被停用，請按忘記密碼以重設" } : BAD);
         }
         if (account.expiry_date < now.slice(0, 10)) {
           return json(403, passwordOk ? { error: "帳戶已過期" } : BAD);
