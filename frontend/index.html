@@ -3502,9 +3502,13 @@ function renderPrefsSummary() {
   if (!el) return;
   const p = _userPrefs || {};
   const parts = [];
-  if (p.price_min || p.price_max) parts.push(`$${p.price_min || '?'}–${p.price_max || '?'}萬`);
+  if (p.price_min && p.price_max) parts.push(`$${p.price_min}–${p.price_max}萬`);
+  else if (p.price_max) parts.push(`${p.price_max}萬內`);
+  else if (p.price_min) parts.push(`${p.price_min}萬以上`);
   if (p.beds) parts.push(`${p.beds}房`);
-  if (p.size_min || p.size_max) parts.push(`${p.size_min || '?'}–${p.size_max || '?'}呎`);
+  if (p.size_min && p.size_max) parts.push(`${p.size_min}–${p.size_max}呎`);
+  else if (p.size_max) parts.push(`${p.size_max}呎內`);
+  else if (p.size_min) parts.push(`${p.size_min}呎以上`);
   el.textContent = parts.length ? parts.join(' · ') : '未設定';
   el.style.color = parts.length ? 'var(--text)' : 'var(--muted)';
 }
