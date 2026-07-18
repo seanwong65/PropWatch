@@ -1734,6 +1734,9 @@ const CONFIG_DEFS = [
   { key: "email_bargain_top", label: "Email 筍盤數目", def: 5, min: 0, max: 20,
     groups: ["每日 Email"],
     desc: "每日 email「今日筍盤」最多列幾多個；設 0 成段唔出。" },
+  { key: "new_txn_max_age_days", label: "新成交最大登記日數", def: 180, min: 1, max: 3650,
+    groups: ["每日 Email", "今日動態"],
+    desc: "成交登記日超過呢個日數就唔當「新成交」（每日 email／今日動態）。防止新 source（利嘉閣／香港置業）首次抓返一大堆舊成交時被當成新成交。" },
   { key: "absorption_days", label: "消化率窗口（日）", def: 30, min: 7, max: 180,
     groups: ["抵買雷達"],
     desc: "議價指數嘅「市場冷淡度」：近幾多日成交量 ÷ 而家在售盤數。" },
@@ -2113,6 +2116,10 @@ async function sendAdminAlert(db, env, subject, html) {
 async function getTodayHighlights(db, accountId) {
   const today = hkDateStr();
   const yesterday = hkDateStr(-1);
+  // 「新成交」淨計登記日夠新嘅（sec 唔關事，係分析 config）。防止新 source
+  // （利嘉閣／香港置業）首次抓返一大堆舊成交時，全部 first_seen=今日 而被
+  // 當成「新成交」（用戶收到 100+ 舊成交嘅通知就係咁）。
+  const newTxnMaxAge = (await getConfig(db, accountId)).new_txn_max_age_days ?? 180;
 
   const [newTxns, priceChanges, newListings, removedListings, viewedTxns, linkedPriceChanges] = await Promise.all([
     db.prepare(`
@@ -2121,9 +2128,10 @@ async function getTodayHighlights(db, accountId) {
       JOIN account_estates ae ON ae.estate_id = e.id AND ae.account_id = ?
       WHERE t.first_seen = ?
         AND t.first_seen >= ae.added_at
+        AND t.reg_date >= date(?, ?)
         AND date(e.first_seen) <= ?
         AND (e.is_disabled = 0 OR e.is_disabled IS NULL)
-      ORDER BY t.price DESC`).bind(accountId, today, hkDateStr(-2)).all(),
+      ORDER BY t.price DESC`).bind(accountId, today, today, `-${newTxnMaxAge} days`, hkDateStr(-2)).all(),
     db.prepare(`
       SELECT l.building_name, l.floor, l.unit, l.ref_no, l.price as new_price, ph_prev.price as old_price,
              l.detail_url, l.source, e.name as estate_name
