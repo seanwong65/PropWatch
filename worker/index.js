@@ -2306,188 +2306,158 @@ function buildEmailHtml(highlights, bargains = []) {
   let sections = "";
   let bargainSection = "";   // 筍盤擺去 email 最後（其他動態行先）
 
-  // 💎 今日筍盤 Top 5 — 呎價低過同苑近60日成交中位數最多嘅在售盤
+  // 手機友善共用 helper：每行兩欄（左＝單位資訊、右＝價錢／訊號），主字白色、
+  // 次字淺灰，右欄 nowrap 唔好斷開數字。取代之前 4-5 欄迫到成柱斷行嘅 table。
+  const R = (left, right) => `<tr style="border-bottom:1px solid #24324a"><td style="padding:9px 2px;vertical-align:top">${left}</td><td style="padding:9px 2px;vertical-align:top;text-align:right;white-space:nowrap">${right}</td></tr>`;
+  const M = (s) => `<div style="color:#f8fafc;font-weight:600;font-size:14px">${s}</div>`;
+  const S = (s) => `<div style="color:#cbd5e1;font-size:12px;margin-top:2px">${s}</div>`;
+  const HR = (color, text) => `<tr><td colspan="2" style="padding:12px 0 4px;font-weight:700;font-size:14px;color:${color}">${text}</td></tr>`;
+  const priceCell = (s) => `<div style="color:#fbbf24;font-weight:700;font-size:15px">${s}</div>`;
+  const card = (border, bg, inner) => `<div style="margin-bottom:20px;border:1px solid ${border};border-radius:8px;padding:14px;background:${bg}">${inner}</div>`;
+  const tbl = (rows) => `<table style="width:100%;border-collapse:collapse">${rows}</table>`;
+  const srcName = (source) => source === 'ricacorp' ? '利嘉閣' : source === 'hkp' ? '香港置業' : '中原';
+  const srcLink = (url, source) => url
+    ? `<a href="${url}" style="color:#60a5fa;font-size:12px">${srcName(source)} ↗</a>`
+    : `<span style="color:#94a3b8;font-size:12px">${srcName(source)}</span>`;
+
+  // 💎 今日筍盤 — 呎價低過同苑近成交中位數最多嘅在售盤
   if (bargains.length) {
-    const TH = (...hs) => `<tr style="border-bottom:1px solid #334155">${hs.map(h=>`<th style="padding:4px 8px;font-size:11px;font-weight:600;color:#64748b;text-transform:uppercase;letter-spacing:0.04em;text-align:left">${h}</th>`).join('')}</tr>`;
     let rows = "";
     for (const b of bargains) {
       const badges = [];
-      if (b.cut_pct != null) badges.push(`<span style="color:#f59e0b">🔻減價 ${Math.abs(b.cut_pct)}%</span>`);
-      if (b.days_on_market != null && b.days_on_market >= 90) badges.push(`<span style="color:#64748b">⏳擺賣${b.days_on_market}日</span>`);
-      if (b.loss_zone) badges.push(`<span style="color:#10b981">💔蝕讓區</span>`);
-      const srcName = b.source === 'ricacorp' ? '利嘉閣' : b.source === 'hkp' ? '香港置業' : '中原';
-      const link = b.detail_url ? `<a href="${b.detail_url}" style="color:#3b82f6;font-size:12px;white-space:nowrap">${srcName} ↗</a>` : `<span style="color:#64748b;font-size:12px">${srcName}</span>`;
-      rows += `<tr style="border-bottom:1px solid #1f2d42;background:rgba(52,211,153,0.05)">
-        <td style="padding:6px 8px"><strong>${b.estate_name||''}</strong> ${b.building_name||''} ${b.floor||''} ${b.unit||''}<br><span style="color:#64748b;font-size:12px">${b.size_net||'?'}呎${b.bedrooms!=null?' · '+b.bedrooms+'房':''}</span></td>
-        <td style="padding:6px 8px;font-weight:700;color:#f59e0b">${fmt(b.price)}<br><span style="font-weight:400;color:#64748b;font-size:12px">$${(b.psf||0).toLocaleString()}/呎</span></td>
-        <td style="padding:6px 8px;color:#10b981;font-weight:700">${b.vs_med_pct}%<br><span style="font-weight:400;color:#64748b;font-size:12px">中位 $${(b.sold_med_psf||0).toLocaleString()}</span></td>
-        <td style="padding:6px 8px;font-size:12px">${badges.join('<br>') || '-'}</td>
-        <td style="padding:6px 8px">${link}</td>
-      </tr>`;
+      if (b.cut_pct != null) badges.push(`<span style="color:#fbbf24">🔻減價${Math.abs(b.cut_pct)}%</span>`);
+      if (b.days_on_market != null && b.days_on_market >= 90) badges.push(`<span style="color:#94a3b8">⏳擺賣${b.days_on_market}日</span>`);
+      if (b.loss_zone) badges.push(`<span style="color:#34d399">💔蝕讓區</span>`);
+      rows += R(
+        M(`${b.estate_name||''} ${b.building_name||''} ${b.floor||''} ${b.unit||''}`)
+          + S(`${b.size_net||'?'}呎${b.bedrooms!=null?' · '+b.bedrooms+'房':''}`)
+          + (badges.length ? S(badges.join('　')) : ''),
+        priceCell(fmt(b.price))
+          + S(`$${(b.psf||0).toLocaleString()}/呎`)
+          + `<div style="color:#34d399;font-weight:700;font-size:13px;margin-top:2px">平${b.vs_med_pct}%</div>`
+          + `<div style="margin-top:3px">${srcLink(b.detail_url, b.source)}</div>`
+      );
     }
-    bargainSection = `<div style="margin-bottom:24px;border:1px solid rgba(52,211,153,0.4);border-radius:8px;padding:16px;background:rgba(52,211,153,0.06)">
-      <h2 style="margin:0 0 4px;font-size:18px;color:#34d399">💎 今日筍盤 Top ${bargains.length}</h2>
-      <p style="margin:0 0 12px;font-size:12px;color:#64748b">呎價低過同屋苑近60日成交中位數最多嘅在售盤。全苑中位數係粗略基準,平得誇張多數有原因,睇盤前自己覆核。</p>
-      <table style="width:100%;border-collapse:collapse;font-size:14px;color:#e2e8f0">
-        <thead>${TH('屋苑 / 單位','售價','平幾多','訊號','來源')}</thead>
-        <tbody>${rows}</tbody>
-      </table>
-    </div>`;
+    bargainSection = card('rgba(52,211,153,0.4)', 'rgba(52,211,153,0.06)',
+      `<h2 style="margin:0 0 4px;font-size:17px;color:#34d399">💎 今日筍盤 Top ${bargains.length}</h2>
+       <p style="margin:0 0 10px;font-size:12px;color:#94a3b8">呎價低過同屋苑近成交中位數最多嘅在售盤，係粗略基準，睇盤前自己覆核。</p>
+       ${tbl(rows)}`);
   }
 
   // 🏷️ 睇過嘅放盤售價變動 — at the very top
   if (linkedPriceChanges.length) {
-    const TH = (...hs) => `<tr style="border-bottom:1px solid #334155">${hs.map(h=>`<th style="padding:4px 8px;font-size:11px;font-weight:600;color:#64748b;text-transform:uppercase;letter-spacing:0.04em;text-align:left">${h}</th>`).join('')}</tr>`;
     let rows = "";
     for (const c of linkedPriceChanges) {
       const diff = c.new_price - c.old_price;
-      const col = diff <= 0 ? '#10b981' : '#ef4444';
+      const col = diff <= 0 ? '#34d399' : '#f87171';
       const arrow = diff <= 0 ? '▼' : '▲';
-      const diffHtml = `<span style="color:${col}">${arrow} ${fmt(Math.abs(diff))}</span>`;
-      const srcLink = (url, source) => {
-        const label = (source === 'ricacorp' ? '利嘉閣' : '中原') + ' ↗';
-        return url ? `<a href="${url}" style="color:#3b82f6;font-size:12px;white-space:nowrap">${label}</a>` : `<span style="color:#64748b;font-size:12px">${source === 'ricacorp' ? '利嘉閣' : '中原'}</span>`;
-      };
-      rows += `<tr style="border-bottom:1px solid #1f2d42;background:rgba(251,191,36,0.06)">
-        <td style="padding:6px 8px"><strong>${c.estate_name||''}</strong> ${c.building_name||''} ${c.floor||''} ${c.l_unit||''}</td>
-        <td style="padding:6px 8px;color:#64748b">${c.view_price ? fmt(c.view_price) : '-'}</td>
-        <td style="padding:6px 8px;text-decoration:line-through;color:#64748b">${fmt(c.old_price)}</td>
-        <td style="padding:6px 8px;font-weight:700">${fmt(c.new_price)}</td>
-        <td style="padding:6px 8px">${diffHtml}</td>
-      </tr>`;
+      rows += R(
+        M(`${c.estate_name||''} ${c.building_name||''} ${c.floor||''} ${c.l_unit||''}`)
+          + S(`睇樓價 ${c.view_price ? fmt(c.view_price) : '-'}　${srcLink(c.detail_url, c.source)}`),
+        priceCell(fmt(c.new_price))
+          + S(`<span style="text-decoration:line-through">${fmt(c.old_price)}</span>`)
+          + `<div style="color:${col};font-weight:700;font-size:13px">${arrow} ${fmt(Math.abs(diff))}</div>`
+      );
     }
-    sections += `<div style="margin-bottom:24px;border:1px solid rgba(251,191,36,0.35);border-radius:8px;padding:16px;background:rgba(251,191,36,0.06)">
-      <h2 style="margin:0 0 12px;font-size:18px;color:#fbbf24">🏷️ 睇過嘅放盤售價變動 (${linkedPriceChanges.length})</h2>
-      <table style="width:100%;border-collapse:collapse;font-size:14px;color:#e2e8f0">
-        <thead>${TH('屋苑 / 單位','睇樓價','原價','新價','變動')}</thead>
-        <tbody>${rows}</tbody>
-      </table>
-    </div>`;
+    sections += card('rgba(251,191,36,0.35)', 'rgba(251,191,36,0.06)',
+      `<h2 style="margin:0 0 6px;font-size:17px;color:#fbbf24">🏷️ 睇過嘅放盤售價變動 (${linkedPriceChanges.length})</h2>${tbl(rows)}`);
   }
 
-  // 睇過嘅單位成交 — at the very top
+  // 👀 睇過嘅單位成交 — at the very top
   if (allViewedTxns.length) {
     let rows = "";
     for (const v of allViewedTxns) {
       const diff = v.view_price && v.txn_price ? v.txn_price - v.view_price : null;
-      const diffStr = diff != null
-        ? `<span style="color:${diff<=0?'#10b981':'#ef4444'}">${diff<=0?'▼':'▲'} ${fmt(Math.abs(diff))}</span>`
-        : '-';
-      rows += `<tr style="border-bottom:1px solid #1f2d42;background:rgba(248,113,113,0.06)">
-        <td style="padding:6px 8px"><strong>${v.estate_name||''}</strong> ${v.building||''} ${v.floor||''} ${v.unit||''}</td>
-        <td style="padding:6px 8px;color:#64748b">${v.view_price ? fmt(v.view_price) : '-'}</td>
-        <td style="padding:6px 8px;font-weight:700;color:#f59e0b">${v.txn_price ? fmt(v.txn_price) : '-'}</td>
-        <td style="padding:6px 8px">${diffStr}</td>
-        <td style="padding:6px 8px;color:#64748b;font-size:12px">${v.view_date||''}</td>
-      </tr>`;
+      const diffHtml = diff != null
+        ? `<div style="color:${diff<=0?'#34d399':'#f87171'};font-weight:700;font-size:13px">${diff<=0?'▼':'▲'} ${fmt(Math.abs(diff))}</div>`
+        : '';
+      rows += R(
+        M(`${v.estate_name||''} ${v.building||''} ${v.floor||''} ${v.unit||''}`)
+          + S(`睇樓 ${v.view_date||''}　睇樓價 ${v.view_price ? fmt(v.view_price) : '-'}`),
+        priceCell(v.txn_price ? fmt(v.txn_price) : '-') + diffHtml
+      );
     }
-    const TH = (...hs) => `<tr style="border-bottom:1px solid #334155">${hs.map(h=>`<th style="padding:4px 8px;font-size:11px;font-weight:600;color:#64748b;text-transform:uppercase;letter-spacing:0.04em;text-align:left">${h}</th>`).join('')}</tr>`;
-    sections += `<div style="margin-bottom:24px;border:1px solid rgba(248,113,113,0.4);border-radius:8px;padding:16px;background:rgba(248,113,113,0.06)">
-      <h2 style="margin:0 0 12px;font-size:18px;color:#f87171">👀 睇過嘅單位成交 (${allViewedTxns.length})</h2>
-      <table style="width:100%;border-collapse:collapse;font-size:14px;color:#e2e8f0">
-        <thead>${TH('屋苑 / 單位','睇樓價','成交價','差價','睇樓日期')}</thead>
-        <tbody>${rows}</tbody>
-      </table>
-    </div>`;
+    sections += card('rgba(248,113,113,0.4)', 'rgba(248,113,113,0.06)',
+      `<h2 style="margin:0 0 6px;font-size:17px;color:#f87171">👀 睇過嘅單位成交 (${allViewedTxns.length})</h2>${tbl(rows)}`);
   }
   for (const { estate, newTransactions = [], priceChanges = [], newListings = [], removedListings = [] } of byEstate) {
     if (!newTransactions.length && !priceChanges.length && !newListings.length && !removedListings.length) continue;
     let rows = "";
 
-    const srcLink = (url, source) => {
-      const label = (source === 'ricacorp' ? '利嘉閣' : '中原') + ' ↗';
-      return url ? `<a href="${url}" style="color:#3b82f6;font-size:12px;white-space:nowrap">${label}</a>` : `<span style="color:#64748b;font-size:12px">${source === 'ricacorp' ? '利嘉閣' : '中原'}</span>`;
-    };
-
-    const TH = (h1, h2, h3, h4, h5='') =>
-      `<tr style="border-bottom:1px solid #334155"><th style="padding:4px 8px;font-size:11px;font-weight:600;color:#64748b;text-transform:uppercase;letter-spacing:0.04em;text-align:left">${h1}</th><th style="padding:4px 8px;font-size:11px;font-weight:600;color:#64748b;text-transform:uppercase;letter-spacing:0.04em;text-align:left">${h2}</th><th style="padding:4px 8px;font-size:11px;font-weight:600;color:#64748b;text-transform:uppercase;letter-spacing:0.04em;text-align:left">${h3}</th><th style="padding:4px 8px;font-size:11px;font-weight:600;color:#64748b;text-transform:uppercase;letter-spacing:0.04em;text-align:left">${h4}</th><th style="padding:4px 8px;font-size:11px;font-weight:600;color:#64748b;text-transform:uppercase;letter-spacing:0.04em;text-align:left">${h5}</th></tr>`;
-
     if (newTransactions.length) {
-      rows += `<tr><td colspan="5" style="padding:8px 0 4px;font-weight:700;color:#a78bfa">🏠 新成交 (${newTransactions.length})</td></tr>`;
-      rows += TH('單位', '成交日期', '成交價', '持有 / 升跌', '');
+      rows += HR('#a78bfa', `🏠 新成交 (${newTransactions.length})`);
       for (const t of newTransactions) {
         const years = t.held_days ? t.held_days / 365 : null;
-        const heldStr = years ? years.toFixed(1) + '年' : '-';
-        let gainHtml = '-';
+        const heldStr = years ? years.toFixed(1) + '年' : '';
+        let gainHtml = '';
         if (t.gain_pct != null && years) {
           const annualPct = (Math.pow(1 + t.gain_pct / 100, 1 / years) - 1) * 100;
-          const col = t.gain_pct >= 0 ? '#10b981' : '#ef4444';
+          const col = t.gain_pct >= 0 ? '#34d399' : '#f87171';
           const arrow = t.gain_pct >= 0 ? '▲' : '▼';
-          gainHtml = `<span style="color:${col}">${arrow} ${Math.abs(annualPct).toFixed(1)}%/年</span><br><span style="color:#64748b;font-size:12px">${arrow} ${Math.abs(t.gain_pct).toFixed(1)}%</span>`;
+          gainHtml = `<div style="color:${col};font-weight:700;font-size:13px">${arrow} ${Math.abs(annualPct).toFixed(1)}%/年</div><div style="color:${col};font-size:12px">${arrow} ${Math.abs(t.gain_pct).toFixed(1)}%</div>`;
         } else if (t.gain_pct != null) {
-          const col = t.gain_pct >= 0 ? '#10b981' : '#ef4444';
-          gainHtml = `<span style="color:${col}">${t.gain_pct >= 0 ? '▲' : '▼'} ${Math.abs(t.gain_pct).toFixed(1)}%</span>`;
+          const col = t.gain_pct >= 0 ? '#34d399' : '#f87171';
+          gainHtml = `<div style="color:${col};font-weight:700;font-size:13px">${t.gain_pct >= 0 ? '▲' : '▼'} ${Math.abs(t.gain_pct).toFixed(1)}%</div>`;
         }
         const sizeLine = [t.size_net ? `${t.size_net}實呎` : null, t.price_per_ft ? `$${Math.round(t.price_per_ft).toLocaleString()}/呎` : null]
           .filter(Boolean).join('．');
-        rows += `<tr style="border-bottom:1px solid #1f2d42">
-          <td style="padding:6px 8px">${t.building || ""} ${t.floor || ""} ${t.unit || ""}${sizeLine ? `<br><span style="color:#64748b;font-size:12px">${sizeLine}</span>` : ''}</td>
-          <td style="padding:6px 8px;color:#64748b">${t.reg_date || "-"}</td>
-          <td style="padding:6px 8px;font-weight:700;color:#f59e0b">${t.price ? `$${(t.price / 1e4).toFixed(0)}萬` : "-"}</td>
-          <td style="padding:6px 8px">${heldStr}<br>${gainHtml}</td>
-          <td style="padding:6px 8px">${t.detail_url ? `<a href="${t.detail_url}" style="color:#3b82f6;font-size:12px">詳情 ↗</a>` : ''}</td>
-        </tr>`;
+        rows += R(
+          M(`${t.building || ""} ${t.floor || ""} ${t.unit || ""}`)
+            + (sizeLine ? S(sizeLine) : '')
+            + S(`成交 ${t.reg_date || "-"}${heldStr ? '　持有 ' + heldStr : ''}`)
+            + (t.detail_url ? `<div style="margin-top:2px"><a href="${t.detail_url}" style="color:#60a5fa;font-size:12px">詳情 ↗</a></div>` : ''),
+          priceCell(t.price ? `$${(t.price / 1e4).toFixed(0)}萬` : "-") + gainHtml
+        );
       }
     }
 
     if (priceChanges.length) {
-      rows += `<tr><td colspan="5" style="padding:8px 0 4px;font-weight:700;color:#f59e0b">💰 售價變動 (${priceChanges.length})</td></tr>`;
-      rows += TH('單位', '原價', '新價', '變動', '來源');
+      rows += HR('#fbbf24', `💰 售價變動 (${priceChanges.length})`);
       for (const l of priceChanges) {
         const diff = pct(l.new_price, l.old_price);
-        rows += `<tr style="border-bottom:1px solid #1f2d42">
-          <td style="padding:6px 8px">${l.building_name || ""} ${l.floor || ""} ${l.unit || ""}</td>
-          <td style="padding:6px 8px;text-decoration:line-through;color:#64748b">${fmt(l.old_price)}</td>
-          <td style="padding:6px 8px;font-weight:700">${fmt(l.new_price)}</td>
-          <td style="padding:6px 8px;color:${diff > 0 ? "#ef4444" : "#10b981"}">${diff > 0 ? "▲" : "▼"} ${Math.abs(diff)}%</td>
-          <td style="padding:6px 8px">${srcLink(l.detail_url, l.source)}</td>
-        </tr>`;
+        const col = diff > 0 ? '#f87171' : '#34d399';
+        rows += R(
+          M(`${l.building_name || ""} ${l.floor || ""} ${l.unit || ""}`) + S(srcLink(l.detail_url, l.source)),
+          priceCell(fmt(l.new_price))
+            + S(`<span style="text-decoration:line-through">${fmt(l.old_price)}</span>`)
+            + `<div style="color:${col};font-weight:700;font-size:13px">${diff > 0 ? "▲" : "▼"} ${Math.abs(diff)}%</div>`
+        );
       }
     }
 
     if (newListings.length) {
-      rows += `<tr><td colspan="5" style="padding:8px 0 4px;font-weight:700;color:#10b981">🆕 新放盤 (${newListings.length})</td></tr>`;
-      rows += TH('單位', '房間 / 面積', '價格', '呎價', '來源');
+      rows += HR('#34d399', `🆕 新放盤 (${newListings.length})`);
       for (const l of newListings) {
-        rows += `<tr style="border-bottom:1px solid #1f2d42">
-          <td style="padding:6px 8px">${l.building_name || ""} ${l.floor || ""} ${l.unit || ""}</td>
-          <td style="padding:6px 8px;color:#64748b">${l.bedrooms ?? "-"}房 ${l.size_net ? l.size_net + "呎" : ""}</td>
-          <td style="padding:6px 8px;font-weight:700;color:#f59e0b">${fmt(l.price)}</td>
-          <td style="padding:6px 8px;color:#64748b">${l.price_per_ft ? `$${l.price_per_ft.toLocaleString()}/呎` : ""}</td>
-          <td style="padding:6px 8px">${srcLink(l.detail_url, l.source)}</td>
-        </tr>`;
+        rows += R(
+          M(`${l.building_name || ""} ${l.floor || ""} ${l.unit || ""}`)
+            + S(`${l.bedrooms ?? "-"}房${l.size_net ? ' · ' + l.size_net + '呎' : ''}　${srcLink(l.detail_url, l.source)}`),
+          priceCell(fmt(l.price)) + (l.price_per_ft ? S(`$${l.price_per_ft.toLocaleString()}/呎`) : '')
+        );
       }
     }
 
     if (removedListings.length) {
-      rows += `<tr><td colspan="5" style="padding:8px 0 4px;font-weight:700;color:#ef4444">❌ 已下架 (${removedListings.length})</td></tr>`;
-      rows += TH('單位', '房間', '原價', '', '來源');
+      rows += HR('#ef4444', `❌ 已下架 (${removedListings.length})`);
       for (const l of removedListings) {
-        rows += `<tr style="border-bottom:1px solid #1f2d42">
-          <td style="padding:6px 8px">${l.building_name || ""} ${l.floor || ""} ${l.unit || ""}</td>
-          <td style="padding:6px 8px;color:#64748b">${l.bedrooms ?? "-"}房</td>
-          <td style="padding:6px 8px;text-decoration:line-through;color:#64748b">${fmt(l.price)}</td>
-          <td></td>
-          <td style="padding:6px 8px">${srcLink(l.detail_url, l.source)}</td>
-        </tr>`;
+        rows += R(
+          M(`${l.building_name || ""} ${l.floor || ""} ${l.unit || ""}`)
+            + S(`${l.bedrooms ?? "-"}房　${srcLink(l.detail_url, l.source)}`),
+          `<div style="color:#94a3b8;font-weight:700;font-size:14px;text-decoration:line-through">${fmt(l.price)}</div>`
+        );
       }
     }
 
-    sections += `
-      <div style="margin-bottom:24px">
-        <h2 style="margin:0 0 12px;font-size:18px;color:#f59e0b">${estate}</h2>
-        <table style="width:100%;border-collapse:collapse;font-size:14px;color:#e2e8f0">${rows}</table>
-      </div>`;
+    sections += `<div style="margin-bottom:22px"><h2 style="margin:0 0 6px;font-size:17px;color:#fbbf24">${estate}</h2>${tbl(rows)}</div>`;
   }
 
-  const body = (sections + bargainSection) || `<p style="color:#64748b;font-size:15px">今日無更新</p>`;
+  const body = (sections + bargainSection) || `<p style="color:#cbd5e1;font-size:15px">今日無更新</p>`;
   return `
-    <div style="background:#0a0f1a;color:#e2e8f0;font-family:-apple-system,sans-serif;padding:24px;max-width:600px;margin:0 auto;border-radius:12px">
-      <h1 style="margin:0 0 4px;font-size:22px">🏙️ PropWatch 每日通知</h1>
-      <p style="margin:0 0 24px;color:#64748b;font-size:14px">${date}</p>
+    <div style="background:#0a0f1a;color:#f1f5f9;font-family:-apple-system,sans-serif;padding:20px;max-width:600px;margin:0 auto;border-radius:12px">
+      <h1 style="margin:0 0 4px;font-size:22px;color:#f8fafc">🏙️ PropWatch 每日通知</h1>
+      <p style="margin:0 0 20px;color:#94a3b8;font-size:14px">${date}</p>
       ${body}
-      <p style="margin-top:24px;font-size:12px;color:#64748b">
-        <a href="https://propwatch.pages.dev" style="color:#3b82f6">前往 PropWatch</a>
+      <p style="margin-top:24px;font-size:12px;color:#94a3b8">
+        <a href="https://propwatch.pages.dev" style="color:#60a5fa">前往 PropWatch</a>
       </p>
     </div>`;
 }
