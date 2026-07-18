@@ -3293,6 +3293,33 @@ export default {
             }));
         }
 
+        // 「放盤數量」呢個 metric 用返全部 source（唔止中原）——同側邊欄「XX個盤」
+        // 個定義一致（91 個，唔係得中原嗰 38 個）。實呎價維持中原-only（要同
+        // 全組合指數 overlay 同一基準比較，唔可以跨 source 影響）。淨係覆蓋
+        // listing_count 呢個欄位，avg_price_ft 唔郁。
+        const { results: allSrcRows } = await db.prepare(
+          `SELECT snapshot_date, bedrooms FROM listings WHERE estate_id = ? AND snapshot_date >= ?`
+        ).bind(estateId, addedAt).all();
+        const countByDateAllSrc = new Map();
+        for (const r of allSrcRows) {
+          if (!_bedMatch(beds, r.bedrooms)) continue;
+          countByDateAllSrc.set(r.snapshot_date, (countByDateAllSrc.get(r.snapshot_date) || 0) + 1);
+        }
+        for (const t of trends) {
+          if (countByDateAllSrc.has(t.snapshot_date)) t.listing_count = countByDateAllSrc.get(t.snapshot_date);
+        }
+        // 最後一點(今日)唔用返「同一калendar日全部 source 加埋」——source 成日
+        // 唔同日 sync（例如 HKP 遲中原一日），今日嗰日 raw 加總會漏咗未 sync
+        // 嘅 source，同側邊欄「XX個盤」對唔返。改用「per-source 各自最新」
+        // （同 /api/estates 個 today_count 一致嘅邏輯）覆蓋最後一點。
+        if (trends.length) {
+          const { results: latestRows } = await db.prepare(
+            `SELECT bedrooms FROM listings l WHERE l.estate_id = ?
+               AND l.snapshot_date = (SELECT MAX(snapshot_date) FROM listings WHERE estate_id = ? AND source = l.source)`
+          ).bind(estateId, estateId).all();
+          trends[trends.length - 1].listing_count = latestRows.filter((r) => _bedMatch(beds, r.bedrooms)).length;
+        }
+
         // ── 成交趨勢（實呎價，trailing median）──
         // 成交疏（可能一個月幾宗），所以每個 snapshot date 畫「近 N 日成交呎價中位數」
         // （N = market_median_days，⚙️ 可改），得出一條平滑嘅成交參考線同叫價比較。
