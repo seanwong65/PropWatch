@@ -2377,7 +2377,7 @@ function buildEmailHtml(highlights, bargains = []) {
 
     if (newTransactions.length) {
       rows += `<tr><td colspan="5" style="padding:8px 0 4px;font-weight:700;color:#a78bfa">🏠 新成交 (${newTransactions.length})</td></tr>`;
-      rows += TH('單位', '面積', '成交價', '持有 / 升跌', '');
+      rows += TH('單位', '成交日期', '成交價', '持有 / 升跌', '');
       for (const t of newTransactions) {
         const years = t.held_days ? t.held_days / 365 : null;
         const heldStr = years ? years.toFixed(1) + '年' : '-';
@@ -2391,9 +2391,11 @@ function buildEmailHtml(highlights, bargains = []) {
           const col = t.gain_pct >= 0 ? '#10b981' : '#ef4444';
           gainHtml = `<span style="color:${col}">${t.gain_pct >= 0 ? '▲' : '▼'} ${Math.abs(t.gain_pct).toFixed(1)}%</span>`;
         }
+        const sizeLine = [t.size_net ? `${t.size_net}實呎` : null, t.price_per_ft ? `$${Math.round(t.price_per_ft).toLocaleString()}/呎` : null]
+          .filter(Boolean).join('．');
         rows += `<tr style="border-bottom:1px solid #1f2d42">
-          <td style="padding:6px 8px">${t.building || ""} ${t.floor || ""} ${t.unit || ""}</td>
-          <td style="padding:6px 8px;color:#64748b">${t.size_net ? t.size_net + "實呎" : ""}</td>
+          <td style="padding:6px 8px">${t.building || ""} ${t.floor || ""} ${t.unit || ""}${sizeLine ? `<br><span style="color:#64748b;font-size:12px">${sizeLine}</span>` : ''}</td>
+          <td style="padding:6px 8px;color:#64748b">${t.reg_date || "-"}</td>
           <td style="padding:6px 8px;font-weight:700;color:#f59e0b">${t.price ? `$${(t.price / 1e4).toFixed(0)}萬` : "-"}</td>
           <td style="padding:6px 8px">${heldStr}<br>${gainHtml}</td>
           <td style="padding:6px 8px">${t.detail_url ? `<a href="${t.detail_url}" style="color:#3b82f6;font-size:12px">詳情 ↗</a>` : ''}</td>
