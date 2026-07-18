@@ -1238,6 +1238,14 @@ async function ensureGroupOverrides(db) {
 // window, pick the single best candidate per stack, and score confidence.
 const _normBldg = (s) => String(s || "").replace(/[座\s]/g, "").toUpperCase();
 const _normUnit = (s) => String(s || "").replace(/[室號\s]/g, "").toUpperCase();
+// 抽「座」號做跨 source dedup key：有「N座 / A座」就攞個號；冇（屋苑名／空／
+// null）當單幢返 ""。解決同一宗成交唔同 source 嘅 building 唔一致（例：景怡峰
+// vs 景怡峯 vs 空）被當成幾宗、又重複 trigger alert。多幢屋苑（2座/3座）照分得開。
+const _blockKey = (b) => {
+  const s = String(b || "");
+  const m = s.match(/(\d+)\s*座/) || s.match(/([A-Za-z])\s*座/) || s.match(/^\s*(\d+)\s*$/);
+  return m ? m[1].toUpperCase() : "";
+};
 
 // 房數推斷器：成交（土地註冊處）只有面積冇房數，用同屋苑在售 listings
 // （有齊 座/室/呎/房數）反推。①夾「座+室」入面「最接近實呎」嗰個 sample 嘅
@@ -2131,7 +2139,15 @@ async function getTodayHighlights(db, accountId) {
         AND t.reg_date >= date(?, ?)
         AND date(e.first_seen) <= ?
         AND (e.is_disabled = 0 OR e.is_disabled IS NULL)
-      ORDER BY t.price DESC`).bind(accountId, today, today, `-${newTxnMaxAge} days`, hkDateStr(-2)).all(),
+        AND NOT EXISTS (
+          SELECT 1 FROM transactions t2
+          WHERE t2.estate_id = t.estate_id
+            AND COALESCE(t2.floor,'') = COALESCE(t.floor,'')
+            AND COALESCE(t2.unit,'')  = COALESCE(t.unit,'')
+            AND t2.price = t.price
+            AND t2.first_seen < t.first_seen
+        )
+      ORDER BY (t.source='centanet') DESC, t.price DESC`).bind(accountId, today, today, `-${newTxnMaxAge} days`, hkDateStr(-2)).all(),
     db.prepare(`
       SELECT l.building_name, l.floor, l.unit, l.ref_no, l.price as new_price, ph_prev.price as old_price,
              l.detail_url, l.source, e.name as estate_name
@@ -2255,7 +2271,17 @@ async function getTodayHighlights(db, accountId) {
     if (!estateMap.has(name)) estateMap.set(name, { estate: name, newTransactions: [], priceChanges: [], newListings: [], removedListings: [], viewedTxns: [] });
     return estateMap.get(name);
   };
-  for (const t of newTxns.results)         getEstate(t.estate_name).newTransactions.push(t);
+  // 同日多 source 撞正同一宗成交（例：中原＋利嘉閣同晚 sync）→ 收埋一宗。
+  // key 用 estate+座號+樓+室+價（_blockKey 令「景怡峰／峯／空」對得返）；
+  // query 已 ORDER BY centanet 先，所以留低嘅係中原嗰 row（有 detail_url／升跌）。
+  const _seenTxn = new Set();
+  const dedupNewTxns = newTxns.results.filter((t) => {
+    const k = `${t.estate_id}|${_blockKey(t.building)}|${String(t.floor || "").replace(/\D/g, "")}|${_normUnit(t.unit)}|${t.price}`;
+    if (_seenTxn.has(k)) return false;
+    _seenTxn.add(k);
+    return true;
+  });
+  for (const t of dedupNewTxns)            getEstate(t.estate_name).newTransactions.push(t);
   for (const p of priceChanges.results)    getEstate(p.estate_name).priceChanges.push(p);
   for (const l of newListings.results)     getEstate(l.estate_name).newListings.push(l);
   for (const r of removedListings.results) getEstate(r.estate_name).removedListings.push(r);
@@ -3377,7 +3403,7 @@ export default {
         const { results: ricaTxns } = await db.prepare(
           "SELECT building, floor, unit, price, size_net, price_per_ft, reg_date, instrument_date FROM transactions WHERE estate_id=? AND source='ricacorp' AND reg_date >= ?"
         ).bind(estateId, txnAddedAt).all();
-        const txnKey = (b, f, u, d) => `${_normBldg(b)}|${String(f || "").replace(/\D/g, "")}|${_normUnit(u)}|${d || ""}`;
+        const txnKey = (b, f, u, d) => `${_blockKey(b)}|${String(f || "").replace(/\D/g, "")}|${_normUnit(u)}|${d || ""}`;
         const ricaByKey = new Map(ricaTxns.map(r => [txnKey(r.building, r.floor, r.unit, r.reg_date), r]));
         for (const t of txns) {
           const m = ricaByKey.get(txnKey(t.building, t.floor, t.unit, t.reg_date));
@@ -3389,7 +3415,7 @@ export default {
         const { results: hkpTxns } = await db.prepare(
           "SELECT building, floor, unit, price, size_net, price_per_ft, reg_date, prev_price, gain_pct, held_days FROM transactions WHERE estate_id=? AND source='hkp' AND reg_date >= ?"
         ).bind(estateId, txnAddedAt).all();
-        const priceKey = (b, f, u, p) => `${_normBldg(b)}|${String(f || "").replace(/\D/g, "")}|${_normUnit(u)}|${p}`;
+        const priceKey = (b, f, u, p) => `${_blockKey(b)}|${String(f || "").replace(/\D/g, "")}|${_normUnit(u)}|${p}`;
         const seenPriceKeys = new Set();
         for (const t of txns) seenPriceKeys.add(priceKey(t.building, t.floor, t.unit, t.price));
         for (const r of ricaByKey.values()) seenPriceKeys.add(priceKey(r.building, r.floor, r.unit, r.price));
@@ -3671,7 +3697,22 @@ export default {
           if (!estateMap.has(name)) estateMap.set(name, { estate: name, newTransactions: [], priceChanges: [], newListings: [], removedListings: [] });
           return estateMap.get(name);
         };
-        for (const t of newTxns.results)        getEstate(t.estate_name).newTransactions.push(t);
+        // 跨 source 同一宗成交只顯示一次（_blockKey 對「景怡峰／峯／空」）。
+        // 留低最早 first_seen 嗰宗（deal 真正首次出現嗰日），tie 就揀中原
+        // （有 detail_url／升跌）。之後照 first_seen DESC 排返出嚟。
+        const _txnBest = new Map();
+        for (const t of newTxns.results) {
+          const k = `${t.estate_id}|${_blockKey(t.building)}|${String(t.floor || "").replace(/\D/g, "")}|${_normUnit(t.unit)}|${t.price}`;
+          const cur = _txnBest.get(k);
+          if (!cur
+              || (t.first_seen || "") < (cur.first_seen || "")
+              || (t.first_seen === cur.first_seen && t.source === "centanet" && cur.source !== "centanet")) {
+            _txnBest.set(k, t);
+          }
+        }
+        [..._txnBest.values()]
+          .sort((a, b) => (b.first_seen || "").localeCompare(a.first_seen || "") || (b.price || 0) - (a.price || 0))
+          .forEach((t) => getEstate(t.estate_name).newTransactions.push(t));
         for (const l of newListings.results)     getEstate(l.estate_name).newListings.push(l);
         for (const p of priceChanges.results)    getEstate(p.estate_name).priceChanges.push(p);
         for (const r of removedListings.results) getEstate(r.estate_name).removedListings.push(r);
