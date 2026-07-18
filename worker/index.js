@@ -3015,9 +3015,16 @@ export default {
       if (method === "GET" && path === "/api/estates") {
         const { results } = await db
           .prepare(
+            // today_count 要 per-source 判斷「自己最新一日」，唔可以要求全部
+            // source 同一日 snapshot——HKP 成日遲中原/利嘉閣一日先 sync，用
+            // 「屋苑整體最新日」會令 HKP 嗰批盤全部被漏計（成個 source 消失），
+            // side bar 數字就會比實際細一截。同 /api/estates/:id/listings
+            // 個 removed_date 判斷用返同一套 per-source 邏輯，令兩處數字對得返。
             `SELECT e.*, ae.is_favourite, ae.sort_order, ae.added_at,
-               (SELECT COUNT(*) FROM listings l WHERE l.estate_id = e.id
-                AND l.snapshot_date = (SELECT MAX(snapshot_date) FROM listings WHERE estate_id = e.id)) AS today_count,
+               (SELECT COUNT(*) FROM listings l
+                WHERE l.estate_id = e.id
+                  AND l.snapshot_date = (SELECT MAX(snapshot_date) FROM listings WHERE estate_id = e.id AND source = l.source)
+               ) AS today_count,
                (SELECT COUNT(*) FROM transactions t WHERE t.estate_id = e.id
                 AND t.reg_date >= date('now','+8 hours','-3 months')) AS txn_3m_count
              FROM account_estates ae
