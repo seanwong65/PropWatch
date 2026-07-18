@@ -4915,16 +4915,29 @@ async function loadMarketTemp(estateId) {
   try {
     const t = await api(`/api/estates/${estateId}/market-temp`);
     const months = t.txn_30d > 0 ? (t.active_listings / t.txn_30d) : null;
-    let verdict, color;
-    if (months == null || months > 12) { verdict = '極淡 · 買家話事'; color = 'var(--up)'; }
-    else if (months > 6) { verdict = '偏淡 · 買家有利'; color = 'var(--up)'; }
-    else if (months > 3) { verdict = '均衡'; color = 'var(--muted)'; }
-    else { verdict = '偏熱 · 賣家有利'; color = 'var(--down)'; }
+    let tier, verdict, color;
+    if (months == null || months > 12) { tier = 0; verdict = '極淡 · 買家話事'; color = 'var(--up)'; }
+    else if (months > 6) { tier = 1; verdict = '偏淡 · 買家有利'; color = 'var(--up)'; }
+    else if (months > 3) { tier = 2; verdict = '均衡'; color = 'var(--muted)'; }
+    else { tier = 3; verdict = '偏熱 · 賣家有利'; color = 'var(--down)'; }
     const tempTitle = '去貨月數＝在售盤數 ÷ 近30日成交宗數，即係幾多個月先賣晒現有在售盤。>12個月＝極淡．買家話事；6–12個月＝偏淡．買家有利；3–6個月＝均衡；<3個月＝偏熱．賣家有利。';
+    // 四級全部列出，現時 tier 用粗體＋原色 highlight，其餘保持灰色
+    const legendParts = [
+      ['>12個月＝極淡·買家話事', 'var(--up)'],
+      ['6–12個月＝偏淡·買家有利', 'var(--up)'],
+      ['3–6個月＝均衡', 'var(--muted)'],
+      ['<3個月＝偏熱·賣家有利', 'var(--down)'],
+    ];
+    const legendHtml = legendParts.map(([txt, c], i) =>
+      i === tier
+        ? `<span style="color:${c};font-weight:700">${txt}</span>`
+        : `<span>${txt}</span>`
+    ).join('　');
     card.innerHTML = `<div class="stat-label" title="${tempTitle}">市場溫度</div>
       <div style="margin-top:0.35rem"><span class="stat-value" style="font-size:1.1rem">${t.txn_30d}</span><span class="stat-unit"> 宗/30日</span> <span style="font-size:0.75rem;color:var(--muted)">(90日 ${t.txn_90d} 宗)</span></div>
       <div style="margin-top:0.25rem;font-size:0.8rem;color:var(--muted)">在售 ${t.active_listings} 個${months != null ? ` · 約 ${months.toFixed(0)} 個月去貨` : ''}</div>
-      <div style="margin-top:0.25rem;font-size:0.8rem;font-weight:600;color:${color}" title="${tempTitle}">${verdict}</div>`;
+      <div style="margin-top:0.25rem;font-size:0.8rem;font-weight:600;color:${color}" title="${tempTitle}">${verdict}</div>
+      <div style="margin-top:0.4rem;font-size:0.7rem;color:var(--muted);line-height:1.6">${legendHtml}</div>`;
   } catch (_) { card.innerHTML = `<div class="stat-label">市場溫度</div><div style="margin-top:0.35rem;font-size:0.8rem;color:var(--muted)">載入失敗</div>`; }
 }
 
