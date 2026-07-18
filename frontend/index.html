@@ -997,9 +997,9 @@
     <p style="font-size:0.82rem;color:var(--muted);margin:0.25rem 0 1rem">話俾系統知你想搵咩樓，開「最新放盤」時會自動幫你 filter。全部 optional，之後喺 ⚙️ 設定都改到。</p>
     <label class="vf-label">想睇幾錢嘅樓（萬）</label>
     <div style="display:flex;align-items:center;gap:0.5rem">
-      <input class="vf-input" type="number" id="pref-price-min" placeholder="最低" style="margin:0">
+      <input class="vf-input" type="number" id="pref-price-min" placeholder="最低" style="margin:0" oninput="updatePrefsModalPreview()">
       <span style="color:var(--muted)">–</span>
-      <input class="vf-input" type="number" id="pref-price-max" placeholder="最高" style="margin:0">
+      <input class="vf-input" type="number" id="pref-price-max" placeholder="最高" style="margin:0" oninput="updatePrefsModalPreview()">
     </div>
     <label class="vf-label" style="margin-top:0.9rem">目標房數</label>
     <div id="pref-beds" style="display:flex;gap:0.4rem;flex-wrap:wrap">
@@ -1011,10 +1011,11 @@
     </div>
     <label class="vf-label" style="margin-top:0.9rem">實呎</label>
     <div style="display:flex;align-items:center;gap:0.5rem">
-      <input class="vf-input" type="number" id="pref-size-min" placeholder="最低" style="margin:0">
+      <input class="vf-input" type="number" id="pref-size-min" placeholder="最低" style="margin:0" oninput="updatePrefsModalPreview()">
       <span style="color:var(--muted)">–</span>
-      <input class="vf-input" type="number" id="pref-size-max" placeholder="最高" style="margin:0">
+      <input class="vf-input" type="number" id="pref-size-max" placeholder="最高" style="margin:0" oninput="updatePrefsModalPreview()">
     </div>
+    <div style="margin-top:0.75rem;font-size:0.82rem;color:var(--muted)">目前設定：<span id="pref-modal-preview" style="color:var(--text);font-weight:600">未設定</span></div>
     <label style="display:flex;align-items:center;gap:0.45rem;margin-top:1.1rem;font-size:0.85rem;color:var(--muted);cursor:pointer">
       <input type="checkbox" id="pref-dismiss" style="accent-color:var(--accent)"> 以後不再提醒
     </label>
@@ -3417,11 +3418,28 @@ function openPrefsModal(prefill) {
     b.classList.toggle('active', (b.dataset.beds || '') === (p.beds || '')));
   document.getElementById('pref-dismiss').checked = false;
   document.getElementById('prefsModalOverlay').style.display = 'flex';
+  updatePrefsModalPreview();
 }
 
 function setPrefBeds(btn) {
   document.querySelectorAll('#pref-beds .filter-chip').forEach(b => b.classList.remove('active'));
   btn.classList.add('active');
+  updatePrefsModalPreview();
+}
+
+// popup 入面即時預覽：跟輸入框/房數 chip 現時嘅值，用返同一個格式（renderPrefsSummary
+// 個 formatter），等用戶未撳「儲存」都睇到「800萬內」/「500萬以上」呢類清楚字眼。
+function updatePrefsModalPreview() {
+  const el = document.getElementById('pref-modal-preview');
+  if (!el) return;
+  const p = {
+    price_min: document.getElementById('pref-price-min').value,
+    price_max: document.getElementById('pref-price-max').value,
+    size_min: document.getElementById('pref-size-min').value,
+    size_max: document.getElementById('pref-size-max').value,
+    beds: document.querySelector('#pref-beds .filter-chip.active')?.dataset.beds || '',
+  };
+  el.textContent = formatPrefsSummary(p);
 }
 
 async function savePrefsFromModal() {
@@ -3497,10 +3515,11 @@ function syncHlPrefChips() {
   });
 }
 
-function renderPrefsSummary() {
-  const el = document.getElementById('settings-prefs-summary');
-  if (!el) return;
-  const p = _userPrefs || {};
+// 睇樓偏好摘要文字：得上限/得下限清楚講「XX萬內」/「XX萬以上」，兩邊都有先用
+// range 格式。⚙️ 設定嘅摘要（renderPrefsSummary）同首次登入 popup 嘅即時預覽
+// （updatePrefsModalPreview）共用呢個 formatter。
+function formatPrefsSummary(p) {
+  p = p || {};
   const parts = [];
   if (p.price_min && p.price_max) parts.push(`$${p.price_min}–${p.price_max}萬`);
   else if (p.price_max) parts.push(`${p.price_max}萬內`);
@@ -3509,8 +3528,15 @@ function renderPrefsSummary() {
   if (p.size_min && p.size_max) parts.push(`${p.size_min}–${p.size_max}呎`);
   else if (p.size_max) parts.push(`${p.size_max}呎內`);
   else if (p.size_min) parts.push(`${p.size_min}呎以上`);
-  el.textContent = parts.length ? parts.join(' · ') : '未設定';
-  el.style.color = parts.length ? 'var(--text)' : 'var(--muted)';
+  return parts.length ? parts.join(' · ') : '未設定';
+}
+
+function renderPrefsSummary() {
+  const el = document.getElementById('settings-prefs-summary');
+  if (!el) return;
+  const text = formatPrefsSummary(_userPrefs);
+  el.textContent = text;
+  el.style.color = text === '未設定' ? 'var(--muted)' : 'var(--text)';
 }
 
 // 分析參數列表：label + number input + 說明。onchange 即刻 PUT,後端 clamp
