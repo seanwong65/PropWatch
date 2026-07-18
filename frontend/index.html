@@ -1520,7 +1520,9 @@ async function loadBargainRadar() {
   const body = document.getElementById('radar-body');
   try {
     // 門檻/窗口由後端 ⚙️ 設定嚟(response 有埋 cfg),前端唔傳 belowPct。
-    const r = await api('/api/bargain-radar?limit=40');
+    // 攞多啲（100）先，等睇樓偏好篩完唔會漏咗排名靠後但啱偏好嘅筍盤——同
+    // email 一樣「先攞晒再篩」，唔係「攞頭幾個再篩」。
+    const r = await api('/api/bargain-radar?limit=100');
     const estates = r.estates || [];
     // 筍盤列表跟用戶睇樓偏好篩（🎯 chip 可以熄）；議價指數係屋苑層面統計，唔篩
     const listings = (r.listings || []).filter(prefMatchHl);

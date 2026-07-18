@@ -2304,6 +2304,7 @@ function buildEmailHtml(highlights, bargains = []) {
   const { date, byEstate = [], allViewedTxns = [], linkedPriceChanges = [] } = highlights;
 
   let sections = "";
+  let bargainSection = "";   // 筍盤擺去 email 最後（其他動態行先）
 
   // 💎 今日筍盤 Top 5 — 呎價低過同苑近60日成交中位數最多嘅在售盤
   if (bargains.length) {
@@ -2324,7 +2325,7 @@ function buildEmailHtml(highlights, bargains = []) {
         <td style="padding:6px 8px">${link}</td>
       </tr>`;
     }
-    sections += `<div style="margin-bottom:24px;border:1px solid rgba(52,211,153,0.4);border-radius:8px;padding:16px;background:rgba(52,211,153,0.06)">
+    bargainSection = `<div style="margin-bottom:24px;border:1px solid rgba(52,211,153,0.4);border-radius:8px;padding:16px;background:rgba(52,211,153,0.06)">
       <h2 style="margin:0 0 4px;font-size:18px;color:#34d399">💎 今日筍盤 Top ${bargains.length}</h2>
       <p style="margin:0 0 12px;font-size:12px;color:#64748b">呎價低過同屋苑近60日成交中位數最多嘅在售盤。全苑中位數係粗略基準,平得誇張多數有原因,睇盤前自己覆核。</p>
       <table style="width:100%;border-collapse:collapse;font-size:14px;color:#e2e8f0">
@@ -2479,7 +2480,7 @@ function buildEmailHtml(highlights, bargains = []) {
       </div>`;
   }
 
-  const body = sections || `<p style="color:#64748b;font-size:15px">今日無更新</p>`;
+  const body = (sections + bargainSection) || `<p style="color:#64748b;font-size:15px">今日無更新</p>`;
   return `
     <div style="background:#0a0f1a;color:#e2e8f0;font-family:-apple-system,sans-serif;padding:24px;max-width:600px;margin:0 auto;border-radius:12px">
       <h1 style="margin:0 0 4px;font-size:22px">🏙️ PropWatch 每日通知</h1>
@@ -2712,14 +2713,17 @@ async function sendDailyEmail(db, env, onlyAccountId = null) {
           e.removedListings = e.removedListings.filter((r) => prefMatchRow(prefs, r));
         }
       }
-      // 筍盤 Top N（每個帳戶自己嘅 ⚙️ 設定；0=唔要；non-fatal）
+      // 筍盤 Top N（每個帳戶自己嘅 ⚙️ 設定；0=唔要；non-fatal）。
+      // 要先攞晒全部筍盤、跟睇樓偏好篩完，先至 slice top N——唔係咁做嘅話
+      // 「取 top 5 再篩」會令啱偏好嘅盤跌出榜（例：top 5 篩剩 2 個）。
       let bargains = [];
       try {
         const emailTop = (await getConfig(db, acc.id)).email_bargain_top;
         if (emailTop > 0) {
-          const radar = await computeBargainRadar(db, { limit: emailTop, accountId: acc.id });
+          const radar = await computeBargainRadar(db, { limit: 100, accountId: acc.id });
           bargains = radar.listings;
           if (prefsUsable(prefs)) bargains = bargains.filter((r) => prefMatchRow(prefs, r));
+          bargains = bargains.slice(0, emailTop);
         }
       } catch (e) { /* non-fatal */ }
       const { byEstate } = highlights;
