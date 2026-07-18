@@ -2656,16 +2656,18 @@ function prefMatchRow(p, r) {
   return true;
 }
 
-async function sendDailyEmail(db, env) {
+async function sendDailyEmail(db, env, onlyAccountId = null) {
   if (!env?.GMAIL_REFRESH_TOKEN) return { error: "no GMAIL credentials" };
   // 逐個有 email 嘅帳戶寄——各自用自己嘅訂閱/設定/雷達視角。
   // 冇訂閱任何屋苑嘅帳戶跳過（新用戶未加屋苑，冇嘢好通知）。
+  // onlyAccountId：手動 trigger 測試單一帳戶用（唔影響正常 cron 全帳戶寄）。
   const { results: accounts } = await db.prepare(`
     SELECT a.id, a.username, a.email FROM accounts a
     WHERE a.email IS NOT NULL AND a.email != ''
       AND (a.is_active IS NULL OR a.is_active = 1)
       AND EXISTS (SELECT 1 FROM account_estates ae WHERE ae.account_id = a.id)
-  `).all();
+      AND (? IS NULL OR a.id = ?)
+  `).bind(onlyAccountId, onlyAccountId).all();
   const out = [];
   for (const acc of accounts) {
     try {
@@ -2998,7 +3000,11 @@ export default {
       }
 
       if (method === "POST" && path === "/api/send-today-email") {
-        const result = await sendDailyEmail(db, env);
+        // admin only：一般 user 唔應該可以幫全部帳戶觸發寄信。
+        if (!isAdminSession(session)) return json(403, { error: "admin only" });
+        // ?accountId= 淨係測試單一帳戶（例如自己），唔畀就寄全部（同 cron 一樣）。
+        const onlyAccountId = url.searchParams.get("accountId");
+        const result = await sendDailyEmail(db, env, onlyAccountId ? Number(onlyAccountId) : null);
         return json(200, { ok: !result?.error, result });
       }
 
