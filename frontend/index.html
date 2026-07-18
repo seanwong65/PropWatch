@@ -2230,15 +2230,16 @@ async function loadTodayHighlights() {
       if (removedListings.length) {
         let rows = "";
         for (const l of removedListings) {
+          // 已下架嘅盤條 link 去唔到（listing 已經落架），唔顯示來源 link
           rows += TR(
             `${escHtml(l.building_name||'')} ${escHtml(l.floor||'')} ${escHtml(l.unit||'')}`,
             l.bedrooms!=null ? l.bedrooms+'房' : '-',
             `<span style="text-decoration:line-through">${fmt(l.price)}</span>`,
             '',
-            srcLink(l.detail_url, l.source)
+            ''
           );
         }
-        inner += `<div class="highlights-subgroup"><div class="highlights-group-label" style="color:var(--down)">❌ 已下架 (${removedListings.length})</div>${tbl(TH('單位','房間','原價','','來源'), rows)}</div>`;
+        inner += `<div class="highlights-subgroup"><div class="highlights-group-label" style="color:var(--down)">❌ 已下架 (${removedListings.length})</div>${tbl(TH('單位','房間','原價','',''), rows)}</div>`;
       }
 
       if (inner) {
@@ -2440,12 +2441,13 @@ async function loadHistoryHighlights(months) {
       if (removedListings.length) {
         let rows = "";
         for (const r of removedListings) {
+          // 已下架嘅盤條 link 去唔到（listing 已經落架），唔顯示來源 link
           rows += TR(
             `<span style="color:var(--muted)">${r.last_seen_date||''}</span>`,
             `${escHtml(r.building_name||'')} ${escHtml(r.floor||'')} ${escHtml(r.unit||'')}`,
             r.bedrooms != null ? `${r.bedrooms}房` : '-',
             `<span style="text-decoration:line-through">${fmt(r.price)}</span>`,
-            lnk(r.detail_url)
+            ''
           );
         }
         inner += `<div class="highlights-subgroup"><div class="highlights-group-label" style="color:var(--down)">❌ 已下架 (${removedListings.length})</div>${tbl(TH('下架日期','單位','房間','原價',''), rows)}</div>`;

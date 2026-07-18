@@ -2439,9 +2439,10 @@ function buildEmailHtml(highlights, bargains = []) {
     if (removedListings.length) {
       rows += HR('#ef4444', `❌ 已下架 (${removedListings.length})`);
       for (const l of removedListings) {
+        // 已下架嘅盤條 link 去唔到（listing 已經落架），唔好擺 srcLink
         rows += R(
           M(`${l.building_name || ""} ${l.floor || ""} ${l.unit || ""}`)
-            + S(`${l.bedrooms ?? "-"}房　${srcLink(l.detail_url, l.source)}`),
+            + S(`${l.bedrooms ?? "-"}房`),
           `<div style="color:#94a3b8;font-weight:700;font-size:14px;text-decoration:line-through">${fmt(l.price)}</div>`
         );
       }
