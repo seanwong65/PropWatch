@@ -3391,12 +3391,14 @@ export default {
         const estateId = path.split("/")[3];
         const estate = await db.prepare("SELECT name FROM estates WHERE id = ?").bind(estateId).first();
         if (!estate) return json(404, { error: "Not found" });
-        // 成交記錄列表由加入自選日開始計(live Centanet 數據冇 first_seen,
-        // 用 reg_date 截)。分析功能(相對市價/類近成交/雷達)另有 code path
-        // 用 DB transactions 表,唔受影響。
-        const txnSub = await db.prepare("SELECT added_at FROM account_estates WHERE account_id = ? AND estate_id = ?")
-          .bind(session.account_id, estateId).first();
-        const txnAddedAt = txnSub?.added_at ?? '9999-12-31';
+        // 成交記錄**唔跟** account_estates.added_at 截——成交係土地註冊處嘅公開
+        // 記錄，唔係我哋逐日抓返嚟儲落嘅觀察數據，所以新訂閱者一樣應該見到全部
+        // 歷史（否則新帳戶開頭只見到零星幾宗，睇落似壞咗）。而且中原嗰批係每次
+        // 即時 API 攞，本來就唔關「邊個幫邊個儲」事。
+        //
+        // 相反，放盤趨勢圖／售價歷史係我哋每日 sync 累積返嚟嘅記錄，嗰兩處繼續
+        // 用 added_at 截（見 /trends 同 /history），令「追蹤天數」同圖表對得上。
+        // 今日動態／每日 email 亦繼續截，唔會 spam 新用戶一堆訂閱前就存在嘅嘢。
         const offset = Number(url.searchParams.get("offset") || 0);
         const res = await fetch(CENTANET_TRANS, {
           method: "POST",
@@ -3442,14 +3444,14 @@ export default {
             hs_date: saved ? saved.valuation_date : null,
             source: "centanet",
           };
-        }).filter(t => (t.reg_date || '9999-12-31') >= txnAddedAt);
+        });
 
         // Supplement with 利嘉閣 land-registry deals stored in the DB. Match on
         // 座+樓+室+登記日 (normalised): a match enriches the Centanet row with the
         // 簽約 date; ricacorp-only deals are appended on the first page.
         const { results: ricaTxns } = await db.prepare(
-          "SELECT building, floor, unit, price, size_net, price_per_ft, reg_date, instrument_date FROM transactions WHERE estate_id=? AND source='ricacorp' AND reg_date >= ?"
-        ).bind(estateId, txnAddedAt).all();
+          "SELECT building, floor, unit, price, size_net, price_per_ft, reg_date, instrument_date FROM transactions WHERE estate_id=? AND source='ricacorp'"
+        ).bind(estateId).all();
         const txnKey = (b, f, u, d) => `${_blockKey(b)}|${String(f || "").replace(/\D/g, "")}|${_normUnit(u)}|${d || ""}`;
         const ricaByKey = new Map(ricaTxns.map(r => [txnKey(r.building, r.floor, r.unit, r.reg_date), r]));
         for (const t of txns) {
@@ -3460,8 +3462,8 @@ export default {
         // 同一宗會差幾日到兩星期，所以唔可以靠日期夾——用「同座+樓+室+成交價」
         // 去重（同單位同價幾乎肯定係同一宗）。hkp-only 喺第一頁 append。
         const { results: hkpTxns } = await db.prepare(
-          "SELECT building, floor, unit, price, size_net, price_per_ft, reg_date, prev_price, gain_pct, held_days FROM transactions WHERE estate_id=? AND source='hkp' AND reg_date >= ?"
-        ).bind(estateId, txnAddedAt).all();
+          "SELECT building, floor, unit, price, size_net, price_per_ft, reg_date, prev_price, gain_pct, held_days FROM transactions WHERE estate_id=? AND source='hkp'"
+        ).bind(estateId).all();
         const priceKey = (b, f, u, p) => `${_blockKey(b)}|${String(f || "").replace(/\D/g, "")}|${_normUnit(u)}|${p}`;
         const seenPriceKeys = new Set();
         for (const t of txns) seenPriceKeys.add(priceKey(t.building, t.floor, t.unit, t.price));
