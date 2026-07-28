@@ -2085,8 +2085,11 @@ async function sendEmail(env, to, subject, html) {
 }
 
 // ── Cron 出錯通知 ────────────────────────────────────────────────────────────
-// 每日 sync/email cron 以前靜靜 fail 完全冇通知。呢度收到 detail 寄畀 admin
-// role(有 email)嘅帳戶(即 seanwong)等佢知道去 fix。
+// 每日 sync/email cron fail 要有人知。**主要 channel 係 Telegram，唔係 email**：
+// 之前個版本淨係寄 email，但 Gmail refresh token 一過期，「每日 email 寄唔到」
+// 呢個 alert 自己都要用 Gmail 寄 → 一齊死 → 靜靜 fail 咗成個星期都冇人知。
+// 監察 X 嘅嘢唔可以同 X 共用單點故障，所以改用 Telegram bot token（唔會過期）。
+// Email 保留做次要副本（Gmail 正常嗰陣多一份記錄）。
 function _escHtmlW(s) {
   return String(s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 }
@@ -2106,10 +2109,45 @@ function buildAlertHtml(taskName, lines) {
     <p style="color:#999;font-size:12px;margin-top:16px">呢封係 PropWatch cron task 自動出錯通知。</p>
   </div>`;
 }
-// 寄畀所有 admin role(有 email)嘅帳戶。通知本身 fail 唔可以連累 task,全程 swallow。
-async function sendAdminAlert(db, env, subject, html) {
+// Telegram 純文字版（Telegram 單條訊息上限 4096 字，所以要截）。
+function buildAlertText(taskName, lines) {
+  const when = new Date(Date.now() + 8 * 3600 * 1000).toISOString().replace("T", " ").slice(0, 19);
+  const head = `⚠️ ${taskName} 失敗\n香港時間 ${when}（UTC+8）· 共 ${lines.length} 項\n`;
+  const body = lines
+    .slice(0, 20)                                   // 最多列 20 項
+    .map((l, i) => `${i + 1}. ${String(l).slice(0, 500)}`)   // 每項最多 500 字（stack 好長）
+    .join("\n\n");
+  const more = lines.length > 20 ? `\n\n…另外仲有 ${lines.length - 20} 項` : "";
+  return (head + "\n" + body + more).slice(0, 3900);
+}
+
+// Telegram push：唔靠 Gmail，bot token 唔會過期。冇設定 secret 就靜靜跳過
+// （即係未設定 Telegram 之前照舊淨係寄 email，唔會爆）。
+async function sendTelegram(env, text) {
+  if (!env?.TELEGRAM_BOT_TOKEN || !env?.TELEGRAM_CHAT_ID) return false;
+  const res = await fetch(`https://api.telegram.org/bot${env.TELEGRAM_BOT_TOKEN}/sendMessage`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      chat_id: env.TELEGRAM_CHAT_ID,
+      text,
+      disable_web_page_preview: true,
+    }),
+  });
+  if (!res.ok) throw new Error(`telegram ${res.status}: ${(await res.text()).slice(0, 300)}`);
+  return true;
+}
+
+// 通知 admin。① Telegram（主，獨立於 Gmail）② email 畀所有 admin 帳戶（次）。
+// 兩條 channel 各自 try/catch：通知本身 fail 唔可以連累個 task。
+async function sendAdminAlert(db, env, subject, taskName, lines) {
+  try {
+    await sendTelegram(env, `${subject}\n\n${buildAlertText(taskName, lines)}`);
+  } catch (err) { console.error("telegram alert failed:", err?.message); }
+
   if (!env?.GMAIL_REFRESH_TOKEN) return;
   try {
+    const html = buildAlertHtml(taskName, lines);
     const { results: admins } = await db.prepare(
       "SELECT email FROM accounts WHERE role = 'admin' AND email IS NOT NULL AND email != '' AND (is_active IS NULL OR is_active = 1)"
     ).all();
@@ -2736,14 +2774,14 @@ export default {
           const res = await sendDailyEmail(env.DB, env);
           const failed = (res?.sent || []).filter((r) => r.error);
           if (res?.error) {
-            await sendAdminAlert(env.DB, env, "🚨 PropWatch 每日 email 冇寄到", buildAlertHtml("每日 email task", [res.error]));
+            await sendAdminAlert(env.DB, env, "🚨 PropWatch 每日 email 冇寄到", "每日 email task", [res.error]);
           } else if (failed.length) {
             await sendAdminAlert(env.DB, env, `⚠️ PropWatch 每日 email 有 ${failed.length} 個帳戶寄失敗`,
-              buildAlertHtml("每日 email task", failed.map((f) => `${f.account}: ${f.error}`)));
+              "每日 email task", failed.map((f) => `${f.account}: ${f.error}`));
           }
         } catch (e) {
           await sendAdminAlert(env.DB, env, "🚨 PropWatch 每日 email task 整個失敗",
-            buildAlertHtml("每日 email task（top-level）", [_errDetail(e)]));
+            "每日 email task（top-level）", [_errDetail(e)]);
         }
       })());
     } else if (event.cron in SYNC_SLOTS) {
@@ -2756,11 +2794,11 @@ export default {
           const { failures } = await syncEstatesBatch(env.DB, offset, SYNC_SLOT_SIZE);
           if (failures.length) {
             await sendAdminAlert(env.DB, env, `⚠️ PropWatch 同步 slot ${slot} 有 ${failures.length} 個屋苑失敗`,
-              buildAlertHtml(`每日同步 slot ${slot}（cron ${event.cron}）`, failures));
+              `每日同步 slot ${slot}（cron ${event.cron}）`, failures);
           }
         } catch (e) {
           await sendAdminAlert(env.DB, env, `🚨 PropWatch 同步 slot ${slot} 整個失敗`,
-            buildAlertHtml(`每日同步 slot ${slot}（cron ${event.cron}，top-level）`, [_errDetail(e)]));
+            `每日同步 slot ${slot}（cron ${event.cron}，top-level）`, [_errDetail(e)]);
         }
       })());
     }
@@ -4440,6 +4478,30 @@ export default {
         await ensureTxnDedup(db);
         const after = (await db.prepare("SELECT COUNT(*) n FROM transactions").first()).n;
         return json(200, { ok: true, before, after, removed: before - after });
+      }
+
+      // 測試 alert 通道通唔通（Telegram + email）。留返做長期工具：
+      // 改完 secret 或者想確認條路仲喺度就 call 一次，唔使等真係 fail。
+      if (method === "POST" && path === "/api/admin/test-alert") {
+        if (!isAdminSession(session)) return json(403, { error: "admin only" });
+        const tg = { configured: !!(env.TELEGRAM_BOT_TOKEN && env.TELEGRAM_CHAT_ID), ok: false, error: null };
+        try {
+          tg.ok = await sendTelegram(env, `✅ PropWatch 測試通知\n\n${buildAlertText("測試（唔係真係 fail）", ["呢條係測試訊息，見到即係 Telegram alert 通。"])}`);
+        } catch (e) { tg.error = e?.message || String(e); }
+        const em = { configured: !!env.GMAIL_REFRESH_TOKEN, ok: false, error: null, to: [] };
+        if (em.configured) {
+          try {
+            const { results: admins } = await db.prepare(
+              "SELECT email FROM accounts WHERE role = 'admin' AND email IS NOT NULL AND email != '' AND (is_active IS NULL OR is_active = 1)"
+            ).all();
+            for (const a of admins) {
+              await sendEmail(env, a.email, "✅ PropWatch 測試通知", buildAlertHtml("測試（唔係真係 fail）", ["呢條係測試訊息。"]));
+              em.to.push(a.email);
+            }
+            em.ok = true;
+          } catch (e) { em.error = e?.message || String(e); }
+        }
+        return json(200, { telegram: tg, email: em });
       }
 
       if (method === "POST" && path === "/api/admin/backfill-centanet-source") {
