@@ -1064,6 +1064,16 @@
   </div>
 </div>
 
+<!-- 睇樓記錄 · 表格轉 form 檢視（一行資料太多欄，手機/窄屏睇表格好逼，
+     呢個 modal 用 label:value 逐行顯示，方便閱讀） -->
+<div class="modal-overlay" id="viewingDetailModalOverlay" style="display:none" onclick="if(event.target===this)closeViewingDetail()">
+  <div class="modal" style="max-width:480px;max-height:85vh;overflow-y:auto">
+    <button class="modal-close" onclick="closeViewingDetail()">✕</button>
+    <div class="modal-title" style="font-size:1rem">睇樓記錄詳情</div>
+    <div id="viewingDetailBody" style="margin-top:0.75rem"></div>
+  </div>
+</div>
+
 <!-- Comp (參考成交) Modal -->
 <div class="modal-overlay" id="compModalOverlay" style="display:none" onclick="if(event.target===this)closeCompModal()">
   <div class="modal" style="max-width:520px">
@@ -3865,7 +3875,8 @@ async function loadViewings(estateId) {
       const priceChangedCell = v.linked_ref_no == null ? '-'
         : v.price_changed ? '<span style="color:var(--accent);font-size:0.8rem">有變動</span>'
         : '<span style="color:var(--muted);font-size:0.8rem">無變動</span>';
-      return `<tr>
+      return `<tr data-vrow="${v.id}">
+        <td><button class="history-btn" onclick="openViewingDetail(${v.id})" title="用表格式睇返呢行資料" style="font-size:0.72rem;padding:0.2rem 0.5rem">👁 查看</button></td>
         <td>${v.view_date}</td>
         <td><strong>${unitStr}</strong>${subLine ? `<br><span style="color:var(--muted);font-size:0.75rem">${subLine}</span>` : ''}</td>
         <td><strong style="color:var(--accent)">${fmt(v.price)}</strong> <strong>${sizeStr}</strong><br><span style="color:var(--muted);font-size:0.75rem">${psfStr}</span></td>
@@ -3889,7 +3900,7 @@ async function loadViewings(estateId) {
     panel.innerHTML = `<div class="listings-section" id="viewingsTableWrap"></div>`;
     renderFrozenTable(
       document.getElementById('viewingsTableWrap'),
-      `<th>睇樓日期</th><th>單位</th><th>售價</th><th>恒生估值</th><th>相對市價</th><th>類近在售</th><th>放咗幾耐</th><th>上次購買</th><th>成交記錄</th><th>管理費(每月)</th><th>對應放盤</th><th>售價變動</th><th>備注</th><th>圖片</th><th></th>`,
+      `<th></th><th>睇樓日期</th><th>單位</th><th>售價</th><th>恒生估值</th><th>相對市價</th><th>類近在售</th><th>放咗幾耐</th><th>上次購買</th><th>成交記錄</th><th>管理費(每月)</th><th>對應放盤</th><th>售價變動</th><th>備注</th><th>圖片</th><th></th>`,
       rows, 10, 'history-table data-table'
     );
 
@@ -3927,6 +3938,27 @@ async function fetchUnitTxn(viewingId) {
     const linkEnd = data.estateUrl ? '</a>' : '';
     cell.innerHTML = `${linkStart}<span style="color:var(--muted)"><strong>${fmt(t.price)}</strong></span>${dateStr ? `<br><span style="color:var(--muted);font-size:0.75rem">${dateStr}</span>` : ''}${linkEnd}`;
   } catch { cell.innerHTML = '-'; }
+}
+
+// 睇樓記錄「查看」→ 表格轉 form 式顯示（一行太多欄，窄屏睇表格好逼）。
+// 唔重新 fetch/計一次：直接讀返個 <tr> 已經 render 好嘅 <td>（上次購買/恒生
+// 估值嗰啲 async 欄呢陣都已經載完），逐格配返表頭做 label:value。
+const VIEWING_DETAIL_LABELS = ['睇樓日期','單位','售價','恒生估值','相對市價','類近在售','放咗幾耐','上次購買','成交記錄','管理費(每月)','對應放盤','售價變動','備注','圖片'];
+function openViewingDetail(viewingId) {
+  const row = document.querySelector(`tr[data-vrow="${viewingId}"]`);
+  if (!row) return;
+  // 首欄係「查看」掣、尾欄係編輯/刪除操作，兩邊都要撇除
+  const dataCells = [...row.children].slice(1, -1);
+  const rows = VIEWING_DETAIL_LABELS.map((label, i) => `
+    <div style="display:flex;gap:0.75rem;padding:0.55rem 0;border-bottom:1px solid var(--border)">
+      <div style="width:92px;flex-shrink:0;color:var(--muted);font-size:0.78rem">${escHtml(label)}</div>
+      <div style="flex:1;font-size:0.88rem;min-width:0">${dataCells[i] ? dataCells[i].innerHTML : '-'}</div>
+    </div>`).join('');
+  document.getElementById('viewingDetailBody').innerHTML = rows;
+  document.getElementById('viewingDetailModalOverlay').style.display = 'flex';
+}
+function closeViewingDetail() {
+  document.getElementById('viewingDetailModalOverlay').style.display = 'none';
 }
 
 async function deleteViewing(id, estateId) {
