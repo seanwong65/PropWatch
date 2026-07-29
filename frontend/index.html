@@ -1082,7 +1082,14 @@
 <div class="modal-overlay" id="viewingDetailModalOverlay" style="display:none" onclick="if(event.target===this)closeViewingDetail()">
   <div class="modal viewing-detail-modal" style="max-height:85vh;overflow-y:auto">
     <button class="modal-close" onclick="closeViewingDetail()">✕</button>
-    <div class="modal-title" style="font-size:1rem">睇樓記錄詳情</div>
+    <div style="display:flex;align-items:baseline;gap:0.5rem;flex-wrap:wrap">
+      <div class="modal-title" style="font-size:1rem;margin:0">睇樓記錄詳情</div>
+      <span id="viewingDetailCounter" style="color:var(--muted);font-size:0.78rem"></span>
+    </div>
+    <div style="display:flex;gap:0.5rem;margin-top:0.7rem">
+      <button id="viewingDetailPrevBtn" class="history-btn" onclick="viewingDetailNav(-1)" style="flex:1;font-size:0.82rem">‹ 上一條</button>
+      <button id="viewingDetailNextBtn" class="history-btn" onclick="viewingDetailNav(1)" style="flex:1;font-size:0.82rem">下一條 ›</button>
+    </div>
     <div id="viewingDetailBody" style="margin-top:0.75rem"></div>
   </div>
 </div>
@@ -3965,7 +3972,15 @@ const VIEWING_DETAIL_FIELDS = [
   { label: '成交記錄' }, { label: '管理費(每月)' }, { label: '對應放盤', wide: true },
   { label: '售價變動' }, { label: '備注', wide: true }, { label: '圖片', wide: true },
 ];
+// 撳「查看」開 modal 嗰陣，捕捉返表格入面全部 row 嘅順序（同顯示順序一致），
+// 等 ‹ 上一條 / 下一條 › 可以喺呢個順序度前後移動。順序可能因為 filter/sort
+// 變，所以每次開新 modal 都重新捕捉一次，唔會用舊快照。
+let _viewingDetailIds = [];
 function openViewingDetail(viewingId) {
+  _viewingDetailIds = [...document.querySelectorAll('tr[data-vrow]')].map(r => Number(r.dataset.vrow));
+  renderViewingDetail(viewingId);
+}
+function renderViewingDetail(viewingId) {
   const row = document.querySelector(`tr[data-vrow="${viewingId}"]`);
   if (!row) return;
   // 首欄係「查看」掣、尾欄係編輯/刪除操作，兩邊都要撇除
@@ -3978,6 +3993,24 @@ function openViewingDetail(viewingId) {
   document.getElementById('viewingDetailBody').innerHTML =
     `<div class="viewing-detail-grid">${cards}</div>`;
   document.getElementById('viewingDetailModalOverlay').style.display = 'flex';
+  document.getElementById('viewingDetailModalOverlay').dataset.currentId = viewingId;
+  document.getElementById('viewingDetailBody').scrollTop = 0;
+  const idx = _viewingDetailIds.indexOf(viewingId);
+  const total = _viewingDetailIds.length;
+  document.getElementById('viewingDetailCounter').textContent = idx >= 0 ? `${idx + 1} / ${total}` : '';
+  const prevBtn = document.getElementById('viewingDetailPrevBtn');
+  const nextBtn = document.getElementById('viewingDetailNextBtn');
+  prevBtn.disabled = idx <= 0;
+  nextBtn.disabled = idx < 0 || idx >= total - 1;
+  prevBtn.style.opacity = prevBtn.disabled ? '0.4' : '1';
+  nextBtn.style.opacity = nextBtn.disabled ? '0.4' : '1';
+}
+function viewingDetailNav(dir) {
+  const curId = Number(document.getElementById('viewingDetailModalOverlay').dataset.currentId);
+  const idx = _viewingDetailIds.indexOf(curId);
+  const newIdx = idx + dir;
+  if (newIdx < 0 || newIdx >= _viewingDetailIds.length) return;
+  renderViewingDetail(_viewingDetailIds[newIdx]);
 }
 function closeViewingDetail() {
   document.getElementById('viewingDetailModalOverlay').style.display = 'none';
