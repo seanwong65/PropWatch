@@ -4632,17 +4632,21 @@ async function applyGroupOverride(action, refNos) {
 }
 
 // 用戶手動標記/取消「已下架」(per-account，唔影響 source 自動偵測嘅狀態)
-async function toggleManualRemoved(refNo) {
+async function toggleManualRemoved(refNo, btn) {
   const l = allListings.find(x => x.ref_no === refNo);
   if (!l) return;
   const action = l.manual_removed_at ? 'unmark' : 'mark';
+  if (btn) { btn.disabled = true; btn.style.opacity = '0.5'; }
   try {
     await api(`/api/listings/${encodeURIComponent(refNo)}/manual-removed`, {
       method: 'POST', body: JSON.stringify({ action }),
     });
     l.manual_removed_at = action === 'mark' ? new Date().toISOString().slice(0, 10) : null;
     renderListingsTable();
-  } catch (e) { toast('操作失敗：' + e.message, 'error'); }
+  } catch (e) {
+    toast('操作失敗：' + e.message, 'error');
+    if (btn) { btn.disabled = false; btn.style.opacity = ''; }
+  }
 }
 
 function toggleGroupSelectMode() {
@@ -4778,8 +4782,8 @@ function renderListingsTable() {
         ? (l.removed_date
             ? ''
             : l.manual_removed_at
-              ? `<button class="history-btn" style="font-size:0.68rem;padding:0.05rem 0.35rem;margin-top:0.15rem" onclick="toggleManualRemoved('${escJsAttr(l.ref_no)}')">↺ 還原</button>`
-              : `<button class="history-btn" style="font-size:0.68rem;padding:0.05rem 0.35rem;margin-top:0.15rem" onclick="toggleManualRemoved('${escJsAttr(l.ref_no)}')">標記已下架</button>`)
+              ? `<button class="history-btn" style="font-size:0.68rem;padding:0.05rem 0.35rem;margin-top:0.15rem" onclick="toggleManualRemoved('${escJsAttr(l.ref_no)}', this)">↺ 還原</button>`
+              : `<button class="history-btn" style="font-size:0.68rem;padding:0.05rem 0.35rem;margin-top:0.15rem" onclick="toggleManualRemoved('${escJsAttr(l.ref_no)}', this)">標記已下架</button>`)
         : '';
       return `
       <tr${rowStyle}>
