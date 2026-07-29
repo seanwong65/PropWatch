@@ -3942,19 +3942,28 @@ async function fetchUnitTxn(viewingId) {
 
 // 睇樓記錄「查看」→ 表格轉 form 式顯示（一行太多欄，窄屏睇表格好逼）。
 // 唔重新 fetch/計一次：直接讀返個 <tr> 已經 render 好嘅 <td>（上次購買/恒生
-// 估值嗰啲 async 欄呢陣都已經載完），逐格配返表頭做 label:value。
-const VIEWING_DETAIL_LABELS = ['睇樓日期','單位','售價','恒生估值','相對市價','類近在售','放咗幾耐','上次購買','成交記錄','管理費(每月)','對應放盤','售價變動','備注','圖片'];
+// 估值嗰啲 async 欄呢陣都已經載完），逐格配返表頭做 label:value，砌成
+// 2 欄 grid（3 欄嘅話「相對市價」「類近在售」呢類兩行內容會迫到好緊）。
+// 內容長度唔穩定嗰幾個（對應放盤有多行按鈕、備注文字唔定長、圖片有縮圖）
+// 就佔全行（wide:true），其餘 11 個兩個一行。
+const VIEWING_DETAIL_FIELDS = [
+  { label: '睇樓日期' }, { label: '單位' }, { label: '售價' }, { label: '恒生估值' },
+  { label: '相對市價' }, { label: '類近在售' }, { label: '放咗幾耐' }, { label: '上次購買' },
+  { label: '成交記錄' }, { label: '管理費(每月)' }, { label: '對應放盤', wide: true },
+  { label: '售價變動' }, { label: '備注', wide: true }, { label: '圖片', wide: true },
+];
 function openViewingDetail(viewingId) {
   const row = document.querySelector(`tr[data-vrow="${viewingId}"]`);
   if (!row) return;
   // 首欄係「查看」掣、尾欄係編輯/刪除操作，兩邊都要撇除
   const dataCells = [...row.children].slice(1, -1);
-  const rows = VIEWING_DETAIL_LABELS.map((label, i) => `
-    <div style="display:flex;gap:0.75rem;padding:0.55rem 0;border-bottom:1px solid var(--border)">
-      <div style="width:92px;flex-shrink:0;color:var(--muted);font-size:0.78rem">${escHtml(label)}</div>
-      <div style="flex:1;font-size:0.88rem;min-width:0">${dataCells[i] ? dataCells[i].innerHTML : '-'}</div>
+  const cards = VIEWING_DETAIL_FIELDS.map((f, i) => `
+    <div style="background:var(--surface2);border-radius:8px;padding:0.5rem 0.65rem;min-width:0;${f.wide ? 'grid-column:1 / -1' : ''}">
+      <div style="color:var(--muted);font-size:0.7rem;margin-bottom:0.25rem">${escHtml(f.label)}</div>
+      <div style="font-size:0.85rem;overflow-wrap:break-word">${dataCells[i] ? dataCells[i].innerHTML : '-'}</div>
     </div>`).join('');
-  document.getElementById('viewingDetailBody').innerHTML = rows;
+  document.getElementById('viewingDetailBody').innerHTML =
+    `<div style="display:grid;grid-template-columns:1fr 1fr;gap:0.5rem">${cards}</div>`;
   document.getElementById('viewingDetailModalOverlay').style.display = 'flex';
 }
 function closeViewingDetail() {
