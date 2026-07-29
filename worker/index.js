@@ -4000,6 +4000,43 @@ export default {
           v.market_n_sold = verdict?.n_sold ?? null;
           v.vs_med_pct = verdict?.vs_med_pct ?? null;
         }
+
+        // 對應放盤（linked_ref_no）衍生兩樣嘢：①放咗幾耐盤（跨 source 揀最長）
+        // ②有冇轉過價（全歷史，唔跟 added_at 截——純粹想知呢個 ref 出現過幾多
+        // 個價）。removed_date 判斷用返同 /api/estates/:id/listings 一致嘅
+        // per-source 邏輯（同一 source 自己最新 snapshot 比，唔跨 source 誤判）。
+        const { results: refRows } = await db.prepare(`
+          WITH src_latest AS (
+            SELECT source, MAX(snapshot_date) AS d FROM listings WHERE estate_id = ?1 GROUP BY source
+          ),
+          per_ref AS (
+            SELECT ref_no, source, MIN(snapshot_date) AS first_seen, MAX(snapshot_date) AS last_seen
+            FROM listings WHERE estate_id = ?1 GROUP BY ref_no, source
+          )
+          SELECT v.id AS viewing_id, pr.ref_no, pr.first_seen,
+            CASE WHEN pr.last_seen < sl.d THEN pr.last_seen ELSE NULL END AS removed_date,
+            (SELECT COUNT(DISTINCT price) FROM listing_price_history h WHERE h.ref_no = pr.ref_no) AS price_variants
+          FROM viewings v
+          JOIN per_ref pr ON (',' || v.linked_ref_no || ',') LIKE ('%,' || pr.ref_no || ',%')
+          JOIN src_latest sl ON sl.source = pr.source
+          WHERE v.estate_id = ?1 AND v.account_id = ?2 AND v.linked_ref_no IS NOT NULL
+        `).bind(estateId, session.account_id).all();
+        const todayStr = hkDateStr();
+        const domByViewing = new Map();     // viewing_id -> 最長 dom_days
+        const changedByViewing = new Set(); // viewing_id 有任何 ref 轉過價
+        for (const r of refRows) {
+          const end = r.removed_date || todayStr;
+          const days = Math.round((Date.parse(end) - Date.parse(r.first_seen)) / 86400000);
+          if (Number.isFinite(days) && days >= 0) {
+            const cur = domByViewing.get(r.viewing_id);
+            if (cur == null || days > cur) domByViewing.set(r.viewing_id, days);
+          }
+          if (r.price_variants > 1) changedByViewing.add(r.viewing_id);
+        }
+        for (const v of results) {
+          v.dom_days = domByViewing.has(v.id) ? domByViewing.get(v.id) : null;
+          v.price_changed = v.linked_ref_no ? changedByViewing.has(v.id) : null;
+        }
         return json(200, { viewings: results });
       }
 

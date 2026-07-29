@@ -3845,6 +3845,26 @@ async function loadViewings(estateId) {
         : `<button class="hs-val-btn" onclick="manualFetchViewingHSVal(${v.id},${estateId},'${escHtml(v.block||'')}','${escHtml(v.floor)}','${escHtml(v.unit)}',${v.price||0})">查估值</button>`;
       const subLine = [v.direction ? `向${escHtml(v.direction)}` : '', v.bedrooms ? v.bedrooms+'房' : ''].filter(Boolean).join(' ');
       const sizeStr = v.size_net ? v.size_net+'呎' : '-';
+      // 放咗幾耐盤：由對應放盤（linked_ref_no）反推，跨 source 揀最長嗰個。
+      // 冇對應放盤（未 tick 過）就留空，唔靠估。
+      const domCell = v.dom_days == null ? '-'
+        : `<span style="font-size:0.8rem;color:${v.dom_days>=180?'var(--down)':v.dom_days>=90?'var(--accent)':'var(--text)'}">${v.dom_days.toLocaleString()} 日</span>`;
+      // 平均每年賺/蝕%：成交記錄本身已經帶 prev_price/held_days（同成交記錄
+      // 表「持有/升跌」同一套計法），淨係加返顯示。
+      let annualHtml = '';
+      if (v.txn_price && v.txn_reg_date >= v.view_date && v.txn_prev_price && v.txn_held_days) {
+        const years = v.txn_held_days / 365;
+        if (years > 0) {
+          const annualPct = (Math.pow(v.txn_price / v.txn_prev_price, 1 / years) - 1) * 100;
+          const cls = annualPct >= 0 ? 'var(--up)' : 'var(--down)';
+          annualHtml = `<br><span style="color:${cls};font-size:0.75rem">${annualPct>=0?'▲':'▼'} ${Math.abs(annualPct).toFixed(1)}%/年</span>`;
+        }
+      }
+      // 售價有冇變動：對應放盤嘅完整售價歷史入面搵過（唔跟 added_at 截）；
+      // 未 tick 過對應放盤就顯示 '-'（查唔到）。
+      const priceChangedCell = v.linked_ref_no == null ? '-'
+        : v.price_changed ? '<span style="color:var(--accent);font-size:0.8rem">有變動</span>'
+        : '<span style="color:var(--muted);font-size:0.8rem">無變動</span>';
       return `<tr>
         <td>${v.view_date}</td>
         <td><strong>${unitStr}</strong>${subLine ? `<br><span style="color:var(--muted);font-size:0.75rem">${subLine}</span>` : ''}</td>
@@ -3852,10 +3872,12 @@ async function loadViewings(estateId) {
         <td id="vhs-${v.id}">${hsCell}</td>
         <td>${marketVsHtml(v)}</td>
         <td>${similarListingsHtml(v)}</td>
+        <td>${domCell}</td>
         <td id="vprev-${v.id}"><span style="color:var(--muted);font-size:0.75rem;cursor:pointer" onclick="fetchUnitTxn(${v.id})">查詢</span></td>
-        <td>${v.txn_price && v.txn_reg_date >= v.view_date ? `<span style="color:var(--accent)"><strong>${fmt(v.txn_price)}</strong></span><br><span style="color:var(--muted);font-size:0.75rem">${v.txn_reg_date}</span>` : '-'}</td>
+        <td>${v.txn_price && v.txn_reg_date >= v.view_date ? `<span style="color:var(--accent)"><strong>${fmt(v.txn_price)}</strong></span><br><span style="color:var(--muted);font-size:0.75rem">${v.txn_reg_date}</span>${annualHtml}` : '-'}</td>
         <td>${mgmtMonthly ? `$${mgmtMonthly.toLocaleString()}/月` : '-'}</td>
         <td id="vmatch-${v.id}">${buildMatchCell(v)}</td>
+        <td>${priceChangedCell}</td>
         <td>${v.notes ? `<span style="font-size:0.78rem;background:var(--surface2);border-radius:4px;padding:0.15rem 0.4rem">${escHtml(v.notes)}</span>` : '-'}</td>
         <td>${imgHtml || '-'}</td>
         <td style="white-space:nowrap">
@@ -3867,7 +3889,7 @@ async function loadViewings(estateId) {
     panel.innerHTML = `<div class="listings-section" id="viewingsTableWrap"></div>`;
     renderFrozenTable(
       document.getElementById('viewingsTableWrap'),
-      `<th>睇樓日期</th><th>單位</th><th>售價</th><th>恒生估值</th><th>相對市價</th><th>類近在售</th><th>上次購買</th><th>成交記錄</th><th>管理費(每月)</th><th>對應放盤</th><th>備注</th><th>圖片</th><th></th>`,
+      `<th>睇樓日期</th><th>單位</th><th>售價</th><th>恒生估值</th><th>相對市價</th><th>類近在售</th><th>放咗幾耐</th><th>上次購買</th><th>成交記錄</th><th>管理費(每月)</th><th>對應放盤</th><th>售價變動</th><th>備注</th><th>圖片</th><th></th>`,
       rows, 10, 'history-table data-table'
     );
 
