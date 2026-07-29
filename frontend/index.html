@@ -4631,6 +4631,20 @@ async function applyGroupOverride(action, refNos) {
   } catch (e) { toast('操作失敗：' + e.message, 'error'); }
 }
 
+// 用戶手動標記/取消「已下架」(per-account，唔影響 source 自動偵測嘅狀態)
+async function toggleManualRemoved(refNo) {
+  const l = allListings.find(x => x.ref_no === refNo);
+  if (!l) return;
+  const action = l.manual_removed_at ? 'unmark' : 'mark';
+  try {
+    await api(`/api/listings/${encodeURIComponent(refNo)}/manual-removed`, {
+      method: 'POST', body: JSON.stringify({ action }),
+    });
+    l.manual_removed_at = action === 'mark' ? new Date().toISOString().slice(0, 10) : null;
+    renderListingsTable();
+  } catch (e) { toast('操作失敗：' + e.message, 'error'); }
+}
+
 function toggleGroupSelectMode() {
   groupSelectMode = !groupSelectMode;
   groupSelected.clear();
@@ -4754,17 +4768,30 @@ function renderListingsTable() {
   const rows = displayRows.length === 0
     ? `<tr><td colspan="${cols.length}" class="no-data" style="padding:2rem;text-align:center">無符合條件的放盤</td></tr>`
     : displayRows.map(l => {
-      const rowStyle = (l.removed_date || l._combined)
-        ? ` style="${l.removed_date ? 'opacity:0.45;' : ''}${l._combined ? 'background:rgba(16,185,129,0.06);' : ''}"` : '';
+      const isGreyed = l.removed_date || l.manual_removed_at;
+      const rowStyle = (isGreyed || l._combined)
+        ? ` style="${isGreyed ? 'opacity:0.45;' : ''}${l._combined ? 'background:rgba(16,185,129,0.06);' : ''}"` : '';
       const checkboxCell = groupSelectMode
         ? `<td>${(!l._combined && l.ref_no) ? `<input type="checkbox" ${groupSelected.has(l.ref_no) ? 'checked' : ''} onchange="toggleGroupSelect('${escHtml(l.ref_no)}')">` : ''}</td>`
+        : '';
+      const manualBtn = (!l._combined && l.ref_no)
+        ? (l.removed_date
+            ? ''
+            : l.manual_removed_at
+              ? `<button class="history-btn" style="font-size:0.68rem;padding:0.05rem 0.35rem;margin-top:0.15rem" onclick="toggleManualRemoved('${escJsAttr(l.ref_no)}')">↺ 還原</button>`
+              : `<button class="history-btn" style="font-size:0.68rem;padding:0.05rem 0.35rem;margin-top:0.15rem" onclick="toggleManualRemoved('${escJsAttr(l.ref_no)}')">標記已下架</button>`)
         : '';
       return `
       <tr${rowStyle}>
         ${checkboxCell}
         <td class="txn-date">
           ${listingDate(l) || '-'}
-          ${l.removed_date ? `<div style="color:var(--down);font-size:0.75rem">下架 ${l.removed_date}</div>` : domBadge(l)}
+          ${l.removed_date
+            ? `<div style="color:var(--down);font-size:0.75rem">下架 ${l.removed_date}</div>`
+            : l.manual_removed_at
+              ? `<div style="color:var(--down);font-size:0.75rem">已下架(手動)</div>`
+              : domBadge(l)}
+          ${manualBtn}
         </td>
         <td>${unitCell(l)}</td>
         <td class="price-cell">${priceCell(l)}</td>

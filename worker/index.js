@@ -1231,6 +1231,18 @@ async function ensureGroupOverrides(db) {
   await db.prepare("CREATE INDEX IF NOT EXISTS idx_grpovr_estate ON listing_group_overrides(estate_id)").run();
 }
 
+// 用戶手動標記「已下架」——同 source 自動偵測獨立，per-account,唔影響其他人睇到嘅狀態
+async function ensureManualRemoved(db) {
+  await db.prepare(`CREATE TABLE IF NOT EXISTS listing_manual_removed (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    account_id INTEGER NOT NULL,
+    ref_no TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now', '+8 hours')),
+    UNIQUE(account_id, ref_no)
+  )`).run();
+  await db.prepare("CREATE INDEX IF NOT EXISTS idx_manualrm_account ON listing_manual_removed(account_id)").run();
+}
+
 // ── 叫價 → 成交落差配對 (asking-to-sold spread) ──────────────────────────────
 // Listings mask the floor (高/中/低層) while transactions carry the exact floor,
 // so an exact-unit join is impossible. We match a *stack* (估苑+座+室+面積) that
@@ -3130,6 +3142,7 @@ export default {
       }
 
       if (method === "GET" && path.match(/^\/api\/estates\/\d+\/listings$/)) {
+        await ensureManualRemoved(db);
         const estateId = path.split("/")[3];
         // 「改價 N 次」/「原價」都係售價歷史嘅衍生——由加入自選日開始計。
         const lSub = await db.prepare("SELECT added_at FROM account_estates WHERE account_id = ? AND estate_id = ?")
@@ -3157,10 +3170,13 @@ export default {
                prev.price AS prev_price,
                prev.price_per_ft AS prev_price_per_ft,
                (SELECT COUNT(DISTINCT h.price) FROM listing_price_history h
-                 WHERE h.ref_no = l.ref_no AND h.snapshot_date >= ?2) AS price_variants
+                 WHERE h.ref_no = l.ref_no AND h.snapshot_date >= ?2) AS price_variants,
+               mr.created_at AS manual_removed_at
              FROM listings l
              JOIN per_listing pl ON pl.listing_id = l.listing_id
              JOIN src_latest sl ON sl.source = l.source
+             LEFT JOIN listing_manual_removed mr
+               ON mr.ref_no = l.ref_no AND mr.account_id = ?3
              LEFT JOIN listing_price_history prev
                ON prev.ref_no = l.ref_no
                AND prev.snapshot_date = (
@@ -3170,7 +3186,7 @@ export default {
              WHERE l.estate_id = ?1 AND l.snapshot_date = pl.last_seen
              ORDER BY removed_date IS NOT NULL ASC, l.price ASC`
           )
-          .bind(estateId, lAddedAt)
+          .bind(estateId, lAddedAt, session.account_id)
           .all();
         return json(200, { listings: results });
       }
@@ -3269,6 +3285,25 @@ export default {
           }
         } else {
           return json(400, { error: "action must be ungroup / group / reset" });
+        }
+        return json(200, { ok: true });
+      }
+
+      // 用戶手動標記/取消「已下架」(per-account,唔影響 source 自動偵測嘅狀態)
+      if (method === "POST" && path.match(/^\/api\/listings\/.+\/manual-removed$/)) {
+        await ensureManualRemoved(db);
+        const refNo = decodeURIComponent(path.split("/")[3]);
+        const { action } = await request.json();
+        if (action === "mark") {
+          await db.prepare(
+            `INSERT INTO listing_manual_removed (account_id, ref_no) VALUES (?,?)
+             ON CONFLICT(account_id, ref_no) DO NOTHING`
+          ).bind(session.account_id, refNo).run();
+        } else if (action === "unmark") {
+          await db.prepare("DELETE FROM listing_manual_removed WHERE account_id = ? AND ref_no = ?")
+            .bind(session.account_id, refNo).run();
+        } else {
+          return json(400, { error: "action must be mark / unmark" });
         }
         return json(200, { ok: true });
       }
