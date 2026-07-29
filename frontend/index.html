@@ -531,6 +531,19 @@
       width: 90%;
       box-shadow: 0 16px 48px rgba(0,0,0,0.5);
     }
+    /* 睇樓記錄詳情：手機 2 欄，modal 本身闊度亦跟住加大——唔係淨係加多欄
+       數但個 cell 冇變闊，字反而更逼。平板/桌面 modal 闊啲、欄數都加多，
+       但因為闊度同比例一齊加，每個 cell 實際闊度仲係舒服。 */
+    .viewing-detail-modal { max-width: 480px; }
+    .viewing-detail-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 0.5rem; }
+    @media (min-width: 640px) {
+      .viewing-detail-modal { max-width: 700px; }
+      .viewing-detail-grid { grid-template-columns: repeat(3, 1fr); }
+    }
+    @media (min-width: 1024px) {
+      .viewing-detail-modal { max-width: 900px; }
+      .viewing-detail-grid { grid-template-columns: repeat(4, 1fr); }
+    }
     .modal-title {
       font-weight: 700;
       font-size: 1rem;
@@ -1067,7 +1080,7 @@
 <!-- 睇樓記錄 · 表格轉 form 檢視（一行資料太多欄，手機/窄屏睇表格好逼，
      呢個 modal 用 label:value 逐行顯示，方便閱讀） -->
 <div class="modal-overlay" id="viewingDetailModalOverlay" style="display:none" onclick="if(event.target===this)closeViewingDetail()">
-  <div class="modal" style="max-width:480px;max-height:85vh;overflow-y:auto">
+  <div class="modal viewing-detail-modal" style="max-height:85vh;overflow-y:auto">
     <button class="modal-close" onclick="closeViewingDetail()">✕</button>
     <div class="modal-title" style="font-size:1rem">睇樓記錄詳情</div>
     <div id="viewingDetailBody" style="margin-top:0.75rem"></div>
@@ -3963,7 +3976,7 @@ function openViewingDetail(viewingId) {
       <div style="font-size:0.85rem;overflow-wrap:break-word">${dataCells[i] ? dataCells[i].innerHTML : '-'}</div>
     </div>`).join('');
   document.getElementById('viewingDetailBody').innerHTML =
-    `<div style="display:grid;grid-template-columns:1fr 1fr;gap:0.5rem">${cards}</div>`;
+    `<div class="viewing-detail-grid">${cards}</div>`;
   document.getElementById('viewingDetailModalOverlay').style.display = 'flex';
 }
 function closeViewingDetail() {
