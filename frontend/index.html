@@ -935,6 +935,8 @@
     </div>
   </div>
   <div style="display:flex;align-items:center;gap:0.5rem">
+    <button class="sync-btn" id="tierChip" onclick="showUpgrade()" title="睇下收費版有咩"
+      style="display:none;background:transparent;border-color:var(--accent);color:var(--accent);font-size:0.75rem;padding:0.3rem 0.55rem">免費版 ⭐</button>
     <button class="sync-btn" onclick="syncAll()">↻ 立即同步</button>
     <button class="sync-btn" onclick="openSettingsModal()" style="background:var(--surface2);border-color:var(--border);font-size:1rem;padding:0.35rem 0.6rem" title="設定">⚙️</button>
     <button class="sync-btn" id="logout-btn" onclick="doLogout()" style="background:var(--surface2);border-color:var(--border);display:none" title="登出">登出</button>
@@ -1051,6 +1053,14 @@
         style="flex:1;background:var(--surface2);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:0.9rem;padding:0.5rem 0.6rem;box-sizing:border-box;font-family:inherit">
       <button class="vf-submit" onclick="addNotesOption()" style="width:auto;padding:0.5rem 1rem;margin:0;white-space:nowrap">＋ 新增</button>
     </div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="upgradeModalOverlay" style="display:none" onclick="if(event.target===this)closeUpgrade()">
+  <div class="modal" style="max-width:420px;max-height:90vh;overflow-y:auto">
+    <button class="modal-close" onclick="closeUpgrade()">✕</button>
+    <div class="modal-title">⭐ 升級收費版</div>
+    <div id="upgradeBody"></div>
   </div>
 </div>
 
@@ -1285,8 +1295,69 @@ async function api(path, opts = {}) {
   });
   if (res.status === 401) { showLoginScreen(); throw new Error("請先登入"); }
   const data = await res.json();
+  // 402 = 收費版功能。後端係唯一權威（前端收埋個 button 唔算數，
+  // free user 照 call 到 API），呢度統一彈升級 modal。
+  if (res.status === 402) {
+    showUpgrade(data.feature, data.error);
+    const e = new Error(data.error || "收費版功能");
+    e.paywall = true;   // caller 見到就唔好再 toast 多次（modal 已經講咗）
+    throw e;
+  }
   if (!res.ok) throw new Error(data.error || "請求失敗");
   return data;
+}
+
+// ── 收費分層 ──────────────────────────────────────────────────────────────
+// 分界線：「今日 snapshot」免費，「時間軸 + 主動推送 + 分析」收費。
+// tier 由 /api/config 帶返（refresh 後都攞到），login response 亦有。
+let _tier = 'free';
+let _freeMaxEstates = 3;
+const isPaid = () => _tier === 'paid';
+
+const PAID_FEATURES = [
+  ['📈', '放盤時間軸', '放咗幾多日、改過幾多次價、原價幾錢、幾時下架'],
+  ['📉', '呎價走勢圖', '叫價／成交走勢 + 全組合大市對照線'],
+  ['🔔', '主動推送', '每日 email + Telegram 減價提示，唔使自己日日入嚟撳'],
+  ['💎', '分析工具', '抵買雷達、叫價→成交、相對市價分層、批量估值'],
+  ['🏠', '無限追蹤', `唔限 ${'{n}'} 個屋苑，仲有「朋友屋企」資產監察`],
+];
+
+function showUpgrade(feature, msg) {
+  const list = PAID_FEATURES.map(([icon, title, desc]) => `
+    <div style="display:flex;gap:0.6rem;padding:0.55rem 0;border-bottom:1px solid var(--border)">
+      <div style="font-size:1.1rem;line-height:1.3">${icon}</div>
+      <div>
+        <div style="font-weight:600;font-size:0.88rem">${escHtml(title)}</div>
+        <div style="color:var(--muted);font-size:0.78rem;margin-top:0.1rem">${escHtml(desc.replace('{n}', _freeMaxEstates))}</div>
+      </div>
+    </div>`).join('');
+  document.getElementById('upgradeBody').innerHTML = `
+    ${msg ? `<div style="background:rgba(245,158,11,0.12);border:1px solid var(--accent);border-radius:6px;padding:0.55rem 0.7rem;font-size:0.85rem;margin-bottom:0.8rem">${escHtml(msg)}</div>` : ''}
+    <div style="color:var(--muted);font-size:0.82rem;margin-bottom:0.5rem">
+      ${/* 前端 lock UI 傳靚 label 且冇 msg；後端 402 傳內部 key + msg，
+           嗰陣個 banner 已經講咗，唔好再出個 key 出嚟。*/ ''}
+      免費版睇到今日有咩盤賣${(feature && !msg) ? `。「${escHtml(feature)}」` : '，'}以下功能要收費版：
+    </div>
+    ${list}
+    <div style="margin-top:0.9rem;color:var(--muted);font-size:0.78rem">
+      想升級？電郵 <span style="color:var(--accent)">surive02@gmail.com</span>
+    </div>`;
+  document.getElementById('upgradeModalOverlay').style.display = 'flex';
+}
+function closeUpgrade() { document.getElementById('upgradeModalOverlay').style.display = 'none'; }
+
+// 鎖住嘅功能：見到個功能存在（唔好收埋），撳落去彈升級 modal。
+function lockChip(label) {
+  return `<button class="history-btn" onclick="showUpgrade('${escJsAttr(label)}')"
+    style="font-size:0.7rem;padding:0.1rem 0.4rem;opacity:0.75">🔒 ${escHtml(label)}</button>`;
+}
+function lockPanel(label, desc) {
+  return `<div style="text-align:center;padding:2rem 1rem;color:var(--muted)">
+    <div style="font-size:1.6rem;margin-bottom:0.4rem">🔒</div>
+    <div style="font-weight:600;color:var(--text);margin-bottom:0.25rem">${escHtml(label)}</div>
+    <div style="font-size:0.82rem;margin-bottom:0.9rem">${escHtml(desc)}</div>
+    <button class="vf-submit" style="width:auto;padding:0.5rem 1.1rem;margin:0" onclick="showUpgrade('${escJsAttr(label)}')">睇下收費版有咩</button>
+  </div>`;
 }
 
 function showLoginScreen() {
@@ -1391,6 +1462,7 @@ async function doResetPassword() {
       body: JSON.stringify({ email, otp, password }),
     }).then(async r => { const d = await r.json(); if (!r.ok) throw new Error(d.error); return d; });
     localStorage.setItem("propwatch_token", data.token);
+    if (data.tier) _tier = data.tier;
     hideLoginScreen();
     loadEstates();
     loadNotesOptions();
@@ -1413,6 +1485,7 @@ async function doLogin() {
       body: JSON.stringify({ email, password }),
     }).then(async r => { const d = await r.json(); if (!r.ok) throw new Error(d.error); return d; });
     localStorage.setItem("propwatch_token", data.token);
+    if (data.tier) _tier = data.tier;
     hideLoginScreen();
     loadEstates();
     loadNotesOptions();
@@ -1447,6 +1520,7 @@ async function doRegister() {
       body: JSON.stringify({ password, email, otp }),
     }).then(async r => { const d = await r.json(); if (!r.ok) throw new Error(d.error); return d; });
     localStorage.setItem("propwatch_token", data.token);
+    if (data.tier) _tier = data.tier;
     hideLoginScreen();
     loadEstates();
     loadNotesOptions();
@@ -1509,7 +1583,7 @@ async function showDashboard(estates) {
           </div>
           <div style="display:flex;align-items:center;gap:0.5rem">
             <button class="filter-chip hl-pref-toggle active" onclick="toggleHlPrefFilter()" title="用你嘅睇樓偏好（售價/房數/實呎）篩選下面嘅動態" style="display:none">🎯 偏好</button>
-            <button class="history-btn" style="font-size:0.88rem;padding:0.35rem 0.85rem" onclick="showHistoryPage()">歷史動態 →</button>
+            <button class="history-btn" style="font-size:0.88rem;padding:0.35rem 0.85rem" onclick="isPaid() ? showHistoryPage() : showUpgrade('歷史動態')">歷史動態 →</button>
           </div>
         </div>
         <div id="dash-panel-today"><div id="highlights-body" style="color:var(--muted);font-size:0.75rem">載入中…</div></div>
@@ -1539,6 +1613,18 @@ function switchDashTab(tab) {
       btn.style.color = active ? 'var(--text)' : 'var(--muted)';
       btn.style.fontWeight = active ? '600' : '400';
     }
+  }
+  // 免費版：分析／朋友屋企 tab 照見到（唔收埋），撳入去見個鎖 + 升級。
+  const LOCKED_DASH_TABS = {
+    spread: ['叫價→成交', '同區類似盤叫幾錢、最後實際成交幾錢、劈咗幾多%'],
+    comps:  ['相對市價', '你睇過嘅單位貴過定平過同層／同苑成交中位數'],
+    radar:  ['抵買雷達', '全部追蹤屋苑之中，低過市價最多嘅筍盤同議價指數排行'],
+    friends:['朋友屋企', '記低朋友／自己住邊個單位，自動追成交、估值、相對市價'],
+  };
+  if (!isPaid() && LOCKED_DASH_TABS[tab]) {
+    const panel = document.getElementById('dash-panel-' + tab);
+    if (panel) panel.innerHTML = lockPanel(...LOCKED_DASH_TABS[tab]);
+    return;
   }
   if (tab === 'spread' && !_spreadLoaded) { _spreadLoaded = true; loadAskingSold(); }
   if (tab === 'comps' && !_compsLoaded) { _compsLoaded = true; loadViewingComps(); }
@@ -2558,13 +2644,23 @@ let _cfgGroup = '全部';   // 設定 modal 揀緊嘅分類
 let _userRole = 'user';   // 'admin' 先可以改「分析參數」；一般 user 得睇樓偏好
 async function loadAppConfig() {
   try {
-    const { items, groups, role } = await api('/api/config');
+    const { items, groups, role, tier, freeMaxEstates } = await api('/api/config');
     _cfgDefs = items || [];
     _cfgGroups = groups || [];
     _appCfg = Object.fromEntries(_cfgDefs.map(d => [d.key, d.value]));
     if (role) _userRole = role;
+    if (tier) _tier = tier;
+    if (freeMaxEstates) _freeMaxEstates = freeMaxEstates;
     applyRoleToSettings();
+    applyTierToChrome();
   } catch { /* 用預設值照行 */ }
+}
+
+// 免費版喺 header 顯示「免費版」chip，撳落去睇收費版有咩。
+function applyTierToChrome() {
+  const el = document.getElementById('tierChip');
+  if (!el) return;
+  el.style.display = isPaid() ? 'none' : '';
 }
 
 // 分析參數 section：admin 先顯示（一般 user 隱藏）。後端 PUT /api/config
@@ -2749,7 +2845,7 @@ async function trackEstate(name, bigestcode, district, isBigest) {
     await loadEstates();
     showEstate(data.estate.id, name, district);
   } catch (err) {
-    toast("新增失敗：" + err.message, "error");
+    if (!err.paywall) toast("新增失敗：" + err.message, "error");
   }
 }
 
@@ -2772,9 +2868,11 @@ async function showEstate(id, name, district) {
   main.innerHTML = '<div class="loading"><div class="spinner"></div> 載入中…</div>';
 
   try {
+    // 免費版冇趨勢圖 —— 唔好 call /trends（會 402 彈升級 modal，開屋苑就彈好煩）。
+    // trends 空 array = 上面個 chart section 照走 lockPanel 分支。
     const [{ listings }, { trends }, overridesRes] = await Promise.all([
       api(`/api/estates/${id}/listings`),
-      api(`/api/estates/${id}/trends`),
+      isPaid() ? api(`/api/estates/${id}/trends`) : Promise.resolve({ trends: [] }),
       api(`/api/estates/${id}/group-overrides`).catch(() => ({ overrides: [] })),
     ]);
     groupOverrides = {};
@@ -2826,6 +2924,7 @@ async function showEstate(id, name, district) {
       </div>
 
       <div class="chart-section" style="margin-top:1rem">
+        ${!isPaid() ? lockPanel('呎價走勢圖', '叫價／成交走勢 + 全組合大市對照線，睇你追緊嘅屋苑跑贏定跑輸大市') : `
         <div style="display:flex;align-items:center;justify-content:space-between;gap:0.6rem;flex-wrap:wrap;margin-bottom:0.5rem">
           <div class="section-title" id="estate-chart-title" style="margin:0">${estateChartMetric === 'count' ? '放盤數量趨勢' : '實用呎價趨勢'}</div>
           <div style="display:flex;align-items:center;gap:0.75rem;flex-wrap:wrap">
@@ -2841,14 +2940,14 @@ async function showEstate(id, name, district) {
         ${trends.length < 2
           ? '<div class="no-data">需要至少 2 天數據才能顯示趨勢圖<br><small>每日 09:00 自動更新</small></div>'
           : '<div class="chart-wrap"><canvas id="trendChart"></canvas></div>'
-        }
+        }`}
       </div>
 
       <div class="estate-tabs">
         <button class="estate-tab active" onclick="switchTab('listings',${id})">最新放盤(${listings.length})</button>
         <button class="estate-tab" onclick="switchTab('transactions',${id})">成交記錄</button>
         <button class="estate-tab" id="tab-btn-viewings" onclick="switchTab('viewings',${id})">睇樓記錄</button>
-        <button class="history-btn" id="batch-hs-btn" style="display:none;margin-left:auto;font-size:0.82rem;padding:0.35rem 0.85rem" onclick="batchFetchHSVal()">批量查估值</button>
+        <button class="history-btn" id="batch-hs-btn" style="display:none;margin-left:auto;font-size:0.82rem;padding:0.35rem 0.85rem" onclick="isPaid() ? batchFetchHSVal() : showUpgrade('批量查估值')">批量查估值</button>
       </div>
 
       <div id="tab-listings">
@@ -2905,7 +3004,7 @@ async function showEstate(id, name, district) {
 
     // 走勢圖：載入在售 + 成交趨勢（按 beds），畫在售線 + 成交線 + 全組合。
     // 每次開屋苑重設房數做「全部」；trends.length 已喺上面 render 決定顯唔顯示。
-    if (trends.length >= 2) loadEstateChart(id, estateChartBeds);
+    if (trends.length >= 2 && isPaid()) loadEstateChart(id, estateChartBeds);
     loadMarketTemp(id);
 
     // Init listings sort/filter state and render
@@ -2984,6 +3083,8 @@ function hsDiffHtml(hsPrice, txnPrice) {
 // basis='tier' 時基準係同層帶(高/中/低層,以該座成交最高層三等分)嘅中位數,
 // 同層唔夠5宗會 fallback 返全苑中位數。
 function marketVsHtml(v) {
+  // 睇樓記錄本身免費無限，但砌喺上面嘅市價分析係收費版（後端已 null 咗）
+  if (!isPaid()) return lockChip('相對市價');
   const days = _appCfg.market_median_days ?? 60;
   const minSold = _appCfg.market_min_sold ?? 5;
   const band = _appCfg.verdict_band_pct ?? 3;
@@ -4427,16 +4528,19 @@ function renderFilterBar() {
       <div class="filter-pair">
         <span class="filter-label">放盤日數</span>
         <div class="filter-group">
-          ${[['all','全部'],['30','30日+'],['60','60日+'],['90','90日+'],['180','180日+']].map(([v,t]) => `<button class="filter-chip ${filters.dom===v?'active':''}" onclick="setFilter('dom','${v}')">${t}</button>`).join('')}
+          ${!isPaid()
+            ? lockChip('放盤日數 filter')
+            : [['all','全部'],['30','30日+'],['60','60日+'],['90','90日+'],['180','180日+']].map(([v,t]) => `<button class="filter-chip ${filters.dom===v?'active':''}" onclick="setFilter('dom','${v}')">${t}</button>`).join('')}
         </div>
       </div>
+      ${isPaid() ? `
       <div class="filter-sep"></div>
       <div class="filter-pair">
         <label style="display:flex;align-items:center;gap:0.35rem;font-size:0.82rem;color:var(--text);cursor:pointer;white-space:nowrap">
           <input type="checkbox" ${filters.hideRemoved ? 'checked' : ''} onchange="setFilter('hideRemoved',this.checked)" style="accent-color:var(--accent)">
           隱藏已下架
         </label>
-      </div>
+      </div>` : ''}
       <span class="filter-count" id="filterCount"></span>
     </div>
   `;
@@ -4676,6 +4780,9 @@ function domDays(l) {
   return days >= 0 ? days : null;
 }
 function domBadge(l) {
+  // 免費版見唔到放盤日數（後端已經抽走 first_seen）。個鎖出喺「上盤日期」
+  // 欄標題,唔好逐行出——一版一百幾十行,行行一個鎖太嘈。
+  if (!isPaid()) return '';
   const days = domDays(l);
   if (days == null) return '';
   const color = days >= 180 ? 'var(--down)' : days >= 90 ? 'var(--accent)' : 'var(--muted)';
@@ -4707,7 +4814,7 @@ function renderListingsTable() {
 
   const cols = [
     ...(groupSelectMode ? [{ key: null, label: '' }] : []),
-    { key: "first_seen",    label: "上盤日期" },
+    { key: isPaid() ? "first_seen" : null, label: isPaid() ? "上盤日期" : "上盤日期 🔒" },
     { key: "size_net",      label: "座/樓層/房數/實呎" },
     { key: "price",         label: "售價" },
     { key: "price_per_ft",  label: "實呎價" },
@@ -4716,7 +4823,11 @@ function renderListingsTable() {
   ];
 
   const ths = cols.map(c => {
-    if (!c.key) return `<th>${c.label||''}</th>`;
+    if (!c.key) {
+      return (c.label || '').includes('\u{1F512}')
+        ? `<th style="cursor:pointer" onclick="showUpgrade('放盤時間軸')">${c.label}</th>`
+        : `<th>${c.label||''}</th>`;
+    }
     const cls = c.key === sortCol
       ? `sortable sort-${sortDir}`
       : "sortable";
@@ -4738,7 +4849,7 @@ function renderListingsTable() {
     : `$${l.price ? (l.price/1e4).toFixed(0)+'萬' : '-'}
        ${priceChangeBadge(l.price, l.prev_price)}
        ${l.price_variants > 1 ? `<div style="font-size:0.72rem;color:${l.price < l.prev_price ? 'var(--up)' : 'var(--accent)'}">改價 ${l.price_variants - 1} 次</div>` : ''}
-       ${l.ref_no ? `<br><button class="history-btn" onclick="showHistory('${escHtml(l.ref_no)}','${escHtml((l.building_name||'')+' '+(l.floor||'')+(l.unit||''))}')">歷史 ↓</button>` : ''}`;
+       ${isPaid() && l.ref_no ? `<br><button class="history-btn" onclick="showHistory('${escHtml(l.ref_no)}','${escHtml((l.building_name||'')+' '+(l.floor||'')+(l.unit||''))}')">歷史 ↓</button>` : ''}`;
 
   const ppfCell = l => {
     const lo = l._combined ? l.ppf_min : l.price_per_ft;

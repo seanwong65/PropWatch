@@ -285,6 +285,9 @@ async function sha256(text) {
 const SEC_DEFAULTS = {
   sec_api_rpm: 240,   // 已登入 API：每個帳戶(或 IP)每分鐘 request 上限
   sec_auth_rpm: 10,   // login/register：每個 IP 每分鐘試嘅次數上限
+  // 免費版可以追蹤幾多個屋苑。特登唔擺入 CONFIG_DEFS ⚙️——否則免費用戶
+  // 自己較大自己個上限。
+  sec_free_max_estates: 3,
 };
 let _secCfgCache = { at: 0, vals: null };
 async function getSecCfg(db) {
@@ -366,13 +369,22 @@ async function ensureAuthTables(db) {
 const ADMIN_EMAILS = new Set(["johnwong777@hotmail.com"]);
 const isAdminSession = (session) => (session?.role || "user") === "admin";
 
+// 收費分層：free(預設) / paid。分界線係「今日 snapshot 免費，時間軸收費」——
+// 邊個 portal 都睇到嘅嘢(而家有咩盤、幾錢)免費;我哋 scrape 咗經年先儲到嘅
+// 歷史(放盤日數/改價/下架/趨勢)同主動推送(email/alert)先收費。
+// admin 永遠當 paid(方便自己用同測試)。
+const isPaidSession = (session) => isAdminSession(session) || (session?.tier || "free") === "paid";
+// 402 Payment Required——前端見到就彈升級 modal(同 401 登出流程分得開)。
+const paywall = (feature) =>
+  json(402, { error: "呢個係收費版功能", upgrade: true, feature: feature || null });
+
 async function authenticate(db, request) {
   const auth = request.headers.get("Authorization") || "";
   const token = auth.startsWith("Bearer ") ? auth.slice(7) : null;
   if (!token) return null;
   const now = new Date().toISOString();
   const session = await db.prepare(
-    "SELECT s.*, a.username, a.expiry_date, a.role FROM sessions s JOIN accounts a ON a.id = s.account_id WHERE s.token = ? AND s.expires_at > ?"
+    "SELECT s.*, a.username, a.expiry_date, a.role, a.tier FROM sessions s JOIN accounts a ON a.id = s.account_id WHERE s.token = ? AND s.expires_at > ?"
   ).bind(token, now).first();
   if (!session) return null;
   if (session.expiry_date < now.slice(0, 10)) return null;
@@ -404,6 +416,9 @@ async function ensureMultiAccount(db) {
   // 角色：user(預設) / admin。unconditional promote — 令指定 email 遲啲先註冊
   // 都會自動升做 admin(冇 demote，重跑無害;accounts 表得幾行，成本可忽略)。
   try { await db.prepare("ALTER TABLE accounts ADD COLUMN role TEXT NOT NULL DEFAULT 'user'").run(); } catch (_) {}
+  // 收費分層：free(預設) / paid。新註冊一律 free;要升級由 admin 經
+  // /api/admin/set-tier 改(將來接 payment 就喺付款成功 callback 度改)。
+  try { await db.prepare("ALTER TABLE accounts ADD COLUMN tier TEXT NOT NULL DEFAULT 'free'").run(); } catch (_) {}
   {
     const adminEmails = [...ADMIN_EMAILS];
     const placeholders = adminEmails.map(() => "?").join(",");
@@ -2715,6 +2730,7 @@ async function sendDailyEmail(db, env, onlyAccountId = null) {
     SELECT a.id, a.username, a.email FROM accounts a
     WHERE a.email IS NOT NULL AND a.email != ''
       AND (a.is_active IS NULL OR a.is_active = 1)
+      AND (a.tier = 'paid' OR a.role = 'admin')
       AND EXISTS (SELECT 1 FROM account_estates ae WHERE ae.account_id = a.id)
       AND (? IS NULL OR a.id = ?)
   `).bind(onlyAccountId, onlyAccountId).all();
@@ -2897,7 +2913,7 @@ export default {
         const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
         await db.prepare("INSERT INTO sessions (token, account_id, created_at, expires_at) VALUES (?, ?, ?, ?)")
           .bind(token, account.id, now, expiresAt).run();
-        return json(200, { token, email: account.email, role: account.role || "user" });
+        return json(200, { token, email: account.email, role: account.role || "user", tier: account.tier || "free" });
       }
 
       // Logout endpoint
@@ -2970,7 +2986,7 @@ export default {
         const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
         await db.prepare("INSERT INTO sessions (token, account_id, created_at, expires_at) VALUES (?, ?, ?, ?)")
           .bind(token, ins.meta.last_row_id, now2, expiresAt).run();
-        return json(200, { token, email: em, role });
+        return json(200, { token, email: em, role, tier: "free" });
       }
 
       // ── 忘記密碼（email OTP 重設）── public auth route。
@@ -3031,7 +3047,7 @@ export default {
         const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
         await db.prepare("INSERT INTO sessions (token, account_id, created_at, expires_at) VALUES (?, ?, ?, ?)")
           .bind(token, account.id, now2, expiresAt).run();
-        return json(200, { token, email: em, role: account.role || "user" });
+        return json(200, { token, email: em, role: account.role || "user", tier: account.tier || "free" });
       }
 
       // Auth guard for all other routes
@@ -3129,6 +3145,25 @@ export default {
           try { changes = await syncOneEstate(db, estate); } catch (_) { /* 部分失敗照返 estate */ }
           return json(200, { ok: true, estate, oneOff: true, changes });
         }
+        // 免費版追蹤上限。已經訂咗嘅屋苑唔算(重複 track 唔應該撞牆)——
+        // 淨係擋「新增第 N+1 個」。
+        if (!isPaidSession(session)) {
+          const already = await db.prepare(
+            "SELECT 1 FROM account_estates WHERE account_id = ? AND estate_id = ?"
+          ).bind(session.account_id, estate.id).first();
+          if (!already) {
+            const secCfg = await getSecCfg(db);
+            const row = await db.prepare(
+              "SELECT COUNT(*) AS c FROM account_estates WHERE account_id = ?"
+            ).bind(session.account_id).first();
+            if ((row?.c || 0) >= secCfg.sec_free_max_estates) {
+              return json(402, {
+                error: `免費版最多可以追蹤 ${secCfg.sec_free_max_estates} 個屋苑，要移除其中一個先可以加新嘅。`,
+                upgrade: true, feature: "estates",
+              });
+            }
+          }
+        }
         // 加訂閱(已有就唔郁,保留原本 added_at/偏好)。added_at=今日 =
         // 呢個 account 由今日開始先見到售價歷史/成交/動態。
         await db.prepare(
@@ -3188,6 +3223,17 @@ export default {
           )
           .bind(estateId, lAddedAt, session.account_id)
           .all();
+        // 免費版 = 今日 snapshot：只見而家仲喺度嘅盤，見唔到時間軸
+        // （first_seen 放盤日數／改價次數／原價／自動下架記錄）。呢啲係
+        // scrape 咗經年先儲到嘅嘢，portal 本身冇。publish_date 照留——
+        // portal 自己都公開,唔算我哋嘅數據。用戶自己標記嘅 manual_removed_at
+        // 係佢自己嘅嘢,免費照留。
+        if (!isPaidSession(session)) {
+          const free = results
+            .filter((r) => !r.removed_date)
+            .map(({ first_seen, removed_date, prev_price, prev_price_per_ft, price_variants, ...rest }) => rest);
+          return json(200, { listings: free, tierLimited: true });
+        }
         return json(200, { listings: results });
       }
 
@@ -3209,6 +3255,7 @@ export default {
       // 全組合指數:全部追蹤屋苑嘅每日中位呎價,逐屋苑歸一化後平均 —— 做
       // 屋苑走勢圖嘅大市對照線(跑贏/跑輸你追蹤緊嘅市場)
       if (method === "GET" && path === "/api/market-index") {
+        if (!isPaidSession(session)) return paywall("趨勢圖");
         const { results } = await db.prepare(`
           SELECT estate_id, snapshot_date, avg_price_ft FROM price_snapshots
           WHERE snapshot_date >= date('now','+8 hours','-90 day') AND avg_price_ft > 0
@@ -3310,6 +3357,7 @@ export default {
 
       // 售價歷史(歷史 ↓ modal):只顯示由呢個 account 加入自選嗰日開始嘅記錄。
       if (method === "GET" && path.match(/^\/api\/listings\/.+\/history$/)) {
+        if (!isPaidSession(session)) return paywall("售價歷史");
         const refNo = decodeURIComponent(path.split("/")[3]);
         const listing = await db.prepare(`SELECT estate_id, source, detail_url FROM listings WHERE ref_no = ? LIMIT 1`).bind(refNo).first();
         const addedAt = listing
@@ -3327,6 +3375,7 @@ export default {
 
       // 趨勢圖:同樣由加入自選日開始。
       if (method === "GET" && path.match(/^\/api\/estates\/\d+\/trends$/)) {
+        if (!isPaidSession(session)) return paywall("趨勢圖");
         const estateId = path.split("/")[3];
         const beds = url.searchParams.get("beds") || "all";   // all|1|2|3|4+
         const sub = await db.prepare("SELECT added_at FROM account_estates WHERE account_id = ? AND estate_id = ?")
@@ -3532,6 +3581,7 @@ export default {
       }
 
       if (method === "GET" && path === "/api/hangseng-valuation") {
+        if (!isPaidSession(session)) return paywall("估值");
         const estateId   = url.searchParams.get("estateId");
         const estateName = url.searchParams.get("estate");
         const blockNum   = url.searchParams.get("block");
@@ -3581,6 +3631,7 @@ export default {
       }
 
       if (method === "GET" && path === "/api/hangseng-valuation-history") {
+        if (!isPaidSession(session)) return paywall("估值");
         const estateId   = url.searchParams.get("estateId");
         const blockNum   = url.searchParams.get("block");
         const floorNum   = url.searchParams.get("floor");
@@ -3657,6 +3708,7 @@ export default {
       }
 
       if (method === "GET" && path === "/api/history-highlights") {
+        if (!isPaidSession(session)) return paywall("歷史動態");
         const months = Math.min(12, Math.max(1, parseInt(url.searchParams.get("months") || "1")));
         const cutoff = new Date(Date.now() + 8*3600000);
         cutoff.setMonth(cutoff.getMonth() - months);
@@ -4072,6 +4124,16 @@ export default {
           v.dom_days = domByViewing.has(v.id) ? domByViewing.get(v.id) : null;
           v.price_changed = v.linked_ref_no ? changedByViewing.has(v.id) : null;
         }
+        // 睇樓記錄本身（log 低你睇過咩、備注、相片）免費而且無限；但砌喺
+        // 上面嘅分析（相對市價／分層中位／放咗幾耐／有冇轉價）係收費版。
+        if (!isPaidSession(session)) {
+          for (const v of results) {
+            v.floor_tier = null; v.tier_max_floor = null; v.market_basis = null;
+            v.sold_med_psf = null; v.market_n_sold = null; v.vs_med_pct = null;
+            v.dom_days = null; v.price_changed = null;
+          }
+          return json(200, { viewings: results, tierLimited: true });
+        }
         return json(200, { viewings: results });
       }
 
@@ -4236,6 +4298,7 @@ export default {
 
       // 叫價 → 成交落差:配對已下架放盤同對應成交,計議價幅度
       if (method === "GET" && path === "/api/asking-sold") {
+        if (!isPaidSession(session)) return paywall("叫價→成交");
         const estateId = url.searchParams.get("estateId");
         const result = await computeAskingSold(db, estateId ? Number(estateId) : null, session.account_id);
         return json(200, result);
@@ -4243,6 +4306,7 @@ export default {
 
       // 睇過嘅盤 · 每個單位配近12個月可比成交 + 推算合理價區間
       if (method === "GET" && path === "/api/viewings/comps") {
+        if (!isPaidSession(session)) return paywall("相對市價");
         const items = await computeViewingComps(db, session.account_id);
         return json(200, { items });
       }
@@ -4250,6 +4314,7 @@ export default {
       // 抵買雷達:呎價低過同苑成交中位數嘅在售盤 + 每苑議價指數。
       // 門檻/窗口等數字全部由 ⚙️ 設定（getConfig）嚟；belowPct query 可臨時覆蓋。
       if (method === "GET" && path === "/api/bargain-radar") {
+        if (!isPaidSession(session)) return paywall("抵買雷達");
         const belowPctQ = Number(url.searchParams.get("belowPct"));
         const belowPct = Number.isFinite(belowPctQ) && belowPctQ > 0 ? belowPctQ : null;
         const limit = Math.min(Math.max(1, Number(url.searchParams.get("limit")) || 30), 100);
@@ -4261,6 +4326,7 @@ export default {
       // basis=tier + tier(高/中/低層):用同 soldMedianPsfByTier 一樣嘅逐座三等分;
       // 其餘:全苑。窗口日數同 getConfig 一致。
       if (method === "GET" && path === "/api/estate-comps") {
+        if (!isPaidSession(session)) return paywall("相對市價");
         const eid = Number(url.searchParams.get("estate_id"));
         if (!eid) return json(400, { error: "estate_id required" });
         const basis = url.searchParams.get("basis");
@@ -4312,7 +4378,13 @@ export default {
       // Per-account:key 存做 cfg_<accountId>_<key>。
       if (method === "GET" && path === "/api/config") {
         const cfg = await getConfig(db, session.account_id);
-        return json(200, { items: CONFIG_DEFS.map((d) => ({ ...d, value: cfg[d.key] })), groups: CONFIG_GROUPS, role: session.role || "user" });
+        return json(200, {
+          items: CONFIG_DEFS.map((d) => ({ ...d, value: cfg[d.key] })), groups: CONFIG_GROUPS,
+          role: session.role || "user",
+          // 前端 refresh 完靠呢度攞返 tier（login response 個 tier 唔會過夜）
+          tier: isPaidSession(session) ? "paid" : "free",
+          freeMaxEstates: (await getSecCfg(db)).sec_free_max_estates,
+        });
       }
       if (method === "PUT" && path === "/api/config") {
         // 分析參數淨係 admin 可以改（一般 user 得睇樓偏好）
@@ -4365,6 +4437,9 @@ export default {
       // ── 朋友屋企 ──────────────────────────────────────────────────────────
       // 入朋友名+屋苑單位，自動搵：過往成交、分層成交中位（相對市價基準）。
       // 恆生估值/類近在售由前端用現有 API/放盤數據做。全部 per-account。
+      // 朋友屋企：收費版功能（全部 method 一次過擋）
+      if (path.startsWith("/api/friend-homes") && !isPaidSession(session)) return paywall("朋友屋企");
+
       if (method === "GET" && path === "/api/friend-homes") {
         const { results: homes } = await db.prepare(`
           SELECT f.*, e.name AS estate_name
@@ -4552,6 +4627,32 @@ export default {
         await ensureTxnDedup(db);
         const after = (await db.prepare("SELECT COUNT(*) n FROM transactions").first()).n;
         return json(200, { ok: true, before, after, removed: before - after });
+      }
+
+      // 睇 / 改帳戶收費分層。而家未接 payment，升級係人手做：
+      //   GET  /api/admin/tiers                → 列出全部帳戶同 tier
+      //   POST /api/admin/tiers {email, tier}  → 改某個帳戶
+      // 將來接咗 payment 就喺付款成功 callback 度行同一句 UPDATE。
+      if (path === "/api/admin/tiers") {
+        if (!isAdminSession(session)) return json(403, { error: "admin only" });
+        if (method === "GET") {
+          const { results } = await db.prepare(
+            `SELECT a.id, a.email, a.role, a.tier,
+                    (SELECT COUNT(*) FROM account_estates ae WHERE ae.account_id = a.id) AS estates
+             FROM accounts a WHERE (a.is_active IS NULL OR a.is_active = 1) ORDER BY a.id`
+          ).all();
+          return json(200, { accounts: results });
+        }
+        if (method === "POST") {
+          const { email, tier } = await request.json();
+          if (!email || !["free", "paid"].includes(tier)) {
+            return json(400, { error: "email 同 tier(free/paid) 都要有" });
+          }
+          const r = await db.prepare("UPDATE accounts SET tier = ? WHERE lower(email) = lower(?)")
+            .bind(tier, email).run();
+          if (!r.meta?.changes) return json(404, { error: "搵唔到呢個 email 嘅帳戶" });
+          return json(200, { ok: true, email, tier });
+        }
       }
 
       // 測試 alert 通道通唔通（Telegram + email）。留返做長期工具：
