@@ -336,6 +336,80 @@ function normalizeUnit(unit) {
   return unit.replace(/^0+(\d+室)$/, '$1');
 }
 
+// ── Stripe（純 fetch REST，唔用 SDK）─────────────────────────────────────────
+// 同 iPointWeb 個做法一樣：form-encoded + Basic auth + 手寫 HMAC 驗簽。
+// Worker runtime 冇 npm SDK，而且 SDK 得嗰幾個 call 都用唔著。
+// STRIPE_SECRET_KEY / STRIPE_WEBHOOK_SECRET 一律行 `wrangler secret put`，
+// 唔可以寫死喺 code 或者入 git。
+
+// Stripe 收 form-encoded，nested 用 a[b][c] / a[0][b] 格式
+function stripeEncode(params, prefix = "", out = []) {
+  for (const [k, v] of Object.entries(params)) {
+    if (v === undefined || v === null) continue;
+    const key = prefix ? `${prefix}[${k}]` : k;
+    if (Array.isArray(v)) {
+      v.forEach((item, i) => {
+        if (item && typeof item === "object") stripeEncode(item, `${key}[${i}]`, out);
+        else out.push(`${encodeURIComponent(`${key}[${i}]`)}=${encodeURIComponent(item)}`);
+      });
+    } else if (typeof v === "object") {
+      stripeEncode(v, key, out);
+    } else {
+      out.push(`${encodeURIComponent(key)}=${encodeURIComponent(v)}`);
+    }
+  }
+  return out;
+}
+
+class StripeError extends Error {}
+
+async function stripeRequest(env, method, path, params = {}) {
+  if (!env?.STRIPE_SECRET_KEY) throw new StripeError("未設定 STRIPE_SECRET_KEY");
+  const body = stripeEncode(params).join("&");
+  let url = `https://api.stripe.com/v1/${path.replace(/^\//, "")}`;
+  if (method === "GET" && body) url += `?${body}`;
+  const res = await fetch(url, {
+    method,
+    headers: {
+      Authorization: `Basic ${btoa(env.STRIPE_SECRET_KEY + ":")}`,
+      "Content-Type": "application/x-www-form-urlencoded",
+      // 同一個 key 重試唔會拉多次數（Stripe 官方 idempotency）
+      ...(method === "POST" && params._idempotencyKey
+        ? { "Idempotency-Key": String(params._idempotencyKey) } : {}),
+    },
+    ...(method === "POST" ? { body } : {}),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new StripeError(data?.error?.message || `Stripe ${res.status}`);
+  return data;
+}
+
+// Webhook 驗簽（Stripe 官方 HMAC-SHA256 演算法，WebCrypto 版）
+// https://stripe.com/docs/webhooks/signatures
+async function stripeVerifySignature(payload, sigHeader, secret, tolerance = 300) {
+  if (!secret || !sigHeader) return false;
+  const parts = {};
+  for (const pair of sigHeader.split(",")) {
+    const i = pair.indexOf("=");
+    if (i > 0) parts[pair.slice(0, i).trim()] = pair.slice(i + 1).trim();
+  }
+  if (!parts.t || !parts.v1) return false;
+  const ts = Number(parts.t);
+  // 防 replay：太舊嘅簽名唔收
+  if (!Number.isFinite(ts) || Math.abs(Date.now() / 1000 - ts) > tolerance) return false;
+  const key = await crypto.subtle.importKey(
+    "raw", new TextEncoder().encode(secret), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]
+  );
+  const sig = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(`${ts}.${payload}`));
+  const expected = Array.from(new Uint8Array(sig)).map(b => b.toString(16).padStart(2, "0")).join("");
+  if (expected.length !== parts.v1.length) return false;
+  let diff = 0;   // constant-time compare
+  for (let i = 0; i < expected.length; i++) diff |= expected.charCodeAt(i) ^ parts.v1.charCodeAt(i);
+  return diff === 0;
+}
+
+const hkDate = (ts) => ts ? new Date(ts * 1000).toISOString().slice(0, 10) : null;
+
 async function ensureAuthTables(db) {
   await db.prepare(`CREATE TABLE IF NOT EXISTS accounts (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -1256,6 +1330,205 @@ async function ensureManualRemoved(db) {
     UNIQUE(account_id, ref_no)
   )`).run();
   await db.prepare("CREATE INDEX IF NOT EXISTS idx_manualrm_account ON listing_manual_removed(account_id)").run();
+}
+
+// ── 收費 / Stripe 訂閱 ───────────────────────────────────────────────────────
+// tier 仍然係「有冇得用收費功能」嘅唯一真相（isPaidSession 淨係睇佢），
+// webhook 收到訂閱狀態變化就寫返 tier。咁樣 admin 手動改 tier（送人用／
+// 補償）同 Stripe 自動流程可以並存，唔使成個系統跟住 Stripe 狀態行。
+async function ensureBilling(db) {
+  for (const col of [
+    "stripe_customer_id TEXT",
+    "stripe_subscription_id TEXT",
+    "subscription_status TEXT",      // active/trialing/past_due/canceled/incomplete
+    "current_period_end TEXT",       // YYYY-MM-DD，下次扣費日
+    "cancel_at_period_end INTEGER NOT NULL DEFAULT 0",
+    "subscription_interval TEXT",    // month/year
+  ]) {
+    try { await db.prepare(`ALTER TABLE accounts ADD COLUMN ${col}`).run(); } catch (_) {}
+  }
+
+  // 價格計劃：Stripe 嘅 Price 本身改唔到金額，要改價就開新 Price。
+  // effective_from = 由嗰日起，新訂閱用呢個 price（舊客照原價，
+  // 除非 admin 撳「遷移」）。所以「改價 + 生效日期」= 加多行。
+  await db.prepare(`CREATE TABLE IF NOT EXISTS pricing_plans (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    billing_interval TEXT NOT NULL CHECK(billing_interval IN ('month','year')),
+    amount_cents INTEGER NOT NULL,
+    currency TEXT NOT NULL DEFAULT 'hkd',
+    stripe_price_id TEXT NOT NULL,
+    effective_from TEXT NOT NULL,
+    note TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now', '+8 hours')),
+    created_by TEXT
+  )`).run();
+  await db.prepare(
+    "CREATE INDEX IF NOT EXISTS idx_plans_interval ON pricing_plans(billing_interval, effective_from)"
+  ).run();
+
+  // Webhook 收到咩、有冇 fail —— 出事嗰陣唔使去 Stripe dashboard 撈。
+  // stripe_event_id UNIQUE 做 idempotency：Stripe 重試同一件事唔會做兩次。
+  await db.prepare(`CREATE TABLE IF NOT EXISTS payment_events (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    stripe_event_id TEXT UNIQUE NOT NULL,
+    type TEXT NOT NULL,
+    account_id INTEGER,
+    email TEXT,
+    amount_cents INTEGER,
+    currency TEXT,
+    status TEXT,
+    summary TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now', '+8 hours'))
+  )`).run();
+  await db.prepare("CREATE INDEX IF NOT EXISTS idx_payev_created ON payment_events(created_at)").run();
+}
+
+// 訂閱狀態 → 有冇得用收費功能。
+// past_due 照畀用：Stripe 會自動重試扣數（dunning），呢段時間趕人走
+// 只會激嬲一個「張卡啱啱到期」嘅好客。真係收唔到錢 Stripe 會轉 canceled/unpaid。
+const PAID_SUB_STATUSES = new Set(["active", "trialing", "past_due"]);
+
+async function applySubscription(db, accountId, sub) {
+  const status = sub?.status || null;
+  const tier = PAID_SUB_STATUSES.has(status) ? "paid" : "free";
+  const item = sub?.items?.data?.[0];
+  // 新版 Stripe API 將 current_period_end 由 subscription 頂層搬咗落
+  // items.data[0]。兩個位都睇，唔使綁死喺某個 API version。
+  const periodEnd = item?.current_period_end ?? sub?.current_period_end ?? null;
+  await db.prepare(
+    `UPDATE accounts SET tier = ?, stripe_subscription_id = ?, subscription_status = ?,
+       current_period_end = ?, cancel_at_period_end = ?, subscription_interval = ?
+     WHERE id = ?`
+  ).bind(
+    tier, sub?.id ?? null, status, hkDate(periodEnd),
+    sub?.cancel_at_period_end ? 1 : 0,
+    item?.price?.recurring?.interval ?? null,
+    accountId
+  ).run();
+  return tier;
+}
+
+// 由 customer id 或者 event metadata 搵返係邊個帳戶。
+// env 傳咗入嚟嘅話，最後一步會問返 Stripe 攞個 customer 嘅 email 再夾——
+// 因為 Stripe **唔保證 webhook 次序**：customer.subscription.created 可以
+// 早過 checkout.session.completed 到，嗰陣 accounts 仲未寫低
+// stripe_customer_id，淨靠 customer id 就會白白當佢 orphan（客俾咗錢升唔到級）。
+async function accountForStripe(db, { customerId, accountId, email }, env = null) {
+  if (accountId) {
+    const a = await db.prepare("SELECT * FROM accounts WHERE id = ?").bind(accountId).first();
+    if (a) return a;
+  }
+  if (customerId) {
+    const a = await db.prepare("SELECT * FROM accounts WHERE stripe_customer_id = ?").bind(customerId).first();
+    if (a) return a;
+  }
+  if (email) {
+    const a = await db.prepare("SELECT * FROM accounts WHERE lower(email) = lower(?)").bind(email).first();
+    if (a) return a;
+  }
+  if (env && customerId) {
+    try {
+      const cust = await stripeRequest(env, "GET", `customers/${customerId}`);
+      const byMeta = Number(cust?.metadata?.account_id) || null;
+      const a = byMeta
+        ? await db.prepare("SELECT * FROM accounts WHERE id = ?").bind(byMeta).first()
+        : (cust?.email
+            ? await db.prepare("SELECT * FROM accounts WHERE lower(email) = lower(?)").bind(cust.email).first()
+            : null);
+      if (a) {
+        // 順手綁埋，下次唔使再問 Stripe
+        await db.prepare("UPDATE accounts SET stripe_customer_id = ? WHERE id = ?").bind(customerId, a.id).run();
+        return a;
+      }
+    } catch (_) { /* Stripe 查唔到就當搵唔到 */ }
+  }
+  return null;
+}
+
+async function handleStripeEvent(db, env, event) {
+  const obj = event.data?.object || {};
+  const note = async (fields) => {
+    await db.prepare(
+      `UPDATE payment_events SET account_id=?, email=?, amount_cents=?, currency=?, status=?, summary=?
+       WHERE stripe_event_id=?`
+    ).bind(
+      fields.accountId ?? null, fields.email ?? null, fields.amount ?? null,
+      fields.currency ?? null, fields.status ?? "ok", fields.summary ?? null, event.id
+    ).run();
+  };
+
+  switch (event.type) {
+    // 客人喺 Checkout 俾完錢返嚟——正式將個 account 同 Stripe customer/subscription 綁埋
+    case "checkout.session.completed": {
+      const accountId = Number(obj.client_reference_id || obj.metadata?.account_id) || null;
+      const acc = await accountForStripe(db, {
+        accountId, customerId: obj.customer, email: obj.customer_details?.email,
+      }, env);
+      if (!acc) { await note({ status: "orphan", summary: `搵唔到帳戶 (customer ${obj.customer})` }); return; }
+      if (obj.customer) {
+        await db.prepare("UPDATE accounts SET stripe_customer_id = ? WHERE id = ?")
+          .bind(obj.customer, acc.id).run();
+      }
+      let tier = "paid";
+      if (obj.subscription) {
+        const sub = await stripeRequest(env, "GET", `subscriptions/${obj.subscription}`);
+        tier = await applySubscription(db, acc.id, sub);
+      } else {
+        await db.prepare("UPDATE accounts SET tier='paid' WHERE id=?").bind(acc.id).run();
+      }
+      await note({
+        accountId: acc.id, email: acc.email, amount: obj.amount_total,
+        currency: obj.currency, summary: `訂閱成功 → ${tier}`,
+      });
+      return;
+    }
+
+    // 續期／改計劃／取消排期／扣數失敗轉 past_due —— 全部經呢度
+    case "customer.subscription.created":
+    case "customer.subscription.updated":
+    case "customer.subscription.deleted": {
+      const acc = await accountForStripe(db, { customerId: obj.customer }, env);
+      if (!acc) { await note({ status: "orphan", summary: `搵唔到帳戶 (customer ${obj.customer})` }); return; }
+      const tier = event.type === "customer.subscription.deleted"
+        ? (await db.prepare(
+            `UPDATE accounts SET tier='free', subscription_status='canceled',
+               cancel_at_period_end=0 WHERE id=?`).bind(acc.id).run(), "free")
+        : await applySubscription(db, acc.id, obj);
+      await note({
+        accountId: acc.id, email: acc.email,
+        summary: `${event.type.split(".").pop()} → ${obj.status || "canceled"}／tier ${tier}`,
+      });
+      return;
+    }
+
+    // 收到錢／收唔到錢 —— 純粹記帳，方便後台對數同睇失敗
+    case "invoice.paid":
+    case "invoice.payment_failed": {
+      const acc = await accountForStripe(db, { customerId: obj.customer, email: obj.customer_email }, env);
+      const failed = event.type === "invoice.payment_failed";
+      await note({
+        accountId: acc?.id, email: acc?.email || obj.customer_email,
+        amount: failed ? obj.amount_due : obj.amount_paid,
+        currency: obj.currency,
+        status: failed ? "failed" : "ok",
+        summary: failed ? "扣數失敗（Stripe 會自動重試）" : "收到款項",
+      });
+      return;
+    }
+
+    default:
+      await note({ status: "ignored", summary: "未處理嘅 event type" });
+  }
+}
+
+// 攞某個 interval 而家生效嘅 price（effective_from <= 今日，取最新嗰個）。
+// 未來生效嗰啲唔會被揀中——即係排期改價唔會提早生效。
+async function activePlan(db, interval) {
+  return await db.prepare(
+    `SELECT * FROM pricing_plans
+     WHERE billing_interval = ? AND effective_from <= date('now','+8 hours')
+     ORDER BY effective_from DESC, id DESC LIMIT 1`
+  ).bind(interval).first();
 }
 
 // ── 叫價 → 成交落差配對 (asking-to-sold spread) ──────────────────────────────
@@ -2867,6 +3140,43 @@ export default {
         if (rateLimited(rlKey, sec.sec_api_rpm)) {
           return json(429, { error: "請求太頻密，請稍後再試" });
         }
+      }
+
+      // ── Stripe webhook — 唯一新增嘅公開 route ──────────────────────────────
+      // 冇得行 auth guard：Stripe server 直接 POST 埋嚟，冇我哋嘅 token。
+      // 改為用 HMAC 簽名驗證（Stripe 官方做法）——冇正確簽名嘅 request 一律
+      // 400，所以任何人亂 POST 嚟都改唔到訂閱狀態。
+      // 呢個 endpoint 唔准做任何「讀返數據俾 caller」嘅嘢，淨係寫狀態。
+      if (method === "POST" && path === "/api/stripe-webhook") {
+        await ensureBilling(db);
+        const raw = await request.text();   // 一定要 raw body，parse 完再 stringify 會爆簽名
+        const ok = await stripeVerifySignature(
+          raw, request.headers.get("Stripe-Signature") || "", env.STRIPE_WEBHOOK_SECRET
+        );
+        if (!ok) return json(400, { error: "signature verification failed" });
+
+        let event;
+        try { event = JSON.parse(raw); } catch { return json(400, { error: "invalid payload" }); }
+        if (!event?.id || !event?.type) return json(400, { error: "invalid payload" });
+
+        // Idempotency：Stripe 失敗會重試，同一個 event.id 只做一次。
+        // UNIQUE 撞咗就代表做過 —— 照回 200，唔好叫 Stripe 再試。
+        try {
+          await db.prepare("INSERT INTO payment_events (stripe_event_id, type) VALUES (?,?)")
+            .bind(event.id, event.type).run();
+        } catch (_) {
+          return json(200, { ok: true, duplicate: true });
+        }
+
+        try {
+          await handleStripeEvent(db, env, event);
+        } catch (e) {
+          // 記低但照回 200：翻唔到嘅嘢畀 Stripe 重試都係一樣結果，
+          // 而且 event 已經入咗 log，admin 後台睇得到。
+          await db.prepare("UPDATE payment_events SET status='error', summary=? WHERE stripe_event_id=?")
+            .bind(String(e?.message || e).slice(0, 500), event.id).run();
+        }
+        return json(200, { ok: true });
       }
 
       // Login endpoint — public
@@ -4633,6 +4943,84 @@ export default {
       //   GET  /api/admin/tiers                → 列出全部帳戶同 tier
       //   POST /api/admin/tiers {email, tier}  → 改某個帳戶
       // 將來接咗 payment 就喺付款成功 callback 度行同一句 UPDATE。
+      // ── 用戶自己嘅訂閱 ────────────────────────────────────────────────────
+      // 自己睇狀態 / 落訂閱 / 開 Stripe 自助中心。全部 auth guard 後面，
+      // 而且一律用 session.account_id —— 唔會信前端傳嘅 account id。
+      if (path === "/api/billing" && method === "GET") {
+        await ensureBilling(db);
+        const acc = await db.prepare(
+          `SELECT tier, subscription_status, current_period_end, cancel_at_period_end,
+                  subscription_interval, stripe_customer_id
+           FROM accounts WHERE id = ?`
+        ).bind(session.account_id).first();
+        const plans = {};
+        for (const iv of ["month", "year"]) {
+          const p = await activePlan(db, iv);
+          if (p) plans[iv] = { amount_cents: p.amount_cents, currency: p.currency };
+        }
+        return json(200, {
+          tier: isPaidSession(session) ? "paid" : "free",
+          subscription_status: acc?.subscription_status || null,
+          current_period_end: acc?.current_period_end || null,
+          cancel_at_period_end: !!acc?.cancel_at_period_end,
+          interval: acc?.subscription_interval || null,
+          hasCustomer: !!acc?.stripe_customer_id,
+          plans,
+        });
+      }
+
+      // 落訂閱：起 Stripe Checkout Session，回個 url 畀前端 redirect 過去。
+      // 卡資料全程喺 Stripe 嗰邊入，我哋永遠掂唔到——唔使處理 PCI。
+      if (path === "/api/billing/checkout" && method === "POST") {
+        await ensureBilling(db);
+        const { interval } = await request.json();
+        if (!["month", "year"].includes(interval)) return json(400, { error: "interval 要 month 或 year" });
+        const plan = await activePlan(db, interval);
+        if (!plan) return json(400, { error: "未設定價錢，請聯絡管理員" });
+
+        const acc = await db.prepare("SELECT * FROM accounts WHERE id = ?").bind(session.account_id).first();
+        if (acc?.tier === "paid" && PAID_SUB_STATUSES.has(acc?.subscription_status)) {
+          return json(400, { error: "你已經係收費版，想改計劃請用「管理訂閱」" });
+        }
+        const origin = request.headers.get("Origin");
+        const base = isAllowedOrigin(origin) ? origin : "https://propwatch.pages.dev";
+        try {
+          const s = await stripeRequest(env, "POST", "checkout/sessions", {
+            mode: "subscription",
+            success_url: `${base}/?billing=success`,
+            cancel_url: `${base}/?billing=cancel`,
+            client_reference_id: String(session.account_id),
+            metadata: { account_id: String(session.account_id) },
+            line_items: [{ price: plan.stripe_price_id, quantity: 1 }],
+            ...(acc?.stripe_customer_id
+              ? { customer: acc.stripe_customer_id }
+              : (acc?.email ? { customer_email: acc.email } : {})),
+            subscription_data: { metadata: { account_id: String(session.account_id) } },
+          });
+          return json(200, { url: s.url });
+        } catch (e) {
+          return json(502, { error: `Stripe 出錯：${e.message}` });
+        }
+      }
+
+      // Stripe 自助中心：客人自己改卡／睇單／取消，唔使我哋寫 UI
+      if (path === "/api/billing/portal" && method === "POST") {
+        await ensureBilling(db);
+        const acc = await db.prepare("SELECT stripe_customer_id FROM accounts WHERE id = ?")
+          .bind(session.account_id).first();
+        if (!acc?.stripe_customer_id) return json(400, { error: "你未有訂閱記錄" });
+        const origin = request.headers.get("Origin");
+        const base = isAllowedOrigin(origin) ? origin : "https://propwatch.pages.dev";
+        try {
+          const p = await stripeRequest(env, "POST", "billing_portal/sessions", {
+            customer: acc.stripe_customer_id, return_url: base,
+          });
+          return json(200, { url: p.url });
+        } catch (e) {
+          return json(502, { error: `Stripe 出錯：${e.message}` });
+        }
+      }
+
       if (path === "/api/admin/tiers") {
         if (!isAdminSession(session)) return json(403, { error: "admin only" });
         if (method === "GET") {
@@ -4652,6 +5040,169 @@ export default {
             .bind(tier, email).run();
           if (!r.meta?.changes) return json(404, { error: "搵唔到呢個 email 嘅帳戶" });
           return json(200, { ok: true, email, tier });
+        }
+      }
+
+      // ── Admin 付款後台 ───────────────────────────────────────────────────
+      if (path.startsWith("/api/admin/billing")) {
+        if (!isAdminSession(session)) return json(403, { error: "admin only" });
+        await ensureBilling(db);
+
+        // 總覽：訂閱者名單 + 收支 summary（金額由 payment_events 嘅 invoice.paid 嚟）
+        if (path === "/api/admin/billing" && method === "GET") {
+          const q = (url.searchParams.get("q") || "").trim();
+          const like = `%${q}%`;
+          const { results: subs } = await db.prepare(
+            `SELECT a.id, a.email, a.role, a.tier, a.subscription_status, a.subscription_interval,
+                    a.current_period_end, a.cancel_at_period_end, a.stripe_customer_id,
+                    a.stripe_subscription_id,
+                    (SELECT COUNT(*) FROM account_estates ae WHERE ae.account_id = a.id) AS estates
+             FROM accounts a
+             WHERE (a.is_active IS NULL OR a.is_active = 1)
+               AND (?1 = '' OR lower(a.email) LIKE lower(?2))
+             ORDER BY (a.tier='paid') DESC, a.id`
+          ).bind(q, like).all();
+          const sum = await db.prepare(
+            `SELECT
+               (SELECT COUNT(*) FROM accounts WHERE tier='paid' AND (is_active IS NULL OR is_active=1)) AS paid_accounts,
+               -- 淨收入：退款嗰行 amount_cents 係負數，一齊 SUM 就自動抵銷
+               (SELECT COALESCE(SUM(amount_cents),0) FROM payment_events
+                  WHERE type IN ('invoice.paid','refund')
+                    AND created_at >= date('now','+8 hours','start of month')) AS mtd_cents,
+               (SELECT COALESCE(SUM(amount_cents),0) FROM payment_events
+                  WHERE type IN ('invoice.paid','refund')) AS total_cents,
+               (SELECT COALESCE(SUM(-amount_cents),0) FROM payment_events
+                  WHERE type='refund') AS refunded_cents,
+               (SELECT COUNT(*) FROM payment_events
+                  WHERE status='failed' AND created_at >= date('now','+8 hours','-30 day')) AS failed_30d`
+          ).first();
+          return json(200, { subs, summary: sum, stripeConfigured: !!env.STRIPE_SECRET_KEY });
+        }
+
+        // 價錢：睇晒歷史 + 排期緊嘅
+        if (path === "/api/admin/billing/plans" && method === "GET") {
+          const { results } = await db.prepare(
+            "SELECT * FROM pricing_plans ORDER BY billing_interval, effective_from DESC, id DESC"
+          ).all();
+          const active = {};
+          for (const iv of ["month", "year"]) active[iv] = await activePlan(db, iv);
+          return json(200, { plans: results, active });
+        }
+
+        // 改價 = 開個新 Stripe Price + 記低生效日期。舊 Price 唔會郁，
+        // 所以已經訂緊嘅客照原價（grandfather），要搬就撳「遷移」。
+        if (path === "/api/admin/billing/plans" && method === "POST") {
+          const { interval, amount, effective_from, note } = await request.json();
+          if (!["month", "year"].includes(interval)) return json(400, { error: "interval 要 month 或 year" });
+          const amt = Number(amount);
+          if (!Number.isFinite(amt) || amt <= 0) return json(400, { error: "金額要大過 0" });
+          if (!/^\d{4}-\d{2}-\d{2}$/.test(effective_from || "")) return json(400, { error: "生效日期格式要 YYYY-MM-DD" });
+          const cents = Math.round(amt * 100);
+          try {
+            const price = await stripeRequest(env, "POST", "prices", {
+              currency: "hkd",
+              unit_amount: cents,
+              recurring: { interval },
+              product_data: { name: `PropWatch 收費版（${interval === "year" ? "年費" : "月費"}）` },
+              metadata: { effective_from },
+            });
+            await db.prepare(
+              `INSERT INTO pricing_plans (billing_interval, amount_cents, stripe_price_id, effective_from, note, created_by)
+               VALUES (?,?,?,?,?,?)`
+            ).bind(interval, cents, price.id, effective_from, note || null, session.username || null).run();
+            return json(200, { ok: true, stripe_price_id: price.id, amount_cents: cents, effective_from });
+          } catch (e) {
+            return json(502, { error: `Stripe 出錯：${e.message}` });
+          }
+        }
+
+        // 退款：退返最近一張已付嘅 invoice（Stripe 手續費退唔返，蝕咗就蝕咗）
+        if (path === "/api/admin/billing/refund" && method === "POST") {
+          const { account_id } = await request.json();
+          const acc = await db.prepare("SELECT * FROM accounts WHERE id = ?").bind(account_id).first();
+          if (!acc?.stripe_customer_id) return json(400, { error: "呢個帳戶冇 Stripe 記錄" });
+          try {
+            // 新版 Stripe API 唔再喺 invoice 頂層畀 payment_intent，要 expand
+            // invoice.payments。舊位置照留做 fallback，唔綁死 API version。
+            const inv = await stripeRequest(env, "GET", "invoices", {
+              customer: acc.stripe_customer_id, status: "paid", limit: 1,
+              expand: ["data.payments"],
+            });
+            const invoice = inv.data?.[0];
+            let pi = invoice?.payment_intent
+              || invoice?.payments?.data?.find(p => p?.payment?.payment_intent)?.payment?.payment_intent;
+            if (!pi && acc.stripe_customer_id) {
+              // 最後一著：直接由 customer 攞最近一筆成功付款
+              const pis = await stripeRequest(env, "GET", "payment_intents", {
+                customer: acc.stripe_customer_id, limit: 10,
+              });
+              pi = pis.data?.find(p => p.status === "succeeded")?.id || null;
+            }
+            if (!pi) return json(400, { error: "搵唔到可以退款嘅付款記錄" });
+            const r = await stripeRequest(env, "POST", "refunds", {
+              payment_intent: pi, reason: "requested_by_customer",
+            });
+            await db.prepare(
+              `INSERT INTO payment_events (stripe_event_id, type, account_id, email, amount_cents, currency, status, summary)
+               VALUES (?,?,?,?,?,?,?,?)`
+            ).bind(`manual_refund_${r.id}`, "refund", acc.id, acc.email, -(r.amount || 0),
+                   r.currency || "hkd", "ok", `admin ${session.username} 退款`).run();
+            return json(200, { ok: true, refund_id: r.id, amount_cents: r.amount });
+          } catch (e) {
+            return json(502, { error: `Stripe 出錯：${e.message}` });
+          }
+        }
+
+        // 取消訂閱：預設期末取消（畀足客人用埋佢俾咗錢嗰段）；immediate 即刻停
+        if (path === "/api/admin/billing/cancel" && method === "POST") {
+          const { account_id, immediate } = await request.json();
+          const acc = await db.prepare("SELECT * FROM accounts WHERE id = ?").bind(account_id).first();
+          if (!acc?.stripe_subscription_id) return json(400, { error: "呢個帳戶冇進行中嘅訂閱" });
+          try {
+            const sub = immediate
+              ? await stripeRequest(env, "DELETE", `subscriptions/${acc.stripe_subscription_id}`)
+              : await stripeRequest(env, "POST", `subscriptions/${acc.stripe_subscription_id}`, { cancel_at_period_end: true });
+            await applySubscription(db, acc.id, sub);
+            return json(200, { ok: true, status: sub.status, cancel_at_period_end: !!sub.cancel_at_period_end });
+          } catch (e) {
+            return json(502, { error: `Stripe 出錯：${e.message}` });
+          }
+        }
+
+        // 由 Stripe 拉返最新狀態 —— webhook 漏咗／出過事嗰陣用呢個補數
+        if (path === "/api/admin/billing/sync" && method === "POST") {
+          const { account_id } = await request.json();
+          const acc = await db.prepare("SELECT * FROM accounts WHERE id = ?").bind(account_id).first();
+          if (!acc) return json(404, { error: "搵唔到帳戶" });
+          try {
+            let customerId = acc.stripe_customer_id;
+            if (!customerId && acc.email) {
+              const c = await stripeRequest(env, "GET", "customers", { email: acc.email, limit: 1 });
+              customerId = c.data?.[0]?.id || null;
+              if (customerId) {
+                await db.prepare("UPDATE accounts SET stripe_customer_id=? WHERE id=?").bind(customerId, acc.id).run();
+              }
+            }
+            if (!customerId) return json(400, { error: "Stripe 度搵唔到呢個客" });
+            const subs = await stripeRequest(env, "GET", "subscriptions", { customer: customerId, status: "all", limit: 1 });
+            const sub = subs.data?.[0];
+            if (!sub) {
+              await db.prepare("UPDATE accounts SET subscription_status='none' WHERE id=?").bind(acc.id).run();
+              return json(200, { ok: true, found: false });
+            }
+            const tier = await applySubscription(db, acc.id, sub);
+            return json(200, { ok: true, found: true, status: sub.status, tier });
+          } catch (e) {
+            return json(502, { error: `Stripe 出錯：${e.message}` });
+          }
+        }
+
+        // Webhook / 付款事件 log
+        if (path === "/api/admin/billing/events" && method === "GET") {
+          const { results } = await db.prepare(
+            "SELECT * FROM payment_events ORDER BY id DESC LIMIT 100"
+          ).all();
+          return json(200, { events: results });
         }
       }
 

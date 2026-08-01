@@ -595,6 +595,20 @@
       padding: 0.55rem; font-size: 0.88rem; font-weight: 600; cursor: pointer;
     }
     .vf-submit:hover { background: var(--btn-hover); }
+    /* 訂閱計劃卡（升級 modal） */
+    .plan-card {
+      position: relative; flex: 1; text-align: center; cursor: pointer;
+      background: var(--surface2); border: 1px solid var(--border);
+      border-radius: 10px; padding: 0.85rem 0.6rem 0.7rem;
+      color: var(--text); font-family: inherit;
+    }
+    .plan-card:hover { border-color: var(--accent); }
+    .plan-best { border-color: var(--accent); background: rgba(245,158,11,0.08); }
+    .plan-badge {
+      position: absolute; top: -0.55rem; left: 50%; transform: translateX(-50%);
+      background: var(--accent); color: #1a1a1a; border-radius: 999px;
+      font-size: 0.65rem; font-weight: 700; padding: 0.1rem 0.5rem; white-space: nowrap;
+    }
     /* Viewings tab */
     .viewings-list { padding: 0.75rem 0; }
     .viewing-card {
@@ -1064,11 +1078,40 @@
   </div>
 </div>
 
+<div class="modal-overlay" id="adminBillingOverlay" style="display:none" onclick="if(event.target===this)closeAdminBilling()">
+  <div class="modal" style="max-width:900px;width:96vw;max-height:92vh;overflow-y:auto">
+    <button class="modal-close" onclick="closeAdminBilling()">✕</button>
+    <div class="modal-title">💳 付款管理</div>
+    <div id="ab-summary" style="margin:0.5rem 0 0.25rem"></div>
+    <div class="modal-sub" style="margin-top:1.1rem">💰 價錢</div>
+    <p style="font-size:0.78rem;color:var(--muted);margin:0.25rem 0 0.6rem">
+      Stripe 嘅價錢改唔到，改價 = 開個新 Price。生效日期之後嘅<b>新訂閱</b>先用新價，
+      已經訂緊嘅客照原價。
+    </p>
+    <div id="ab-plans"></div>
+    <div class="modal-sub" style="margin-top:1.25rem;display:flex;align-items:center;justify-content:space-between;gap:0.6rem">
+      <span>👤 訂閱者</span>
+      <input id="ab-search" placeholder="搵 email…" oninput="renderAbSubs()"
+        style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:0.82rem;padding:0.35rem 0.55rem;font-family:inherit;width:190px">
+    </div>
+    <div id="ab-subs" style="margin-top:0.5rem"></div>
+    <div class="modal-sub" style="margin-top:1.25rem">🧾 付款記錄 / Webhook log</div>
+    <div id="ab-events" style="margin-top:0.5rem"></div>
+  </div>
+</div>
+
 <div class="modal-overlay" id="settingsModalOverlay" style="display:none" onclick="if(event.target===this)closeSettingsModal()">
   <div class="modal" style="max-width:460px;max-height:90vh;overflow-y:auto">
     <button class="modal-close" onclick="closeSettingsModal()">✕</button>
     <div class="modal-title">⚙️ 設定</div>
-    <div class="modal-sub" style="margin-top:0">🎯 睇樓偏好</div>
+    <div class="modal-sub" style="margin-top:0">⭐ 訂閱</div>
+    <div id="settings-billing" style="font-size:0.85rem;margin:0.35rem 0 0.25rem"></div>
+    <!-- 付款後台：admin 專用，由 applyRoleToSettings() 控制顯示 -->
+    <div id="settings-admin-billing" style="display:none;margin-top:0.5rem">
+      <button class="vf-submit" style="width:auto;padding:0.45rem 0.9rem;margin:0" onclick="openAdminBilling()">💳 付款管理後台</button>
+    </div>
+
+    <div class="modal-sub" style="margin-top:1.25rem">🎯 睇樓偏好</div>
     <p style="font-size:0.78rem;color:var(--muted);margin:0.25rem 0 0.5rem">開「最新放盤」時自動 apply 嘅 filter（售價／房數／實呎），留空＝唔限</p>
     <div style="display:flex;align-items:center;gap:0.6rem">
       <span id="settings-prefs-summary" style="flex:1;font-size:0.85rem"></span>
@@ -1339,12 +1382,70 @@ function showUpgrade(feature, msg) {
       免費版睇到今日有咩盤賣${(feature && !msg) ? `。「${escHtml(feature)}」` : '，'}以下功能要收費版：
     </div>
     ${list}
-    <div style="margin-top:0.9rem;color:var(--muted);font-size:0.78rem">
-      想升級？電郵 <span style="color:var(--accent)">surive02@gmail.com</span>
-    </div>`;
+    <div id="upgradePlans" style="margin-top:0.9rem">${planPickerHtml()}</div>`;
   document.getElementById('upgradeModalOverlay').style.display = 'flex';
+  // 價錢可能仲未載到（未 call 過 /api/billing）——攞完再 render 一次
+  if (!_billing) loadBilling().then(() => {
+    const el = document.getElementById('upgradePlans');
+    if (el) el.innerHTML = planPickerHtml();
+  });
 }
 function closeUpgrade() { document.getElementById('upgradeModalOverlay').style.display = 'none'; }
+
+// ── 訂閱（Stripe）─────────────────────────────────────────────────────────
+// 卡資料全程喺 Stripe Checkout 嗰邊入，呢個 app 永遠掂唔到卡號。
+let _billing = null;
+
+async function loadBilling() {
+  try { _billing = await api('/api/billing'); } catch { _billing = null; }
+  return _billing;
+}
+
+const money = (cents) => `HK$${(cents / 100).toLocaleString('en-US', { maximumFractionDigits: 0 })}`;
+
+function planPickerHtml() {
+  const plans = _billing?.plans || {};
+  if (!plans.month && !plans.year) {
+    return `<div style="color:var(--muted);font-size:0.78rem">載入緊價錢…</div>`;
+  }
+  // 年費主打：喺 HK$20 呢個價位，月費畀 Stripe 食 15% 手續費，年費得 4.6%
+  const saving = (plans.month && plans.year)
+    ? Math.round((1 - plans.year.amount_cents / (plans.month.amount_cents * 12)) * 100) : 0;
+  const card = (iv, label, sub, best) => plans[iv] ? `
+    <button onclick="startCheckout('${iv}')" class="plan-card${best ? ' plan-best' : ''}">
+      ${best ? `<div class="plan-badge">最抵</div>` : ''}
+      <div style="font-size:0.78rem;color:var(--muted)">${escHtml(label)}</div>
+      <div style="font-size:1.25rem;font-weight:700;margin:0.15rem 0">${money(plans[iv].amount_cents)}</div>
+      <div style="font-size:0.72rem;color:var(--muted)">${escHtml(sub)}</div>
+    </button>` : '';
+  return `
+    <div style="display:flex;gap:0.5rem">
+      ${card('year', '年費', saving > 0 ? `平 ${saving}%・${money(Math.round(plans.year.amount_cents / 12))}/月` : '一年', true)}
+      ${card('month', '月費', '隨時取消', false)}
+    </div>
+    <div style="margin-top:0.6rem;color:var(--muted);font-size:0.72rem;text-align:center">
+      Stripe 安全付款・隨時自己喺「管理訂閱」取消
+    </div>`;
+}
+
+async function startCheckout(interval) {
+  try {
+    toast('轉去付款頁…');
+    const { url } = await api('/api/billing/checkout', {
+      method: 'POST', body: JSON.stringify({ interval }),
+    });
+    window.location.href = url;
+  } catch (e) {
+    if (!e.paywall) toast('開唔到付款頁：' + e.message, 'error');
+  }
+}
+
+async function openBillingPortal() {
+  try {
+    const { url } = await api('/api/billing/portal', { method: 'POST' });
+    window.location.href = url;
+  } catch (e) { toast(e.message, 'error'); }
+}
 
 // 鎖住嘅功能：見到個功能存在（唔好收埋），撳落去彈升級 modal。
 function lockChip(label) {
@@ -2668,6 +2769,32 @@ function applyTierToChrome() {
 function applyRoleToSettings() {
   const sec = document.getElementById('settings-cfg-section');
   if (sec) sec.style.display = _userRole === 'admin' ? '' : 'none';
+  const bill = document.getElementById('settings-admin-billing');
+  if (bill) bill.style.display = _userRole === 'admin' ? '' : 'none';
+}
+
+// ⚙️ 設定入面嘅訂閱狀態：未訂閱就出計劃卡，訂咗就出到期日 + 管理入口
+function renderBillingSummary() {
+  const el = document.getElementById('settings-billing');
+  if (!el) return;
+  if (!_billing) { el.innerHTML = `<span style="color:var(--muted)">載入緊…</span>`; return; }
+  const b = _billing;
+  if (b.tier !== 'paid') {
+    el.innerHTML = `
+      <div style="color:var(--muted);font-size:0.8rem;margin-bottom:0.5rem">你而家用緊免費版</div>
+      ${planPickerHtml()}`;
+    return;
+  }
+  const st = b.cancel_at_period_end ? '已排期取消' : (
+    { active: '生效中', trialing: '試用中', past_due: '扣數失敗，重試緊' }[b.subscription_status] || b.subscription_status || '生效中');
+  el.innerHTML = `
+    <div style="display:flex;align-items:center;gap:0.5rem;flex-wrap:wrap">
+      <span style="background:rgba(245,158,11,0.15);color:var(--accent);border-radius:999px;padding:0.1rem 0.55rem;font-size:0.75rem;font-weight:600">收費版</span>
+      <span style="color:var(--muted);font-size:0.8rem">${escHtml(st)}${
+        b.current_period_end ? `・${b.cancel_at_period_end ? '用到' : '下次扣費'} ${escHtml(b.current_period_end)}` : ''}</span>
+    </div>
+    ${b.hasCustomer ? `<button class="vf-submit" style="width:auto;padding:0.45rem 0.9rem;margin:0.55rem 0 0" onclick="openBillingPortal()">管理訂閱／發票</button>`
+      : `<div style="color:var(--muted);font-size:0.78rem;margin-top:0.4rem">由管理員直接開通，冇付款記錄</div>`}`;
 }
 
 async function loadEstates() {
@@ -3521,13 +3648,209 @@ function getNotesValue() {
   return [...chips, ...(text ? [text] : [])].join(', ') || null;
 }
 
+// ── Admin 付款後台 ─────────────────────────────────────────────────────────
+// 全部 action 後端都有 admin gate，呢度淨係 UI。
+let _ab = { subs: [], summary: {}, plans: [], active: {}, events: [] };
+
+async function openAdminBilling() {
+  document.getElementById('adminBillingOverlay').style.display = 'flex';
+  document.getElementById('ab-summary').innerHTML = '<div class="loading"><div class="spinner"></div> 載入中…</div>';
+  await refreshAdminBilling();
+}
+function closeAdminBilling() { document.getElementById('adminBillingOverlay').style.display = 'none'; }
+
+async function refreshAdminBilling() {
+  try {
+    const [overview, plans, events] = await Promise.all([
+      api('/api/admin/billing'),
+      api('/api/admin/billing/plans'),
+      api('/api/admin/billing/events'),
+    ]);
+    _ab = { ...overview, ...plans, events: events.events || [] };
+  } catch (e) { toast('載入失敗：' + e.message, 'error'); return; }
+  renderAbSummary(); renderAbPlans(); renderAbSubs(); renderAbEvents();
+}
+
+function renderAbSummary() {
+  const s = _ab.summary || {};
+  const card = (label, val, color) => `
+    <div style="flex:1;min-width:120px;background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:0.6rem 0.75rem">
+      <div style="font-size:0.72rem;color:var(--muted)">${escHtml(label)}</div>
+      <div style="font-size:1.05rem;font-weight:700;${color ? `color:${color}` : ''}">${escHtml(String(val))}</div>
+    </div>`;
+  document.getElementById('ab-summary').innerHTML = `
+    ${!_ab.stripeConfigured ? `<div style="background:rgba(239,68,68,0.12);border:1px solid var(--down);border-radius:6px;padding:0.5rem 0.7rem;font-size:0.82rem;margin-bottom:0.6rem">⚠️ 未設定 STRIPE_SECRET_KEY，收唔到錢</div>` : ''}
+    <div style="display:flex;gap:0.5rem;flex-wrap:wrap">
+      ${card('付費用戶', s.paid_accounts ?? 0)}
+      ${card('本月淨收入', money(s.mtd_cents ?? 0), 'var(--up)')}
+      ${card('累計淨收入', money(s.total_cents ?? 0))}
+      ${card('已退款', money(s.refunded_cents ?? 0), (s.refunded_cents ? 'var(--down)' : ''))}
+      ${card('30日扣數失敗', s.failed_30d ?? 0, (s.failed_30d ? 'var(--down)' : ''))}
+    </div>`;
+}
+
+function renderAbPlans() {
+  const today = new Date(Date.now() + 8 * 3600e3).toISOString().slice(0, 10);
+  const row = (iv, label) => {
+    const cur = _ab.active?.[iv];
+    const future = (_ab.plans || []).filter(p => p.billing_interval === iv && p.effective_from > today);
+    return `
+      <div style="border:1px solid var(--border);border-radius:8px;padding:0.6rem 0.75rem;margin-bottom:0.5rem">
+        <div style="display:flex;align-items:center;gap:0.6rem;flex-wrap:wrap">
+          <span style="font-weight:600;font-size:0.88rem">${escHtml(label)}</span>
+          <span style="font-size:1rem;font-weight:700;color:var(--accent)">${cur ? money(cur.amount_cents) : '未設定'}</span>
+          ${cur ? `<span style="font-size:0.72rem;color:var(--muted)">生效 ${escHtml(cur.effective_from)}</span>` : ''}
+        </div>
+        ${future.length ? `<div style="font-size:0.75rem;color:var(--accent);margin-top:0.3rem">
+          ⏳ 排期中：${future.map(p => `${money(p.amount_cents)} 由 ${escHtml(p.effective_from)} 起`).join('、')}
+        </div>` : ''}
+        <div style="display:flex;gap:0.35rem;margin-top:0.5rem;flex-wrap:wrap;align-items:center">
+          <input type="number" min="1" step="1" id="ab-amt-${iv}" placeholder="新價 HK$"
+            style="width:100px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:0.8rem;padding:0.3rem 0.45rem;font-family:inherit">
+          <input type="date" id="ab-eff-${iv}" value="${today}"
+            style="background:var(--surface2);border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:0.8rem;padding:0.3rem 0.45rem;font-family:inherit">
+          <button class="history-btn" style="font-size:0.78rem" onclick="savePlan('${iv}')">排期改價</button>
+        </div>
+      </div>`;
+  };
+  document.getElementById('ab-plans').innerHTML = row('month', '月費') + row('year', '年費');
+}
+
+async function savePlan(interval) {
+  const amount = Number(document.getElementById(`ab-amt-${interval}`).value);
+  const effective_from = document.getElementById(`ab-eff-${interval}`).value;
+  if (!amount || amount <= 0) return toast('入個大過 0 嘅金額', 'error');
+  if (!effective_from) return toast('揀個生效日期', 'error');
+  try {
+    await api('/api/admin/billing/plans', {
+      method: 'POST', body: JSON.stringify({ interval, amount, effective_from }),
+    });
+    toast(`已排期：${interval === 'year' ? '年費' : '月費'} HK$${amount} 由 ${effective_from} 起`, 'success');
+    await refreshAdminBilling();
+  } catch (e) { toast('改價失敗：' + e.message, 'error'); }
+}
+
+function renderAbSubs() {
+  const q = (document.getElementById('ab-search')?.value || '').trim().toLowerCase();
+  const rows = (_ab.subs || []).filter(s => !q || (s.email || '').toLowerCase().includes(q));
+  const statusChip = (s) => {
+    if (s.tier !== 'paid') return `<span style="color:var(--muted)">免費</span>`;
+    const label = s.cancel_at_period_end ? '排期取消'
+      : ({ active: '生效中', trialing: '試用', past_due: '扣數失敗' }[s.subscription_status] || (s.stripe_subscription_id ? s.subscription_status : '人手開通'));
+    const col = s.subscription_status === 'past_due' ? 'var(--down)' : 'var(--up)';
+    return `<span style="color:${col};font-weight:600">收費版</span><div style="font-size:0.7rem;color:var(--muted)">${escHtml(label || '')}</div>`;
+  };
+  const body = rows.length === 0
+    ? `<tr><td colspan="5" class="no-data" style="padding:1.2rem;text-align:center">冇符合嘅帳戶</td></tr>`
+    : rows.map(s => `
+      <tr>
+        <td style="padding:0.4rem 0.5rem">${escHtml(s.email || '(冇 email)')}
+          <div style="font-size:0.7rem;color:var(--muted)">#${s.id}${s.role === 'admin' ? ' · admin' : ''} · ${s.estates} 屋苑</div></td>
+        <td style="padding:0.4rem 0.5rem">${statusChip(s)}</td>
+        <td style="padding:0.4rem 0.5rem;white-space:nowrap">${escHtml(s.subscription_interval === 'year' ? '年費' : s.subscription_interval === 'month' ? '月費' : '—')}</td>
+        <td style="padding:0.4rem 0.5rem;white-space:nowrap;font-size:0.8rem">${escHtml(s.current_period_end || '—')}</td>
+        <td style="padding:0.4rem 0.5rem;white-space:nowrap">
+          <button class="history-btn" style="font-size:0.7rem;padding:0.1rem 0.4rem" onclick="abAction('sync',${s.id})">同步</button>
+          ${s.stripe_subscription_id && !s.cancel_at_period_end
+            ? `<button class="history-btn" style="font-size:0.7rem;padding:0.1rem 0.4rem" onclick="abAction('cancel',${s.id})">期末取消</button>` : ''}
+          ${s.stripe_customer_id
+            ? `<button class="history-btn" style="font-size:0.7rem;padding:0.1rem 0.4rem" onclick="abAction('refund',${s.id})">退款</button>` : ''}
+          <button class="history-btn" style="font-size:0.7rem;padding:0.1rem 0.4rem"
+            onclick="abSetTier('${escJsAttr(s.email || '')}','${s.tier === 'paid' ? 'free' : 'paid'}')">${s.tier === 'paid' ? '降做免費' : '人手開通'}</button>
+        </td>
+      </tr>`).join('');
+  document.getElementById('ab-subs').innerHTML = `
+    <div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:0.84rem">
+      <thead><tr style="color:var(--muted);font-size:0.75rem;text-align:left">
+        <th style="padding:0.3rem 0.5rem">帳戶</th><th style="padding:0.3rem 0.5rem">狀態</th>
+        <th style="padding:0.3rem 0.5rem">計劃</th><th style="padding:0.3rem 0.5rem">下次扣費</th>
+        <th style="padding:0.3rem 0.5rem">操作</th>
+      </tr></thead><tbody>${body}</tbody>
+    </table></div>`;
+}
+
+async function abAction(action, accountId) {
+  const confirms = {
+    refund: '確定退返最近一筆款？Stripe 手續費退唔返，蝕咗就蝕咗。',
+    cancel: '確定期末取消佢個訂閱？（佢仍然用到今期完）',
+  };
+  if (confirms[action] && !confirm(confirms[action])) return;
+  try {
+    const r = await api(`/api/admin/billing/${action}`, {
+      method: 'POST', body: JSON.stringify({ account_id: accountId }),
+    });
+    toast(action === 'refund' ? `已退 ${money(Math.abs(r.amount_cents || 0))}`
+      : action === 'cancel' ? '已排期期末取消' : '已同步', 'success');
+    await refreshAdminBilling();
+  } catch (e) { toast('失敗：' + e.message, 'error'); }
+}
+
+async function abSetTier(email, tier) {
+  if (!email) return toast('呢個帳戶冇 email，改唔到', 'error');
+  if (!confirm(`確定將 ${email} 改做 ${tier === 'paid' ? '收費版' : '免費版'}？`)) return;
+  try {
+    await api('/api/admin/tiers', { method: 'POST', body: JSON.stringify({ email, tier }) });
+    toast('已更新', 'success');
+    await refreshAdminBilling();
+  } catch (e) { toast('失敗：' + e.message, 'error'); }
+}
+
+function renderAbEvents() {
+  const rows = (_ab.events || []).slice(0, 40);
+  const body = rows.length === 0
+    ? `<tr><td colspan="4" class="no-data" style="padding:1.2rem;text-align:center">仲未有記錄</td></tr>`
+    : rows.map(e => {
+      const col = e.status === 'failed' || e.status === 'error' ? 'var(--down)'
+        : e.status === 'orphan' ? 'var(--accent)' : 'var(--muted)';
+      return `<tr>
+        <td style="padding:0.35rem 0.5rem;white-space:nowrap;font-size:0.78rem;color:var(--muted)">${escHtml(e.created_at || '')}</td>
+        <td style="padding:0.35rem 0.5rem;font-size:0.8rem">${escHtml(e.type)}
+          <div style="font-size:0.7rem;color:${col}">${escHtml(e.summary || e.status || '')}</div></td>
+        <td style="padding:0.35rem 0.5rem;font-size:0.8rem">${escHtml(e.email || '—')}</td>
+        <td style="padding:0.35rem 0.5rem;white-space:nowrap;text-align:right;font-size:0.82rem;${e.amount_cents < 0 ? 'color:var(--down)' : ''}">
+          ${e.amount_cents == null ? '—' : money(e.amount_cents)}</td>
+      </tr>`;
+    }).join('');
+  document.getElementById('ab-events').innerHTML = `
+    <div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse">
+      <thead><tr style="color:var(--muted);font-size:0.75rem;text-align:left">
+        <th style="padding:0.3rem 0.5rem">時間</th><th style="padding:0.3rem 0.5rem">事件</th>
+        <th style="padding:0.3rem 0.5rem">帳戶</th><th style="padding:0.3rem 0.5rem;text-align:right">金額</th>
+      </tr></thead><tbody>${body}</tbody>
+    </table></div>`;
+}
+
 async function openSettingsModal() {
   document.getElementById('settingsModalOverlay').style.display = 'flex';
   renderCfgOptions();
   renderPrefsSummary();
-  await Promise.all([loadAppConfig(), loadPreferences()]);
+  renderBillingSummary();
+  await Promise.all([loadAppConfig(), loadPreferences(), loadBilling()]);
   renderCfgOptions();
   renderPrefsSummary();
+  renderBillingSummary();
+}
+
+// Stripe 俾完錢會 redirect 返嚟 ?billing=success。個 webhook 可能仲未到，
+// 所以 poll 幾次 /api/config 等 tier 翻新，唔好叫用戶自己 refresh。
+async function handleBillingReturn() {
+  const p = new URLSearchParams(location.search);
+  const r = p.get('billing');
+  if (!r) return;
+  history.replaceState({}, '', location.pathname);   // 清走個 query，refresh 唔會再彈
+  if (r === 'cancel') { toast('已取消付款', 'error'); return; }
+  toast('付款成功，開通緊…');
+  for (let i = 0; i < 10 && !isPaid(); i++) {
+    await new Promise(res => setTimeout(res, 1200));
+    await loadAppConfig();
+  }
+  await loadBilling();
+  if (isPaid()) {
+    toast('多謝訂閱！收費版功能已開通', 'success');
+    location.reload();   // 全頁重繪，鎖住嘅 UI 一次過解鎖
+  } else {
+    toast('付款收到咗，開通需要少少時間。過一陣 refresh 一下，仲唔得就聯絡我哋。', 'error');
+  }
 }
 
 // ── 睇樓偏好（首次登入 popup + filter auto-apply + ⚙️ 可改）──
@@ -5269,6 +5592,7 @@ if (getToken()) {
   hideLoginScreen();
   loadEstates();
   loadNotesOptions();
+  handleBillingReturn();     // Stripe 付完款 redirect 返嚟嗰陣先做嘢
   checkFirstLoginPrefs();
 } else {
   showLoginScreen();

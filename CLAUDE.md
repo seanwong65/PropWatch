@@ -8,9 +8,18 @@ XSS/HTML injection、API 被人狂抽數據去做類似嘅系統。**每個新 f
 ### Worker（後端）
 
 1. **新 endpoint 一律放喺 auth guard 後面**（`const session = await authenticate(...)` 之後）。
-   唯一例外係 `/api/login`、`/api/logout`、`/api/register` — 唔准再加新嘅公開 route。
+   唯一例外係 `/api/login`、`/api/logout`、`/api/register`、`/api/stripe-webhook`
+   — 唔准再加新嘅公開 route。
    如果某功能「好似」要公開（例如 debug、email trigger），都要行 auth：
    之前 `/api/send-today-email` 同 `/api/debug-ricacorp-pages` 公開過，係漏洞，已搬入 guard 內。
+
+   `/api/stripe-webhook` 冇得行 auth（Stripe server 打嚟，冇我哋嘅 token），
+   所以佢**改為靠 HMAC 簽名驗證**（`stripeVerifySignature`，Stripe 官方演算法 +
+   300 秒 replay window）。加呢類 endpoint 嘅硬規矩：
+   - 一定要驗簽，驗唔過即刻 400，唔准「驗唔到就當佢真」；
+   - 一定要用 **raw body** 驗（parse 完再 stringify 會爆簽名）；
+   - 只准寫狀態，**唔准回任何數據**俾 caller（唔可以變成免 auth 嘅讀取窗口）；
+   - 要 idempotent（`payment_events.stripe_event_id` UNIQUE），因為 Stripe 會重試。
 2. **CORS 係 allow-list**（`isAllowedOrigin()` / `applyCors()`，喺 fetch 出口統一 reflect）。
    加新 origin 前要諗清楚；唔准改返做 `*`。
 3. **安全數字參數用全局 `sec_*` settings key + code default**（`SEC_DEFAULTS`）。
@@ -20,6 +29,13 @@ XSS/HTML injection、API 被人狂抽數據去做類似嘅系統。**每個新 f
    viewings/system_parameters 經 `account_id = ?`，config key 用 `cfg_<accountId>_<key>`。
    唔准寫漏 scope — 會跨帳戶漏數據。
 5. 錯誤訊息唔好漏內部細節（login 失敗永遠回同一句 `用戶名或密碼錯誤`）。
+6. **收費／付款**：`tier`（free/paid）係「有冇得用收費功能」嘅唯一真相，
+   全部 gate 行 `isPaidSession()` + 回 **402**（唔好靠前端收埋個掣 —— free user
+   照 call 到 API）。免費上限數字入 `sec_*`，唔准入 CONFIG_DEFS。
+   Stripe key 一律 `wrangler secret put`（`STRIPE_SECRET_KEY` /
+   `STRIPE_WEBHOOK_SECRET`），**唔准寫入 code 或者 git**。
+   ⚠️ 個 Stripe 帳戶同 iPointWeb 共用 —— 帳戶層設定（例如 Adaptive Pricing）
+   郁咗會連 iPoint 個 shop 一齊影響，改之前要諗清楚。
 
 ### Frontend（`frontend/index.html`）
 
