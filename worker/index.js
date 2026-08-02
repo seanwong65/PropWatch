@@ -4407,10 +4407,16 @@ export default {
             SELECT source, MAX(snapshot_date) AS d FROM listings WHERE estate_id = ?1 GROUP BY source
           ),
           per_ref AS (
-            SELECT ref_no, source, MIN(snapshot_date) AS first_seen, MAX(snapshot_date) AS last_seen
+            SELECT ref_no, source, MIN(snapshot_date) AS first_seen, MAX(snapshot_date) AS last_seen,
+                   MIN(NULLIF(publish_date, '')) AS publish_date
             FROM listings WHERE estate_id = ?1 GROUP BY ref_no, source
           )
-          SELECT v.id AS viewing_id, pr.ref_no, pr.first_seen,
+          SELECT v.id AS viewing_id, pr.ref_no,
+            -- 上盤日 = source 公佈日 同 我哋第一次見到 之間較早嗰個，同
+            -- 「最新放盤」個 listingDate() 一致。淨用 first_seen 會嚴重低估
+            -- （我哋 scrape 咗冇幾耐，first_seen 對舊盤嚟講都好近期）。
+            CASE WHEN pr.publish_date IS NOT NULL AND pr.publish_date < pr.first_seen
+                 THEN pr.publish_date ELSE pr.first_seen END AS list_start,
             CASE WHEN pr.last_seen < sl.d THEN pr.last_seen ELSE NULL END AS removed_date,
             (SELECT COUNT(DISTINCT price) FROM listing_price_history h WHERE h.ref_no = pr.ref_no) AS price_variants
           FROM viewings v
@@ -4423,7 +4429,7 @@ export default {
         const changedByViewing = new Set(); // viewing_id 有任何 ref 轉過價
         for (const r of refRows) {
           const end = r.removed_date || todayStr;
-          const days = Math.round((Date.parse(end) - Date.parse(r.first_seen)) / 86400000);
+          const days = Math.round((Date.parse(end) - Date.parse(r.list_start)) / 86400000);
           if (Number.isFinite(days) && days >= 0) {
             const cur = domByViewing.get(r.viewing_id);
             if (cur == null || days > cur) domByViewing.set(r.viewing_id, days);
