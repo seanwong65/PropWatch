@@ -4319,22 +4319,34 @@ async function loadViewings(estateId) {
       const priceChangedCell = v.linked_ref_no == null ? '-'
         : v.price_changed ? '<span style="color:var(--accent);font-size:0.8rem">有變動</span>'
         : '<span style="color:var(--muted);font-size:0.8rem">無變動</span>';
+      // 單位／售價／成交／備注各自合併咗幾欄（16→12）：同一件事嘅資料擺埋
+      // 一格，唔使橫拉咁遠。乜都冇少——👁 查看個 detail modal 照樣逐項列。
+      const unitSub = [subLine, sizeStr !== '-' ? sizeStr : ''].filter(Boolean).join(' · ');
+      const soldHtml = (v.txn_price && v.txn_reg_date >= v.view_date)
+        ? `<span style="color:var(--accent)"><strong>${fmt(v.txn_price)}</strong></span> <span style="color:var(--muted);font-size:0.75rem">${v.txn_reg_date}</span>${annualHtml}`
+        : `<span style="color:var(--muted);font-size:0.75rem">未沽出</span>`;
+      const notesHtml = [
+        v.notes ? `<span style="font-size:0.78rem;background:var(--surface2);border-radius:4px;padding:0.15rem 0.4rem">${escHtml(v.notes)}</span>` : '',
+        imgHtml ? `<div style="margin-top:0.25rem">${imgHtml}</div>` : '',
+      ].filter(Boolean).join('') || '-';
       return `<tr data-vrow="${v.id}">
         <td><button class="history-btn" onclick="openViewingDetail(${v.id})" title="用表格式睇返呢行資料" style="font-size:0.72rem;padding:0.2rem 0.5rem">👁 查看</button></td>
-        <td>${v.view_date}</td>
-        <td><strong>${unitStr}</strong>${subLine ? `<br><span style="color:var(--muted);font-size:0.75rem">${subLine}</span>` : ''}</td>
-        <td><strong style="color:var(--accent)">${fmt(v.price)}</strong> <strong>${sizeStr}</strong><br><span style="color:var(--muted);font-size:0.75rem">${psfStr}</span></td>
+        <td><strong>${unitStr}</strong>
+          ${unitSub ? `<div style="color:var(--muted);font-size:0.75rem">${unitSub}</div>` : ''}
+          <div style="color:var(--muted);font-size:0.72rem">睇於 ${v.view_date}</div></td>
+        <td><strong style="color:var(--accent)">${fmt(v.price)}</strong>
+          <div style="color:var(--muted);font-size:0.75rem">${psfStr}</div>
+          ${mgmtMonthly ? `<div style="color:var(--muted);font-size:0.72rem">管理費 $${mgmtMonthly.toLocaleString()}/月</div>` : ''}</td>
         <td id="vhs-${v.id}">${hsCell}</td>
         <td>${marketVsHtml(v)}</td>
         <td>${similarListingsHtml(v)}</td>
-        <td>${domCell}</td>
-        <td id="vprev-${v.id}"><span style="color:var(--muted);font-size:0.75rem;cursor:pointer" onclick="fetchUnitTxn(${v.id})">查詢</span></td>
-        <td>${v.txn_price && v.txn_reg_date >= v.view_date ? `<span style="color:var(--accent)"><strong>${fmt(v.txn_price)}</strong></span><br><span style="color:var(--muted);font-size:0.75rem">${v.txn_reg_date}</span>${annualHtml}` : '-'}</td>
-        <td>${mgmtMonthly ? `$${mgmtMonthly.toLocaleString()}/月` : '-'}</td>
         <td id="vmatch-${v.id}">${buildMatchCell(v)}</td>
+        <td>${domCell}</td>
         <td>${priceChangedCell}</td>
-        <td>${v.notes ? `<span style="font-size:0.78rem;background:var(--surface2);border-radius:4px;padding:0.15rem 0.4rem">${escHtml(v.notes)}</span>` : '-'}</td>
-        <td>${imgHtml || '-'}</td>
+        <td>
+          <div id="vprev-${v.id}"><span style="color:var(--muted);font-size:0.75rem;cursor:pointer" onclick="fetchUnitTxn(${v.id})">查上手成交</span></div>
+          <div style="margin-top:0.2rem">${soldHtml}</div></td>
+        <td>${notesHtml}</td>
         <td style="white-space:nowrap">
           <button class="viewing-del-btn" onclick='openViewingModal(JSON.parse(decodeURIComponent("${vData}")))' title="更改" style="background:var(--surface2);margin-right:0.3rem">✏️</button>
           <button class="viewing-del-btn" onclick="deleteViewing(${v.id},${estateId})" title="刪除">🗑</button>
@@ -4344,7 +4356,7 @@ async function loadViewings(estateId) {
     panel.innerHTML = `<div class="listings-section" id="viewingsTableWrap"></div>`;
     renderFrozenTable(
       document.getElementById('viewingsTableWrap'),
-      `<th></th><th>睇樓日期</th><th>單位</th><th>售價</th><th>恒生估值</th><th>相對市價</th><th>類近在售</th><th>放咗幾耐</th><th>上次購買</th><th>成交記錄</th><th>管理費(每月)</th><th>對應放盤</th><th>售價變動</th><th>備注</th><th>圖片</th><th></th>`,
+      `<th></th><th>單位</th><th>售價</th><th>恒生估值</th><th>相對市價</th><th>類近在售</th><th>對應放盤</th><th>放咗幾耐</th><th>售價變動</th><th>成交</th><th>備注</th><th></th>`,
       rows, 10, 'history-table data-table'
     );
 
@@ -4390,11 +4402,13 @@ async function fetchUnitTxn(viewingId) {
 // 2 欄 grid（3 欄嘅話「相對市價」「類近在售」呢類兩行內容會迫到好緊）。
 // 內容長度唔穩定嗰幾個（對應放盤有多行按鈕、備注文字唔定長、圖片有縮圖）
 // 就佔全行（wide:true），其餘 11 個兩個一行。
+// ⚠️ 呢個 array 係「按位置」對返 <td>（dataCells = row.children.slice(1,-1)），
+// 所以改表格欄數／次序就一定要同步改呢度，否則 label 會錯位。
 const VIEWING_DETAIL_FIELDS = [
-  { label: '睇樓日期' }, { label: '單位' }, { label: '售價' }, { label: '恒生估值' },
-  { label: '相對市價' }, { label: '類近在售' }, { label: '放咗幾耐' }, { label: '上次購買' },
-  { label: '成交記錄' }, { label: '管理費(每月)' }, { label: '對應放盤', wide: true },
-  { label: '售價變動' }, { label: '備注', wide: true }, { label: '圖片', wide: true },
+  { label: '單位（房數／實呎／睇樓日期）' }, { label: '售價（呎價／管理費）' },
+  { label: '恒生估值' }, { label: '相對市價' }, { label: '類近在售' },
+  { label: '對應放盤', wide: true }, { label: '放咗幾耐' }, { label: '售價變動' },
+  { label: '成交（上手／沽出）' }, { label: '備注', wide: true },
 ];
 // 撳「查看」開 modal 嗰陣，捕捉返表格入面全部 row 嘅順序（同顯示順序一致），
 // 等 ‹ 上一條 / 下一條 › 可以喺呢個順序度前後移動。順序可能因為 filter/sort
