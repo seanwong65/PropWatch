@@ -3209,6 +3209,21 @@ function hsDiffHtml(hsPrice, txnPrice) {
 // 相對同苑近60日成交中位呎價平定貴（同抵買雷達同一把尺,由 /api/viewings 計好）。
 // basis='tier' 時基準係同層帶(高/中/低層,以該座成交最高層三等分)嘅中位數,
 // 同層唔夠5宗會 fallback 返全苑中位數。
+// 樣本可信度：個 % 有幾可信，睇佢背後有幾多宗成交／幾多個在售盤撐住。
+// 呢個同「中位數最少成交宗數」係兩件事——嗰個決定「出唔出個 %」，
+// 呢個決定「出咗之後提唔提你信得過幾多」。門檻入咗 CONFIG_DEFS（⚙️ 可改）。
+function sampleConfidence(n) {
+  const weak = _appCfg.sample_weak_n ?? 5;
+  if (n == null) return { weak: false, color: '', mark: '', tip: '' };
+  if (n < weak) {
+    return {
+      weak: true, color: 'var(--accent)', mark: ' ⚠',
+      tip: `得 ${n} 個樣本（少過 ${weak}），呢個 % 好易被個別特殊成交拉歪，僅供參考`,
+    };
+  }
+  return { weak: false, color: '', mark: '', tip: `${n} 個樣本，夠數` };
+}
+
 function marketVsHtml(v) {
   // 睇樓記錄本身免費無限，但砌喺上面嘅市價分析係收費版（後端已 null 咗）
   if (!isPaid()) return lockChip('相對市價');
@@ -3235,10 +3250,12 @@ function marketVsHtml(v) {
   const estInline = estVal
     ? ` <span style="color:var(--accent2)" title="實用 ${v.size_net}呎 × 中位 $${v.sold_med_psf.toLocaleString()}/呎">估值 $${(estVal/1e4).toFixed(0)}萬</span>`
     : '';
-  // 「N宗」可撳,彈出組成中位數嗰批成交。
-  const nClick = `<span onclick="openEstateComps(${v.estate_id},'${v.market_basis||'estate'}','${v.floor_tier||''}','${escJsAttr(v.block||'')}','${escJsAttr(v.floor||'')}','${escJsAttr(v.unit||'')}')" style="cursor:pointer;border-bottom:1px dotted var(--muted)" title="睇成交紀錄">${v.market_n_sold}宗</span>`;
+  // 「N宗」可撳,彈出組成中位數嗰批成交。樣本少就標黃加⚠。
+  const conf = sampleConfidence(v.market_n_sold);
+  const nClick = `<span onclick="openEstateComps(${v.estate_id},'${v.market_basis||'estate'}','${v.floor_tier||''}','${escJsAttr(v.block||'')}','${escJsAttr(v.floor||'')}','${escJsAttr(v.unit||'')}')" style="cursor:pointer;border-bottom:1px dotted var(--muted);${conf.weak ? `color:${conf.color};font-weight:600` : ''}" title="${escHtml(conf.weak ? conf.tip : '睇成交紀錄')}">${v.market_n_sold}宗${conf.mark}</span>`;
   return `<div style="font-size:0.8rem">${badge}${estInline}</div>`
-    + `<div class="unit-price" title="${tip}">${label} $${(v.sold_med_psf||0).toLocaleString()} · ${nClick}</div>`;
+    + `<div class="unit-price" title="${tip}">${label} $${(v.sold_med_psf||0).toLocaleString()} · ${nClick}</div>`
+    + (conf.weak ? `<div style="color:${conf.color};font-size:0.68rem" title="${escHtml(conf.tip)}">樣本少，僅供參考</div>` : '');
 }
 
 const _median = arr => {
@@ -3291,9 +3308,11 @@ function similarListingsHtml(v) {
   } else {
     badge = `<span style="color:var(--muted);font-size:0.75rem">-</span>`;
   }
-  const nClick = `<span onclick="openSimilarListings(${v.id})" style="cursor:pointer;border-bottom:1px dotted var(--muted)" title="睇 ${tip}">${sim.length} 個</span>`;
+  const conf = sampleConfidence(sim.length);
+  const nClick = `<span onclick="openSimilarListings(${v.id})" style="cursor:pointer;border-bottom:1px dotted var(--muted);${conf.weak ? `color:${conf.color};font-weight:600` : ''}" title="${escHtml(conf.weak ? conf.tip : '睇 ' + tip)}">${sim.length} 個${conf.mark}</span>`;
   return `<div style="font-size:0.8rem">${badge}</div>`
-    + `<div class="unit-price" title="${tip}">${medPsf ? `${v.floor_tier}中位 $${medPsf.toLocaleString()}/呎 · ` : ''}${nClick}</div>`;
+    + `<div class="unit-price" title="${tip}">${medPsf ? `${v.floor_tier}中位 $${medPsf.toLocaleString()}/呎 · ` : ''}${nClick}</div>`
+    + (conf.weak ? `<div style="color:${conf.color};font-size:0.68rem" title="${escHtml(conf.tip)}">樣本少，僅供參考</div>` : '');
 }
 
 // 類近在售盤 popup — 分組版面同「參考成交」一致：①同座同室 ②同座 ③其他座。
