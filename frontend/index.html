@@ -729,6 +729,13 @@
     .pr-info { font-size: 0.72rem; line-height: 1.55; min-width: 175px; padding-left: 0.6rem; border-left: 1px solid var(--border); }
     .pr-lnk { cursor: pointer; border-bottom: 1px dotted var(--muted); }
     .pr-lnk:hover { color: var(--accent); }
+    /* 窄屏（手機卡片／細 viewport）：ruler 圖 + 文字由並排改上下疊，
+       唔會逼到成行變一長條要橫拉。 */
+    @media (max-width: 480px) {
+      .pr-flex { flex-direction: column; gap: 0.5rem; }
+      .pr-ruler { width: 100%; max-width: 260px; }
+      .pr-info { border-left: none; padding-left: 0; border-top: 1px solid var(--border); padding-top: 0.5rem; }
+    }
     .txn-date { color: var(--text); font-size: 0.75rem; }
     .hs-val-btn {
       background: var(--btn-bg); border: 1px solid var(--btn-bg); color: var(--text);
@@ -3604,6 +3611,22 @@ function switchTab(tab, estateId) {
 let _viewingEstateId = null;
 let _lastViewings = [];
 let _viewingEstateName = '';
+// 手機用卡片、桌面用表格（loadViewings 判斷）。轉埋 breakpoint（例如手機
+// 轉橫向、拉闊瀏覽器窗）先重 render——resize 一直 fire 好密，用個 debounce
+// 擋住,唔會咁大陣象再 call API。
+let _viewingsIsMobile = null;
+let _viewingsResizeTimer = null;
+window.addEventListener('resize', () => {
+  clearTimeout(_viewingsResizeTimer);
+  _viewingsResizeTimer = setTimeout(() => {
+    const tab = document.getElementById('tab-viewings');
+    if (!tab || tab.style.display === 'none') return;   // 唔喺呢個 tab 唔使理
+    const nowMobile = window.matchMedia('(max-width: 768px)').matches;
+    if (_viewingsIsMobile != null && nowMobile !== _viewingsIsMobile && _viewingEstateId) {
+      loadViewings(_viewingEstateId);
+    }
+  }, 300);
+});
 let _viewingImages = []; // [{dataUrl, file}]
 let _viewingEditId = null;
 
@@ -4392,6 +4415,10 @@ async function loadViewings(estateId) {
     const fmt = p => p ? `$${(p/1e4).toFixed(p%10000===0?0:1)}萬` : '-';
     window._viewingImgsMap = {};
     window._viewingMap = {};
+    // 手機用卡片、桌面用表格——兩款版面互斥（同一時間得一款喺 DOM 度），
+    // 咁 id="vmatch-"/"vprev-"/"vhs-" 呢啲畀 async 更新用嘅 id 唔會撞。
+    const isMobile = window.matchMedia('(max-width: 768px)').matches;
+    _viewingsIsMobile = isMobile;
     const rows = viewings.map(v => {
       const imgs = v.images ? JSON.parse(v.images) : [];
       window._viewingImgsMap[v.id] = imgs;
@@ -4445,6 +4472,39 @@ async function loadViewings(estateId) {
         v.notes ? `<span style="font-size:0.78rem;background:var(--surface2);border-radius:4px;padding:0.15rem 0.4rem">${escHtml(v.notes)}</span>` : '',
         imgHtml ? `<div style="margin-top:0.25rem">${imgHtml}</div>` : '',
       ].filter(Boolean).join('') || '-';
+      const editBtn = `<button class="viewing-del-btn" onclick='openViewingModal(JSON.parse(decodeURIComponent("${vData}")))' title="更改" style="background:var(--surface2);margin-right:0.3rem">✏️</button>`;
+      const delBtn = `<button class="viewing-del-btn" onclick="deleteViewing(${v.id},${estateId})" title="刪除">🗑</button>`;
+
+      if (isMobile) {
+        // 卡片版面：一格一格垂直疊，唔使橫拉。同一組 id（vmatch-/vprev-）
+        // 表格版都用緊，但兩款版面互斥所以唔會撞。
+        return `<div class="viewing-card" data-vrow="${v.id}">
+          <div class="viewing-card-header">
+            <div>
+              <div class="viewing-card-title">${unitStr}</div>
+              <div class="viewing-card-date">${unitSub ? unitSub + ' · ' : ''}睇於 ${v.view_date}</div>
+            </div>
+            <div style="white-space:nowrap;flex-shrink:0">${editBtn}${delBtn}</div>
+          </div>
+          <div style="margin-bottom:0.6rem">
+            <strong style="color:var(--accent);font-size:1.05rem">${fmt(v.price)}</strong>
+            <span style="color:var(--muted);font-size:0.8rem;margin-left:0.4rem">${psfStr}</span>
+            ${mgmtMonthly ? `<div style="color:var(--muted);font-size:0.75rem;margin-top:0.1rem">管理費 $${mgmtMonthly.toLocaleString()}/月</div>` : ''}
+          </div>
+          <div style="margin-bottom:0.7rem">${priceRulerHtml(v)}</div>
+          <div class="viewing-card-kv" style="margin-bottom:0.5rem"><span class="viewing-card-k">對應放盤</span><div id="vmatch-${v.id}">${buildMatchCell(v)}</div></div>
+          <div class="viewing-card-grid" style="grid-template-columns:repeat(2,1fr)">
+            <div class="viewing-card-kv"><span class="viewing-card-k">放咗幾耐</span>${domCell}</div>
+            <div class="viewing-card-kv"><span class="viewing-card-k">售價變動</span>${priceChangedCell}</div>
+          </div>
+          <div style="margin-bottom:0.5rem">
+            <span class="viewing-card-k">成交</span>
+            <div id="vprev-${v.id}" style="margin-top:0.15rem"><span style="color:var(--muted);font-size:0.75rem;cursor:pointer" onclick="fetchUnitTxn(${v.id})">查上手成交</span></div>
+            <div style="margin-top:0.25rem">${soldHtml}</div>
+          </div>
+          ${notesHtml !== '-' ? `<div>${notesHtml}</div>` : ''}
+        </div>`;
+      }
       return `<tr data-vrow="${v.id}">
         <td><strong>${unitStr}</strong>
           ${unitSub ? `<div style="color:var(--muted);font-size:0.75rem">${unitSub}</div>` : ''}
@@ -4460,12 +4520,19 @@ async function loadViewings(estateId) {
           <div id="vprev-${v.id}"><span style="color:var(--muted);font-size:0.75rem;cursor:pointer" onclick="fetchUnitTxn(${v.id})">查上手成交</span></div>
           <div style="margin-top:0.2rem">${soldHtml}</div></td>
         <td>${notesHtml}</td>
-        <td style="white-space:nowrap">
-          <button class="viewing-del-btn" onclick='openViewingModal(JSON.parse(decodeURIComponent("${vData}")))' title="更改" style="background:var(--surface2);margin-right:0.3rem">✏️</button>
-          <button class="viewing-del-btn" onclick="deleteViewing(${v.id},${estateId})" title="刪除">🗑</button>
-        </td>
+        <td style="white-space:nowrap">${editBtn}${delBtn}</td>
       </tr>`;
     }).join('');
+
+    if (isMobile) {
+      panel.innerHTML = `<div class="viewings-list" id="viewingsCardsWrap">${rows}</div>`;
+      // Auto-fetch 上次購買 for all rows using DetailByUnitCode
+      for (const v of viewings) {
+        fetchUnitTxn(v.id);
+        await new Promise(r => setTimeout(r, 300));
+      }
+      return;
+    }
     panel.innerHTML = `<div class="listings-section" id="viewingsTableWrap"></div>`;
     renderFrozenTable(
       document.getElementById('viewingsTableWrap'),
