@@ -3234,7 +3234,9 @@ function priceRulerHtml(v) {
   const hsInner = v.hs_price
     ? `${hsValHtml(v.hs_price)}${hsDiffHtml(v.hs_price, v.price)}`
     : `<button class="hs-val-btn" onclick="manualFetchViewingHSVal(${v.id},${_viewingEstateId},'${escJsAttr(v.block||'')}','${escJsAttr(v.floor||'')}','${escJsAttr(v.unit||'')}',${v.price||0})">查估值</button>`;
-  const hsBlock = `<div id="vhs-${v.id}">${hsInner}</div>`;
+  // wrapper 用 flex 逼 hsValHtml/hsDiffHtml 兩個 block-level 元素企埋同一行；
+  // 呢個 style 喺 fetchViewingHSVal 之後唔會俾人覆蓋（佢哋淨係更新內容）。
+  const hsBlock = `<div id="vhs-${v.id}" style="display:flex;align-items:baseline;gap:0.4rem;white-space:nowrap">${hsInner}</div>`;
 
   if (!isPaid()) {
     return `<div class="pr-flex"><div class="pr-info">${hsBlock}<div style="margin-top:0.3rem">${lockChip('相對市價／類近在售')}</div></div></div>`;
@@ -3309,14 +3311,14 @@ function priceRulerHtml(v) {
     ? `同層帶近${days}日成交中位數（以該座成交最高層 ${v.tier_max_floor} 樓三等分）`
     : `全苑近${days}日成交中位數`;
   const soldLine = hasSold
-    ? `<div><span class="up">成交</span> $${v.sold_p10.toLocaleString()}–$${v.sold_p90.toLocaleString()}<br>
-        中位 <b>$${v.sold_med_psf.toLocaleString()}</b> · <span class="pr-lnk" onclick="openEstateComps(${v.estate_id},'${v.market_basis||'estate'}','${v.floor_tier||''}','${escJsAttr(v.block||'')}','${escJsAttr(v.floor||'')}','${escJsAttr(v.unit||'')}')"
+    ? `<div style="white-space:nowrap"><span class="up">成交</span> $${v.sold_p10.toLocaleString()}–$${v.sold_p90.toLocaleString()}
+        · 中位 <b>$${v.sold_med_psf.toLocaleString()}</b> · <span class="pr-lnk" onclick="openEstateComps(${v.estate_id},'${v.market_basis||'estate'}','${v.floor_tier||''}','${escJsAttr(v.block||'')}','${escJsAttr(v.floor||'')}','${escJsAttr(v.unit||'')}')"
         title="${escHtml(soldConf.weak ? soldConf.tip : soldTip)}" style="${soldConf.weak ? `color:${soldConf.color};font-weight:600` : ''}">${v.market_n_sold}宗${soldConf.mark}</span></div>`
     : `<div class="sub">成交：${v.floor_tier == null ? '未有樓層帶' : `近${days}日唔夠${minSold}宗`}</div>`;
   const askTip = `${v.bedrooms}房 ${v.floor_tier||''} 在售盤`;
   const askLine = hasAsk
-    ? `<div style="margin-top:0.3rem;color:#cbd5e1">在售 $${askP10.toLocaleString()}–$${askP90.toLocaleString()}<br>
-        中位 <b>$${askMed.toLocaleString()}</b> · <span class="pr-lnk" onclick="openSimilarListings(${v.id})"
+    ? `<div style="margin-top:0.3rem;color:#cbd5e1;white-space:nowrap">在售 $${askP10.toLocaleString()}–$${askP90.toLocaleString()}
+        · 中位 <b>$${askMed.toLocaleString()}</b> · <span class="pr-lnk" onclick="openSimilarListings(${v.id})"
         title="${escHtml(askConf.weak ? askConf.tip : askTip)}" style="${askConf.weak ? `color:${askConf.color};font-weight:600` : ''}">${sim.length}個${askConf.mark}</span></div>`
     : `<div class="sub" style="margin-top:0.3rem">在售：${(v.floor_tier == null || v.bedrooms == null) ? '未有房數/樓層帶' : '冇同類在售盤'}</div>`;
 
