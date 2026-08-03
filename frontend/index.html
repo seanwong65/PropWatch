@@ -735,10 +735,12 @@
     .pr-needle { position: absolute; top: 0; width: 2px; height: 32px; border-radius: 1px; z-index: 2; }
     .pr-needle.pr-hs { background: var(--accent2); }
     .pr-needle.pr-you { background: var(--accent); width: 3px; }
+    .pr-needle.pr-txn { background: var(--up); width: 3px; }
     .pr-cap { position: absolute; top: 32px; transform: translateX(-50%); white-space: nowrap; font-weight: 700; text-align: center; line-height: 1.35; }
     .pr-cap .v { display: block; font-weight: 600; opacity: 0.85; font-size: 0.92em; }
     .pr-cap.pr-hs { color: var(--accent2); }
     .pr-cap.pr-you { color: var(--accent); }
+    .pr-cap.pr-txn { color: var(--up); }
     .pr-axis { position: absolute; left: 32px; right: 0; top: 58px; display: flex; justify-content: space-between; color: var(--muted); }
     .pr-info { font-size: 0.72rem; line-height: 1.55; min-width: 175px; padding-left: 0.6rem; border-left: 1px solid var(--border); }
     .pr-lnk { cursor: pointer; border-bottom: 1px dotted var(--muted); }
@@ -3223,6 +3225,10 @@ function sampleConfidence(n) {
 function priceRulerHtml(v) {
   const ownPsf = (v.price && v.size_net) ? v.price / v.size_net : null;
   const hsPsf  = (v.hs_price && v.size_net) ? v.hs_price / v.size_net : null;
+  // 呢個單位本身沽咗嘅實際成交呎價（同左邊條「成交」帶唔同——嗰條係同層帶
+  // 市場中位，呢支針係呢個單位自己最後真係幾錢成交）。條件同 soldHtml 一致。
+  const txnPsf = (v.txn_price && v.size_net && v.txn_reg_date >= v.view_date)
+    ? v.txn_price / v.size_net : null;
   // 恒生估值查詢本身唔係「我哋嘅分析」（第三方銀行估值），一直都免費——
   // 呢個 block 要喺 isPaid() 判斷之前起好，先至唔會俾條尺個 paywall 累埋佢。
   const hsInner = v.hs_price
@@ -3253,42 +3259,54 @@ function priceRulerHtml(v) {
   }
 
   // Scale：攞晒有嘅數值（兩個 band + 兩支針），兩邊加少少 padding。
-  const vals = [v.sold_p10, v.sold_med_psf, v.sold_p90, askP10, askMed, askP90, hsPsf, ownPsf].filter(x => x != null);
+  const vals = [v.sold_p10, v.sold_med_psf, v.sold_p90, askP10, askMed, askP90, hsPsf, ownPsf, txnPsf].filter(x => x != null);
   const vMin = Math.min(...vals), vMax = Math.max(...vals);
   const pad = Math.max((vMax - vMin) * 0.12, vMax * 0.02, 200);
   const scaleMin = vMin - pad, scaleSpan = (vMax + pad - scaleMin) || 1;
   const P = x => x == null ? null : Math.max(0, Math.min(100, (x - scaleMin) / scaleSpan * 100)).toFixed(1);
   const kfmt = x => (Math.floor(x / 100) / 10).toFixed(1) + 'k';   // 斬到一位,唔四捨五入
+  // 可畫範圍係左邊 32px label 之後嗰段,所以 % 要 map 落 (100% - 32px)。
+  // 直接寫 calc(32px + P%) 會攞成個容器闊度做基數,P 大嗰陣啲嘢會飛出條尺右邊。
+  const AT  = p => `calc(32px + (100% - 32px) * ${(p / 100).toFixed(4)})`;
+  const WID = w => `calc((100% - 32px) * ${(w / 100).toFixed(4)})`;
 
   const bandRows = [];
   if (hasSold && v.sold_p10 != null && v.sold_p90 != null) {
     bandRows.push(`<div class="pr-row"><span class="pr-lbl">成交</span><div class="pr-track"></div>
-      <div class="pr-band pr-sold" style="left:calc(32px + ${P(v.sold_p10)}%);width:${(P(v.sold_p90) - P(v.sold_p10)).toFixed(1)}%"></div>
-      <div class="pr-mid pr-sold" style="left:calc(32px + ${P(v.sold_med_psf)}%)"></div></div>`);
+      <div class="pr-band pr-sold" style="left:${AT(P(v.sold_p10))};width:${WID(P(v.sold_p90) - P(v.sold_p10))}"></div>
+      <div class="pr-mid pr-sold" style="left:${AT(P(v.sold_med_psf))}"></div></div>`);
   }
   if (hasAsk && askP10 != null && askP90 != null) {
     bandRows.push(`<div class="pr-row"><span class="pr-lbl">在售</span><div class="pr-track"></div>
-      <div class="pr-band pr-ask" style="left:calc(32px + ${P(askP10)}%);width:${(P(askP90) - P(askP10)).toFixed(1)}%"></div>
-      <div class="pr-mid pr-ask" style="left:calc(32px + ${P(askMed)}%)"></div></div>`);
+      <div class="pr-band pr-ask" style="left:${AT(P(askP10))};width:${WID(P(askP90) - P(askP10))}"></div>
+      <div class="pr-mid pr-ask" style="left:${AT(P(askMed))}"></div></div>`);
   }
 
-  // 兩支針嘅 caption 太近會撞字,愈近撥得愈開。
+  // 針最多三支（估值／叫價／沽出）。針本身照真實位置畫,但 caption 太近會撞字,
+  // 所以 caption 由左至右掃一次,唔夠位就順住推開,推爆邊就成組拉返入嚟。
   const needles = [], caps = [];
-  const hsP = P(hsPsf), youP = P(ownPsf);
-  const addNeedle = (cls, label, psf, pos) => {
-    needles.push(`<div class="pr-needle pr-${cls}" style="left:calc(32px + ${pos}%)"></div>`);
+  const addNeedle = (cls, label, psf) => {
+    const pos = P(psf);
+    needles.push(`<div class="pr-needle pr-${cls}" style="left:${AT(pos)}"></div>`);
     caps.push({ cls, label, psf, pos: +pos });
   };
-  if (hsPsf != null) addNeedle('hs', '估值', hsPsf, hsP);
-  if (ownPsf != null) addNeedle('you', '叫價', ownPsf, youP);
-  if (caps.length === 2) {
-    const [a, b] = caps, d = Math.abs(a.pos - b.pos);
-    if (d < 12) {
-      const push = Math.max(6, (12 - d) / 2 + 6);
-      if (a.pos <= b.pos) { a.pos -= push; b.pos += push; } else { a.pos += push; b.pos -= push; }
-    }
+  if (hsPsf != null) addNeedle('hs', '估值', hsPsf);
+  if (ownPsf != null) addNeedle('you', '叫價', ownPsf);
+  if (txnPsf != null) addNeedle('txn', '沽出', txnPsf);
+  // caption 用 translateX(-50%) 置中,所以左右各要留返半個字位,唔好貼到出界。
+  const CAP_GAP = 24, CAP_MIN = 8, CAP_MAX = 89;
+  caps.sort((a, b) => a.pos - b.pos);
+  for (let i = 1; i < caps.length; i++) {
+    const need = caps[i - 1].pos + CAP_GAP - caps[i].pos;
+    if (need > 0) caps[i].pos += need;
   }
-  const capsHtml = caps.map(c => `<div class="pr-cap pr-${c.cls}" style="left:calc(32px + ${c.pos}%)">${c.label}<span class="v">$${kfmt(c.psf)}</span></div>`).join('');
+  if (caps.length) {
+    const over = caps[caps.length - 1].pos - CAP_MAX;
+    if (over > 0) for (const c of caps) c.pos -= over;
+    const under = CAP_MIN - caps[0].pos;
+    if (under > 0) for (const c of caps) c.pos += under;
+  }
+  const capsHtml = caps.map(c => `<div class="pr-cap pr-${c.cls}" style="left:${AT(c.pos)}">${c.label}<span class="v">$${kfmt(c.psf)}</span></div>`).join('');
 
   const ruler = `<div class="pr-ruler"><div class="pr-zone">
     ${bandRows.join('')}
