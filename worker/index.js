@@ -1829,103 +1829,6 @@ async function enrichFriendHome(db, home) {
   return { past_txns, est_url, hs_price, hs_area, hs_date };
 }
 
-async function computeAskingSold(db, estateId, accountId = null) {
-  // Per-account:冇指定 estateId 時(dashboard 全局 view)只計呢個 account
-  // 訂閱嘅屋苑;指定咗 estateId(屋苑頁)就照計嗰個屋苑。
-  const filter = estateId
-    ? "AND s.estate_id = ?"
-    : (accountId != null ? "AND s.estate_id IN (SELECT estate_id FROM account_estates WHERE account_id = ?)" : "");
-  const binds = estateId ? [estateId] : (accountId != null ? [accountId] : []);
-
-  // Stacks (座+室+面積) whose last listing snapshot is older than the estate's
-  // latest snapshot = they dropped off the market. `ask` = lowest asking on that
-  // last day (across sources).
-  const { results: stacks } = await db.prepare(`
-    WITH latest AS (SELECT estate_id, MAX(snapshot_date) d FROM listings GROUP BY estate_id),
-    stacks AS (
-      SELECT estate_id, building_name, unit, size_net, MAX(snapshot_date) last_seen
-      FROM listings
-      WHERE unit IS NOT NULL AND building_name IS NOT NULL
-      GROUP BY estate_id, building_name, unit, size_net
-    )
-    SELECT s.estate_id, s.building_name, s.unit, s.size_net, s.last_seen,
-      (SELECT l.price FROM listings l
-        WHERE l.estate_id = s.estate_id AND l.building_name = s.building_name
-          AND l.unit = s.unit AND l.size_net = s.size_net AND l.snapshot_date = s.last_seen
-        ORDER BY l.price LIMIT 1) AS ask
-    FROM stacks s
-    JOIN latest la ON la.estate_id = s.estate_id AND s.last_seen < la.d
-    WHERE 1=1 ${filter}
-  `).bind(...binds).all();
-
-  // 同上面 stacks 用同一套 filter/binds：冇 estateId 時都要跟 account 訂閱範圍，
-  // 否則 binds 有 arg 但 SQL 冇 placeholder → D1 "Wrong number of parameter bindings"
-  const txnFilter = estateId
-    ? "WHERE estate_id = ?"
-    : (accountId != null ? "WHERE estate_id IN (SELECT estate_id FROM account_estates WHERE account_id = ?)" : "");
-  const { results: txns } = await db.prepare(
-    `SELECT id, estate_id, building, unit, size_net, floor, price, reg_date FROM transactions ${txnFilter}`
-  ).bind(...binds).all();
-
-  const byKey = new Map();
-  for (const t of txns) {
-    const key = `${t.estate_id}|${_normBldg(t.building)}|${_normUnit(t.unit)}`;
-    if (!byKey.has(key)) byKey.set(key, []);
-    byKey.get(key).push(t);
-  }
-
-  const usedTxn = new Set();
-  const pairs = [];
-  // Assign newest-removed stacks first so a shared transaction goes to one flat.
-  stacks.sort((a, b) => (b.last_seen || "").localeCompare(a.last_seen || ""));
-
-  for (const s of stacks) {
-    if (!s.ask) continue;
-    const key = `${s.estate_id}|${_normBldg(s.building_name)}|${_normUnit(s.unit)}`;
-    const dLast = Date.parse(s.last_seen);
-    const cands = (byKey.get(key) || []).filter((t) => {
-      if (usedTxn.has(t.id)) return false;
-      const dReg = Date.parse(t.reg_date);
-      if (isNaN(dReg)) return false;
-      const days = (dReg - dLast) / 86400000;
-      if (days < -21 || days > 120) return false;           // sale registers near delisting
-      if (t.size_net && s.size_net && Math.abs(t.size_net - s.size_net) > s.size_net * 0.05) return false;
-      const spread = (t.price - s.ask) / s.ask;
-      if (spread < -0.15 || spread > 0.05) return false;    // reject implausible = wrong flat
-      return true;
-    });
-    if (!cands.length) continue;
-    cands.sort((a, b) => {
-      const da = Math.abs(Date.parse(a.reg_date) - dLast);
-      const dbb = Math.abs(Date.parse(b.reg_date) - dLast);
-      if (da !== dbb) return da - dbb;
-      return Math.abs(a.price - s.ask) - Math.abs(b.price - s.ask);
-    });
-    const t = cands[0];
-    usedTxn.add(t.id);
-    const spread = (t.price - s.ask) / s.ask;
-    const sizeExact = t.size_net && s.size_net && Math.abs(t.size_net - s.size_net) <= s.size_net * 0.03;
-    const confidence = (sizeExact && spread >= -0.20 && spread <= 0.08) ? "high" : "medium";
-    pairs.push({
-      estate_id: s.estate_id, building: s.building_name, unit: s.unit, size_net: s.size_net,
-      txn_floor: t.floor, removed_date: s.last_seen, reg_date: t.reg_date,
-      asking: s.ask, sold: t.price, spread_pct: Math.round(spread * 1000) / 10, confidence,
-    });
-  }
-
-  pairs.sort((a, b) => (b.reg_date || "").localeCompare(a.reg_date || ""));
-  const spreads = pairs.map((p) => p.spread_pct).sort((a, b) => a - b);
-  const median = spreads.length ? spreads[Math.floor(spreads.length / 2)] : null;
-  return {
-    pairs,
-    summary: {
-      count: pairs.length,
-      high_count: pairs.filter((p) => p.confidence === "high").length,
-      median_spread_pct: median,
-    },
-  };
-}
-
 // ── 睇過嘅盤 · 參考成交 (comps) ──────────────────────────────────────────────
 // For every viewed flat, pull comparable transactions from the SAME estate,
 // registered in the last 12 months only (older = no reference value), in three
@@ -4696,14 +4599,6 @@ export default {
           await db.prepare("DELETE FROM system_parameters WHERE id = ? AND account_id = ?").bind(id, session.account_id).run();
           return json(200, { ok: true });
         }
-      }
-
-      // 叫價 → 成交落差:配對已下架放盤同對應成交,計議價幅度
-      if (method === "GET" && path === "/api/asking-sold") {
-        if (!isPaidSession(session)) return paywall("叫價→成交");
-        const estateId = url.searchParams.get("estateId");
-        const result = await computeAskingSold(db, estateId ? Number(estateId) : null, session.account_id);
-        return json(200, result);
       }
 
       // 睇過嘅盤 · 每個單位配近12個月可比成交 + 推算合理價區間
