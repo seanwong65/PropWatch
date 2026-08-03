@@ -4432,6 +4432,10 @@ export default {
             SELECT ref_no, source, MIN(snapshot_date) AS first_seen, MAX(snapshot_date) AS last_seen,
                    MIN(NULLIF(publish_date, '')) AS publish_date
             FROM listings WHERE estate_id = ?1 GROUP BY ref_no, source
+          ),
+          price_bounds AS (
+            SELECT ref_no, MIN(snapshot_date) AS min_d, MAX(snapshot_date) AS max_d
+            FROM listing_price_history GROUP BY ref_no
           )
           SELECT v.id AS viewing_id, pr.ref_no,
             -- 上盤日 = source 公佈日 同 我哋第一次見到 之間較早嗰個，同
@@ -4440,15 +4444,19 @@ export default {
             CASE WHEN pr.publish_date IS NOT NULL AND pr.publish_date < pr.first_seen
                  THEN pr.publish_date ELSE pr.first_seen END AS list_start,
             CASE WHEN pr.last_seen < sl.d THEN pr.last_seen ELSE NULL END AS removed_date,
-            (SELECT COUNT(DISTINCT price) FROM listing_price_history h WHERE h.ref_no = pr.ref_no) AS price_variants
+            (SELECT COUNT(DISTINCT price) FROM listing_price_history h WHERE h.ref_no = pr.ref_no) AS price_variants,
+            fp.price AS old_price, lp.price AS new_price, pb.max_d AS change_date
           FROM viewings v
           JOIN per_ref pr ON (',' || v.linked_ref_no || ',') LIKE ('%,' || pr.ref_no || ',%')
           JOIN src_latest sl ON sl.source = pr.source
+          LEFT JOIN price_bounds pb ON pb.ref_no = pr.ref_no
+          LEFT JOIN listing_price_history fp ON fp.ref_no = pr.ref_no AND fp.snapshot_date = pb.min_d
+          LEFT JOIN listing_price_history lp ON lp.ref_no = pr.ref_no AND lp.snapshot_date = pb.max_d
           WHERE v.estate_id = ?1 AND v.account_id = ?2 AND v.linked_ref_no IS NOT NULL
         `).bind(estateId, session.account_id).all();
         const todayStr = hkDateStr();
-        const domByViewing = new Map();     // viewing_id -> 最長 dom_days
-        const changedByViewing = new Set(); // viewing_id 有任何 ref 轉過價
+        const domByViewing = new Map();    // viewing_id -> 最長 dom_days
+        const changeByViewing = new Map(); // viewing_id -> 轉幅最大嗰個 ref 嘅 {old_price,new_price,change_date}
         for (const r of refRows) {
           const end = r.removed_date || todayStr;
           const days = Math.round((Date.parse(end) - Date.parse(r.list_start)) / 86400000);
@@ -4456,11 +4464,21 @@ export default {
             const cur = domByViewing.get(r.viewing_id);
             if (cur == null || days > cur) domByViewing.set(r.viewing_id, days);
           }
-          if (r.price_variants > 1) changedByViewing.add(r.viewing_id);
+          if (r.price_variants > 1 && r.old_price != null && r.new_price != null && r.old_price !== r.new_price) {
+            const diff = Math.abs(r.new_price - r.old_price);
+            const cur = changeByViewing.get(r.viewing_id);
+            if (!cur || diff > Math.abs(cur.new_price - cur.old_price)) {
+              changeByViewing.set(r.viewing_id, { old_price: r.old_price, new_price: r.new_price, change_date: r.change_date });
+            }
+          }
         }
         for (const v of results) {
           v.dom_days = domByViewing.has(v.id) ? domByViewing.get(v.id) : null;
-          v.price_changed = v.linked_ref_no ? changedByViewing.has(v.id) : null;
+          const ch = changeByViewing.get(v.id);
+          v.price_changed = v.linked_ref_no ? !!ch : null;
+          v.price_change_old = ch ? ch.old_price : null;
+          v.price_change_new = ch ? ch.new_price : null;
+          v.price_change_date = ch ? ch.change_date : null;
         }
         // 睇樓記錄本身（log 低你睇過咩、備注、相片）免費而且無限；但砌喺
         // 上面嘅分析（相對市價／分層中位／放咗幾耐／有冇轉價）係收費版。
@@ -4470,6 +4488,7 @@ export default {
             v.sold_med_psf = null; v.market_n_sold = null; v.vs_med_pct = null;
             v.sold_p10 = null; v.sold_p90 = null;
             v.dom_days = null; v.price_changed = null;
+            v.price_change_old = null; v.price_change_new = null; v.price_change_date = null;
           }
           return json(200, { viewings: results, tierLimited: true });
         }

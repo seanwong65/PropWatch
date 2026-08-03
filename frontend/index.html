@@ -4460,7 +4460,15 @@ async function loadViewings(estateId) {
       // 售價有冇變動：對應放盤嘅完整售價歷史入面搵過（唔跟 added_at 截）；
       // 未 tick 過對應放盤就顯示 '-'（查唔到）。
       const priceChangedCell = v.linked_ref_no == null ? '-'
-        : v.price_changed ? '<span style="color:var(--accent);font-size:0.8rem">有變動</span>'
+        : v.price_changed ? (() => {
+            const d = v.price_change_date ? v.price_change_date.split('-').map(Number) : null;
+            const dateStr = d ? `${d[0]}年${d[1]}月${d[2]}日・` : '';
+            const diff = v.price_change_new - v.price_change_old;
+            const pct = v.price_change_old ? Math.abs(diff / v.price_change_old * 100).toFixed(1) : '0';
+            const dirLabel = diff < 0 ? '減價' : '加價';
+            const color = diff < 0 ? 'var(--down)' : 'var(--up)';
+            return `<span style="color:${color};font-size:0.8rem">${dateStr}${dirLabel}${fmt(Math.abs(diff))}（${pct}%）・原價${fmt(v.price_change_old)}</span>`;
+          })()
         : '<span style="color:var(--muted);font-size:0.8rem">無變動</span>';
       // 單位／售價／成交／備注各自合併咗幾欄（16→12→9）：同一件事嘅資料
       // 擺埋一格，唔使橫拉咁遠。恒生估值／相對市價／類近在售三欄再合併做
