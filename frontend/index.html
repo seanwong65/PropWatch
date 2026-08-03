@@ -3239,7 +3239,7 @@ function priceRulerHtml(v) {
   // 恒生估值查詢本身唔係「我哋嘅分析」（第三方銀行估值），一直都免費——
   // 呢個 block 要喺 isPaid() 判斷之前起好，先至唔會俾條尺個 paywall 累埋佢。
   const hsInner = v.hs_price
-    ? `${hsValHtml(v.hs_price)}${hsDiffHtml(v.hs_price, v.price)}`
+    ? `<span style="color:var(--muted);font-size:0.75rem">估值</span>${hsValHtml(v.hs_price)}${hsDiffHtml(v.hs_price, v.price)}`
     : `<button class="hs-val-btn" onclick="manualFetchViewingHSVal(${v.id},${_viewingEstateId},'${escJsAttr(v.block||'')}','${escJsAttr(v.floor||'')}','${escJsAttr(v.unit||'')}',${v.price||0})">查估值</button>`;
   // wrapper 用 flex 逼 hsValHtml/hsDiffHtml 兩個 block-level 元素企埋同一行；
   // 呢個 style 喺 fetchViewingHSVal 之後唔會俾人覆蓋（佢哋淨係更新內容）。
@@ -4384,7 +4384,7 @@ async function fetchViewingHSVal(viewingId, block, floor, unit, price) {
       const v = window._viewingMap?.[viewingId];
       if (v) v.hs_price = Number(data.price);   // 個 map 都要更新——條尺個估值針下次 render 先會啱
       const cell = document.getElementById(`vhs-${viewingId}`);
-      if (cell) cell.innerHTML = hsValHtml(Number(data.price)) + hsDiffHtml(Number(data.price), price);
+      if (cell) cell.innerHTML = `<span style="color:var(--muted);font-size:0.75rem">估值</span>` + hsValHtml(Number(data.price)) + hsDiffHtml(Number(data.price), price);
     }
   } catch {}
 }
@@ -4459,8 +4459,7 @@ async function loadViewings(estateId) {
       }
       // 售價有冇變動：對應放盤嘅完整售價歷史入面搵過（唔跟 added_at 截）；
       // 未 tick 過對應放盤就顯示 '-'（查唔到）。
-      const priceChangedCell = v.linked_ref_no == null ? '-'
-        : v.price_changed ? (() => {
+      const priceChangedCell = v.price_changed ? (() => {
             const d = v.price_change_date ? v.price_change_date.split('-').map(Number) : null;
             const dateStr = d ? `${d[0]}年${d[1]}月${d[2]}日・` : '';
             const diff = v.price_change_new - v.price_change_old;
@@ -4469,7 +4468,7 @@ async function loadViewings(estateId) {
             const color = diff < 0 ? 'var(--down)' : 'var(--up)';
             return `<span style="color:${color};font-size:0.8rem">${dateStr}${dirLabel}${fmt(Math.abs(diff))}（${pct}%）・原價${fmt(v.price_change_old)}</span>`;
           })()
-        : '<span style="color:var(--muted);font-size:0.8rem">無變動</span>';
+        : '<span style="color:var(--text);font-size:0.8rem">無變動</span>';
       // 單位／售價／成交／備注各自合併咗幾欄（16→12→9）：同一件事嘅資料
       // 擺埋一格，唔使橫拉咁遠。恒生估值／相對市價／類近在售三欄再合併做
       // 「價格尺」（priceRulerHtml）。
