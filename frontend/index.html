@@ -706,7 +706,7 @@
 
     /* 價格尺（睇樓記錄「價格尺」欄）：成交／在售兩條區間 band + 恒生估值／
        叫價兩支針，右邊配文字（成交/在售 range+中位、恒生估值、貴平 badge）。 */
-    .pr-flex { display: flex; gap: 0.6rem; align-items: flex-start; }
+    .pr-flex { display: flex; gap: 1rem; align-items: flex-start; }
     .pr-ruler { width: 180px; position: relative; font-size: 0.62rem; flex-shrink: 0; }
     .pr-zone { position: relative; height: 74px; }
     .pr-row { position: relative; height: 14px; margin-bottom: 2px; }
@@ -726,7 +726,7 @@
     .pr-cap.pr-hs { color: var(--accent2); }
     .pr-cap.pr-you { color: var(--accent); }
     .pr-axis { position: absolute; left: 32px; right: 0; top: 58px; display: flex; justify-content: space-between; color: var(--muted); }
-    .pr-info { font-size: 0.72rem; line-height: 1.55; min-width: 175px; }
+    .pr-info { font-size: 0.72rem; line-height: 1.55; min-width: 175px; padding-left: 0.6rem; border-left: 1px solid var(--border); }
     .pr-lnk { cursor: pointer; border-bottom: 1px dotted var(--muted); }
     .pr-lnk:hover { color: var(--accent); }
     .txn-date { color: var(--text); font-size: 0.75rem; }
@@ -4503,9 +4503,9 @@ async function fetchUnitTxn(viewingId) {
       return;
     }
     const dateStr = t.reg_date ? t.reg_date.slice(0, 7) : null;
-    const linkStart = data.estateUrl ? `<a href="${safeUrl(data.estateUrl)}" target="_blank" style="text-decoration:none">` : '';
+    const linkStart = data.estateUrl ? `<a href="${safeUrl(data.estateUrl)}" target="_blank" style="text-decoration:none;white-space:nowrap">` : '';
     const linkEnd = data.estateUrl ? '</a>' : '';
-    cell.innerHTML = `${linkStart}<span style="color:var(--muted)"><strong>${fmt(t.price)}</strong></span>${dateStr ? `<br><span style="color:var(--muted);font-size:0.75rem">${dateStr}</span>` : ''}${linkEnd}`;
+    cell.innerHTML = `${linkStart}<span style="color:var(--muted)"><strong>${fmt(t.price)}</strong>${dateStr ? ` ${dateStr}買入` : ''}</span>${linkEnd}`;
   } catch { cell.innerHTML = '-'; }
 }
 
