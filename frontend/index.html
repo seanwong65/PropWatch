@@ -4495,17 +4495,19 @@ async function loadViewings(estateId) {
             </div>
             <div style="white-space:nowrap;flex-shrink:0">${editBtn}${delBtn}</div>
           </div>
-          <div style="margin-bottom:0.6rem">
-            <strong style="color:var(--accent);font-size:1.05rem">${fmt(v.price)}</strong>
-            <span style="color:var(--muted);font-size:0.8rem;margin-left:0.4rem">${psfStr}</span>
-            ${mgmtMonthly ? `<div style="color:var(--muted);font-size:0.75rem;margin-top:0.1rem">管理費 $${mgmtMonthly.toLocaleString()}/月</div>` : ''}
+          <div class="viewing-card-grid" style="grid-template-columns:repeat(2,1fr);margin-bottom:0.6rem">
+            <div class="viewing-card-kv">
+              <strong style="color:var(--accent);font-size:1.05rem">${fmt(v.price)}</strong>
+              <span style="color:var(--muted);font-size:0.8rem;margin-left:0.4rem">${psfStr}</span>
+              ${mgmtMonthly ? `<div style="color:var(--muted);font-size:0.75rem;margin-top:0.1rem">管理費 $${mgmtMonthly.toLocaleString()}/月</div>` : ''}
+              <div style="margin-top:0.2rem"><span style="color:var(--muted);font-size:0.72rem;margin-right:0.3rem">售價變動</span>${priceChangedCell}</div>
+            </div>
+            <div class="viewing-card-kv"><span class="viewing-card-k">沽出</span>${soldHtml}</div>
           </div>
           <div class="viewing-card-grid" style="grid-template-columns:repeat(2,1fr);margin-bottom:0.7rem">
+            <div class="viewing-card-kv"><span class="viewing-card-k">放咗幾耐</span>${domCell}</div>
             <div class="viewing-card-kv"><span class="viewing-card-k">上手購買</span>
               <div id="vprev-${v.id}"><span style="color:var(--muted);font-size:0.75rem;cursor:pointer" onclick="fetchUnitTxn(${v.id})">查上手成交</span></div></div>
-            <div class="viewing-card-kv"><span class="viewing-card-k">沽出</span>${soldHtml}</div>
-            <div class="viewing-card-kv"><span class="viewing-card-k">放咗幾耐</span>${domCell}</div>
-            <div class="viewing-card-kv"><span class="viewing-card-k">售價變動</span>${priceChangedCell}</div>
           </div>
           <div style="margin-bottom:0.7rem">${priceRulerHtml(v)}</div>
           <div class="viewing-card-kv" style="margin-bottom:0.5rem"><span class="viewing-card-k">對應放盤</span><div id="vmatch-${v.id}">${buildMatchCell(v)}</div></div>
