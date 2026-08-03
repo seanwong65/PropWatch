@@ -531,19 +531,6 @@
       width: 90%;
       box-shadow: 0 16px 48px rgba(0,0,0,0.5);
     }
-    /* 睇樓記錄詳情：手機 2 欄，modal 本身闊度亦跟住加大——唔係淨係加多欄
-       數但個 cell 冇變闊，字反而更逼。平板/桌面 modal 闊啲、欄數都加多，
-       但因為闊度同比例一齊加，每個 cell 實際闊度仲係舒服。 */
-    .viewing-detail-modal { max-width: 480px; }
-    .viewing-detail-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 0.5rem; }
-    @media (min-width: 640px) {
-      .viewing-detail-modal { max-width: 700px; }
-      .viewing-detail-grid { grid-template-columns: repeat(3, 1fr); }
-    }
-    @media (min-width: 1024px) {
-      .viewing-detail-modal { max-width: 900px; }
-      .viewing-detail-grid { grid-template-columns: repeat(4, 1fr); }
-    }
     .modal-title {
       font-weight: 700;
       font-size: 1rem;
@@ -716,6 +703,32 @@
     /* Transaction table */
     .gain-pos { color: var(--up); font-size: 0.75rem; font-weight: 600; }
     .gain-neg { color: var(--down); font-size: 0.75rem; font-weight: 600; }
+
+    /* 價格尺（睇樓記錄「價格尺」欄）：成交／在售兩條區間 band + 恒生估值／
+       叫價兩支針，右邊配文字（成交/在售 range+中位、恒生估值、貴平 badge）。 */
+    .pr-flex { display: flex; gap: 0.6rem; align-items: flex-start; }
+    .pr-ruler { width: 180px; position: relative; font-size: 0.62rem; flex-shrink: 0; }
+    .pr-zone { position: relative; height: 74px; }
+    .pr-row { position: relative; height: 14px; margin-bottom: 2px; }
+    .pr-lbl { position: absolute; left: 0; top: 2px; width: 26px; color: var(--muted); text-align: right; }
+    .pr-track { position: absolute; left: 32px; right: 0; top: 6px; height: 2px; background: var(--surface2); }
+    .pr-band { position: absolute; top: 3px; height: 8px; border-radius: 2px; }
+    .pr-band.pr-sold { background: rgba(16,185,129,0.25); border: 1px solid rgba(16,185,129,0.6); }
+    .pr-band.pr-ask { background: rgba(148,163,184,0.22); border: 1px solid rgba(148,163,184,0.5); }
+    .pr-mid { position: absolute; top: 1px; width: 2px; height: 12px; border-radius: 1px; }
+    .pr-mid.pr-sold { background: var(--up); }
+    .pr-mid.pr-ask { background: #cbd5e1; }
+    .pr-needle { position: absolute; top: 0; width: 2px; height: 32px; border-radius: 1px; z-index: 2; }
+    .pr-needle.pr-hs { background: var(--accent2); }
+    .pr-needle.pr-you { background: var(--accent); width: 3px; }
+    .pr-cap { position: absolute; top: 32px; transform: translateX(-50%); white-space: nowrap; font-weight: 700; text-align: center; line-height: 1.35; }
+    .pr-cap .v { display: block; font-weight: 600; opacity: 0.85; font-size: 0.92em; }
+    .pr-cap.pr-hs { color: var(--accent2); }
+    .pr-cap.pr-you { color: var(--accent); }
+    .pr-axis { position: absolute; left: 32px; right: 0; top: 58px; display: flex; justify-content: space-between; color: var(--muted); }
+    .pr-info { font-size: 0.72rem; line-height: 1.55; min-width: 175px; }
+    .pr-lnk { cursor: pointer; border-bottom: 1px dotted var(--muted); }
+    .pr-lnk:hover { color: var(--accent); }
     .txn-date { color: var(--text); font-size: 0.75rem; }
     .hs-val-btn {
       background: var(--btn-bg); border: 1px solid var(--btn-bg); color: var(--text);
@@ -1127,23 +1140,6 @@
       <p style="font-size:0.78rem;color:var(--muted);margin:0.25rem 0 0.75rem">相對市價／抵買雷達／議價指數／email 用嘅數字，改完即時生效（有上下限自動修正）。用右上角揀分類，睇某個 tab／功能用嘅參數。</p>
       <div id="settings-cfg-list" style="display:flex;flex-direction:column;gap:0.7rem"></div>
     </div>
-  </div>
-</div>
-
-<!-- 睇樓記錄 · 表格轉 form 檢視（一行資料太多欄，手機/窄屏睇表格好逼，
-     呢個 modal 用 label:value 逐行顯示，方便閱讀） -->
-<div class="modal-overlay" id="viewingDetailModalOverlay" style="display:none" onclick="if(event.target===this)closeViewingDetail()">
-  <div class="modal viewing-detail-modal" style="max-height:85vh;overflow-y:auto">
-    <button class="modal-close" onclick="closeViewingDetail()">✕</button>
-    <div style="display:flex;align-items:baseline;gap:0.5rem;flex-wrap:wrap">
-      <div class="modal-title" style="font-size:1rem;margin:0">睇樓記錄詳情</div>
-      <span id="viewingDetailCounter" style="color:var(--muted);font-size:0.78rem"></span>
-    </div>
-    <div style="display:flex;gap:0.5rem;margin-top:0.7rem">
-      <button id="viewingDetailPrevBtn" class="history-btn" onclick="viewingDetailNav(-1)" style="flex:1;font-size:0.82rem">‹ 上一條</button>
-      <button id="viewingDetailNextBtn" class="history-btn" onclick="viewingDetailNav(1)" style="flex:1;font-size:0.82rem">下一條 ›</button>
-    </div>
-    <div id="viewingDetailBody" style="margin-top:0.75rem"></div>
   </div>
 </div>
 
@@ -3224,44 +3220,134 @@ function sampleConfidence(n) {
   return { weak: false, color: '', mark: '', tip: `${n} 個樣本，夠數` };
 }
 
-function marketVsHtml(v) {
-  // 睇樓記錄本身免費無限，但砌喺上面嘅市價分析係收費版（後端已 null 咗）
-  if (!isPaid()) return lockChip('相對市價');
+// 價格尺：一條尺擺晒「成交區間／在售區間／恒生估值／你嘅叫價」四個基準，
+// 一眼睇到貴平，唔使逐個讀百分比。取代原本三欄（恒生估值／相對市價／
+// 類近在售）——三欄嘅資料全部保留，砌埋一個 cell（ruler 靠左，文字靠右）。
+// 成交（sold_*）由後端 /api/viewings 算好（同層帶 fallback 全苑，門檻
+// market_min_sold）；在售（similarListings）沿用舊有邏輯，同房數+同樓層帶，
+// client-side 算，因為 allListings 本身已經喺度，唔使加 round trip。
+function priceRulerHtml(v) {
+  const ownPsf = (v.price && v.size_net) ? v.price / v.size_net : null;
+  const hsPsf  = (v.hs_price && v.size_net) ? v.hs_price / v.size_net : null;
+  // 恒生估值查詢本身唔係「我哋嘅分析」（第三方銀行估值），一直都免費——
+  // 呢個 block 要喺 isPaid() 判斷之前起好，先至唔會俾條尺個 paywall 累埋佢。
+  const hsInner = v.hs_price
+    ? `${hsValHtml(v.hs_price)}${hsDiffHtml(v.hs_price, v.price)}`
+    : `<button class="hs-val-btn" onclick="manualFetchViewingHSVal(${v.id},${_viewingEstateId},'${escJsAttr(v.block||'')}','${escJsAttr(v.floor||'')}','${escJsAttr(v.unit||'')}',${v.price||0})">查估值</button>`;
+  const hsBlock = `<div id="vhs-${v.id}">${hsInner}</div>`;
+
+  if (!isPaid()) {
+    return `<div class="pr-flex"><div class="pr-info">${hsBlock}<div style="margin-top:0.3rem">${lockChip('相對市價／類近在售')}</div></div></div>`;
+  }
+  const band = _appCfg.verdict_band_pct ?? 3;
   const days = _appCfg.market_median_days ?? 60;
   const minSold = _appCfg.market_min_sold ?? 5;
-  const band = _appCfg.verdict_band_pct ?? 3;
-  if (v.vs_med_pct == null) {
-    const why = v.market_n_sold != null && v.market_n_sold < minSold
-      ? `近${days}日成交唔夠${minSold}宗` : '未有面積/售價';
-    return `<span style="color:var(--muted);font-size:0.75rem" title="${why}">-</span>`;
+
+  const hasSold = v.sold_med_psf != null;
+  const sim = (v.floor_tier != null && v.bedrooms != null) ? similarListings(v) : [];
+  const askPsfs = sim.map(s => s.price_per_ft).filter(Boolean);
+  const hasAsk = askPsfs.length > 0;
+  const askMed = hasAsk ? _median(askPsfs) : null;
+  const askP10 = hasAsk ? _pctile(askPsfs, 0.10) : null;
+  const askP90 = hasAsk ? _pctile(askPsfs, 0.90) : null;
+
+  if (!hasSold && !hasAsk) {
+    const why = (v.floor_tier == null || v.bedrooms == null) ? '未有房數/樓層帶'
+      : `近${days}日成交唔夠${minSold}宗，亦冇同類在售盤`;
+    return `<div class="pr-flex"><div class="pr-info">${hsBlock}<div class="sub" style="margin-top:0.3rem" title="${escHtml(why)}">相對市價 / 類近在售：-</div></div></div>`;
   }
-  const vs = v.vs_med_pct, abs = Math.abs(vs).toFixed(1);
-  let badge;
-  if (vs <= -band)      badge = `<span class="gain-pos">低市價 ${abs}%</span>`;
-  else if (vs >= band)  badge = `<span class="gain-neg">貴市價 ${abs}%</span>`;
-  else                  badge = `<span style="color:var(--muted);font-size:0.75rem">約市價 ${vs > 0 ? '+' : ''}${vs}%</span>`;
-  const isTier = v.market_basis === 'tier';
-  const label = isTier ? `${v.floor_tier}中位` : '全苑中位';
-  const tip = isTier
+
+  // Scale：攞晒有嘅數值（兩個 band + 兩支針），兩邊加少少 padding。
+  const vals = [v.sold_p10, v.sold_med_psf, v.sold_p90, askP10, askMed, askP90, hsPsf, ownPsf].filter(x => x != null);
+  const vMin = Math.min(...vals), vMax = Math.max(...vals);
+  const pad = Math.max((vMax - vMin) * 0.12, vMax * 0.02, 200);
+  const scaleMin = vMin - pad, scaleSpan = (vMax + pad - scaleMin) || 1;
+  const P = x => x == null ? null : Math.max(0, Math.min(100, (x - scaleMin) / scaleSpan * 100)).toFixed(1);
+  const kfmt = x => (Math.floor(x / 100) / 10).toFixed(1) + 'k';   // 斬到一位,唔四捨五入
+
+  const bandRows = [];
+  if (hasSold && v.sold_p10 != null && v.sold_p90 != null) {
+    bandRows.push(`<div class="pr-row"><span class="pr-lbl">成交</span><div class="pr-track"></div>
+      <div class="pr-band pr-sold" style="left:calc(32px + ${P(v.sold_p10)}%);width:${(P(v.sold_p90) - P(v.sold_p10)).toFixed(1)}%"></div>
+      <div class="pr-mid pr-sold" style="left:calc(32px + ${P(v.sold_med_psf)}%)"></div></div>`);
+  }
+  if (hasAsk && askP10 != null && askP90 != null) {
+    bandRows.push(`<div class="pr-row"><span class="pr-lbl">在售</span><div class="pr-track"></div>
+      <div class="pr-band pr-ask" style="left:calc(32px + ${P(askP10)}%);width:${(P(askP90) - P(askP10)).toFixed(1)}%"></div>
+      <div class="pr-mid pr-ask" style="left:calc(32px + ${P(askMed)}%)"></div></div>`);
+  }
+
+  // 兩支針嘅 caption 太近會撞字,愈近撥得愈開。
+  const needles = [], caps = [];
+  const hsP = P(hsPsf), youP = P(ownPsf);
+  const addNeedle = (cls, label, psf, pos) => {
+    needles.push(`<div class="pr-needle pr-${cls}" style="left:calc(32px + ${pos}%)"></div>`);
+    caps.push({ cls, label, psf, pos: +pos });
+  };
+  if (hsPsf != null) addNeedle('hs', '估值', hsPsf, hsP);
+  if (ownPsf != null) addNeedle('you', '叫價', ownPsf, youP);
+  if (caps.length === 2) {
+    const [a, b] = caps, d = Math.abs(a.pos - b.pos);
+    if (d < 12) {
+      const push = Math.max(6, (12 - d) / 2 + 6);
+      if (a.pos <= b.pos) { a.pos -= push; b.pos += push; } else { a.pos += push; b.pos -= push; }
+    }
+  }
+  const capsHtml = caps.map(c => `<div class="pr-cap pr-${c.cls}" style="left:calc(32px + ${c.pos}%)">${c.label}<span class="v">$${kfmt(c.psf)}</span></div>`).join('');
+
+  const ruler = `<div class="pr-ruler"><div class="pr-zone">
+    ${bandRows.join('')}
+    ${needles.join('')}
+    ${capsHtml}
+    <div class="pr-axis"><span>$${kfmt(scaleMin)}</span><span>$${kfmt(scaleMin + scaleSpan)}</span></div>
+  </div></div>`;
+
+  // 右邊文字：成交/在售 range+中位+link,恒生估值,叫價相對兩個基準嘅 badge。
+  const soldConf = sampleConfidence(v.market_n_sold);
+  const askConf = sampleConfidence(sim.length);
+  const soldTip = v.market_basis === 'tier'
     ? `同層帶近${days}日成交中位數（以該座成交最高層 ${v.tier_max_floor} 樓三等分）`
-    : (v.floor_tier ? `${v.floor_tier}近${days}日成交唔夠${minSold}宗，改用全苑中位數` : `全苑近${days}日成交中位數`);
-  // 估計市值 = 實用面積 × 中位呎價（同 badge 用同一個基準）。
-  const estVal = (v.sold_med_psf && v.size_net) ? v.sold_med_psf * v.size_net : null;
-  const estInline = estVal
-    ? ` <span style="color:var(--accent2)" title="實用 ${v.size_net}呎 × 中位 $${v.sold_med_psf.toLocaleString()}/呎">估值 $${(estVal/1e4).toFixed(0)}萬</span>`
-    : '';
-  // 「N宗」可撳,彈出組成中位數嗰批成交。樣本少就標黃加⚠。
-  const conf = sampleConfidence(v.market_n_sold);
-  const nClick = `<span onclick="openEstateComps(${v.estate_id},'${v.market_basis||'estate'}','${v.floor_tier||''}','${escJsAttr(v.block||'')}','${escJsAttr(v.floor||'')}','${escJsAttr(v.unit||'')}')" style="cursor:pointer;border-bottom:1px dotted var(--muted);${conf.weak ? `color:${conf.color};font-weight:600` : ''}" title="${escHtml(conf.weak ? conf.tip : '睇成交紀錄')}">${v.market_n_sold}宗${conf.mark}</span>`;
-  return `<div style="font-size:0.8rem">${badge}${estInline}</div>`
-    + `<div class="unit-price" title="${tip}">${label} $${(v.sold_med_psf||0).toLocaleString()} · ${nClick}</div>`
-    + (conf.weak ? `<div style="color:${conf.color};font-size:0.68rem" title="${escHtml(conf.tip)}">樣本少，僅供參考</div>` : '');
+    : `全苑近${days}日成交中位數`;
+  const soldLine = hasSold
+    ? `<div><span class="up">成交</span> $${v.sold_p10.toLocaleString()}–$${v.sold_p90.toLocaleString()}<br>
+        中位 <b>$${v.sold_med_psf.toLocaleString()}</b> · <span class="pr-lnk" onclick="openEstateComps(${v.estate_id},'${v.market_basis||'estate'}','${v.floor_tier||''}','${escJsAttr(v.block||'')}','${escJsAttr(v.floor||'')}','${escJsAttr(v.unit||'')}')"
+        title="${escHtml(soldConf.weak ? soldConf.tip : soldTip)}" style="${soldConf.weak ? `color:${soldConf.color};font-weight:600` : ''}">${v.market_n_sold}宗${soldConf.mark}</span></div>`
+    : `<div class="sub">成交：${v.floor_tier == null ? '未有樓層帶' : `近${days}日唔夠${minSold}宗`}</div>`;
+  const askTip = `${v.bedrooms}房 ${v.floor_tier||''} 在售盤`;
+  const askLine = hasAsk
+    ? `<div style="margin-top:0.3rem;color:#cbd5e1">在售 $${askP10.toLocaleString()}–$${askP90.toLocaleString()}<br>
+        中位 <b>$${askMed.toLocaleString()}</b> · <span class="pr-lnk" onclick="openSimilarListings(${v.id})"
+        title="${escHtml(askConf.weak ? askConf.tip : askTip)}" style="${askConf.weak ? `color:${askConf.color};font-weight:600` : ''}">${sim.length}個${askConf.mark}</span></div>`
+    : `<div class="sub" style="margin-top:0.3rem">在售：${(v.floor_tier == null || v.bedrooms == null) ? '未有房數/樓層帶' : '冇同類在售盤'}</div>`;
+
+  const badgeFor = (vs, hiLabel, loLabel, midLabel) => {
+    if (vs == null) return '';
+    const abs = Math.abs(vs).toFixed(1);
+    if (vs <= -band) return `<span class="gain-pos">${loLabel} ${abs}%</span>`;
+    if (vs >= band)  return `<span class="gain-neg">${hiLabel} ${abs}%</span>`;
+    return `<span style="color:var(--muted);font-size:0.75rem">${midLabel} ${vs > 0 ? '+' : ''}${vs.toFixed(1)}%</span>`;
+  };
+  const askVs = (hasAsk && ownPsf) ? (ownPsf - askMed) / askMed * 100 : null;
+  const askBadge = badgeFor(askVs, '貴叫價', '低叫價', '約叫價');
+  const soldBadge = hasSold ? badgeFor(v.vs_med_pct, '貴市價', '低市價', '約市價') : '';
+  const verdictLine = (askBadge || soldBadge)
+    ? `<div style="margin-top:0.3rem">${askBadge}${askBadge && soldBadge ? ' · ' : ''}${soldBadge}</div>` : '';
+  const weakNote = (soldConf.weak || askConf.weak)
+    ? `<div style="color:var(--accent);font-size:0.68rem;margin-top:0.15rem">樣本少，僅供參考</div>` : '';
+
+  return `<div class="pr-flex">${ruler}<div class="pr-info">${soldLine}${askLine}<div style="margin-top:0.3rem">${hsBlock}</div>${verdictLine}${weakNote}</div></div>`;
 }
 
 const _median = arr => {
   if (!arr.length) return null;
   const s = [...arr].sort((a, b) => a - b), n = s.length;
   return n % 2 ? s[(n - 1) / 2] : Math.round((s[n / 2 - 1] + s[n / 2]) / 2);
+};
+// p10/p90 圍住個中位數,價格尺畫區間用（同後端 _pctile 演算法一致）。
+const _pctile = (arr, p) => {
+  if (!arr.length) return null;
+  const s = [...arr].sort((a, b) => a - b);
+  return s[Math.min(s.length - 1, Math.floor(p * (s.length - 1)))];
 };
 
 // 把 groupListings 出嚟嘅行(可能係 combined)攤平做統一欄位;combined 取最平嗰口價。
@@ -3287,37 +3373,10 @@ function similarListings(v) {
     .filter(l => l.floor === v.floor_tier && Number(l.bedrooms) === Number(v.bedrooms) && l.price > 0);
 }
 
-// 版面跟 marketVsHtml:第一行 verdict badge(貴/低/約叫價 X%,同 marketVsHtml
-// 用同一個 ±band 界線),第二行「X層中位 $XX,XXX/呎 · N個」。
-function similarListingsHtml(v) {
-  const band = _appCfg.verdict_band_pct ?? 3;
-  if (!v.floor_tier || v.bedrooms == null) {
-    return `<span style="color:var(--muted);font-size:0.75rem" title="未有房數/樓層帶">－</span>`;
-  }
-  const sim = similarListings(v);
-  const tip = `${v.bedrooms}房 ${v.floor_tier} 在售盤`;
-  if (!sim.length) return `<span style="color:var(--muted);font-size:0.75rem" title="冇同房數同樓層帶嘅在售盤(${tip})">0 個</span>`;
-  const medPsf = _median(sim.map(s => s.price_per_ft).filter(Boolean));
-  const ownPsf = (v.price && v.size_net) ? v.price / v.size_net : null;
-  let badge;
-  if (medPsf && ownPsf) {
-    const vs = (ownPsf - medPsf) / medPsf * 100, abs = Math.abs(vs).toFixed(1);
-    if (vs <= -band)      badge = `<span class="gain-pos">低叫價 ${abs}%</span>`;
-    else if (vs >= band)  badge = `<span class="gain-neg">貴叫價 ${abs}%</span>`;
-    else                  badge = `<span style="color:var(--muted);font-size:0.75rem">約叫價 ${vs > 0 ? '+' : ''}${vs.toFixed(1)}%</span>`;
-  } else {
-    badge = `<span style="color:var(--muted);font-size:0.75rem">-</span>`;
-  }
-  const conf = sampleConfidence(sim.length);
-  const nClick = `<span onclick="openSimilarListings(${v.id})" style="cursor:pointer;border-bottom:1px dotted var(--muted);${conf.weak ? `color:${conf.color};font-weight:600` : ''}" title="${escHtml(conf.weak ? conf.tip : '睇 ' + tip)}">${sim.length} 個${conf.mark}</span>`;
-  return `<div style="font-size:0.8rem">${badge}</div>`
-    + `<div class="unit-price" title="${tip}">${medPsf ? `${v.floor_tier}中位 $${medPsf.toLocaleString()}/呎 · ` : ''}${nClick}</div>`
-    + (conf.weak ? `<div style="color:${conf.color};font-size:0.68rem" title="${escHtml(conf.tip)}">樣本少，僅供參考</div>` : '');
-}
-
 // 類近在售盤 popup — 分組版面同「參考成交」一致：①同座同室 ②同座 ③其他座。
 let _slRows = [];
 let _slRef = {};   // 參考單位 { block, unit } —— 用嚟分 tier
+let _slSoldMap = new Map();   // "座|室" -> {price, reg_date} —— 已成交嘅盤標低
 const _slSrcName = s => s === 'ricacorp' ? '利嘉閣' : s === 'hkp' ? '香港置業' : '中原';
 // 座：抽數字（"7座"→"7"）；室：淨低字母
 const _feNormBlk = s => { const r = String(s || '').replace(/[座\s]/g, '').toUpperCase(); const m = r.match(/\d+/); return m ? m[0] : r; };
@@ -3356,8 +3415,15 @@ function renderSlTable() {
       const link = l.detail_url
         ? `<a href="${safeUrl(l.detail_url)}" target="_blank" style="color:var(--accent2);text-decoration:none">${_slSrcName(l.source)} ↗</a>`
         : `<span style="color:var(--muted)">${_slSrcName(l.source)}</span>`;
-      return `<tr style="border-top:1px solid var(--border)">
-        <td style="padding:0.35rem 0.4rem 0.35rem 0;color:var(--text)">${unit}${l.direction ? ` <span style="color:var(--muted);font-size:0.72rem">向${escHtml(l.direction)}</span>` : ''}</td>
+      // 已成交：跟同一批「N宗」用嘅成交紀錄 match building+unit（座/室都
+      // normalize 過），有就標綠 tag，等你知邊啲叫價最後真係做到幾錢。
+      const soldKey = `${_feNormBlk(l.building_name)}|${_feNormUnit(l.unit)}`;
+      const sold = _slSoldMap.get(soldKey);
+      const soldTag = sold
+        ? `<span style="background:rgba(16,185,129,0.16);color:var(--up);border-radius:4px;font-size:0.68rem;padding:0.05rem 0.35rem;margin-left:0.35rem;white-space:nowrap">✓ 已成交 ${fmt(sold.price)} · ${escHtml((sold.reg_date||'').slice(0,7))}</span>`
+        : '';
+      return `<tr style="border-top:1px solid var(--border)${sold ? ';background:rgba(251,191,36,0.08)' : ''}">
+        <td style="padding:0.35rem 0.4rem 0.35rem 0;color:var(--text)">${unit}${l.direction ? ` <span style="color:var(--muted);font-size:0.72rem">向${escHtml(l.direction)}</span>` : ''}${soldTag}</td>
         <td style="text-align:right;padding:0.35rem 0.4rem;white-space:nowrap;color:var(--muted)">${l.size_net ? l.size_net + '呎' : '-'}</td>
         <td style="text-align:right;padding:0.35rem 0.4rem;white-space:nowrap;font-weight:600;color:var(--accent)">${fmt(l.price)}</td>
         <td style="text-align:right;padding:0.35rem 0.4rem;white-space:nowrap;color:var(--muted)">${l.price_per_ft ? '@$' + Math.round(l.price_per_ft).toLocaleString() : '-'}</td>
@@ -3369,12 +3435,32 @@ function renderSlTable() {
   body.innerHTML = html;
 }
 
+// 已成交 mark：撳開 popup 嗰陣順便攞返同一個 tier/basis 嘅成交紀錄（同「N宗」
+// 果批共用 /api/estate-comps），淨係做 building+unit match，唔理日期先後
+// （在售 snapshot 本身已經係近期，粗略但夠用）。Non-blocking：先用冇 mark
+// 嘅版本 render 咗，攞到先再 render 多次。
+async function loadSlSoldMarks(v) {
+  try {
+    const params = new URLSearchParams({ estate_id: v.estate_id, basis: v.market_basis || 'estate' });
+    if (v.market_basis === 'tier' && v.floor_tier) params.set('tier', v.floor_tier);
+    const { comps } = await api('/api/estate-comps?' + params);
+    _slSoldMap = new Map();
+    for (const c of comps) {
+      const key = `${_feNormBlk(c.building)}|${_feNormUnit(c.unit)}`;
+      const cur = _slSoldMap.get(key);
+      if (!cur || (c.reg_date || '') > (cur.reg_date || '')) _slSoldMap.set(key, { price: c.price, reg_date: c.reg_date });
+    }
+    renderSlTable();
+  } catch { /* 攞唔到就淨係冇 mark，唔影響本身個表 */ }
+}
+
 // 撳「N 個」彈出同房數同樓層帶嘅在售盤，按①同座同室 ②同座 ③其他座 分組。
 function openSimilarListings(viewingId) {
   const v = window._viewingMap?.[viewingId];
   if (!v) return;
   _slRows = similarListings(v);
   _slRef = { block: v.block, unit: v.unit };
+  _slSoldMap = new Map();
   const overlay = document.createElement('div');
   overlay.className = 'modal-overlay';
   overlay.style.display = 'flex';
@@ -3387,6 +3473,7 @@ function openSimilarListings(viewingId) {
   </div>`;
   document.body.appendChild(overlay);
   renderSlTable();
+  if (v.estate_id) loadSlSoldMarks(v);
 }
 
 // 撳「N宗」彈出組成中位數嗰批成交紀錄（同層帶或全苑,由後端用同一 tier 邏輯篩）。
@@ -4260,6 +4347,8 @@ async function fetchViewingHSVal(viewingId, block, floor, unit, price) {
     const data = await api(`/api/hangseng-valuation?${params}`);
     if (data.price) {
       await api(`/api/viewings/${viewingId}`, { method: 'PATCH', body: JSON.stringify({ hs_price: Number(data.price) }) });
+      const v = window._viewingMap?.[viewingId];
+      if (v) v.hs_price = Number(data.price);   // 個 map 都要更新——條尺個估值針下次 render 先會啱
       const cell = document.getElementById(`vhs-${viewingId}`);
       if (cell) cell.innerHTML = hsValHtml(Number(data.price)) + hsDiffHtml(Number(data.price), price);
     }
@@ -4313,9 +4402,6 @@ async function loadViewings(estateId) {
       const mgmtMonthly = v.mgmt_fee ? (v.mgmt_fee > 100 ? Math.round(v.mgmt_fee) : (v.size_net ? Math.round(v.mgmt_fee * v.size_net) : null)) : null;
       const psfStr = v.price && v.size_net ? `$${Math.round(v.price/v.size_net).toLocaleString()}/呎` : '-';
       const vData = encodeURIComponent(JSON.stringify(v));
-      const hsCell = v.hs_price
-        ? hsValHtml(v.hs_price) + hsDiffHtml(v.hs_price, v.price)
-        : `<button class="hs-val-btn" onclick="manualFetchViewingHSVal(${v.id},${estateId},'${escHtml(v.block||'')}','${escHtml(v.floor)}','${escHtml(v.unit)}',${v.price||0})">查估值</button>`;
       const subLine = [v.direction ? `向${escHtml(v.direction)}` : '', v.bedrooms ? v.bedrooms+'房' : ''].filter(Boolean).join(' ');
       const sizeStr = v.size_net ? v.size_net+'呎' : '-';
       // 放咗幾耐盤：由對應放盤（linked_ref_no）反推，跨 source 揀最長嗰個。
@@ -4338,27 +4424,33 @@ async function loadViewings(estateId) {
       const priceChangedCell = v.linked_ref_no == null ? '-'
         : v.price_changed ? '<span style="color:var(--accent);font-size:0.8rem">有變動</span>'
         : '<span style="color:var(--muted);font-size:0.8rem">無變動</span>';
-      // 單位／售價／成交／備注各自合併咗幾欄（16→12）：同一件事嘅資料擺埋
-      // 一格，唔使橫拉咁遠。乜都冇少——👁 查看個 detail modal 照樣逐項列。
+      // 單位／售價／成交／備注各自合併咗幾欄（16→12→9）：同一件事嘅資料
+      // 擺埋一格，唔使橫拉咁遠。恒生估值／相對市價／類近在售三欄再合併做
+      // 「價格尺」（priceRulerHtml）。
       const unitSub = [subLine, sizeStr !== '-' ? sizeStr : ''].filter(Boolean).join(' · ');
+      // 壓低/加咗：你睇嗰陣個叫價（v.price）同最終成交價（v.txn_price）比。
+      let sqzHtml = '';
+      if (v.txn_price && v.txn_reg_date >= v.view_date && v.price) {
+        const diff = v.price - v.txn_price;
+        const pct = Math.abs(diff / v.price * 100).toFixed(1);
+        if (diff > 0) sqzHtml = `<div style="color:var(--down);font-size:0.72rem">壓低 ${fmt(diff)}（${pct}%）</div>`;
+        else if (diff < 0) sqzHtml = `<div style="color:var(--up);font-size:0.72rem">加咗 ${fmt(-diff)}（${pct}%）</div>`;
+      }
       const soldHtml = (v.txn_price && v.txn_reg_date >= v.view_date)
-        ? `<span style="color:var(--accent)"><strong>${fmt(v.txn_price)}</strong></span> <span style="color:var(--muted);font-size:0.75rem">${v.txn_reg_date}</span>${annualHtml}`
+        ? `<span style="color:var(--accent)"><strong>${fmt(v.txn_price)}</strong></span> <span style="color:var(--muted);font-size:0.75rem">${v.txn_reg_date}</span>${annualHtml}${sqzHtml}`
         : `<span style="color:var(--muted);font-size:0.75rem">未沽出</span>`;
       const notesHtml = [
         v.notes ? `<span style="font-size:0.78rem;background:var(--surface2);border-radius:4px;padding:0.15rem 0.4rem">${escHtml(v.notes)}</span>` : '',
         imgHtml ? `<div style="margin-top:0.25rem">${imgHtml}</div>` : '',
       ].filter(Boolean).join('') || '-';
       return `<tr data-vrow="${v.id}">
-        <td><button class="history-btn" onclick="openViewingDetail(${v.id})" title="用表格式睇返呢行資料" style="font-size:0.72rem;padding:0.2rem 0.5rem">👁 查看</button></td>
         <td><strong>${unitStr}</strong>
           ${unitSub ? `<div style="color:var(--muted);font-size:0.75rem">${unitSub}</div>` : ''}
           <div style="color:var(--muted);font-size:0.72rem">睇於 ${v.view_date}</div></td>
         <td><strong style="color:var(--accent)">${fmt(v.price)}</strong>
           <div style="color:var(--muted);font-size:0.75rem">${psfStr}</div>
           ${mgmtMonthly ? `<div style="color:var(--muted);font-size:0.72rem">管理費 $${mgmtMonthly.toLocaleString()}/月</div>` : ''}</td>
-        <td id="vhs-${v.id}">${hsCell}</td>
-        <td>${marketVsHtml(v)}</td>
-        <td>${similarListingsHtml(v)}</td>
+        <td>${priceRulerHtml(v)}</td>
         <td id="vmatch-${v.id}">${buildMatchCell(v)}</td>
         <td>${domCell}</td>
         <td>${priceChangedCell}</td>
@@ -4375,7 +4467,7 @@ async function loadViewings(estateId) {
     panel.innerHTML = `<div class="listings-section" id="viewingsTableWrap"></div>`;
     renderFrozenTable(
       document.getElementById('viewingsTableWrap'),
-      `<th></th><th>單位</th><th>售價</th><th>恒生估值</th><th>相對市價</th><th>類近在售</th><th>對應放盤</th><th>放咗幾耐</th><th>售價變動</th><th>成交</th><th>備注</th><th></th>`,
+      `<th>單位</th><th>售價</th><th>價格尺</th><th>對應放盤</th><th>放咗幾耐</th><th>售價變動</th><th>成交</th><th>備注</th><th></th>`,
       rows, 10, 'history-table data-table'
     );
 
@@ -4413,64 +4505,6 @@ async function fetchUnitTxn(viewingId) {
     const linkEnd = data.estateUrl ? '</a>' : '';
     cell.innerHTML = `${linkStart}<span style="color:var(--muted)"><strong>${fmt(t.price)}</strong></span>${dateStr ? `<br><span style="color:var(--muted);font-size:0.75rem">${dateStr}</span>` : ''}${linkEnd}`;
   } catch { cell.innerHTML = '-'; }
-}
-
-// 睇樓記錄「查看」→ 表格轉 form 式顯示（一行太多欄，窄屏睇表格好逼）。
-// 唔重新 fetch/計一次：直接讀返個 <tr> 已經 render 好嘅 <td>（上次購買/恒生
-// 估值嗰啲 async 欄呢陣都已經載完），逐格配返表頭做 label:value，砌成
-// 2 欄 grid（3 欄嘅話「相對市價」「類近在售」呢類兩行內容會迫到好緊）。
-// 內容長度唔穩定嗰幾個（對應放盤有多行按鈕、備注文字唔定長、圖片有縮圖）
-// 就佔全行（wide:true），其餘 11 個兩個一行。
-// ⚠️ 呢個 array 係「按位置」對返 <td>（dataCells = row.children.slice(1,-1)），
-// 所以改表格欄數／次序就一定要同步改呢度，否則 label 會錯位。
-const VIEWING_DETAIL_FIELDS = [
-  { label: '單位（房數／實呎／睇樓日期）' }, { label: '售價（呎價／管理費）' },
-  { label: '恒生估值' }, { label: '相對市價' }, { label: '類近在售' },
-  { label: '對應放盤', wide: true }, { label: '放咗幾耐' }, { label: '售價變動' },
-  { label: '成交（上手／沽出）' }, { label: '備注', wide: true },
-];
-// 撳「查看」開 modal 嗰陣，捕捉返表格入面全部 row 嘅順序（同顯示順序一致），
-// 等 ‹ 上一條 / 下一條 › 可以喺呢個順序度前後移動。順序可能因為 filter/sort
-// 變，所以每次開新 modal 都重新捕捉一次，唔會用舊快照。
-let _viewingDetailIds = [];
-function openViewingDetail(viewingId) {
-  _viewingDetailIds = [...document.querySelectorAll('tr[data-vrow]')].map(r => Number(r.dataset.vrow));
-  renderViewingDetail(viewingId);
-}
-function renderViewingDetail(viewingId) {
-  const row = document.querySelector(`tr[data-vrow="${viewingId}"]`);
-  if (!row) return;
-  // 首欄係「查看」掣、尾欄係編輯/刪除操作，兩邊都要撇除
-  const dataCells = [...row.children].slice(1, -1);
-  const cards = VIEWING_DETAIL_FIELDS.map((f, i) => `
-    <div style="background:var(--surface2);border-radius:8px;padding:0.5rem 0.65rem;min-width:0;${f.wide ? 'grid-column:1 / -1' : ''}">
-      <div style="color:var(--muted);font-size:0.7rem;margin-bottom:0.25rem">${escHtml(f.label)}</div>
-      <div style="font-size:0.85rem;overflow-wrap:break-word">${dataCells[i] ? dataCells[i].innerHTML : '-'}</div>
-    </div>`).join('');
-  document.getElementById('viewingDetailBody').innerHTML =
-    `<div class="viewing-detail-grid">${cards}</div>`;
-  document.getElementById('viewingDetailModalOverlay').style.display = 'flex';
-  document.getElementById('viewingDetailModalOverlay').dataset.currentId = viewingId;
-  document.getElementById('viewingDetailBody').scrollTop = 0;
-  const idx = _viewingDetailIds.indexOf(viewingId);
-  const total = _viewingDetailIds.length;
-  document.getElementById('viewingDetailCounter').textContent = idx >= 0 ? `${idx + 1} / ${total}` : '';
-  const prevBtn = document.getElementById('viewingDetailPrevBtn');
-  const nextBtn = document.getElementById('viewingDetailNextBtn');
-  prevBtn.disabled = idx <= 0;
-  nextBtn.disabled = idx < 0 || idx >= total - 1;
-  prevBtn.style.opacity = prevBtn.disabled ? '0.4' : '1';
-  nextBtn.style.opacity = nextBtn.disabled ? '0.4' : '1';
-}
-function viewingDetailNav(dir) {
-  const curId = Number(document.getElementById('viewingDetailModalOverlay').dataset.currentId);
-  const idx = _viewingDetailIds.indexOf(curId);
-  const newIdx = idx + dir;
-  if (newIdx < 0 || newIdx >= _viewingDetailIds.length) return;
-  renderViewingDetail(_viewingDetailIds[newIdx]);
-}
-function closeViewingDetail() {
-  document.getElementById('viewingDetailModalOverlay').style.display = 'none';
 }
 
 async function deleteViewing(id, estateId) {

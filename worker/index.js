@@ -2322,12 +2322,15 @@ async function computeBargainRadar(db, { belowPct = null, limit = 30, accountId 
 }
 
 // 一個單位相對同苑成交中位數平定貴。med 係 soldMedianPsf 一格
-// { med_psf, n_sold }；少於 minSold 宗成交唔夠信,返 null。psf 係單位呎價。
+// { med_psf, n_sold }（可選 p10/p90——價格尺畫區間用）；少於 minSold 宗
+// 成交唔夠信,返 null。psf 係單位呎價。
 function marketVerdict(med, psf, minSold = 5) {
   if (!med || med.n_sold < minSold || !psf) return null;
   return {
     sold_med_psf: med.med_psf,
     n_sold: med.n_sold,
+    sold_p10: med.p10 ?? null,
+    sold_p90: med.p90 ?? null,
     vs_med_pct: Math.round((psf - med.med_psf) / med.med_psf * 1000) / 10,
   };
 }
@@ -4387,10 +4390,14 @@ export default {
             !(nb && nu && _normBldg(t.building) === nb && _normUnit(t.unit) === nu && t.fl === floorNum)
           );
           const tierPool = tier ? pool.filter((t) => deriveFloorTier(t.fl, maxfMap.get(t.building)) === tier) : [];
+          const tierPsfs = tierPool.map((t) => t.price_per_ft);
+          const poolPsfs = pool.map((t) => t.price_per_ft);
           const tierMed = tierPool.length
-            ? { med_psf: _sqlMedian(tierPool.map((t) => t.price_per_ft)), n_sold: tierPool.length } : null;
+            ? { med_psf: _sqlMedian(tierPsfs), n_sold: tierPool.length,
+                p10: _pctile(tierPsfs, 0.1), p90: _pctile(tierPsfs, 0.9) } : null;
           const estMed = pool.length
-            ? { med_psf: _sqlMedian(pool.map((t) => t.price_per_ft)), n_sold: pool.length } : null;
+            ? { med_psf: _sqlMedian(poolPsfs), n_sold: pool.length,
+                p10: _pctile(poolPsfs, 0.1), p90: _pctile(poolPsfs, 0.9) } : null;
           const tierVerdict = tier ? marketVerdict(tierMed, psf, vcfg.market_min_sold) : null;
           const verdict = tierVerdict ?? marketVerdict(estMed, psf, vcfg.market_min_sold);
           v.floor_tier = tier;
@@ -4399,6 +4406,8 @@ export default {
           v.sold_med_psf = verdict?.sold_med_psf ?? null;
           v.market_n_sold = verdict?.n_sold ?? null;
           v.vs_med_pct = verdict?.vs_med_pct ?? null;
+          v.sold_p10 = verdict?.sold_p10 ?? null;
+          v.sold_p90 = verdict?.sold_p90 ?? null;
         }
 
         // 對應放盤（linked_ref_no）衍生兩樣嘢：①放咗幾耐盤（跨 source 揀最長）
@@ -4449,6 +4458,7 @@ export default {
           for (const v of results) {
             v.floor_tier = null; v.tier_max_floor = null; v.market_basis = null;
             v.sold_med_psf = null; v.market_n_sold = null; v.vs_med_pct = null;
+            v.sold_p10 = null; v.sold_p90 = null;
             v.dom_days = null; v.price_changed = null;
           }
           return json(200, { viewings: results, tierLimited: true });
