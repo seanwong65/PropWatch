@@ -1897,6 +1897,18 @@ const _pctile = (arr, p) => {
   return s[Math.min(s.length - 1, Math.floor(p * (s.length - 1)))];
 };
 
+// 價格尺畫嘅區間：樣本細（例如 n=2）嗰陣 nearest-rank percentile 會將
+// p10/p90 摺埋去同一個 index（兩個都揀咗嗰個細嘅數），band 變成零闊度，
+// 仲同中位數（平均嚟）對唔上。呢種情況直接跌返去用實際 min/max——
+// 樣本夠多先用 trimmed percentile（避免一兩個離群值扯到成條 band 好闊）。
+const _bandRange = (arr) => {
+  if (!arr.length) return { p10: null, p90: null };
+  const s = [...arr].sort((a, b) => a - b);
+  let p10 = _pctile(s, 0.1), p90 = _pctile(s, 0.9);
+  if (p10 === p90) { p10 = s[0]; p90 = s[s.length - 1]; }
+  return { p10, p90 };
+};
+
 // 中位數,計法同 soldMedianPsf/soldMedianPsfByTier 嘅 SQL 一致(偶數宗數
 // 取中間兩個平均,用 ROUND(AVG(...)) 嘅捨入方式),俾需要喺 JS 度(例如
 // 逐個 viewing 撇除自己)重新計中位數嘅地方用,結果同 SQL 版本睇齊。
@@ -4393,11 +4405,9 @@ export default {
           const tierPsfs = tierPool.map((t) => t.price_per_ft);
           const poolPsfs = pool.map((t) => t.price_per_ft);
           const tierMed = tierPool.length
-            ? { med_psf: _sqlMedian(tierPsfs), n_sold: tierPool.length,
-                p10: _pctile(tierPsfs, 0.1), p90: _pctile(tierPsfs, 0.9) } : null;
+            ? { med_psf: _sqlMedian(tierPsfs), n_sold: tierPool.length, ..._bandRange(tierPsfs) } : null;
           const estMed = pool.length
-            ? { med_psf: _sqlMedian(poolPsfs), n_sold: pool.length,
-                p10: _pctile(poolPsfs, 0.1), p90: _pctile(poolPsfs, 0.9) } : null;
+            ? { med_psf: _sqlMedian(poolPsfs), n_sold: pool.length, ..._bandRange(poolPsfs) } : null;
           const tierVerdict = tier ? marketVerdict(tierMed, psf, vcfg.market_min_sold) : null;
           const verdict = tierVerdict ?? marketVerdict(estMed, psf, vcfg.market_min_sold);
           v.floor_tier = tier;

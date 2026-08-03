@@ -3257,8 +3257,7 @@ function priceRulerHtml(v) {
   const askPsfs = sim.map(s => s.price_per_ft).filter(Boolean);
   const hasAsk = askPsfs.length > 0;
   const askMed = hasAsk ? _median(askPsfs) : null;
-  const askP10 = hasAsk ? _pctile(askPsfs, 0.10) : null;
-  const askP90 = hasAsk ? _pctile(askPsfs, 0.90) : null;
+  const { p10: askP10, p90: askP90 } = hasAsk ? _bandRange(askPsfs) : { p10: null, p90: null };
 
   if (!hasSold && !hasAsk) {
     const why = (v.floor_tier == null || v.bedrooms == null) ? '未有房數/樓層帶'
@@ -3357,6 +3356,16 @@ const _pctile = (arr, p) => {
   if (!arr.length) return null;
   const s = [...arr].sort((a, b) => a - b);
   return s[Math.min(s.length - 1, Math.floor(p * (s.length - 1)))];
+};
+// 樣本細（例如 n=2）嗰陣 nearest-rank percentile 會將 p10/p90 摺埋去
+// 同一個 index，band 變零闊度，仲同中位數對唔上——呢種情況跌返去用
+// 實際 min/max（同後端 _bandRange 一致）。
+const _bandRange = (arr) => {
+  if (!arr.length) return { p10: null, p90: null };
+  const s = [...arr].sort((a, b) => a - b);
+  let p10 = _pctile(s, 0.1), p90 = _pctile(s, 0.9);
+  if (p10 === p90) { p10 = s[0]; p90 = s[s.length - 1]; }
+  return { p10, p90 };
 };
 
 // 把 groupListings 出嚟嘅行(可能係 combined)攤平做統一欄位;combined 取最平嗰口價。
@@ -4491,17 +4500,15 @@ async function loadViewings(estateId) {
             <span style="color:var(--muted);font-size:0.8rem;margin-left:0.4rem">${psfStr}</span>
             ${mgmtMonthly ? `<div style="color:var(--muted);font-size:0.75rem;margin-top:0.1rem">管理費 $${mgmtMonthly.toLocaleString()}/月</div>` : ''}
           </div>
-          <div style="margin-bottom:0.7rem">${priceRulerHtml(v)}</div>
-          <div class="viewing-card-kv" style="margin-bottom:0.5rem"><span class="viewing-card-k">對應放盤</span><div id="vmatch-${v.id}">${buildMatchCell(v)}</div></div>
-          <div class="viewing-card-grid" style="grid-template-columns:repeat(2,1fr)">
+          <div class="viewing-card-grid" style="grid-template-columns:repeat(2,1fr);margin-bottom:0.7rem">
+            <div class="viewing-card-kv"><span class="viewing-card-k">上手購買</span>
+              <div id="vprev-${v.id}"><span style="color:var(--muted);font-size:0.75rem;cursor:pointer" onclick="fetchUnitTxn(${v.id})">查上手成交</span></div></div>
+            <div class="viewing-card-kv"><span class="viewing-card-k">沽出</span>${soldHtml}</div>
             <div class="viewing-card-kv"><span class="viewing-card-k">放咗幾耐</span>${domCell}</div>
             <div class="viewing-card-kv"><span class="viewing-card-k">售價變動</span>${priceChangedCell}</div>
           </div>
-          <div style="margin-bottom:0.5rem">
-            <span class="viewing-card-k">成交</span>
-            <div id="vprev-${v.id}" style="margin-top:0.15rem"><span style="color:var(--muted);font-size:0.75rem;cursor:pointer" onclick="fetchUnitTxn(${v.id})">查上手成交</span></div>
-            <div style="margin-top:0.25rem">${soldHtml}</div>
-          </div>
+          <div style="margin-bottom:0.7rem">${priceRulerHtml(v)}</div>
+          <div class="viewing-card-kv" style="margin-bottom:0.5rem"><span class="viewing-card-k">對應放盤</span><div id="vmatch-${v.id}">${buildMatchCell(v)}</div></div>
           ${notesHtml !== '-' ? `<div>${notesHtml}</div>` : ''}
         </div>`;
       }
