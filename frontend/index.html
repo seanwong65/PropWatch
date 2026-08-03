@@ -615,6 +615,20 @@
     .viewing-card-kv { display: flex; flex-direction: column; }
     .viewing-card-k { color: var(--muted); font-size:0.75rem; margin-bottom: 1px; }
     .viewing-card-imgs { display: flex; flex-wrap: wrap; gap: 0.4rem; margin-top: 0.4rem; }
+
+    /* 睇樓評分星星：每粒星分左右兩個透明半邊做 click target，所以撳到 x.5 分。
+       金色嗰層疊喺灰底之上，靠 width 0/50%/100% 切出半星效果。 */
+    .rstar { position: relative; display: inline-block; width: 1.3rem; height: 1.35rem;
+             line-height: 1.35rem; font-size: 1.2rem; vertical-align: middle; }
+    .rstar-bg, .rstar-fg { position: absolute; left: 0; top: 0; bottom: 0;
+                           white-space: nowrap; pointer-events: none; }
+    .rstar-bg { color: var(--border); }
+    .rstar-fg { color: var(--accent); overflow: hidden; width: 0; }
+    .rstar-h { position: absolute; top: 0; bottom: 0; width: 50%; z-index: 2; cursor: pointer; }
+    .rstar-l { left: 0; } .rstar-r { right: 0; }
+    .rstar-row { display: flex; align-items: center; gap: 0.5rem; padding: 0.25rem 0; }
+    .rstar-name { font-size: 0.85rem; color: var(--text); flex: 1; min-width: 0; }
+    .rstar-val { font-size: 0.78rem; color: var(--muted); width: 2.6rem; text-align: right; flex-shrink: 0; }
     .viewing-card-img {
       width: 72px; height: 72px; object-fit: cover; border-radius: 4px;
       cursor: pointer; border: 1px solid var(--border);
@@ -1040,7 +1054,7 @@
 
 <!-- 首次登入睇樓偏好 Modal -->
 <div class="modal-overlay" id="prefsModalOverlay" style="display:none" onclick="if(event.target===this)closePrefsModal()">
-  <div class="modal" style="max-width:420px">
+  <div class="modal" style="max-width:420px;max-height:90vh;overflow-y:auto">
     <button class="modal-close" onclick="closePrefsModal()">✕</button>
     <div class="modal-title">🎯 睇樓偏好</div>
     <p style="font-size:0.82rem;color:var(--muted);margin:0.25rem 0 1rem">話俾系統知你想搵咩樓，開「最新放盤」時會自動幫你 filter。全部 optional，之後喺 ⚙️ 設定都改到。</p>
@@ -1065,6 +1079,15 @@
       <input class="vf-input" type="number" id="pref-size-max" placeholder="最高" style="margin:0" oninput="updatePrefsModalPreview()">
     </div>
     <div style="margin-top:0.75rem;font-size:0.82rem;color:var(--muted)">目前設定：<span id="pref-modal-preview" style="color:var(--text);font-weight:600">未設定</span></div>
+
+    <label class="vf-label" style="margin-top:1.1rem">睇樓評分項目</label>
+    <p style="font-size:0.78rem;color:var(--muted);margin:0 0 0.5rem">睇樓時逐項打分（1–5 星，半星都得），之後可以比較邊層樓最合你心水。</p>
+    <div class="ratecrit-list" style="display:flex;flex-direction:column;gap:0.4rem;margin-bottom:0.5rem"></div>
+    <div style="display:flex;gap:0.4rem">
+      <input id="prefRatingCritNew" placeholder="例：景觀、新舊程度…" onkeydown="if(event.key==='Enter'){event.preventDefault();addRatingCriterion('prefRatingCritNew')}"
+        style="flex:1;background:var(--surface2);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:0.9rem;padding:0.5rem 0.6rem;box-sizing:border-box;font-family:inherit">
+      <button type="button" class="vf-submit" onclick="addRatingCriterion('prefRatingCritNew')" style="width:auto;padding:0.5rem 1rem;margin:0;white-space:nowrap">＋ 新增</button>
+    </div>
     <label style="display:flex;align-items:center;gap:0.45rem;margin-top:1.1rem;font-size:0.85rem;color:var(--muted);cursor:pointer">
       <input type="checkbox" id="pref-dismiss" style="accent-color:var(--accent)"> 以後不再提醒
     </label>
@@ -1086,6 +1109,21 @@
       <input id="notesOptNew" placeholder="新增選項…" onkeydown="if(event.key==='Enter')addNotesOption()"
         style="flex:1;background:var(--surface2);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:0.9rem;padding:0.5rem 0.6rem;box-sizing:border-box;font-family:inherit">
       <button class="vf-submit" onclick="addNotesOption()" style="width:auto;padding:0.5rem 1rem;margin:0;white-space:nowrap">＋ 新增</button>
+    </div>
+  </div>
+</div>
+
+<!-- 評分項目編輯 popup（睇樓 modal「睇樓評分」區同偏好 popup 都開得到） -->
+<div class="modal-overlay" id="ratingCritModalOverlay" style="display:none;z-index:600" onclick="if(event.target===this)closeRatingCritEditor()">
+  <div class="modal" style="max-width:400px;max-height:90vh;overflow-y:auto">
+    <button class="modal-close" onclick="closeRatingCritEditor()">✕</button>
+    <div class="modal-title">⭐ 評分項目</div>
+    <p style="font-size:0.78rem;color:var(--muted);margin:0.25rem 0 0.75rem">睇樓時逐項打分（半星都得）。後來先加嘅項目唔會影響之前記錄嘅平均分。</p>
+    <div class="ratecrit-list" style="display:flex;flex-direction:column;gap:0.4rem;margin-bottom:0.6rem"></div>
+    <div style="display:flex;gap:0.4rem">
+      <input id="ratingCritNew" placeholder="例：景觀、新舊程度…" onkeydown="if(event.key==='Enter'){event.preventDefault();addRatingCriterion('ratingCritNew')}"
+        style="flex:1;background:var(--surface2);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:0.9rem;padding:0.5rem 0.6rem;box-sizing:border-box;font-family:inherit">
+      <button type="button" class="vf-submit" onclick="addRatingCriterion('ratingCritNew')" style="width:auto;padding:0.5rem 1rem;margin:0;white-space:nowrap">＋ 新增</button>
     </div>
   </div>
 </div>
@@ -1218,6 +1256,12 @@
           <input class="vf-input" type="number" id="vf-mgmt" placeholder="$" min="0" step="0.01" required>
         </div>
       </div>
+
+      <label class="vf-label" style="display:flex;align-items:center;justify-content:space-between;gap:0.5rem">
+        <span>睇樓評分</span>
+        <span onclick="openRatingCritEditor()" style="font-size:0.75rem;color:var(--accent2);cursor:pointer;font-weight:400">✏️ 編輯選項</span>
+      </label>
+      <div id="vf-ratings" style="margin-bottom:0.7rem"></div>
 
       <label class="vf-label" style="display:flex;align-items:center;justify-content:space-between;gap:0.5rem">
         <span>備注</span>
@@ -1570,6 +1614,7 @@ async function doResetPassword() {
     hideLoginScreen();
     loadEstates();
     loadNotesOptions();
+    loadRatingCriteria();
     checkFirstLoginPrefs();
   } catch (e) {
     errEl.textContent = e.message;
@@ -1593,6 +1638,7 @@ async function doLogin() {
     hideLoginScreen();
     loadEstates();
     loadNotesOptions();
+    loadRatingCriteria();
     checkFirstLoginPrefs();
   } catch (e) {
     errEl.textContent = e.message;
@@ -1628,6 +1674,7 @@ async function doRegister() {
     hideLoginScreen();
     loadEstates();
     loadNotesOptions();
+    loadRatingCriteria();
     checkFirstLoginPrefs();
   } catch (e) {
     errEl.textContent = e.message;
@@ -3650,6 +3697,76 @@ async function loadNotesOptions() {
   } catch(_) {}
 }
 
+// ── 睇樓評分 ───────────────────────────────────────────────────────────────
+// 評分項目（景觀／新舊程度…）同備注選項一樣係 per-account catalogue，借
+// system_parameters 個 category='rating_criterion' 擺，所以唔使加新 endpoint。
+// 每筆睇樓記錄存 {criterionId: 分數}；用 id 做 key 唔用名，改名唔會斷開已評分。
+let _ratingCriteria = [];   // {id, value}[]
+let _vfRatings = {};        // 睇樓 modal 暫存嘅評分（未儲存前）
+
+async function loadRatingCriteria() {
+  try {
+    const r = await api('/api/system-params?category=rating_criterion');
+    _ratingCriteria = (r && r.items) || [];
+  } catch(_) {}
+}
+
+// 平均分：淨計評咗嗰啲，未評（NA）唔入分母 —— 3/4/5/NA 一樣係 4 分，
+// 咁樣後來先加嘅項目唔會突然拖低晒之前所有記錄。
+function ratingAvg(ratings) {
+  const vals = Object.values(ratings || {}).map(Number).filter(n => Number.isFinite(n) && n > 0);
+  if (!vals.length) return null;
+  return vals.reduce((a, b) => a + b, 0) / vals.length;
+}
+
+function parseRatings(v) {
+  if (!v || !v.ratings) return {};
+  try { return JSON.parse(v.ratings) || {}; } catch { return {}; }
+}
+
+// 一行 5 粒星。interactive 版每粒星有左右兩個透明 click target（左半 = x.5）；
+// 唯讀版（表格/卡片顯示）就淨係畫，唔要 click target。
+function starsHtml(score, critId) {
+  const val = Number(score) || 0;
+  let html = '';
+  for (let i = 1; i <= 5; i++) {
+    const fill = val >= i ? 100 : (val >= i - 0.5 ? 50 : 0);
+    const hit = critId == null ? '' :
+      `<i class="rstar-h rstar-l" onclick="setVfRating(${critId},${i - 0.5})"></i>` +
+      `<i class="rstar-h rstar-r" onclick="setVfRating(${critId},${i})"></i>`;
+    html += `<span class="rstar">${hit}<span class="rstar-bg">★</span><span class="rstar-fg" style="width:${fill}%">★</span></span>`;
+  }
+  return html;
+}
+
+// 撳返同一個分數 = 取消評分（變返 NA），唔使另外一個清除掣
+function setVfRating(critId, val) {
+  if (_vfRatings[critId] === val) delete _vfRatings[critId];
+  else _vfRatings[critId] = val;
+  renderVfRatings();
+}
+
+function renderVfRatings() {
+  const box = document.getElementById('vf-ratings');
+  if (!box) return;
+  if (!_ratingCriteria.length) {
+    box.innerHTML = `<div style="font-size:0.8rem;color:var(--muted);padding:0.3rem 0">未有評分項目，撳右上角「編輯選項」加。</div>`;
+    return;
+  }
+  const avg = ratingAvg(_vfRatings);
+  box.innerHTML = _ratingCriteria.map(c => {
+    const s = _vfRatings[c.id];
+    return `<div class="rstar-row">
+      <span class="rstar-name">${escHtml(c.value)}</span>
+      <span>${starsHtml(s, c.id)}</span>
+      <span class="rstar-val">${s ? s.toFixed(1) : 'NA'}</span>
+    </div>`;
+  }).join('') + (avg != null
+    ? `<div style="text-align:right;font-size:0.82rem;color:var(--muted);margin-top:0.35rem">
+         平均 <strong style="color:var(--accent)">${avg.toFixed(1)}</strong> 分（${Object.keys(_vfRatings).length} 項）</div>`
+    : '');
+}
+
 function findMatchingListings(viewing) {
   if (!viewing.block || !viewing.unit) return [];
   const blockNum = String(viewing.block).replace(/[座]/g, '').trim().toUpperCase();
@@ -4021,6 +4138,9 @@ function openPrefsModal(prefill) {
   document.getElementById('pref-dismiss').checked = false;
   document.getElementById('prefsModalOverlay').style.display = 'flex';
   updatePrefsModalPreview();
+  // 評分項目係即時 CRUD（唔跟「儲存」掣），所以開個 popup 就即刻拉最新嗰份
+  renderRatingCrits();
+  loadRatingCriteria().then(renderRatingCrits);
 }
 
 function setPrefBeds(btn) {
@@ -4263,6 +4383,58 @@ async function deleteNotesOption(id) {
   _refreshViewingNotesChips();
 }
 
+// 評分項目編輯：同一個 list 會出喺兩個位（偏好 popup 入面 + 獨立編輯 popup），
+// 所以 render 係掃晒 .ratecrit-list 全部容器，唔使理邊個開緊。
+function openRatingCritEditor() {
+  document.getElementById('ratingCritModalOverlay').style.display = 'flex';
+  renderRatingCrits();
+  loadRatingCriteria().then(renderRatingCrits);
+}
+function closeRatingCritEditor() {
+  document.getElementById('ratingCritModalOverlay').style.display = 'none';
+}
+
+function renderRatingCrits() {
+  const empty = `<div style="font-size:0.8rem;color:var(--muted);padding:0.3rem 0">未有項目，喺下面新增。</div>`;
+  const rows = _ratingCriteria.map(c => `
+    <div style="display:flex;gap:0.4rem;align-items:center">
+      <input value="${escHtml(c.value)}" onchange="updateRatingCriterion(${c.id}, this.value)"
+        style="flex:1;background:var(--surface2);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:0.9rem;padding:0.5rem 0.6rem;box-sizing:border-box;font-family:inherit">
+      <button type="button" onclick="deleteRatingCriterion(${c.id})" title="刪除"
+        style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;color:var(--muted);cursor:pointer;padding:0.5rem 0.6rem;font-size:0.85rem">✕</button>
+    </div>`).join('');
+  document.querySelectorAll('.ratecrit-list').forEach(el => {
+    el.innerHTML = _ratingCriteria.length ? rows : empty;
+  });
+  renderVfRatings();   // 睇樓 modal 開緊嘅話，啲星星行都要跟住加減
+}
+
+async function addRatingCriterion(inputId) {
+  const input = document.getElementById(inputId);
+  const value = input.value.trim();
+  if (!value) return;
+  await api('/api/system-params', { method: 'POST', body: JSON.stringify({ category: 'rating_criterion', value }) });
+  input.value = '';
+  await loadRatingCriteria();
+  renderRatingCrits();
+}
+
+async function updateRatingCriterion(id, value) {
+  const val = (value || '').trim();
+  if (!val) { renderRatingCrits(); return; }   // 唔准改到空白，還原
+  await api('/api/system-params/' + id, { method: 'PUT', body: JSON.stringify({ value: val }) });
+  await loadRatingCriteria();
+  renderRatingCrits();
+}
+
+async function deleteRatingCriterion(id) {
+  if (!confirm('刪除呢個評分項目？已評過嘅分數會一齊唔見。')) return;
+  await api('/api/system-params/' + id, { method: 'DELETE' });
+  delete _vfRatings[id];
+  await loadRatingCriteria();
+  renderRatingCrits();
+}
+
 function openViewingModal(viewing = null) {
   if (!_viewingEstateId) return;
   _viewingEditId = viewing ? viewing.id : null;
@@ -4280,6 +4452,9 @@ function openViewingModal(viewing = null) {
   document.getElementById('vf-price').value = viewing ? (viewing.price / 10000) : '';
   document.getElementById('vf-mgmt').value = viewing ? (viewing.mgmt_fee || '') : '';
   populateNotesSelect(viewing ? (viewing.notes || '') : '');
+  _vfRatings = viewing ? parseRatings(viewing) : {};
+  renderVfRatings();
+  loadRatingCriteria().then(renderVfRatings);
   const preview = document.getElementById('vf-img-preview');
   preview.innerHTML = '';
   _viewingImages = [];
@@ -4349,6 +4524,7 @@ async function submitViewing(e) {
       mgmt_fee: parseFloat(document.getElementById('vf-mgmt').value) || null,
       images: images.length ? JSON.stringify(images) : null,
       notes: getNotesValue(),
+      ratings: _vfRatings,
     };
     let savedId;
     if (_viewingEditId) {
@@ -4495,8 +4671,21 @@ async function loadViewings(estateId) {
         ? `<div>${v.txn_reg_date} <strong style="color:var(--accent)">${fmt(v.txn_price)}</strong> 沽出</div>${soldMetaParts.length ? `<div style="margin-top:0.15rem">${soldMetaParts.join(' <span style="color:var(--muted);font-size:0.7rem">·</span> ')}</div>` : ''}`
         : `<div><span style="color:var(--muted);font-size:0.8rem">未沽出</span>${v.dom_days != null ? ` <span style="color:var(--muted);font-size:0.72rem">· 放咗${v.dom_days.toLocaleString()}日</span>` : ''}</div>
            <div style="margin-top:0.25rem;font-size:0.75rem;color:var(--muted)">上手 <span id="vprev-${v.id}" style="cursor:pointer" onclick="fetchUnitTxn(${v.id})">查上手成交</span></div>`;
+      // 睇樓評分：平均分做個細 badge 貼喺單位名側（一眼比得到邊層好），
+      // 逐項分數就同備注擺埋一齊。未評嘅項目唔顯示，亦唔入平均（睇 ratingAvg）。
+      const rmap = parseRatings(v);
+      const ravg = ratingAvg(rmap);
+      const ratedCrits = _ratingCriteria.filter(c => rmap[c.id]);
+      const rateBadge = ravg != null
+        ? ` <span style="color:var(--accent);font-size:0.75rem;white-space:nowrap" title="平均分（未評嘅項目唔計入）">⭐${ravg.toFixed(1)}</span>`
+        : '';
+      const rateBreak = ratedCrits.length
+        ? `<div style="font-size:0.72rem;color:var(--muted);margin-top:0.2rem">${
+            ratedCrits.map(c => `${escHtml(c.value)} ${rmap[c.id]}`).join(' · ')}</div>`
+        : '';
       const notesHtml = [
         v.notes ? `<span style="font-size:0.78rem;background:var(--surface2);border-radius:4px;padding:0.15rem 0.4rem">${escHtml(v.notes)}</span>` : '',
+        rateBreak,
         imgHtml ? `<div style="margin-top:0.25rem">${imgHtml}</div>` : '',
       ].filter(Boolean).join('') || '-';
       const editBtn = `<button class="viewing-del-btn" onclick='openViewingModal(JSON.parse(decodeURIComponent("${vData}")))' title="更改" style="background:var(--surface2);margin-right:0.3rem">✏️</button>`;
@@ -4508,7 +4697,7 @@ async function loadViewings(estateId) {
         return `<div class="viewing-card" data-vrow="${v.id}">
           <div class="viewing-card-header">
             <div>
-              <div class="viewing-card-title">${unitStr}</div>
+              <div class="viewing-card-title">${unitStr}${rateBadge}</div>
               <div class="viewing-card-date">${unitSub ? unitSub + ' · ' : ''}睇於 ${v.view_date}</div>
             </div>
             <div style="white-space:nowrap;flex-shrink:0">${editBtn}${delBtn}</div>
@@ -4528,7 +4717,7 @@ async function loadViewings(estateId) {
         </div>`;
       }
       return `<tr data-vrow="${v.id}">
-        <td><strong>${unitStr}</strong>
+        <td><strong>${unitStr}</strong>${rateBadge}
           ${unitSub ? `<div style="color:var(--muted);font-size:0.75rem">${unitSub}</div>` : ''}
           <div style="color:var(--muted);font-size:0.72rem">睇於 ${v.view_date}</div></td>
         <td><strong style="color:var(--accent)">${fmt(v.price)}</strong>
@@ -5750,6 +5939,7 @@ if (getToken()) {
   hideLoginScreen();
   loadEstates();
   loadNotesOptions();
+  loadRatingCriteria();
   handleBillingReturn();     // Stripe 付完款 redirect 返嚟嗰陣先做嘢
   checkFirstLoginPrefs();
 } else {

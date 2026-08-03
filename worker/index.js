@@ -1306,6 +1306,47 @@ async function ensureSystemParams(db) {
   }
 }
 
+// 睇樓評分項目（景觀／新舊程度…）：per-account catalogue，同 notes_option 一樣
+// 借 system_parameters 擺。新開 account 有得即刻用，唔使面對一張白紙；但個
+// 種子只落一次（settings flag 守住），用戶刪剩零個都唔會俾我哋種返出嚟。
+const RATING_CRITERIA_DEFAULTS = ["景觀", "新舊程度", "間隔實用", "採光通風", "周邊配套"];
+
+async function ensureRatingCriteria(db, accountId) {
+  if (!accountId) return;
+  await db.prepare("CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT)").run();
+  const flag = `ratecrit_seeded_${accountId}`;
+  const seeded = await db.prepare("SELECT value FROM settings WHERE key = ?").bind(flag).first();
+  if (seeded) return;
+  // 開 app 時幾個 request 會同時打呢個 endpoint，齊齊見到「未種過」就會種重複。
+  // 所以先用 settings 個 PRIMARY KEY 搶名額——冇 ON CONFLICT，撞到就即刻死，
+  // 只有搶贏嗰個 request 先落種子。
+  try {
+    await db.prepare("INSERT INTO settings (key, value) VALUES (?, '1')").bind(flag).run();
+  } catch (_) {
+    return;
+  }
+  let i = 0;
+  for (const value of RATING_CRITERIA_DEFAULTS) {
+    await db.prepare("INSERT INTO system_parameters (category, value, sort_order, account_id) VALUES ('rating_criterion', ?, ?, ?)")
+      .bind(value, i++, accountId).run();
+  }
+}
+
+// 評分存 JSON {criterionId: 0.5..5}。呢舊嘢會原封不動 render 返出去，所以
+// 入 DB 前要洗乾淨：key 淨准數字 id、value 淨准 0.5 步階嘅 0.5–5，
+// 唔啱嘅一律丟走（唔好信 client 送咩就存咩）。冇有效項目就存 NULL。
+function sanitizeRatings(ratings) {
+  if (!ratings || typeof ratings !== "object" || Array.isArray(ratings)) return null;
+  const out = {};
+  for (const [k, v] of Object.entries(ratings)) {
+    if (!/^\d+$/.test(String(k))) continue;
+    const n = Number(v);
+    if (!Number.isFinite(n) || n < 0.5 || n > 5 || Math.round(n * 2) !== n * 2) continue;
+    out[String(k)] = n;
+  }
+  return Object.keys(out).length ? JSON.stringify(out) : null;
+}
+
 // 最新放盤 combine-same-unit 嘅人手覆蓋(拆開錯誤 group / 人手夾埋冇撞中嘅盤)
 async function ensureGroupOverrides(db) {
   await db.prepare(`CREATE TABLE IF NOT EXISTS listing_group_overrides (
@@ -4553,24 +4594,26 @@ export default {
 
       if (method === "POST" && path === "/api/viewings") {
         const body = await request.json();
-        const { estate_id, view_date, block, floor, unit, size_net, direction, price, mgmt_fee, images, notes, bedrooms } = body;
+        const { estate_id, view_date, block, floor, unit, size_net, direction, price, mgmt_fee, images, notes, bedrooms, ratings } = body;
         if (!estate_id || !view_date || !floor || !unit || !size_net || !price)
           return json(400, { error: "Missing required fields" });
         await db.prepare("ALTER TABLE viewings ADD COLUMN bedrooms INTEGER").run().catch(() => {});
+        await db.prepare("ALTER TABLE viewings ADD COLUMN ratings TEXT").run().catch(() => {});
         const result = await db.prepare(
-          "INSERT INTO viewings (estate_id, view_date, block, floor, unit, size_net, direction, price, mgmt_fee, images, notes, bedrooms, account_id) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)"
-        ).bind(estate_id, view_date, block||null, floor, unit, size_net, direction||null, price, mgmt_fee||null, images||null, notes||null, bedrooms||2, session.account_id).run();
+          "INSERT INTO viewings (estate_id, view_date, block, floor, unit, size_net, direction, price, mgmt_fee, images, notes, bedrooms, ratings, account_id) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)"
+        ).bind(estate_id, view_date, block||null, floor, unit, size_net, direction||null, price, mgmt_fee||null, images||null, notes||null, bedrooms||2, sanitizeRatings(ratings), session.account_id).run();
         return json(200, { ok: true, id: result.meta.last_row_id });
       }
 
       // 改/刪都帶 account_id 條件——一個 account 掂唔到另一個 account 嘅記錄。
       if (method === "PUT" && path.startsWith("/api/viewings/")) {
         const viewingId = path.split("/").pop();
-        const { view_date, block, floor, unit, size_net, direction, price, mgmt_fee, images, notes, bedrooms } = await request.json();
+        const { view_date, block, floor, unit, size_net, direction, price, mgmt_fee, images, notes, bedrooms, ratings } = await request.json();
         await db.prepare("ALTER TABLE viewings ADD COLUMN bedrooms INTEGER").run().catch(() => {});
+        await db.prepare("ALTER TABLE viewings ADD COLUMN ratings TEXT").run().catch(() => {});
         await db.prepare(
-          "UPDATE viewings SET view_date=?, block=?, floor=?, unit=?, size_net=?, direction=?, price=?, mgmt_fee=?, images=?, notes=?, bedrooms=?, hs_price=NULL WHERE id=? AND account_id=?"
-        ).bind(view_date, block||null, floor, unit, size_net, direction||null, price, mgmt_fee||null, images||null, notes||null, bedrooms||2, viewingId, session.account_id).run();
+          "UPDATE viewings SET view_date=?, block=?, floor=?, unit=?, size_net=?, direction=?, price=?, mgmt_fee=?, images=?, notes=?, bedrooms=?, ratings=?, hs_price=NULL WHERE id=? AND account_id=?"
+        ).bind(view_date, block||null, floor, unit, size_net, direction||null, price, mgmt_fee||null, images||null, notes||null, bedrooms||2, sanitizeRatings(ratings), viewingId, session.account_id).run();
         return json(200, { ok: true });
       }
 
@@ -4615,6 +4658,7 @@ export default {
         // 備注選項 per-account:每個 account 自己一套 catalogue。
         if (method === "GET") {
           const category = url.searchParams.get("category");
+          await ensureRatingCriteria(db, session.account_id);
           const stmt = category
             ? db.prepare("SELECT id, category, value, sort_order FROM system_parameters WHERE category = ? AND account_id = ? ORDER BY sort_order, id").bind(category, session.account_id)
             : db.prepare("SELECT id, category, value, sort_order FROM system_parameters WHERE account_id = ? ORDER BY category, sort_order, id").bind(session.account_id);
