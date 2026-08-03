@@ -606,7 +606,7 @@
       display: flex; align-items: center; justify-content: space-between;
       margin-bottom: 0.5rem;
     }
-    .viewing-card-title { font-weight: 700; font-size: 0.88rem; }
+    .viewing-card-title { font-weight: 700; font-size: 0.88rem; color: var(--text); }
     .viewing-card-date { color: var(--muted); font-size: 0.75rem; }
     .viewing-card-grid {
       display: grid; grid-template-columns: repeat(3, 1fr); gap: 0.3rem 0.75rem;
@@ -4477,6 +4477,17 @@ async function loadViewings(estateId) {
       const soldHtml = (v.txn_price && v.txn_reg_date >= v.view_date)
         ? `<span style="color:var(--accent)"><strong>${fmt(v.txn_price)}</strong></span> <span style="color:var(--muted);font-size:0.75rem">${v.txn_reg_date}</span>${annualHtml}${sqzHtml}`
         : `<span style="color:var(--muted);font-size:0.75rem">未沽出</span>`;
+      // 手機卡片版專用：沽出／未沽出合埋一格，連放咗幾耐／上手購買都夾入嚟
+      // （桌面表格版唔改，繼續用返上面嘅 soldHtml/domCell/獨立 vprev-）。
+      const domMonths = v.dom_days != null ? Math.round(v.dom_days / 30) : null;
+      const sqzInline = sqzHtml ? sqzHtml.replace(/^<div/, '<span').replace(/<\/div>$/, '</span>') : '';
+      const soldMetaParts = [];
+      if (sqzInline) soldMetaParts.push(sqzInline);
+      if (domMonths != null && domMonths >= 1) soldMetaParts.push(`<span style="color:var(--muted);font-size:0.72rem">放咗${domMonths}個月</span>`);
+      const soldBlockMobile = (v.txn_price && v.txn_reg_date >= v.view_date)
+        ? `<div>${v.txn_reg_date} <strong style="color:var(--accent)">${fmt(v.txn_price)}</strong> 沽出</div>${soldMetaParts.length ? `<div style="margin-top:0.15rem">${soldMetaParts.join(' <span style="color:var(--muted);font-size:0.7rem">·</span> ')}</div>` : ''}`
+        : `<div><span style="color:var(--muted);font-size:0.8rem">未沽出</span>${v.dom_days != null ? ` <span style="color:var(--muted);font-size:0.72rem">· 放咗${v.dom_days.toLocaleString()}日</span>` : ''}</div>
+           <div style="margin-top:0.25rem;font-size:0.75rem;color:var(--muted)">上手 <span id="vprev-${v.id}" style="cursor:pointer" onclick="fetchUnitTxn(${v.id})">查上手成交</span></div>`;
       const notesHtml = [
         v.notes ? `<span style="font-size:0.78rem;background:var(--surface2);border-radius:4px;padding:0.15rem 0.4rem">${escHtml(v.notes)}</span>` : '',
         imgHtml ? `<div style="margin-top:0.25rem">${imgHtml}</div>` : '',
@@ -4495,19 +4506,14 @@ async function loadViewings(estateId) {
             </div>
             <div style="white-space:nowrap;flex-shrink:0">${editBtn}${delBtn}</div>
           </div>
-          <div class="viewing-card-grid" style="grid-template-columns:repeat(2,1fr);margin-bottom:0.6rem">
+          <div class="viewing-card-grid" style="grid-template-columns:repeat(2,1fr);margin-bottom:0.7rem">
             <div class="viewing-card-kv">
               <strong style="color:var(--accent);font-size:1.05rem">${fmt(v.price)}</strong>
               <span style="color:var(--muted);font-size:0.8rem;margin-left:0.4rem">${psfStr}</span>
               ${mgmtMonthly ? `<div style="color:var(--muted);font-size:0.75rem;margin-top:0.1rem">管理費 $${mgmtMonthly.toLocaleString()}/月</div>` : ''}
               <div style="margin-top:0.2rem"><span style="color:var(--muted);font-size:0.72rem;margin-right:0.3rem">售價變動</span>${priceChangedCell}</div>
             </div>
-            <div class="viewing-card-kv"><span class="viewing-card-k">沽出</span>${soldHtml}</div>
-          </div>
-          <div class="viewing-card-grid" style="grid-template-columns:repeat(2,1fr);margin-bottom:0.7rem">
-            <div class="viewing-card-kv"><span class="viewing-card-k">放咗幾耐</span>${domCell}</div>
-            <div class="viewing-card-kv"><span class="viewing-card-k">上手購買</span>
-              <div id="vprev-${v.id}"><span style="color:var(--muted);font-size:0.75rem;cursor:pointer" onclick="fetchUnitTxn(${v.id})">查上手成交</span></div></div>
+            <div class="viewing-card-kv">${soldBlockMobile}</div>
           </div>
           <div style="margin-bottom:0.7rem">${priceRulerHtml(v)}</div>
           <div class="viewing-card-kv" style="margin-bottom:0.5rem"><span class="viewing-card-k">對應放盤</span><div id="vmatch-${v.id}">${buildMatchCell(v)}</div></div>
