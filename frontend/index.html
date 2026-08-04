@@ -3108,12 +3108,20 @@ async function showEstate(id, name, district) {
             const prices = grp.map(l => l.price).filter(Boolean);
             const vals = grp.map(l => l.price_per_ft).filter(Boolean);
             if (!prices.length) return '';
-            const lo = (Math.min(...prices)/1e4).toFixed(0);
-            const hi = (Math.max(...prices)/1e4).toFixed(0);
+            const loNum = Math.min(...prices)/1e4, hiNum = Math.max(...prices)/1e4;
+            const lo = loNum.toFixed(0), hi = hiNum.toFixed(0);
+            // 呢行房數／價位範圍撞唔撞到用戶「睇樓偏好」：房數要啱，價位要有重疊
+            // （唔係話成個範圍都要喺偏好之內——只要有部分盤啱就算撞到）。
+            // 冇設偏好就梗係唔著色，保持全白。
+            const p = _userPrefs || {};
+            const bedOk = !p.beds || p.beds === b;
+            const priceOk = !((p.price_min && hiNum < p.price_min) || (p.price_max && loNum > p.price_max));
+            const match = _hlPrefsUsable() && bedOk && priceOk;
+            const c = match ? 'var(--accent)' : 'var(--text)';
             const ftPart = vals.length
-              ? `<span style="font-size:1.1rem;color:var(--muted)"> ・ </span><span style="font-size:1.1rem;color:var(--text)">$${Math.round(Math.min(...vals)).toLocaleString()} - $${Math.round(Math.max(...vals)).toLocaleString()}</span><span style="font-size:1.1rem;color:var(--muted)"> /呎 (${grp.length}個)</span>`
+              ? `<span style="font-size:1.1rem;color:var(--muted)"> ・ </span><span style="font-size:1.1rem;color:${c}">$${Math.round(Math.min(...vals)).toLocaleString()} - $${Math.round(Math.max(...vals)).toLocaleString()}</span><span style="font-size:1.1rem;color:var(--muted)"> /呎 (${grp.length}個)</span>`
               : '';
-            return `<div style="margin-top:0.5rem"><span style="font-size:1.1rem;color:var(--muted)">${b}房</span> <span style="font-size:1.1rem;color:var(--text)">$${lo}萬</span><span class="stat-unit" style="font-size:1.1rem"> - </span><span style="font-size:1.1rem;color:var(--text)">$${hi}萬</span>${ftPart}</div>`;
+            return `<div style="margin-top:0.5rem"><span style="font-size:1.1rem;color:var(--muted)">${b}房</span> <span style="font-size:1.1rem;color:${c}">$${lo}萬</span><span class="stat-unit" style="font-size:1.1rem"> - </span><span style="font-size:1.1rem;color:${c}">$${hi}萬</span>${ftPart}</div>`;
           }).join('')}
         </div>
       </div>
