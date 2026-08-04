@@ -3689,25 +3689,35 @@ export default {
         return json(200, { ok: true, count: row?.n ?? 0 });
       }
 
-      // 屋苑頁一次過攞晒 click 數 + 自己撳過邊幾條(唔使逐行 query)
-      if (method === "GET" && path === "/api/listing-clicks") {
+      // Click 統計：admin 專用。一般 user 喺前台完全睇唔到呢啲數（連自己撳過
+      // 幾多都唔會顯示），所以呢度唔可以係普通 auth,一定要 admin gate。
+      if (method === "GET" && path === "/api/admin/listing-clicks") {
+        if (!isAdminSession(session)) return json(403, { error: "admin only" });
         await ensureListingClicks(db);
-        const estateId = url.searchParams.get("estate_id");
-        const { results } = await (estateId
-          ? db.prepare(
-              `SELECT ref_no, COUNT(*) AS n,
-                      SUM(CASE WHEN account_id = ?2 THEN 1 ELSE 0 END) AS mine
-               FROM listing_clicks WHERE estate_id = ?1 GROUP BY ref_no`
-            ).bind(Number(estateId), session.account_id)
-          : db.prepare(
-              `SELECT ref_no, COUNT(*) AS n,
-                      SUM(CASE WHEN account_id = ?1 THEN 1 ELSE 0 END) AS mine
-               FROM listing_clicks GROUP BY ref_no`
-            ).bind(session.account_id)
+        const summary = await db.prepare(
+          `SELECT COUNT(*) AS clicks, COUNT(DISTINCT ref_no) AS refs,
+                  COUNT(DISTINCT account_id) AS users FROM listing_clicks`
+        ).first();
+        // 熱門盤：一行 = 一條盤,users = 幾多個唔同用戶撳過（因為 UNIQUE 保證
+        // 一個 account 最多一行,所以 COUNT(*) 已經係 distinct users）
+        const { results: top } = await db.prepare(
+          `SELECT ref_no, COUNT(*) AS users,
+                  MAX(estate_name) AS estate_name, MAX(source) AS source,
+                  MAX(building_name) AS building_name, MAX(floor) AS floor, MAX(unit) AS unit,
+                  MAX(bedrooms) AS bedrooms, MAX(size_net) AS size_net,
+                  MAX(price) AS price, MAX(price_per_ft) AS price_per_ft,
+                  MAX(detail_url) AS detail_url, MAX(clicked_at) AS last_click
+           FROM listing_clicks GROUP BY ref_no
+           ORDER BY users DESC, last_click DESC LIMIT 100`
         ).all();
-        const counts = {}, mine = [];
-        for (const r of results) { counts[r.ref_no] = r.n; if (r.mine) mine.push(r.ref_no); }
-        return json(200, { counts, mine });
+        const { results: recent } = await db.prepare(
+          `SELECT c.ref_no, c.estate_name, c.source, c.building_name, c.floor, c.unit,
+                  c.bedrooms, c.size_net, c.price, c.price_per_ft, c.clicked_at,
+                  a.email AS user_email
+           FROM listing_clicks c LEFT JOIN accounts a ON a.id = c.account_id
+           ORDER BY c.clicked_at DESC LIMIT 100`
+        ).all();
+        return json(200, { summary, top, recent });
       }
 
       // 售價歷史(歷史 ↓ modal):只顯示由呢個 account 加入自選嗰日開始嘅記錄。

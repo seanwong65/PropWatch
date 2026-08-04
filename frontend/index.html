@@ -1115,6 +1115,16 @@
   </div>
 </div>
 
+<!-- 放盤點擊統計（admin 專用，入口喺 ⚙️ 設定；後端都有 admin gate） -->
+<div class="modal-overlay" id="adminClicksOverlay" style="display:none;z-index:600" onclick="if(event.target===this)closeAdminClicks()">
+  <div class="modal" style="max-width:860px;max-height:90vh;overflow-y:auto">
+    <button class="modal-close" onclick="closeAdminClicks()">✕</button>
+    <div class="modal-title">👁 放盤點擊統計</div>
+    <p style="font-size:0.78rem;color:var(--muted);margin:0.25rem 0 0.75rem">用戶撳去代理網站嘅外連紀錄。同一個用戶撳同一條盤只計一次。</p>
+    <div id="ac-body"><div class="loading"><div class="spinner"></div> 載入中…</div></div>
+  </div>
+</div>
+
 <!-- 評分項目編輯 popup（睇樓 modal「睇樓評分」區同偏好 popup 都開得到） -->
 <div class="modal-overlay" id="ratingCritModalOverlay" style="display:none;z-index:600" onclick="if(event.target===this)closeRatingCritEditor()">
   <div class="modal" style="max-width:400px;max-height:90vh;overflow-y:auto">
@@ -1168,7 +1178,10 @@
     <div id="settings-billing" style="font-size:0.85rem;margin:0.35rem 0 0.25rem"></div>
     <!-- 付款後台：admin 專用，由 applyRoleToSettings() 控制顯示 -->
     <div id="settings-admin-billing" style="display:none;margin-top:0.5rem">
-      <button class="vf-submit" style="width:auto;padding:0.45rem 0.9rem;margin:0" onclick="openAdminBilling()">💳 付款管理後台</button>
+      <div style="display:flex;gap:0.5rem;flex-wrap:wrap">
+        <button class="vf-submit" style="width:auto;padding:0.45rem 0.9rem;margin:0" onclick="openAdminBilling()">💳 付款管理後台</button>
+        <button class="vf-submit" style="width:auto;padding:0.45rem 0.9rem;margin:0" onclick="openAdminClicks()">👁 放盤點擊統計</button>
+      </div>
     </div>
 
     <div class="modal-sub" style="margin-top:1.25rem">🎯 睇樓偏好</div>
@@ -1361,8 +1374,7 @@ function renderFrozenTable(container, theadTr, tbodyHtml, rowsToShow = 10, table
 let allListings = [];
 let estatesById = {};
 let groupOverrides = {};   // ref_no -> {status:'ungrouped'|'grouped', group_key}
-let _clickCounts = {};     // ref_no -> 幾多個唔同用戶撳過條外連
-let _clickedMine = new Set();  // 我自己撳過嘅 ref_no
+let _clickedMine = new Set();  // 今次 session 已經報咗上去嘅 ref_no（慳重複 request）
 let groupSelectMode = false;
 let groupSelected = new Set();
 let sortCol = "price";
@@ -3146,10 +3158,6 @@ async function showEstate(id, name, district) {
       renderFilterBar();
       renderSourceToggles();
       renderListingsTable();
-      // click 數後補（唔阻住個表出）——攞到就重畫一次帶埋個 👁 badge
-      loadClickCounts(id).then(() => {
-        if (activeEstateId === id) renderListingsTable();
-      });
     }
 
     // Load estate info (non-blocking)
@@ -5374,27 +5382,74 @@ async function applyGroupOverride(action, refNos) {
 function trackListingClick(refNo) {
   if (!refNo || _clickedMine.has(refNo)) return;
   _clickedMine.add(refNo);
-  _clickCounts[refNo] = (_clickCounts[refNo] || 0) + 1;
   api(`/api/listings/${encodeURIComponent(refNo)}/click`, { method: 'POST' })
-    .then(r => { if (r && typeof r.count === 'number') _clickCounts[refNo] = r.count; })
     .catch(() => {});   // 追蹤失敗唔好阻住用戶睇盤
 }
 
-async function loadClickCounts(estateId) {
-  try {
-    const r = await api(`/api/listing-clicks?estate_id=${estateId}`);
-    _clickCounts = r.counts || {};
-    _clickedMine = new Set(r.mine || []);
-  } catch (_) { _clickCounts = {}; _clickedMine = new Set(); }
+// ── Admin：放盤點擊統計 ────────────────────────────────────────────────────
+// 呢啲數一般 user 完全見唔到（前台冇任何 badge），入口喺 ⚙️ 設定 admin 區，
+// 後端 /api/admin/listing-clicks 亦有 isAdminSession gate。
+function closeAdminClicks() {
+  document.getElementById('adminClicksOverlay').style.display = 'none';
 }
 
-// 條 link 後面嗰個細數字：顯示幾多個唔同用戶撳過。自己撳過會著色。
-function clickBadge(refNo) {
-  const n = _clickCounts[refNo] || 0;
-  if (!n) return '';
-  const mine = _clickedMine.has(refNo);
-  return `<span style="font-size:0.68rem;margin-left:0.25rem;color:${mine ? 'var(--accent)' : 'var(--muted)'}"
-    title="${n} 個用戶撳過呢條連結${mine ? '（包括你）' : ''}">👁${n}</span>`;
+async function openAdminClicks() {
+  const ov = document.getElementById('adminClicksOverlay');
+  const body = document.getElementById('ac-body');
+  ov.style.display = 'flex';
+  body.innerHTML = '<div class="loading"><div class="spinner"></div> 載入中…</div>';
+  try {
+    const d = await api('/api/admin/listing-clicks');
+    const s = d.summary || {};
+    const unitOf = r => [r.building_name, r.floor, r.unit].filter(Boolean).map(escHtml).join(' ') || '-';
+    const priceOf = r => r.price ? `$${(r.price / 1e4).toFixed(0)}萬` : '-';
+    const specOf = r => [r.bedrooms ? r.bedrooms + '房' : '', r.size_net ? Math.round(r.size_net) + '呎' : '']
+      .filter(Boolean).join(' · ') || '-';
+
+    const stat = (label, val) =>
+      `<div><div style="font-size:0.75rem;color:var(--muted)">${label}</div>
+        <div style="font-size:1.4rem;font-weight:600">${val ?? 0}</div></div>`;
+
+    const topRows = (d.top || []).map(r => `<tr class="hl-tr">
+      <td style="padding:0.4rem 0.5rem 0.4rem 0">${escHtml(r.estate_name || '-')}
+        <div style="color:var(--muted);font-size:0.75rem">${unitOf(r)} · ${specOf(r)}</div></td>
+      <td style="text-align:right;padding:0.4rem 0.5rem;white-space:nowrap">${priceOf(r)}</td>
+      <td style="text-align:right;padding:0.4rem 0.5rem;white-space:nowrap">${r.price_per_ft ? '$' + Math.round(r.price_per_ft).toLocaleString() : '-'}</td>
+      <td style="text-align:right;padding:0.4rem 0.5rem;white-space:nowrap;color:var(--accent);font-weight:600">${r.users}</td>
+      <td style="text-align:right;padding:0.4rem 0 0.4rem 0.5rem;white-space:nowrap;color:var(--muted);font-size:0.75rem">
+        ${escHtml(sourceLabel(r.source))}${r.detail_url ? ` <a href="${safeUrl(r.detail_url)}" target="_blank" class="detail-link">↗</a>` : ''}
+        <div>${escHtml((r.last_click || '').slice(0, 16))}</div></td>
+    </tr>`).join('');
+
+    const recentRows = (d.recent || []).map(r => `<tr class="hl-tr">
+      <td style="padding:0.4rem 0.5rem 0.4rem 0;color:var(--muted);font-size:0.75rem;white-space:nowrap">${escHtml((r.clicked_at || '').slice(0, 16))}</td>
+      <td style="padding:0.4rem 0.5rem;font-size:0.78rem">${escHtml(r.user_email || '(已刪帳戶)')}</td>
+      <td style="padding:0.4rem 0.5rem">${escHtml(r.estate_name || '-')}
+        <div style="color:var(--muted);font-size:0.75rem">${unitOf(r)} · ${specOf(r)}</div></td>
+      <td style="text-align:right;padding:0.4rem 0 0.4rem 0.5rem;white-space:nowrap">${priceOf(r)}</td>
+    </tr>`).join('');
+
+    body.innerHTML = `
+      <div style="display:flex;gap:1.5rem;flex-wrap:wrap;margin-bottom:1rem">
+        ${stat('總點擊（去重後）', s.clicks)}${stat('唔同盤', s.refs)}${stat('唔同用戶', s.users)}
+      </div>
+      ${!(d.top || []).length ? '<div style="color:var(--muted);font-size:0.85rem">未有任何點擊記錄。</div>' : `
+        <div class="modal-sub" style="margin-top:0.5rem">🔥 最多人撳嘅盤</div>
+        <div id="ac-top-wrap" style="margin-bottom:1.25rem"></div>
+        <div class="modal-sub">🕒 最近點擊</div>
+        <div id="ac-recent-wrap"></div>`}`;
+
+    if ((d.top || []).length) {
+      renderFrozenTable(document.getElementById('ac-top-wrap'),
+        `<th style="padding:0.3rem 0.5rem 0.3rem 0">屋苑 / 單位</th><th style="text-align:right;padding:0.3rem 0.5rem">售價</th><th style="text-align:right;padding:0.3rem 0.5rem">呎價</th><th style="text-align:right;padding:0.3rem 0.5rem">用戶</th><th style="text-align:right;padding:0.3rem 0 0.3rem 0.5rem">來源 · 最後撳</th>`,
+        topRows, 10);
+      renderFrozenTable(document.getElementById('ac-recent-wrap'),
+        `<th style="padding:0.3rem 0.5rem 0.3rem 0">時間</th><th style="padding:0.3rem 0.5rem">用戶</th><th style="padding:0.3rem 0.5rem">屋苑 / 單位</th><th style="text-align:right;padding:0.3rem 0 0.3rem 0.5rem">售價</th>`,
+        recentRows, 10);
+    }
+  } catch (e) {
+    body.innerHTML = `<span style="color:var(--down)">載入失敗：${escHtml(e.message)}</span>`;
+  }
 }
 
 // 用戶手動標記/取消「已下架」(per-account，唔影響 source 自動偵測嘅狀態)
@@ -5522,7 +5577,7 @@ function renderListingsTable() {
   const sourceCell = l => {
     if (l._combined) {
       const links = l.sources.map(s => s.detail_url
-        ? `<a href="${safeUrl(s.detail_url)}" target="_blank" class="detail-link" style="font-size:0.72rem;white-space:nowrap" onclick="trackListingClick('${escJsAttr(s.ref_no||'')}')">${sourceLabel(s.source)} $${(s.price/1e4).toFixed(0)} ↗</a>${clickBadge(s.ref_no)}`
+        ? `<a href="${safeUrl(s.detail_url)}" target="_blank" class="detail-link" style="font-size:0.72rem;white-space:nowrap" onclick="trackListingClick('${escJsAttr(s.ref_no||'')}')">${sourceLabel(s.source)} $${(s.price/1e4).toFixed(0)} ↗</a>`
         : `<span style="font-size:0.72rem;white-space:nowrap;color:var(--muted)">${sourceLabel(s.source)} $${(s.price/1e4).toFixed(0)}</span>`
       ).join('<br>');
       const refs = l.sources.map(s => s.ref_no).filter(Boolean);
@@ -5534,7 +5589,7 @@ function renderListingsTable() {
       return links + '<br>' + undoBtn;
     }
     const link = l.detail_url
-      ? `<a href="${safeUrl(l.detail_url)}" target="_blank" class="detail-link" style="font-size:0.75rem" onclick="trackListingClick('${escJsAttr(l.ref_no||'')}')">${sourceLabel(l.source)} ↗</a>${clickBadge(l.ref_no)}`
+      ? `<a href="${safeUrl(l.detail_url)}" target="_blank" class="detail-link" style="font-size:0.75rem" onclick="trackListingClick('${escJsAttr(l.ref_no||'')}')">${sourceLabel(l.source)} ↗</a>`
       : `<span style="font-size:0.75rem">${sourceLabel(l.source)}</span>`;
     const hasOverride = l.ref_no && groupOverrides[l.ref_no];
     const resetBtn = hasOverride
