@@ -83,6 +83,10 @@
       transition: all 0.2s;
     }
     .sync-btn:hover { background: var(--btn-hover); border-color: var(--btn-hover); }
+    /* admin 專用掣（例如「立即同步」）用藍色同一般功能掣分開，一睇就知呢粒
+       掣影響全站數據（唔係淨係自己個 account），一般 user 睇唔到呢個顏色。 */
+    .sync-btn.admin-btn { background: var(--accent2); border-color: var(--accent2); }
+    .sync-btn.admin-btn:hover { background: #2563eb; border-color: #2563eb; }
 
     /* Layout */
     .layout {
@@ -987,7 +991,9 @@
   <div style="display:flex;align-items:center;gap:0.5rem">
     <button class="sync-btn" id="tierChip" onclick="showUpgrade()" title="睇下收費版有咩"
       style="display:none;background:transparent;border-color:var(--accent);color:var(--accent);font-size:0.75rem;padding:0.3rem 0.55rem">免費版 ⭐</button>
-    <button class="sync-btn" onclick="syncAll()">↻ 立即同步</button>
+    <!-- 手動同步係 admin 專用（一般 user 靠自動 scrape，唔使／唔應該自己撳）；
+         admin-btn 用藍色（--accent2）同其他掣分開，一睇就知係管理員功能 -->
+    <button class="sync-btn admin-btn" id="syncBtn" onclick="syncAll()" style="display:none">↻ 立即同步</button>
     <button class="sync-btn" onclick="openSettingsModal()" style="background:var(--surface2);border-color:var(--border);font-size:1rem;padding:0.35rem 0.6rem" title="設定">⚙️</button>
     <button class="sync-btn" id="logout-btn" onclick="doLogout()" style="background:var(--surface2);border-color:var(--border);display:none" title="登出">登出</button>
   </div>
@@ -2775,6 +2781,10 @@ function applyRoleToSettings() {
   if (sec) sec.style.display = _userRole === 'admin' ? '' : 'none';
   const bill = document.getElementById('settings-admin-billing');
   if (bill) bill.style.display = _userRole === 'admin' ? '' : 'none';
+  // 「立即同步」都係 admin 專用：一般 user 靠自動 scrape，冇必要（亦唔應該）
+  // 自己手動觸發全站 sync。
+  const sync = document.getElementById('syncBtn');
+  if (sync) sync.style.display = _userRole === 'admin' ? '' : 'none';
 }
 
 // ⚙️ 設定入面嘅訂閱狀態：未訂閱就出計劃卡，訂咗就出到期日 + 管理入口
@@ -3056,24 +3066,30 @@ async function showEstate(id, name, district) {
         <button class="sync-btn" style="background:var(--down);border-color:var(--down);white-space:nowrap;flex-shrink:0;margin-top:0.2rem" onclick="openViewingModal()">＋ 新增睇樓</button>
       </div>
 
-      <div class="chart-section" style="margin-top:1rem">
-        ${!isPaid() ? lockPanel('呎價走勢圖', '叫價／成交走勢 + 全組合大市對照線，睇你追緊嘅屋苑跑贏定跑輸大市') : `
-        <div style="display:flex;align-items:center;justify-content:space-between;gap:0.6rem;flex-wrap:wrap;margin-bottom:0.5rem">
-          <div class="section-title" id="estate-chart-title" style="margin:0">${estateChartMetric === 'count' ? '放盤數量趨勢' : '實用呎價趨勢'}</div>
-          <div style="display:flex;align-items:center;gap:0.75rem;flex-wrap:wrap">
-            <div id="estate-chart-beds" style="display:flex;gap:0.3rem">
-              ${['all','1','2','3','4+'].map(b => `<button class="filter-chip ${estateChartBeds===b?'active':''}" data-beds="${b}" onclick="setEstateChartBeds('${b}')">${b==='all'?'全部':b+'房'}</button>`).join('')}
-            </div>
-            <div id="estate-chart-toggle" style="display:flex;gap:0.3rem">
-              <button class="filter-chip ${estateChartMetric === 'price' ? 'active' : ''}" data-metric="price" onclick="setEstateChartMetric('price')">實呎價</button>
-              <button class="filter-chip ${estateChartMetric === 'count' ? 'active' : ''}" data-metric="count" onclick="setEstateChartMetric('count')">放盤數量</button>
+      <div class="chart-section" style="margin-top:1rem;display:flex;gap:1rem;flex-wrap:wrap;align-items:flex-start">
+        <div style="flex:1 1 65%;min-width:280px">
+          ${!isPaid() ? lockPanel('呎價走勢圖', '叫價／成交走勢 + 全組合大市對照線，睇你追緊嘅屋苑跑贏定跑輸大市') : `
+          <div style="display:flex;align-items:center;justify-content:space-between;gap:0.6rem;flex-wrap:wrap;margin-bottom:0.5rem">
+            <div class="section-title" id="estate-chart-title" style="margin:0">${estateChartMetric === 'count' ? '放盤數量趨勢' : '實用呎價趨勢'}</div>
+            <div style="display:flex;align-items:center;gap:0.75rem;flex-wrap:wrap">
+              <div id="estate-chart-beds" style="display:flex;gap:0.3rem">
+                ${['all','1','2','3','4+'].map(b => `<button class="filter-chip ${estateChartBeds===b?'active':''}" data-beds="${b}" onclick="setEstateChartBeds('${b}')">${b==='all'?'全部':b+'房'}</button>`).join('')}
+              </div>
+              <div id="estate-chart-toggle" style="display:flex;gap:0.3rem">
+                <button class="filter-chip ${estateChartMetric === 'price' ? 'active' : ''}" data-metric="price" onclick="setEstateChartMetric('price')">實呎價</button>
+                <button class="filter-chip ${estateChartMetric === 'count' ? 'active' : ''}" data-metric="count" onclick="setEstateChartMetric('count')">放盤數量</button>
+              </div>
             </div>
           </div>
+          ${trends.length < 2
+            ? '<div class="no-data">需要至少 2 天數據才能顯示趨勢圖<br><small>每日 09:00 自動更新</small></div>'
+            : '<div class="chart-wrap"><canvas id="trendChart"></canvas></div>'
+          }`}
         </div>
-        ${trends.length < 2
-          ? '<div class="no-data">需要至少 2 天數據才能顯示趨勢圖<br><small>每日 09:00 自動更新</small></div>'
-          : '<div class="chart-wrap"><canvas id="trendChart"></canvas></div>'
-        }`}
+        <div class="stat-card" id="market-temp-card" style="flex:1 1 30%;min-width:200px">
+          <div class="stat-label" title="去貨月數＝在售盤數 ÷ 近30日成交宗數，即係幾多個月先賣晒現有在售盤。>12個月＝極淡．買家話事；6–12個月＝偏淡．買家有利；3–6個月＝均衡；<3個月＝偏熱．賣家有利。">市場溫度</div>
+          <div style="margin-top:0.35rem;font-size:0.8rem;color:var(--muted)">載入中…</div>
+        </div>
       </div>
 
       <div class="estate-tabs">
@@ -3084,7 +3100,7 @@ async function showEstate(id, name, district) {
       </div>
 
       <div id="tab-listings">
-      <div class="stats-row">
+      <div class="stats-row" style="grid-template-columns:1fr">
         <div class="stat-card">
           <div class="stat-label">售價 / 實呎價範圍</div>
           ${bedOrder.filter(b => bedGroups[b]?.length).map(b => {
@@ -3099,10 +3115,6 @@ async function showEstate(id, name, district) {
               : '';
             return `<div style="margin-top:0.5rem"><span style="font-size:1.1rem;color:var(--muted)">${b}房</span> <span class="stat-value" style="font-size:1.1rem">$${lo}萬</span><span class="stat-unit" style="font-size:1.1rem"> - </span><span class="stat-value" style="font-size:1.1rem">$${hi}萬</span>${ftPart}</div>`;
           }).join('')}
-        </div>
-        <div class="stat-card" id="market-temp-card">
-          <div class="stat-label" title="去貨月數＝在售盤數 ÷ 近30日成交宗數，即係幾多個月先賣晒現有在售盤。>12個月＝極淡．買家話事；6–12個月＝偏淡．買家有利；3–6個月＝均衡；<3個月＝偏熱．賣家有利。">市場溫度</div>
-          <div style="margin-top:0.35rem;font-size:0.8rem;color:var(--muted)">載入中…</div>
         </div>
       </div>
 
