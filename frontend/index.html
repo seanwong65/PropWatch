@@ -3075,7 +3075,7 @@ async function showEstate(id, name, district) {
               <div id="estate-chart-beds" style="display:flex;gap:0.3rem">
                 ${['all','1','2','3','4+'].map(b => `<button class="filter-chip ${estateChartBeds===b?'active':''}" data-beds="${b}" onclick="setEstateChartBeds('${b}')">${b==='all'?'全部':b+'房'}</button>`).join('')}
               </div>
-              <div id="estate-chart-toggle" style="display:flex;gap:0.3rem">
+              <div id="estate-chart-toggle" style="display:flex;gap:0.3rem;margin-left:auto">
                 <button class="filter-chip ${estateChartMetric === 'price' ? 'active' : ''}" data-metric="price" onclick="setEstateChartMetric('price')">實呎價</button>
                 <button class="filter-chip ${estateChartMetric === 'count' ? 'active' : ''}" data-metric="count" onclick="setEstateChartMetric('count')">放盤數量</button>
               </div>
@@ -3111,9 +3111,9 @@ async function showEstate(id, name, district) {
             const lo = (Math.min(...prices)/1e4).toFixed(0);
             const hi = (Math.max(...prices)/1e4).toFixed(0);
             const ftPart = vals.length
-              ? `<div><span class="stat-value" style="font-size:1.1rem">$${Math.round(Math.min(...vals)).toLocaleString()} - $${Math.round(Math.max(...vals)).toLocaleString()}</span><span style="font-size:1.1rem;color:var(--muted)"> /呎 (${grp.length}個)</span></div>`
+              ? `<span style="font-size:1.1rem;color:var(--muted)"> ・ </span><span style="font-size:1.1rem;color:var(--text)">$${Math.round(Math.min(...vals)).toLocaleString()} - $${Math.round(Math.max(...vals)).toLocaleString()}</span><span style="font-size:1.1rem;color:var(--muted)"> /呎 (${grp.length}個)</span>`
               : '';
-            return `<div style="margin-top:0.5rem"><span style="font-size:1.1rem;color:var(--muted)">${b}房</span> <span class="stat-value" style="font-size:1.1rem">$${lo}萬</span><span class="stat-unit" style="font-size:1.1rem"> - </span><span class="stat-value" style="font-size:1.1rem">$${hi}萬</span>${ftPart}</div>`;
+            return `<div style="margin-top:0.5rem"><span style="font-size:1.1rem;color:var(--muted)">${b}房</span> <span style="font-size:1.1rem;color:var(--text)">$${lo}萬</span><span class="stat-unit" style="font-size:1.1rem"> - </span><span style="font-size:1.1rem;color:var(--text)">$${hi}萬</span>${ftPart}</div>`;
           }).join('')}
         </div>
       </div>
