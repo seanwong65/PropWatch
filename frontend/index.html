@@ -1361,6 +1361,8 @@ function renderFrozenTable(container, theadTr, tbodyHtml, rowsToShow = 10, table
 let allListings = [];
 let estatesById = {};
 let groupOverrides = {};   // ref_no -> {status:'ungrouped'|'grouped', group_key}
+let _clickCounts = {};     // ref_no -> 幾多個唔同用戶撳過條外連
+let _clickedMine = new Set();  // 我自己撳過嘅 ref_no
 let groupSelectMode = false;
 let groupSelected = new Set();
 let sortCol = "price";
@@ -3144,6 +3146,10 @@ async function showEstate(id, name, district) {
       renderFilterBar();
       renderSourceToggles();
       renderListingsTable();
+      // click 數後補（唔阻住個表出）——攞到就重畫一次帶埋個 👁 badge
+      loadClickCounts(id).then(() => {
+        if (activeEstateId === id) renderListingsTable();
+      });
     }
 
     // Load estate info (non-blocking)
@@ -5362,6 +5368,35 @@ async function applyGroupOverride(action, refNos) {
   } catch (e) { toast('操作失敗：' + e.message, 'error'); }
 }
 
+// 放盤外連 click 追蹤。撳親就 fire-and-forget 打去後端（唔 await、唔 preventDefault，
+// 等個 link 照常開新 tab）。後端同一個 account 同一條盤只會記一次，所以本地
+// 見到自己撳過就唔使再打，慳返個 request。
+function trackListingClick(refNo) {
+  if (!refNo || _clickedMine.has(refNo)) return;
+  _clickedMine.add(refNo);
+  _clickCounts[refNo] = (_clickCounts[refNo] || 0) + 1;
+  api(`/api/listings/${encodeURIComponent(refNo)}/click`, { method: 'POST' })
+    .then(r => { if (r && typeof r.count === 'number') _clickCounts[refNo] = r.count; })
+    .catch(() => {});   // 追蹤失敗唔好阻住用戶睇盤
+}
+
+async function loadClickCounts(estateId) {
+  try {
+    const r = await api(`/api/listing-clicks?estate_id=${estateId}`);
+    _clickCounts = r.counts || {};
+    _clickedMine = new Set(r.mine || []);
+  } catch (_) { _clickCounts = {}; _clickedMine = new Set(); }
+}
+
+// 條 link 後面嗰個細數字：顯示幾多個唔同用戶撳過。自己撳過會著色。
+function clickBadge(refNo) {
+  const n = _clickCounts[refNo] || 0;
+  if (!n) return '';
+  const mine = _clickedMine.has(refNo);
+  return `<span style="font-size:0.68rem;margin-left:0.25rem;color:${mine ? 'var(--accent)' : 'var(--muted)'}"
+    title="${n} 個用戶撳過呢條連結${mine ? '（包括你）' : ''}">👁${n}</span>`;
+}
+
 // 用戶手動標記/取消「已下架」(per-account，唔影響 source 自動偵測嘅狀態)
 async function toggleManualRemoved(refNo, btn) {
   const l = allListings.find(x => x.ref_no === refNo);
@@ -5487,7 +5522,7 @@ function renderListingsTable() {
   const sourceCell = l => {
     if (l._combined) {
       const links = l.sources.map(s => s.detail_url
-        ? `<a href="${safeUrl(s.detail_url)}" target="_blank" class="detail-link" style="font-size:0.72rem;white-space:nowrap">${sourceLabel(s.source)} $${(s.price/1e4).toFixed(0)} ↗</a>`
+        ? `<a href="${safeUrl(s.detail_url)}" target="_blank" class="detail-link" style="font-size:0.72rem;white-space:nowrap" onclick="trackListingClick('${escJsAttr(s.ref_no||'')}')">${sourceLabel(s.source)} $${(s.price/1e4).toFixed(0)} ↗</a>${clickBadge(s.ref_no)}`
         : `<span style="font-size:0.72rem;white-space:nowrap;color:var(--muted)">${sourceLabel(s.source)} $${(s.price/1e4).toFixed(0)}</span>`
       ).join('<br>');
       const refs = l.sources.map(s => s.ref_no).filter(Boolean);
@@ -5499,7 +5534,7 @@ function renderListingsTable() {
       return links + '<br>' + undoBtn;
     }
     const link = l.detail_url
-      ? `<a href="${safeUrl(l.detail_url)}" target="_blank" class="detail-link" style="font-size:0.75rem">${sourceLabel(l.source)} ↗</a>`
+      ? `<a href="${safeUrl(l.detail_url)}" target="_blank" class="detail-link" style="font-size:0.75rem" onclick="trackListingClick('${escJsAttr(l.ref_no||'')}')">${sourceLabel(l.source)} ↗</a>${clickBadge(l.ref_no)}`
       : `<span style="font-size:0.75rem">${sourceLabel(l.source)}</span>`;
     const hasOverride = l.ref_no && groupOverrides[l.ref_no];
     const resetBtn = hasOverride

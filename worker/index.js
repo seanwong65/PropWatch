@@ -1373,6 +1373,34 @@ async function ensureManualRemoved(db) {
   await db.prepare("CREATE INDEX IF NOT EXISTS idx_manualrm_account ON listing_manual_removed(account_id)").run();
 }
 
+// 放盤外連 click 追蹤：一個 account 撳同一條盤（ref_no）幾多次都只計一次，
+// 所以 UNIQUE(account_id, ref_no) + INSERT OR IGNORE 就係成個去重機制，
+// 唔使另外維護 counter 欄位（counter = COUNT DISTINCT account，實時 query 出嚟，
+// 唔會同真實記錄脫節）。單位資訊喺撳嗰刻 snapshot 低，因為放盤下架之後
+// listings 嗰行嘅最新 snapshot 就唔一定搵得返當時嘅價／面積。
+async function ensureListingClicks(db) {
+  await db.prepare(`CREATE TABLE IF NOT EXISTS listing_clicks (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    account_id INTEGER NOT NULL,
+    ref_no TEXT NOT NULL,
+    estate_id INTEGER,
+    estate_name TEXT,
+    source TEXT,
+    building_name TEXT,
+    floor TEXT,
+    unit TEXT,
+    bedrooms INTEGER,
+    size_net REAL,
+    price REAL,
+    price_per_ft REAL,
+    detail_url TEXT,
+    clicked_at TEXT NOT NULL DEFAULT (datetime('now', '+8 hours')),
+    UNIQUE(account_id, ref_no)
+  )`).run();
+  await db.prepare("CREATE INDEX IF NOT EXISTS idx_lclick_ref ON listing_clicks(ref_no)").run();
+  await db.prepare("CREATE INDEX IF NOT EXISTS idx_lclick_account ON listing_clicks(account_id)").run();
+}
+
 // ── 收費 / Stripe 訂閱 ───────────────────────────────────────────────────────
 // tier 仍然係「有冇得用收費功能」嘅唯一真相（isPaidSession 淨係睇佢），
 // webhook 收到訂閱狀態變化就寫返 tier。咁樣 admin 手動改 tier（送人用／
@@ -3625,6 +3653,61 @@ export default {
           return json(400, { error: "action must be mark / unmark" });
         }
         return json(200, { ok: true });
+      }
+
+      // 放盤外連 click 追蹤。同一個 account 撳同一條盤,第二次之後 ON CONFLICT
+      // 食咗佢,所以 counter 唔會再加。單位資訊由後端自己喺 listings 攞返
+      // snapshot——唔信 client 送咩就存咩(client 可以亂作價錢/面積)。
+      if (method === "POST" && path.match(/^\/api\/listings\/.+\/click$/)) {
+        await ensureListingClicks(db);
+        const refNo = decodeURIComponent(path.split("/")[3]);
+        // listings.estate_name 好多時係空,所以 fallback 去 estates.name
+        const l = await db.prepare(
+          `SELECT l.estate_id, COALESCE(NULLIF(l.estate_name,''), e.name) AS estate_name,
+                  l.source, l.building_name, l.floor, l.unit,
+                  l.bedrooms, l.size_net, l.price, l.price_per_ft, l.detail_url
+           FROM listings l LEFT JOIN estates e ON e.id = l.estate_id
+           WHERE l.ref_no = ? ORDER BY l.snapshot_date DESC LIMIT 1`
+        ).bind(refNo).first();
+        await db.prepare(
+          `INSERT INTO listing_clicks
+             (account_id, ref_no, estate_id, estate_name, source, building_name, floor,
+              unit, bedrooms, size_net, price, price_per_ft, detail_url)
+           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
+           ON CONFLICT(account_id, ref_no) DO NOTHING`
+        ).bind(
+          session.account_id, refNo,
+          l?.estate_id ?? null, l?.estate_name ?? null, l?.source ?? null,
+          l?.building_name ?? null, l?.floor ?? null, l?.unit ?? null,
+          l?.bedrooms ?? null, l?.size_net ?? null, l?.price ?? null,
+          l?.price_per_ft ?? null, l?.detail_url ?? null
+        ).run();
+        // UNIQUE(account_id, ref_no) 保證咗一個 account 最多一行,所以 COUNT(*)
+        // 本身就係「幾多個唔同用戶撳過」。
+        const row = await db.prepare("SELECT COUNT(*) AS n FROM listing_clicks WHERE ref_no = ?")
+          .bind(refNo).first();
+        return json(200, { ok: true, count: row?.n ?? 0 });
+      }
+
+      // 屋苑頁一次過攞晒 click 數 + 自己撳過邊幾條(唔使逐行 query)
+      if (method === "GET" && path === "/api/listing-clicks") {
+        await ensureListingClicks(db);
+        const estateId = url.searchParams.get("estate_id");
+        const { results } = await (estateId
+          ? db.prepare(
+              `SELECT ref_no, COUNT(*) AS n,
+                      SUM(CASE WHEN account_id = ?2 THEN 1 ELSE 0 END) AS mine
+               FROM listing_clicks WHERE estate_id = ?1 GROUP BY ref_no`
+            ).bind(Number(estateId), session.account_id)
+          : db.prepare(
+              `SELECT ref_no, COUNT(*) AS n,
+                      SUM(CASE WHEN account_id = ?1 THEN 1 ELSE 0 END) AS mine
+               FROM listing_clicks GROUP BY ref_no`
+            ).bind(session.account_id)
+        ).all();
+        const counts = {}, mine = [];
+        for (const r of results) { counts[r.ref_no] = r.n; if (r.mine) mine.push(r.ref_no); }
+        return json(200, { counts, mine });
       }
 
       // 售價歷史(歷史 ↓ modal):只顯示由呢個 account 加入自選嗰日開始嘅記錄。
