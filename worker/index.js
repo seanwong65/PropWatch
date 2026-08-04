@@ -3392,7 +3392,11 @@ export default {
                   AND l.snapshot_date = (SELECT MAX(snapshot_date) FROM listings WHERE estate_id = e.id AND source = l.source)
                ) AS today_count,
                (SELECT COUNT(*) FROM transactions t WHERE t.estate_id = e.id
-                AND t.reg_date >= date('now','+8 hours','-3 months')) AS txn_3m_count
+                AND t.reg_date >= date('now','+8 hours','-3 months')) AS txn_3m_count,
+               -- 快捷面板個屋苑揀選器用：等用戶一眼睇到自己邊個屋苑有睇樓記錄。
+               -- 一定要 scope 返 account_id，否則會漏其他人嘅睇樓數出嚟。
+               (SELECT COUNT(*) FROM viewings v
+                WHERE v.estate_id = e.id AND v.account_id = ae.account_id) AS viewing_count
              FROM account_estates ae
              JOIN estates e ON e.id = ae.estate_id
              WHERE ae.account_id = ? AND (e.is_disabled = 0 OR e.is_disabled IS NULL)

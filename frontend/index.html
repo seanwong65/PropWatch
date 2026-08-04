@@ -416,6 +416,39 @@
     .stat-breakdown span { font-size:0.75rem; color: var(--muted); }
     .stat-unit { font-size:0.75rem; color: var(--muted); font-weight: 400; }
 
+    /* 快捷功能面板（dashboard 最頂）：常用動作唔使再入屋苑頁層層撳 */
+    .qa-row {
+      display: grid; grid-template-columns: repeat(5, 1fr);
+      gap: 0.5rem; margin-bottom: 1rem;
+    }
+    .qa-btn {
+      background: none; border: none; cursor: pointer; padding: 0.35rem 0.15rem;
+      display: flex; flex-direction: column; align-items: center; gap: 0.4rem;
+      color: var(--muted); font-family: inherit;
+    }
+    .qa-icon {
+      width: 46px; height: 46px; border-radius: 50%;
+      background: var(--surface2); border: 1px solid var(--border);
+      display: flex; align-items: center; justify-content: center;
+      font-size: 1.25rem; transition: all 0.15s;
+    }
+    .qa-btn:hover .qa-icon { border-color: var(--accent); background: var(--surface); }
+    .qa-btn:hover { color: var(--text); }
+    .qa-label { font-size: 0.72rem; line-height: 1.25; text-align: center; }
+    @media (max-width: 480px) {
+      .qa-row { gap: 0.3rem; }
+      .qa-icon { width: 40px; height: 40px; font-size: 1.1rem; }
+      .qa-label { font-size: 0.66rem; }
+    }
+    /* 屋苑揀選器：一行一個屋苑，右邊顯示睇樓記錄數 */
+    .qp-item {
+      display: flex; align-items: center; justify-content: space-between; gap: 0.6rem;
+      width: 100%; text-align: left; cursor: pointer; font-family: inherit;
+      background: var(--surface2); border: 1px solid var(--border);
+      border-radius: 8px; padding: 0.6rem 0.75rem; color: var(--text); font-size: 0.88rem;
+    }
+    .qp-item:hover { border-color: var(--accent); }
+
     /* Chart */
     .chart-section {
       background: var(--surface2);
@@ -1121,6 +1154,18 @@
   </div>
 </div>
 
+<!-- 屋苑揀選器：快捷面板嘅「新增睇樓」／「睇樓記錄」用（兩者都係跟屋苑嘅） -->
+<div class="modal-overlay" id="estatePickerOverlay" style="display:none;z-index:600" onclick="if(event.target===this)closeEstatePicker()">
+  <div class="modal" style="max-width:420px;max-height:90vh;overflow-y:auto">
+    <button class="modal-close" onclick="closeEstatePicker()">✕</button>
+    <div class="modal-title" id="qp-title">揀屋苑</div>
+    <p style="font-size:0.78rem;color:var(--muted);margin:0.25rem 0 0.75rem" id="qp-sub"></p>
+    <input id="qp-search" placeholder="篩選屋苑名稱…" oninput="renderEstatePicker()" autocomplete="off"
+      style="width:100%;background:var(--surface2);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:0.9rem;padding:0.55rem 0.7rem;box-sizing:border-box;font-family:inherit;margin-bottom:0.6rem">
+    <div id="qp-list" style="display:flex;flex-direction:column;gap:0.4rem"></div>
+  </div>
+</div>
+
 <!-- 放盤點擊統計（admin 專用，入口喺 ⚙️ 設定；後端都有 admin gate） -->
 <div class="modal-overlay" id="adminClicksOverlay" style="display:none;z-index:600" onclick="if(event.target===this)closeAdminClicks()">
   <div class="modal" style="max-width:860px;max-height:90vh;overflow-y:auto">
@@ -1745,6 +1790,20 @@ async function showDashboard(estates) {
   const main = document.getElementById("main");
   main.innerHTML = `
     <div class="dashboard">
+      <!-- 快捷功能：新增睇樓／睇樓記錄係跟屋苑嘅，所以要先經屋苑揀選器；
+           朋友屋企唔綁屋苑（個 modal 自己有屋苑搜尋），可以直接開。 -->
+      <div class="qa-row">
+        <button class="qa-btn" onclick="openEstatePicker('add')">
+          <span class="qa-icon">📝</span><span class="qa-label">新增睇樓</span></button>
+        <button class="qa-btn" onclick="openEstatePicker('view')">
+          <span class="qa-icon">📋</span><span class="qa-label">睇樓記錄</span></button>
+        <button class="qa-btn" onclick="openFriendModal()">
+          <span class="qa-icon">➕</span><span class="qa-label">新增<br>朋友屋企</span></button>
+        <button class="qa-btn" onclick="switchDashTab('friends')">
+          <span class="qa-icon">👥</span><span class="qa-label">朋友屋企</span></button>
+        <button class="qa-btn" onclick="focusEstateSearch()">
+          <span class="qa-icon">🔍</span><span class="qa-label">搜尋屋苑</span></button>
+      </div>
       <div class="highlights-section" id="highlights-section">
         <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:0.4rem;margin-bottom:0.75rem">
           <div style="display:flex;gap:0;border-bottom:2px solid var(--border)">
@@ -1766,6 +1825,69 @@ async function showDashboard(estates) {
     </div>
   `;
   loadTodayHighlights();
+}
+
+// ── 快捷功能面板 ───────────────────────────────────────────────────────────
+// 「新增睇樓」同「睇樓記錄」都係 per-estate（openViewingModal 要 _viewingEstateId，
+// loadViewings 要 estate id），所以兩者都要先揀屋苑先做得嘢。
+let _qpMode = null;   // 'add' = 揀完開新增 modal；'view' = 揀完跳去睇樓記錄 tab
+
+function openEstatePicker(mode) {
+  _qpMode = mode;
+  document.getElementById('qp-title').textContent = mode === 'add' ? '📝 新增睇樓' : '📋 睇樓記錄';
+  document.getElementById('qp-sub').textContent = mode === 'add'
+    ? '揀個屋苑，跟住就可以填睇樓記錄' : '揀個屋苑睇返你嘅睇樓記錄';
+  document.getElementById('qp-search').value = '';
+  document.getElementById('estatePickerOverlay').style.display = 'flex';
+  renderEstatePicker();
+  document.getElementById('qp-search').focus();
+}
+
+function closeEstatePicker() {
+  document.getElementById('estatePickerOverlay').style.display = 'none';
+}
+
+function renderEstatePicker() {
+  const list = document.getElementById('qp-list');
+  if (!list) return;
+  const kw = (document.getElementById('qp-search').value || '').trim();
+  let items = dashboardEstates || [];
+  if (kw) items = items.filter(e => (e.name || '').includes(kw));
+  // 睇樓記錄模式：有記錄嘅排前，冇記錄嘅照顯示（可能想入去補返）
+  if (_qpMode === 'view') items = [...items].sort((a, b) => (b.viewing_count || 0) - (a.viewing_count || 0));
+  if (!items.length) {
+    list.innerHTML = `<div style="font-size:0.82rem;color:var(--muted);padding:0.4rem 0">${
+      kw ? '冇夾到屋苑' : '你未追蹤任何屋苑，先喺左邊搜尋加入。'}</div>`;
+    return;
+  }
+  list.innerHTML = items.map(e => {
+    const n = e.viewing_count || 0;
+    const badge = n
+      ? `<span style="color:var(--accent);font-size:0.78rem;white-space:nowrap">${n} 個記錄</span>`
+      : `<span style="color:var(--muted);font-size:0.78rem;white-space:nowrap">冇記錄</span>`;
+    return `<button type="button" class="qp-item" onclick="pickEstateForQuick(${e.id})">
+      <span>${escHtml(e.name)}${e.district ? `<span style="color:var(--muted);font-size:0.75rem"> · ${escHtml(e.district)}</span>` : ''}</span>
+      ${badge}</button>`;
+  }).join('');
+}
+
+async function pickEstateForQuick(id) {
+  const mode = _qpMode;
+  closeEstatePicker();
+  // showEstate 會 set 埋 _viewingEstateId/_viewingEstateName，之後兩個動作先做得
+  await showEstate(id);
+  if (mode === 'add') openViewingModal();
+  else switchTab('viewings', id);
+}
+
+// 手機版 sidebar 收埋咗，快捷掣要幫手拉返出嚟先 focus 到個搜尋框
+function focusEstateSearch() {
+  if (window.innerWidth <= 768) {
+    const sidebar = document.querySelector('.sidebar');
+    if (sidebar && !sidebar.classList.contains('open')) toggleSidebar();
+  }
+  const el = document.getElementById('searchInput');
+  if (el) { el.focus(); el.select(); }
 }
 
 let _compsLoaded = false;
