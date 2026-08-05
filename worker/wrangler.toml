@@ -9,9 +9,13 @@ database_id = "b4330ef2-78c4-48be-ae88-b1d94614faad"
 
 # HKT = UTC+8. Daily sync is split across staggered slots so each runs in its
 # own invocation (Cloudflare blocks self-fetch chaining; no Queues on this plan).
-#   "0 16 * * *"  = 00:00 HKT → sync slot 0 (estates 0–11)
-#   "10 16 * * *" = 00:10 HKT → sync slot 1 (estates 12–23)
-#   "20 16 * * *" = 00:20 HKT → sync slot 2 (estates 24–35)
-#   "0 1 * * *"   = 09:00 HKT → "今日動態" email (separate invocation)
+# 每個 slot 嘅 offset / 屋苑範圍由 index.js 嘅 SYNC_SLOTS + SYNC_SLOT_SIZE 決定，
+# 容量 = slot 數 × SYNC_SLOT_SIZE。加屋苑加到爆容量，slot 0 會發 telegram 警示。
+#   "0 16 * * *" … "30 16 * * *" = 00:00–00:30 HKT → sync slot 0–3
+#   "0 1 * * *"                  = 09:00 HKT → "今日動態" email (separate invocation)
+#
+# ⚠️ Workers Free 上限係每個 account 5 個 cron trigger，而呢度已經用晒 5 個。
+# 所以要加容量只可以加大 SYNC_SLOT_SIZE，加唔到 slot。真係要更多 slot 就要
+# upgrade Workers Paid（上限 1,000 個 cron）。
 [triggers]
 crons = ["0 16 * * *", "10 16 * * *", "20 16 * * *", "30 16 * * *", "0 1 * * *"]

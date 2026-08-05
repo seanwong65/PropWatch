@@ -3012,11 +3012,17 @@ async function syncEstatesBatch(db, offset, size) {
      ORDER BY e.id LIMIT ? OFFSET ?`
   ).bind(size, offset).all();
   const failures = [];
-  await Promise.all(estates.map(async (estate) => {
-    // Per-estate non-fatal:一個屋苑爆咗唔阻其他,但要收集返 detail 通知 admin。
-    try { await syncOneEstate(db, estate); }
-    catch (e) { failures.push(`${estate.name} (id=${estate.id}): ${_errDetail(e)}`); }
-  }));
+  // 分細段跑（唔係一次過 Promise.all 晒）：一個屋苑要 scrape 3 個 source、
+  // 每個 source 分頁最多 10–20 個 request，並行太多會撞 CF subrequest/時間
+  // 上限，而且係靜靜 fail。段與段之間 await，peak 負擔就封頂。
+  for (let i = 0; i < estates.length; i += SYNC_CONCURRENCY) {
+    const chunk = estates.slice(i, i + SYNC_CONCURRENCY);
+    await Promise.all(chunk.map(async (estate) => {
+      // Per-estate non-fatal:一個屋苑爆咗唔阻其他,但要收集返 detail 通知 admin。
+      try { await syncOneEstate(db, estate); }
+      catch (e) { failures.push(`${estate.name} (id=${estate.id}): ${_errDetail(e)}`); }
+    }));
+  }
   return { count: estates.length, failures };
 }
 
@@ -3027,11 +3033,22 @@ async function syncEstatesBatch(db, offset, size) {
 // across several staggered cron triggers — each fires its OWN invocation with a
 // fresh subrequest budget and syncs one SYNC_SLOT_SIZE slice of estates.
 // SYNC_SLOTS maps each sync cron to a slice index. Capacity = slots × size.
-// 每個 cron slot 只 sync 幾個屋苑——一次過並行 12 個會撞 CF 時間/subrequest
-// 上限（大屋苑 + flaky source 尤甚），大部分靜靜 fail。細 batch 更穩。
-// 容量 = slots × size = 4 × 4 = 16，夠 cover 15 個訂閱屋苑 + 少少 headroom。
-const SYNC_SLOT_SIZE = 4;
+// 之前 4×4=16 剛好等於訂閱屋苑數，一個 headroom 都冇：加第 17 個屋苑佢就永遠
+// 輪唔到 sync（offset 超出所有 slot），而且冇任何警示。
+//
+// ⚠️ 加唔到 slot：Workers Free 上限係每個 account 5 個 cron trigger，而 4 個
+// sync + 1 個 email 已經用晒。所以只可以加大 size → 4 × 6 = 24（headroom 8）。
+//
+// 加大 size 本身唔係當初嗰個坑——真正爆嘅原因係「同一時間並行幾多個屋苑」
+// （一個屋苑 × 3 source，每個 source 分頁最多 10–20 個 request，並行 4 個屋苑
+// 已經過百 subrequest）。所以 syncEstatesBatch 改成用 SYNC_CONCURRENCY 分細段
+// 跑：peak 並行由 4 降到 3，容量反而升，兩邊都好過以前。
+const SYNC_SLOT_SIZE = 6;
 const SYNC_SLOTS = { "0 16 * * *": 0, "10 16 * * *": 1, "20 16 * * *": 2, "30 16 * * *": 3 };
+const SYNC_CAPACITY = Object.keys(SYNC_SLOTS).length * SYNC_SLOT_SIZE;
+// 一個 slot 入面同時最多跑幾個屋苑（其餘排隊）。細過舊版嘅 4，所以就算
+// slot size 大咗，peak subrequest / CPU 反而低過以前。
+const SYNC_CONCURRENCY = 3;
 
 // Send the "今日動態" digest email. Kept SEPARATE from the sync so it runs in
 // its own Worker invocation with a fresh subrequest budget — a full sync
@@ -3157,6 +3174,33 @@ export default {
         // 個別屋苑 fail 收集晒一次過通知;整個 batch 爆(DB query 等)另一封。
         try {
           await ensureMultiAccount(env.DB);
+          // slot 0 順手查容量：訂閱屋苑多過 slots × size 嘅話，超出嗰批嘅
+          // offset 冇任何 slot cover 得到 → 永遠唔會 sync。以前呢個情況
+          // 完全冇聲出，加咗屋苑都唔知佢冇更新，所以要主動響。
+          if (slot === 0) {
+            const cap = await env.DB.prepare(
+              `SELECT COUNT(*) AS n FROM estates e
+               WHERE (e.is_disabled = 0 OR e.is_disabled IS NULL)
+                 AND EXISTS (SELECT 1 FROM account_estates ae WHERE ae.estate_id = e.id)`
+            ).first();
+            const n = cap?.n ?? 0;
+            if (n > SYNC_CAPACITY) {
+              const { results: missed } = await env.DB.prepare(
+                `SELECT e.id, e.name FROM estates e
+                 WHERE (e.is_disabled = 0 OR e.is_disabled IS NULL)
+                   AND EXISTS (SELECT 1 FROM account_estates ae WHERE ae.estate_id = e.id)
+                 ORDER BY e.id LIMIT -1 OFFSET ?`
+              ).bind(SYNC_CAPACITY).all();
+              await sendAdminAlert(env.DB, env,
+                `🚨 PropWatch 同步容量爆滿：${n} 個屋苑 / 容量 ${SYNC_CAPACITY}`,
+                `每日同步容量檢查（${Object.keys(SYNC_SLOTS).length} slots × ${SYNC_SLOT_SIZE}）`,
+                [
+                  `以下 ${missed.length} 個屋苑冇 slot cover，永遠唔會 sync：`,
+                  ...missed.map((e) => `• ${e.name} (id=${e.id})`),
+                  `解決：加大 SYNC_SLOT_SIZE 或者喺 wrangler.toml + SYNC_SLOTS 加 cron slot。`,
+                ]);
+            }
+          }
           const { failures } = await syncEstatesBatch(env.DB, offset, SYNC_SLOT_SIZE);
           if (failures.length) {
             await sendAdminAlert(env.DB, env, `⚠️ PropWatch 同步 slot ${slot} 有 ${failures.length} 個屋苑失敗`,
