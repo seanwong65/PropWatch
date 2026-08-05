@@ -1228,22 +1228,55 @@ const SOURCES = [
 // centanet defaults on (enabled unless explicitly 0); others must be truthy.
 const sourceEnabled = (estate, s) => s.id === "centanet" ? estate[s.enabledCol] !== 0 : !!estate[s.enabledCol];
 
+// 一個 source scrape 幾多頁都可以（最多 20 頁），portal 一 hang 就會拖到成個
+// invocation 俾 Cloudflare 殺——而俾殺係「死」唔係 throw exception，所以 catch
+// 唔會行到、後面嘅 source 唔會 sync、亦完全冇 alert 出得去（實測泓景臺就係咁：
+// 中原寫入咗，利嘉閣同香港置業完全冇，17 日都冇人知）。
+//
+// 加 timeout 之後，卡死嗰個 source 會變成一個「有記錄嘅失敗」：後面 source 照
+// 跑得，個 failure 亦會經 telegram 報出嚟。ESTATE_BUDGET_MS 係第二道閘——
+// 就算每個 source 都冇單獨超時，累加起嚟都唔准食晒成個 invocation。
+// 兩個數字都係跟 CF 平台限制訂嘅（唔係分析參數），所以同 SYNC_SLOT_SIZE 一樣
+// 留喺 code 度。
+// 實測：一個屋苑 sync 超過 ~60 秒就會俾 Cloudflare 斬（HTTP 000，冇 response
+// body），所以成個屋苑（成交 + 放盤，總共 5 個 scrape）要共用一個 deadline，
+// 唔可以每個 phase 各自計 timeout——20+20+50 咁樣加埋已經爆 60s。
+// 45s 留返 buffer 俾 DB write 同 detectChanges。
+// ⚠️ Promise.race 唔會真正 cancel 背景個 fetch——超時只係「唔再等」，被放棄
+// 嘅 scrape 照繼續燒 CPU/subrequest。所以預算要留大量 buffer，唔可以貼住 60s。
+const ESTATE_BUDGET_MS  = 28000;
+const SOURCE_TIMEOUT_MS = 10000;
+
+const withTimeout = (p, ms, label) => Promise.race([
+  p,
+  new Promise((_, reject) => setTimeout(() => reject(new Error(`${label} 超時 ${ms / 1000}s`)), ms)),
+]);
+
 // Scrape + save every enabled source for an estate. Returns the centanet
-// listings (used by change detection). A critical (centanet) failure
-// propagates so the estate is flagged; other sources fail non-fatally.
-async function syncEstateListings(db, estate) {
+// listings (used by change detection) plus每個 source 嘅失敗紀錄。A critical
+// (centanet) failure propagates so the estate is flagged; other sources fail
+// non-fatally——但唔再靜靜食咗，會收集返上去一齊 alert。
+async function syncEstateListings(db, estate, timeLeft) {
   let primary = [];
+  const failures = [];
   for (const s of SOURCES) {
     if (!sourceEnabled(estate, s)) continue;
+    const left = timeLeft();
+    if (left <= 0) {
+      failures.push(`${s.label} 放盤：跳過（屋苑時間預算用完）`);
+      continue;
+    }
     try {
-      const listings = await s.scrape(estate);
+      const listings = await withTimeout(
+        Promise.resolve(s.scrape(estate)), Math.min(SOURCE_TIMEOUT_MS, left), `${s.label} 放盤 scrape`);
       await s.save(db, estate.id, listings);
       if (s.id === "centanet") primary = listings;
     } catch (e) {
+      failures.push(`${s.label} 放盤：${_errDetail(e)}`);
       if (s.critical) throw e;
     }
   }
-  return primary;
+  return { primary, failures };
 }
 
 // Auto-create the enable column for every source (new sources get one for free).
@@ -2979,25 +3012,52 @@ async function detectChanges(db, estateId, estateName, newListings) {
 // Sync one estate: transactions + every enabled source + change detection.
 async function syncOneEstate(db, estate) {
   await ensureTxnDedup(db);   // combination 唯一索引就位,先入為準防重複
-  const newTxns = await fetchAndSaveTransactions(db, estate.id, estate.name);
-  // Supplement Centanet transactions with 利嘉閣 land-registry deals (non-fatal).
-  if (estate.ricacorp_enabled) {
+  // warnings = 非致命但要知嘅嘢（某個 source 撈唔到／超時）。以前呢啲全部
+  // 靜靜食咗，壞足十幾日都冇人知，所以要一路帶上去 alert。
+  const warnings = [];
+  // 成個屋苑（5 個 scrape）共用一個 deadline——每個 phase 各自計 timeout 會加埋
+  // 爆 CF 嗰 60 秒，一爆就係「死」，之後全部 phase 冇得跑亦冇 alert。
+  const deadline = Date.now() + ESTATE_BUDGET_MS;
+  const timeLeft = () => deadline - Date.now();
+
+  // 放盤先，成交後：放盤係「今日在售」嘅主數據（側邊欄數量、放盤數量趨勢、
+  // 已下架判斷全部靠佢），少咗一個 source 會即刻令個圖跳。成交係補充性質，
+  // 而且土地註冊處嘅記錄唔會走，遲一日補到返。以前成交排喺前面，一個慢
+  // source（實測利嘉閣成交成日 timeout）就會食晒 budget，令放盤反而冇得 sync。
+  const { primary: listings, failures } = await syncEstateListings(db, estate, timeLeft);
+  warnings.push(...failures);
+
+  let newTxns = [];
+  if (timeLeft() > 0) {
     try {
-      const ricaTxns = await scrapeRicacorpTransactions(estate.name);
+      newTxns = await withTimeout(
+        Promise.resolve(fetchAndSaveTransactions(db, estate.id, estate.name)),
+        Math.min(SOURCE_TIMEOUT_MS, timeLeft()), "中原 成交 scrape");
+    } catch (e) { warnings.push(`中原 成交：${_errDetail(e)}`); }
+  } else {
+    warnings.push("中原 成交：跳過（屋苑時間預算用完）");
+  }
+  // Supplement Centanet transactions with 利嘉閣 land-registry deals (non-fatal).
+  if (estate.ricacorp_enabled && timeLeft() > 0) {
+    try {
+      const ricaTxns = await withTimeout(
+        Promise.resolve(scrapeRicacorpTransactions(estate.name)),
+        Math.min(SOURCE_TIMEOUT_MS, timeLeft()), "利嘉閣 成交 scrape");
       await saveRicacorpTransactions(db, estate.id, ricaTxns);
-    } catch (e) { /* non-fatal */ }
+    } catch (e) { warnings.push(`利嘉閣 成交：${_errDetail(e)}`); }
   }
   // 再補香港置業成交（土地註冊處，dedup 靠 combo 索引，只入新嘅）（non-fatal）。
-  if (estate.hkp_enabled) {
+  if (estate.hkp_enabled && timeLeft() > 0) {
     try {
-      const hkpTxns = await scrapeHkpTransactions(estate.name);
+      const hkpTxns = await withTimeout(
+        Promise.resolve(scrapeHkpTransactions(estate.name)),
+        Math.min(SOURCE_TIMEOUT_MS, timeLeft()), "香港置業 成交 scrape");
       await saveHkpTransactions(db, estate.id, hkpTxns);
-    } catch (e) { /* non-fatal */ }
+    } catch (e) { warnings.push(`香港置業 成交：${_errDetail(e)}`); }
   }
-  const listings = await syncEstateListings(db, estate);
   const changes = await detectChanges(db, estate.id, estate.name, listings);
   changes.newTransactions = newTxns;
-  return { estate: estate.name, count: listings.length, ok: true, changes };
+  return { estate: estate.name, count: listings.length, ok: true, changes, warnings };
 }
 
 // Sync a slice of estates (ORDER BY id, LIMIT/OFFSET), sequentially and
@@ -3012,6 +3072,7 @@ async function syncEstatesBatch(db, offset, size) {
      ORDER BY e.id LIMIT ? OFFSET ?`
   ).bind(size, offset).all();
   const failures = [];
+  const warnings = [];
   // 分細段跑（唔係一次過 Promise.all 晒）：一個屋苑要 scrape 3 個 source、
   // 每個 source 分頁最多 10–20 個 request，並行太多會撞 CF subrequest/時間
   // 上限，而且係靜靜 fail。段與段之間 await，peak 負擔就封頂。
@@ -3019,11 +3080,13 @@ async function syncEstatesBatch(db, offset, size) {
     const chunk = estates.slice(i, i + SYNC_CONCURRENCY);
     await Promise.all(chunk.map(async (estate) => {
       // Per-estate non-fatal:一個屋苑爆咗唔阻其他,但要收集返 detail 通知 admin。
-      try { await syncOneEstate(db, estate); }
-      catch (e) { failures.push(`${estate.name} (id=${estate.id}): ${_errDetail(e)}`); }
+      try {
+        const r = await syncOneEstate(db, estate);
+        for (const w of r.warnings || []) warnings.push(`${estate.name} (id=${estate.id}) — ${w}`);
+      } catch (e) { failures.push(`${estate.name} (id=${estate.id}): ${_errDetail(e)}`); }
     }));
   }
-  return { count: estates.length, failures };
+  return { count: estates.length, failures, warnings };
 }
 
 // ── Chunked daily sync via cron slots ───────────────────────────────────────
@@ -3201,10 +3264,17 @@ export default {
                 ]);
             }
           }
-          const { failures } = await syncEstatesBatch(env.DB, offset, SYNC_SLOT_SIZE);
+          const { failures, warnings } = await syncEstatesBatch(env.DB, offset, SYNC_SLOT_SIZE);
           if (failures.length) {
             await sendAdminAlert(env.DB, env, `⚠️ PropWatch 同步 slot ${slot} 有 ${failures.length} 個屋苑失敗`,
               `每日同步 slot ${slot}（cron ${event.cron}）`, failures);
+          }
+          // Source 層失敗（某個 portal 撈唔到／超時）：屋苑本身算 sync 成功，
+          // 但少咗一個 source 嘅數，會令「放盤數量」個圖跳、「已下架」誤判。
+          // 以前呢啲完全冇聲出，所以獨立報一封。
+          if (warnings.length) {
+            await sendAdminAlert(env.DB, env, `⚠️ PropWatch 同步 slot ${slot}：${warnings.length} 個 source 撈唔到`,
+              `每日同步 slot ${slot}（cron ${event.cron}）— 屋苑 sync 成功但個別 source 失敗`, warnings);
           }
         } catch (e) {
           await sendAdminAlert(env.DB, env, `🚨 PropWatch 同步 slot ${slot} 整個失敗`,
