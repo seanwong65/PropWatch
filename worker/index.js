@@ -1029,15 +1029,16 @@ async function saveRicacorpTransactions(db, estateId, txns) {
   const today = hkDateStr();
   const stmt = db.prepare(
     `INSERT OR IGNORE INTO transactions
-     (estate_id, transaction_id, building, floor, unit, price, size_net, price_per_ft,
+     (estate_id, transaction_id, building, bldg_key, floor, unit, price, size_net, price_per_ft,
       reg_date, instrument_date, source, first_seen)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`
   );
   const batch = txns.map(t => stmt.bind(
-    estateId, t.transaction_id, t.building, t.floor, normalizeUnit(t.unit),
+    estateId, t.transaction_id, t.building, _blockKey(t.building), t.floor, normalizeUnit(t.unit),
     t.price, t.size_net, t.price_per_ft, t.reg_date, t.instrument_date, t.source, today
   ));
   await db.batch(batch);
+  await dropShadowTxns(db, estateId);
 }
 
 // ── 香港置業 (Hong Kong Property, Midland backend) ─────────────────────────
@@ -1194,15 +1195,16 @@ async function saveHkpTransactions(db, estateId, txns) {
   const today = hkDateStr();
   const stmt = db.prepare(
     `INSERT OR IGNORE INTO transactions
-     (estate_id, transaction_id, building, floor, unit, price, size_net, price_per_ft,
+     (estate_id, transaction_id, building, bldg_key, floor, unit, price, size_net, price_per_ft,
       reg_date, prev_price, gain_pct, held_days, source, first_seen)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
   );
   const batch = txns.map(t => stmt.bind(
-    estateId, t.transaction_id, t.building, t.floor, normalizeUnit(t.unit),
+    estateId, t.transaction_id, t.building, _blockKey(t.building), t.floor, normalizeUnit(t.unit),
     t.price, t.size_net, t.price_per_ft, t.reg_date, t.prev_price, t.gain_pct, t.held_days, t.source, today
   ));
   await db.batch(batch);
+  await dropShadowTxns(db, estateId);
 }
 
 // ── Listing sources registry ───────────────────────────────────────────────
@@ -1257,21 +1259,89 @@ async function ensureSourceColumns(db) {
 // min(id)=先入為準），再起一個 combination 唯一索引;之後兩個 source 都用
 // INSERT OR IGNORE,後入嘅同 combination 會被索引擋住唔存。整個過程用
 // settings flag 守住只做一次。COALESCE 令 building/unit 等 NULL 都當同值。
+// 唯一鍵用 bldg_key（_blockKey 出嘅座號）唔用原始 building：同一宗成交喺唔同
+// source 個座名寫法唔一，用原始值會當成幾宗——實際見過嘅寫法差異有
+//   ① 單幢樓：中原出屋苑名「順昌大廈」，利嘉閣出 NULL
+//   ② 屋苑名異體字：景怡峰 vs 景怡峯
+//   ③ 大小寫：N座 vs n座
+//   ④ 零填充：08座 vs 8座
+//   ⑤ 括號後綴：6座 vs 6座 (海翡翠)
+// _blockKey 全部 map 返同一個值（單幢／屋苑名／空一律 ""），但真係唔同座
+// （1座 vs 8座）照分得開，唔會誤 merge。
 const TXN_COMBO_COLS =
-  "estate_id, COALESCE(building,''), COALESCE(floor,''), COALESCE(unit,''), COALESCE(price,-1), COALESCE(reg_date,'')";
+  "estate_id, COALESCE(bldg_key,''), COALESCE(floor,''), COALESCE(unit,''), COALESCE(price,-1), COALESCE(reg_date,'')";
+// 利嘉閣有部分成交淨係冇座數（building NULL），但同中原／香港置業嗰宗其實
+// 係同一單。_blockKey 救唔到（'' vs '3'），UNIQUE index 亦擋唔到（NULL 唔會
+// 撞 '3'），所以每次入完數要掃一次：同 estate+樓+室+價+登記日 已經有一行
+// 「有座數」嘅，就刪走「冇座數」嗰行——保留資料最全嗰行。
+async function dropShadowTxns(db, estateId) {
+  await db.prepare(
+    `DELETE FROM transactions WHERE id IN (
+       SELECT a.id FROM transactions a
+       WHERE a.estate_id = ?1 AND (a.building IS NULL OR a.building = '')
+         AND EXISTS (
+           SELECT 1 FROM transactions b
+           WHERE b.estate_id = a.estate_id
+             AND COALESCE(b.floor,'') = COALESCE(a.floor,'')
+             AND COALESCE(b.unit,'')  = COALESCE(a.unit,'')
+             AND b.price = a.price
+             AND COALESCE(b.reg_date,'') = COALESCE(a.reg_date,'')
+             AND b.building IS NOT NULL AND b.building <> ''
+         ))`
+  ).bind(estateId).run().catch(() => {});
+}
+
 async function ensureTxnDedup(db) {
   await db.prepare("CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT)").run();
-  const done = await db.prepare("SELECT 1 FROM settings WHERE key = 'txn_combo_dedup'").first();
+  await db.prepare("ALTER TABLE transactions ADD COLUMN bldg_key TEXT").run().catch(() => {});
+  const done = await db.prepare("SELECT 1 FROM settings WHERE key = 'txn_bldgkey_dedup'").first();
   if (done) return;
+
+  // 舊資料 backfill：bldg_key 喺 JS 度計（SQLite 冇 regex），所以逐個
+  // distinct building 值 map 一次再 UPDATE，唔使逐行拉出嚟。
+  const { results: blds } = await db.prepare(
+    "SELECT DISTINCT building FROM transactions"
+  ).all();
+  for (const row of blds) {
+    await db.prepare("UPDATE transactions SET bldg_key = ? WHERE building IS ?")
+      .bind(_blockKey(row.building), row.building).run();
+  }
+
+  // 舊 index 用緊原始 building，一定要 drop 咗佢先建新嘅（否則舊 index 會
+  // 繼續容許 building 寫法唔同嘅重複行入到嚟）。
+  await db.prepare("DROP INDEX IF EXISTS idx_txn_combo").run().catch(() => {});
+  // 留低資料最全嗰行（building 有值 > NULL），唔係淨係留 MIN(id)——
+  // 否則單幢樓可能留低咗冇 building 嗰行，顯示會少咗資料。
   await db.prepare(
     `DELETE FROM transactions WHERE id NOT IN (
-       SELECT MIN(id) FROM transactions GROUP BY ${TXN_COMBO_COLS})`
+       SELECT id FROM (
+         SELECT id, ROW_NUMBER() OVER (
+           PARTITION BY ${TXN_COMBO_COLS}
+           ORDER BY (CASE WHEN building IS NOT NULL AND building <> '' THEN 0 ELSE 1 END), id
+         ) AS rn FROM transactions
+       ) WHERE rn = 1)`
   ).run();
   await db.prepare(
     `CREATE UNIQUE INDEX IF NOT EXISTS idx_txn_combo ON transactions (${TXN_COMBO_COLS})`
   ).run();
   await db.prepare(
-    "INSERT INTO settings (key, value) VALUES ('txn_combo_dedup', '1') ON CONFLICT(key) DO UPDATE SET value = '1'"
+    "INSERT INTO settings (key, value) VALUES ('txn_bldgkey_dedup', '1') ON CONFLICT(key) DO UPDATE SET value = '1'"
+  ).run();
+
+  // 舊資料入面「冇座數影子行」一次過清（新資料靠 dropShadowTxns 每次 sync 掃）
+  await db.prepare(
+    `DELETE FROM transactions WHERE id IN (
+       SELECT a.id FROM transactions a
+       WHERE (a.building IS NULL OR a.building = '')
+         AND EXISTS (
+           SELECT 1 FROM transactions b
+           WHERE b.estate_id = a.estate_id
+             AND COALESCE(b.floor,'') = COALESCE(a.floor,'')
+             AND COALESCE(b.unit,'')  = COALESCE(a.unit,'')
+             AND b.price = a.price
+             AND COALESCE(b.reg_date,'') = COALESCE(a.reg_date,'')
+             AND b.building IS NOT NULL AND b.building <> ''
+         ))`
   ).run();
 }
 
@@ -1613,7 +1683,11 @@ const _normUnit = (s) => String(s || "").replace(/[室號\s]/g, "").toUpperCase(
 const _blockKey = (b) => {
   const s = String(b || "");
   const m = s.match(/(\d+)\s*座/) || s.match(/([A-Za-z])\s*座/) || s.match(/^\s*(\d+)\s*$/);
-  return m ? m[1].toUpperCase() : "";
+  if (!m) return "";
+  const v = m[1].toUpperCase();
+  // 數字座要拆走前置 0：中原出「8座」、利嘉閣出「08座」，唔normalize就會
+  // 當咗兩宗唔同成交。字母座（A座/N座）唔會有呢個問題，照原樣。
+  return /^\d+$/.test(v) ? String(Number(v)) : v;
 };
 
 // 房數推斷器：成交（土地註冊處）只有面積冇房數，用同屋苑在售 listings
@@ -2804,9 +2878,9 @@ async function fetchAndSaveTransactions(db, estateId, estateName) {
 
   const stmt = db.prepare(
     `INSERT OR IGNORE INTO transactions
-     (estate_id, transaction_id, building, floor, unit, price, size_net, price_per_ft,
+     (estate_id, transaction_id, building, bldg_key, floor, unit, price, size_net, price_per_ft,
       reg_date, prev_price, gain_pct, held_days, first_seen)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
   );
   const batch = (raw.data || [])
     // Keep only genuine residential market deals: drop car parks and
@@ -2815,13 +2889,14 @@ async function fetchAndSaveTransactions(db, estateId, estateName) {
     .filter(t => t.id && t.transTheme !== "CarPark" && t.specialCase?.value !== true)
     .map(t => stmt.bind(
       estateId, String(t.id),
-      t.buildingName ?? null, t.yAxis ?? null, t.xAxis ?? null,
+      t.buildingName ?? null, _blockKey(t.buildingName), t.yAxis ?? null, t.xAxis ?? null,
       t.transactionPrice ?? null, t.nArea ?? null, t.nUnitPrice ?? null,
       t.regDate?.slice(0, 10) ?? null, t.prevTransactionPrice ?? null,
       t.gainPercent ?? null, t.heldDay ?? null,
       today
     ));
   if (batch.length) await db.batch(batch);
+  await dropShadowTxns(db, estateId);
 
   // Return only records first seen today
   const { results } = await db
