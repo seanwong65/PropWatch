@@ -5089,7 +5089,10 @@ export default {
       // 即刻執行,唔使等下次 sync;force=1 可清 flag 重跑。
       if (method === "POST" && path === "/api/admin/dedupe-transactions") {
         if (url.searchParams.get("force") === "1") {
-          await db.prepare("DELETE FROM settings WHERE key = 'txn_combo_dedup'").run().catch(() => {});
+          // 兩個 flag 都要清：txn_combo_dedup 係舊版（key 用原始 building），
+          // txn_bldgkey_dedup 係現行版（key 用正規化座號）。淨係清舊嗰個
+          // 會令 ensureTxnDedup 喺新 flag 度提早 return，force 變咗冇作用。
+          await db.prepare("DELETE FROM settings WHERE key IN ('txn_combo_dedup','txn_bldgkey_dedup')").run().catch(() => {});
           await db.prepare("DROP INDEX IF EXISTS idx_txn_combo").run().catch(() => {});
         }
         const before = (await db.prepare("SELECT COUNT(*) n FROM transactions").first()).n;
