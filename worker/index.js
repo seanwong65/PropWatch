@@ -3187,10 +3187,21 @@ async function sendSyncSummary(db, env) {
             MIN(updated_at) AS first_at, MAX(updated_at) AS last_at
      FROM sync_log WHERE sync_date = ?`
   ).bind(date).first();
-  const { results: bySrc } = await db.prepare(
-    `SELECT source, COUNT(*) AS n, COUNT(DISTINCT estate_id) AS estates
-     FROM listings WHERE snapshot_date = ? GROUP BY source ORDER BY source`
+  // 盤數靠 listings（今日 snapshot 實際存幾多行）；「幾多屋苑」一定要靠
+  // sync_log 嘅 ok 數，唔可以靠「listings 有冇 row」——一個屋苑今日真係
+  // 0 個盤（scrape 成功但冇盤放）就唔會有 row，會被漏計，睇落好似「少做咗
+  // 一個」，其實係做咗、結果啱啱係 0（之前試過：別樹一居香港置業 0 個盤，
+  // summary 就報少咗一個屋苑，睇落好似 sync 有問題）。
+  const { results: countBySrc } = await db.prepare(
+    "SELECT source, COUNT(*) AS n FROM listings WHERE snapshot_date = ? GROUP BY source"
   ).bind(date).all();
+  const { results: estatesBySrc } = await db.prepare(
+    `SELECT source, COUNT(*) AS estates FROM sync_log
+     WHERE sync_date = ? AND kind = 'listings' AND ok = 1 GROUP BY source`
+  ).bind(date).all();
+  const estatesMap = new Map(estatesBySrc.map((r) => [r.source, r.estates]));
+  const bySrc = countBySrc.map((r) => ({ source: r.source, n: r.n, estates: estatesMap.get(r.source) ?? 0 }))
+    .sort((a, b) => a.source.localeCompare(b.source));
   const txn = await db.prepare(
     "SELECT COUNT(*) AS n FROM transactions WHERE first_seen = ?"
   ).bind(date).first();
