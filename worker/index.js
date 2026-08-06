@@ -3170,7 +3170,65 @@ async function syncNextUnit(db) {
        detail = excluded.detail, updated_at = datetime('now', '+8 hours')`
   ).bind(u.estate.id, u.source.id, u.kind, today, ok, attempts, String(detail).slice(0, 300)).run();
 
-  return { idle: false, label, ok: !!ok, attempts, detail, pending: pending.length };
+  // 呢個單元搞定（成功／試夠數）就唔再算 pending。remaining 變 0 即係今日
+  // 全部單元都有結論 → cron 會發完成 summary。
+  const resolved = ok || attempts >= SYNC_MAX_ATTEMPTS;
+  const remaining = pending.length - (resolved ? 1 : 0);
+  return { idle: false, label, ok: !!ok, attempts, detail, pending: pending.length, remaining };
+}
+
+// 今日同步完成 summary（telegram）。用 sendTelegram 而唔係 sendAdminAlert——
+// 呢個係例行報告，唔想每日連 email 一齊寄。
+async function sendSyncSummary(db, env) {
+  const date = hkDateStr();
+  const s = await db.prepare(
+    `SELECT COUNT(*) AS units, SUM(ok) AS ok,
+            SUM(CASE WHEN ok = 0 THEN 1 ELSE 0 END) AS failed,
+            MIN(updated_at) AS first_at, MAX(updated_at) AS last_at
+     FROM sync_log WHERE sync_date = ?`
+  ).bind(date).first();
+  const { results: bySrc } = await db.prepare(
+    `SELECT source, COUNT(*) AS n, COUNT(DISTINCT estate_id) AS estates
+     FROM listings WHERE snapshot_date = ? GROUP BY source ORDER BY source`
+  ).bind(date).all();
+  const txn = await db.prepare(
+    "SELECT COUNT(*) AS n FROM transactions WHERE first_seen = ?"
+  ).bind(date).first();
+  const { results: fails } = await db.prepare(
+    `SELECT e.name AS estate_name, sl.source, sl.kind, sl.attempts, sl.detail
+     FROM sync_log sl LEFT JOIN estates e ON e.id = sl.estate_id
+     WHERE sl.sync_date = ? AND sl.ok = 0 ORDER BY e.name`
+  ).bind(date).all();
+
+  const hhmm = (v) => (v ? String(v).slice(11, 16) : "?");
+  const mins = (() => {
+    const a = Date.parse(String(s?.first_at || "").replace(" ", "T") + "Z");
+    const b = Date.parse(String(s?.last_at || "").replace(" ", "T") + "Z");
+    return Number.isFinite(a) && Number.isFinite(b) ? Math.round((b - a) / 60000) : null;
+  })();
+  const dur = mins == null ? "?" : `${Math.floor(mins / 60)} 小時 ${mins % 60} 分`;
+  const label = { centanet: "中原", ricacorp: "利嘉閣", hkp: "香港置業" };
+
+  const lines = [
+    `✅ PropWatch 今日同步完成（${date}）`,
+    ``,
+    `⏱ ${hhmm(s?.first_at)} → ${hhmm(s?.last_at)}（${dur}）`,
+    `📦 單元 ${s?.units ?? 0} 個：成功 ${s?.ok ?? 0}．失敗 ${s?.failed ?? 0}`,
+    ``,
+    `放盤（今日 snapshot）`,
+    ...bySrc.map((r) => `  ${label[r.source] || r.source}　${r.n} 個 / ${r.estates} 屋苑`),
+    `成交：新入 ${txn?.n ?? 0} 宗`,
+  ];
+  if (fails.length) {
+    lines.push(``, `⚠️ 失敗 ${fails.length} 個`);
+    for (const f of fails.slice(0, 10)) {
+      lines.push(`  • ${f.estate_name || "?"} / ${label[f.source] || f.source} / ` +
+        `${f.kind === "listings" ? "放盤" : "成交"}（試 ${f.attempts} 次）` +
+        `${String(f.detail || "").split("\n")[0].slice(0, 60)}`);
+    }
+    if (fails.length > 10) lines.push(`  …另外 ${fails.length - 10} 個`);
+  }
+  try { await sendTelegram(env, lines.join("\n")); } catch (e) { console.error("sync summary failed:", e?.message); }
 }
 
 
@@ -3305,6 +3363,9 @@ export default {
               `Drip sync（試咗 ${r.attempts} 次，今日唔再試；仲有 ${r.pending} 個單元排隊）`,
               [r.detail]);
           }
+          // 最後一個單元有結論 → 今日跑完，發 summary。之後嘅 invocation 會
+          // idle（早 return），所以一日只會發一次。
+          if (!r.idle && r.remaining === 0) await sendSyncSummary(env.DB, env);
         } catch (e) {
           await sendAdminAlert(env.DB, env, `🚨 PropWatch drip sync 整個失敗`,
             `Drip sync（cron ${event.cron}，top-level）`, [_errDetail(e)]);
@@ -5242,6 +5303,15 @@ export default {
           if (r.idle) break;
         }
         return json(200, { runs });
+      }
+
+      // 即刻發一次今日 summary（測試／想即時睇進度時用）。cron 做完最後一個
+      // 單元會自動發，呢個唔會取代佢。
+      if (method === "POST" && path === "/api/admin/sync-summary") {
+        if (!isAdminSession(session)) return json(403, { error: "admin only" });
+        await ensureSyncLog(db);
+        await sendSyncSummary(db, env);
+        return json(200, { ok: true, sent: true });
       }
 
       if (method === "GET" && path === "/api/admin/sync-status") {
