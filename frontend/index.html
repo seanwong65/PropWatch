@@ -4772,7 +4772,7 @@ async function loadViewings(estateId) {
       }
       const soldHtml = (v.txn_price && v.txn_reg_date >= v.view_date)
         ? `<span style="color:var(--accent)"><strong>${fmt(v.txn_price)}</strong></span> <span style="color:var(--muted);font-size:0.75rem">${v.txn_reg_date}</span>${annualHtml}${sqzHtml}`
-        : `<span style="color:var(--muted);font-size:0.75rem">未沽出</span>`;
+        : `<span style="color:var(--text);font-size:0.95rem">未沽出</span>`;
       // 手機卡片版專用：沽出／未沽出合埋一格，連放咗幾耐／上手購買都夾入嚟
       // （桌面表格版唔改，繼續用返上面嘅 soldHtml/domCell/獨立 vprev-）。
       const domMonths = v.dom_days != null ? Math.round(v.dom_days / 30) : null;
