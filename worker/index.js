@@ -792,9 +792,11 @@ export async function scrapeRicacorpListings(ricacorpUrl) {
   // snapshot(殘缺 snapshot 會令甩咗頁嘅盤扮下架)。
   let incomplete = false;
   let reachedEnd = false;
-  // 總時間預算：ricacorp 近排會 hang（bot 擋），一頁 25s×3 retry 可以燒到
-  // 75s+，會拖死成個屋苑 sync（甚至個 cron batch）。超過 deadline 就停，
+  // 總時間預算。利嘉閣先天慢（實測首字節 3.4s、每頁 1MB、每頁只有 10 個盤），
+  // 所以大屋苑一定行唔完：天晉 134 個盤 = 14 頁 ≈ 56s。超過 deadline 就停，
   // 當唔完整（saveRicacorpListings carry forward 上次嘅盤，唔會扮下架）。
+  // 呢個數要細過 drip sync 個 DRIP_TIMEOUT_MS，否則 drip 會喺呢度 graceful
+  // bail 之前就 abort 咗成個 scrape，變成「完全失敗」而唔係「部分成功」。
   const deadline = Date.now() + 30000;
 
   for (let page = 1; page <= 15; page++) {
@@ -804,6 +806,9 @@ export async function scrapeRicacorpListings(ricacorpUrl) {
     // hanging page fails fast instead of burning the whole budget.
     let html = null;
     for (let attempt = 0; attempt < 2 && html === null; attempt++) {
+      // 每次 attempt 之前都要睇 deadline：deadline 只喺 page loop 頂檢查嘅話，
+      // 一頁 2 × 10s retry 可以衝過 deadline 20s，令總時間爆到 50s。
+      if (Date.now() > deadline) { incomplete = true; break; }
       try {
         const res = await fetch(url, { headers: { "User-Agent": UA }, signal: AbortSignal.timeout(10000) });
         if (res.ok) html = await res.text();
@@ -3085,7 +3090,10 @@ async function syncOneEstate(db, estate) {
 // 一路重試餓死其他單元。失敗都要記 attempts：試夠 SYNC_MAX_ATTEMPTS 次就
 // 唔再試（唔霸位），同時發 telegram。
 const DRIP_CRON = "*/3 * * * *";
-const DRIP_TIMEOUT_MS = 25000;
+// 要大過各個 scraper 自己嘅內部 deadline（利嘉閣 30s）+ 最後一頁嘅 10s，
+// 否則會喺人家 graceful bail（carry forward 上次嘅盤）之前就 abort，
+// 令「部分成功」變成「完全失敗」。一次只做一個 scrape 所以食得起。
+const DRIP_TIMEOUT_MS = 45000;
 const SYNC_MAX_ATTEMPTS = 3;
 
 async function ensureSyncLog(db) {
