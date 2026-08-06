@@ -1851,10 +1851,10 @@ function renderEstatePicker() {
   const list = document.getElementById('qp-list');
   if (!list) return;
   const kw = (document.getElementById('qp-search').value || '').trim();
+  // dashboardEstates 本身已經係最愛/排序嗰個次序（同側邊欄、同「睇樓偏好」
+  // 一致），揀選器唔再自己另外按記錄數排，跟返用戶熟悉嗰個次序。
   let items = dashboardEstates || [];
   if (kw) items = items.filter(e => (e.name || '').includes(kw));
-  // 睇樓記錄模式：有記錄嘅排前，冇記錄嘅照顯示（可能想入去補返）
-  if (_qpMode === 'view') items = [...items].sort((a, b) => (b.viewing_count || 0) - (a.viewing_count || 0));
   if (!items.length) {
     list.innerHTML = `<div style="font-size:0.82rem;color:var(--muted);padding:0.4rem 0">${
       kw ? '冇夾到屋苑' : '你未追蹤任何屋苑，先喺左邊搜尋加入。'}</div>`;
