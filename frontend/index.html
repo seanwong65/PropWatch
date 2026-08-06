@@ -4836,13 +4836,13 @@ async function loadViewings(estateId) {
         <td><strong style="color:var(--accent)">${fmt(v.price)}</strong>
           <div style="color:var(--muted);font-size:0.75rem">${psfStr}</div>
           ${mgmtMonthly ? `<div style="color:var(--muted);font-size:0.72rem">管理費 $${mgmtMonthly.toLocaleString()}/月</div>` : ''}</td>
+        <td>
+          <div id="vprev-${v.id}"><span style="color:var(--muted);font-size:0.75rem;cursor:pointer" onclick="fetchUnitTxn(${v.id})">查上手成交</span></div>
+          <div style="margin-top:0.2rem">${soldHtml}</div></td>
         <td>${priceRulerHtml(v)}</td>
         <td id="vmatch-${v.id}">${buildMatchCell(v)}</td>
         <td>${domCell}</td>
         <td>${priceChangedCell}</td>
-        <td>
-          <div id="vprev-${v.id}"><span style="color:var(--muted);font-size:0.75rem;cursor:pointer" onclick="fetchUnitTxn(${v.id})">查上手成交</span></div>
-          <div style="margin-top:0.2rem">${soldHtml}</div></td>
         <td>${notesHtml}</td>
         <td style="white-space:nowrap">${editBtn}${delBtn}</td>
       </tr>`;
@@ -4860,7 +4860,7 @@ async function loadViewings(estateId) {
     panel.innerHTML = `<div class="listings-section" id="viewingsTableWrap"></div>`;
     renderFrozenTable(
       document.getElementById('viewingsTableWrap'),
-      `<th>單位</th><th>售價</th><th>價格尺</th><th>對應放盤</th><th>放咗幾耐</th><th>售價變動</th><th>成交</th><th>備注</th><th></th>`,
+      `<th>單位</th><th>售價</th><th>成交</th><th>價格尺</th><th>對應放盤</th><th>放咗幾耐</th><th>售價變動</th><th>備注</th><th></th>`,
       rows, 10, 'history-table data-table'
     );
 
