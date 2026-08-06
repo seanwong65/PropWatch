@@ -11,11 +11,16 @@ database_id = "b4330ef2-78c4-48be-ae88-b1d94614faad"
 # own invocation (Cloudflare blocks self-fetch chaining; no Queues on this plan).
 # 每個 slot 嘅 offset / 屋苑範圍由 index.js 嘅 SYNC_SLOTS + SYNC_SLOT_SIZE 決定，
 # 容量 = slot 數 × SYNC_SLOT_SIZE。加屋苑加到爆容量，slot 0 會發 telegram 警示。
-#   "0 16 * * *" … "30 16 * * *" = 00:00–00:30 HKT → sync slot 0–3
-#   "0 1 * * *"                  = 09:00 HKT → "今日動態" email (separate invocation)
+#   "*/3 * * * *" = 每 3 分鐘 → drip sync：做一個 (屋苑 × source × 放盤/成交)
+#                   單元，做完即刻 exit；今日全部搞定就唔做嘢。
+#                   16 屋苑 × 3 source × 2 類 = 96 個單元 → 一轉約 4.8 小時，
+#                   HK 時間 00:00 開始（sync_date 用 hkDateStr），約 05:00 做完，
+#                   09:00 寄「今日動態」時數據已齊；剩低嘅時間用嚟重試失敗單元。
+#   "0 1 * * *"   = 09:00 HKT → "今日動態" email (separate invocation)
 #
-# ⚠️ Workers Free 上限係每個 account 5 個 cron trigger，而呢度已經用晒 5 個。
-# 所以要加容量只可以加大 SYNC_SLOT_SIZE，加唔到 slot。真係要更多 slot 就要
-# upgrade Workers Paid（上限 1,000 個 cron）。
+# ⚠️ Workers Free 上限係每個 account 5 個 cron trigger，但個限制係計 expression
+# 數目而唔係執行次數："*/3 * * * *" 只佔 1 個名額，一日卻跑 480 次。之前用 4 個
+# 固定時間（16:00/16:10/16:20/16:30）佔 4 個名額但一日只跑 4 次，好蝕。
+# 而家用 2 個名額，剩 3 個備用。
 [triggers]
-crons = ["0 16 * * *", "10 16 * * *", "20 16 * * *", "30 16 * * *", "0 1 * * *"]
+crons = ["*/3 * * * *", "0 1 * * *"]

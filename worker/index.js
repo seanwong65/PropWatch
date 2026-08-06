@@ -1214,16 +1214,23 @@ async function saveHkpTransactions(db, estateId, txns) {
 // else needs editing. Transactions / valuations stay centanet-only by design
 // (the other portals don't publish that data).
 const ricacorpUrlFor = (name) => `https://www.ricacorp.com/zh-hk/property/list/buy/${encodeURIComponent(name)}`;
+// txn: 每個 source 嘅成交入庫（一步做完 scrape + save）。drip sync 會將
+// 「放盤」同「成交」當成兩種獨立單元，所以兩邊都要喺呢個 registry 有 entry。
 const SOURCES = [
   { id: "centanet", label: "中原", enabledCol: "centanet_enabled", critical: true,
     scrape: async (estate) => (await fetchCentanet(estate.name)).data || [],
-    save: saveSearchResults },
+    save: saveSearchResults,
+    txn: (db, estate) => fetchAndSaveTransactions(db, estate.id, estate.name) },
   { id: "ricacorp", label: "利嘉閣", enabledCol: "ricacorp_enabled",
     scrape: (estate) => scrapeRicacorpListings(ricacorpUrlFor(estate.name)),
-    save: saveRicacorpListings },
+    save: saveRicacorpListings,
+    txn: async (db, estate) =>
+      saveRicacorpTransactions(db, estate.id, await scrapeRicacorpTransactions(estate.name)) },
   { id: "hkp", label: "香港置業", enabledCol: "hkp_enabled",
     scrape: (estate) => scrapeHkpListings(estate.name),
-    save: saveHkpListings },
+    save: saveHkpListings,
+    txn: async (db, estate) =>
+      saveHkpTransactions(db, estate.id, await scrapeHkpTransactions(estate.name)) },
 ];
 // centanet defaults on (enabled unless explicitly 0); others must be truthy.
 const sourceEnabled = (estate, s) => s.id === "centanet" ? estate[s.enabledCol] !== 0 : !!estate[s.enabledCol];
@@ -1236,8 +1243,9 @@ const sourceEnabled = (estate, s) => s.id === "centanet" ? estate[s.enabledCol] 
 // 加 timeout 之後，卡死嗰個 source 會變成一個「有記錄嘅失敗」：後面 source 照
 // 跑得，個 failure 亦會經 telegram 報出嚟。ESTATE_BUDGET_MS 係第二道閘——
 // 就算每個 source 都冇單獨超時，累加起嚟都唔准食晒成個 invocation。
-// 兩個數字都係跟 CF 平台限制訂嘅（唔係分析參數），所以同 SYNC_SLOT_SIZE 一樣
-// 留喺 code 度。
+// 兩個數字都係跟 CF 平台限制訂嘅（唔係分析參數），所以留喺 code 度。
+// 註：drip sync 唔行呢個共用預算（一次只做一個 scrape，用 DRIP_TIMEOUT_MS），
+// 呢兩個常數而家淨係手動 sync（/api/sync）嗰條路用。
 // 實測：一個屋苑 sync 超過 ~60 秒就會俾 Cloudflare 斬（HTTP 000，冇 response
 // body），所以成個屋苑（成交 + 放盤，總共 5 個 scrape）要共用一個 deadline，
 // 唔可以每個 phase 各自計 timeout——20+20+50 咁樣加埋已經爆 60s。
@@ -3060,58 +3068,103 @@ async function syncOneEstate(db, estate) {
   return { estate: estate.name, count: listings.length, ok: true, changes, warnings };
 }
 
-// Sync a slice of estates (ORDER BY id, LIMIT/OFFSET), sequentially and
-// per-estate non-fatal. Returns how many estates the slice actually held.
-// 只 sync 有至少一個 account 訂閱嘅屋苑——就算幾個 account 加咗同一
-// 屋苑,estate row 得一個,每屋苑每晚 fetch 一次。
-async function syncEstatesBatch(db, offset, size) {
+
+// ── Drip sync：每 10 分鐘做「一個單元」 ─────────────────────────────────────
+// 一個 invocation 唔可能 run 幾個鐘（實測 CF 60 秒就斬，而俾斬係「死」唔係
+// throw，catch 收唔到、亦冇 alert）。所以改成用 144 個細 invocation 鋪開一日：
+// 每次只做一個 (屋苑 × source × 放盤/成交) 單元，做完即刻 exit。
+//
+// 「5 個 cron trigger」個限制係計 expression 數目，唔係執行次數——所以
+// "*/10 * * * *" 只佔 1 個名額但一日跑 144 次，比原本 4 個固定時間好用得多。
+//
+// 因為一次只做一個 scrape，timeout 可以放寬到 DRIP_TIMEOUT_MS（原本幾個
+// scrape 分 28 秒預算，利嘉閣 10 秒唔夠一定 timeout；而家佢自己有 25 秒）。
+//
+// 「邊個單元未做」靠 sync_log 記，唔可以靠「listings 今日有冇 row」推——
+// 真係冇盤放嘅屋苑（例：別樹一居 0 個盤）永遠冇 row，會被當成永遠未做，
+// 一路重試餓死其他單元。失敗都要記 attempts：試夠 SYNC_MAX_ATTEMPTS 次就
+// 唔再試（唔霸位），同時發 telegram。
+const DRIP_CRON = "*/3 * * * *";
+const DRIP_TIMEOUT_MS = 25000;
+const SYNC_MAX_ATTEMPTS = 3;
+
+async function ensureSyncLog(db) {
+  await db.prepare(`CREATE TABLE IF NOT EXISTS sync_log (
+    estate_id INTEGER NOT NULL,
+    source TEXT NOT NULL,
+    kind TEXT NOT NULL,
+    sync_date TEXT NOT NULL,
+    ok INTEGER NOT NULL DEFAULT 0,
+    attempts INTEGER NOT NULL DEFAULT 0,
+    detail TEXT,
+    updated_at TEXT NOT NULL DEFAULT (datetime('now', '+8 hours')),
+    PRIMARY KEY (estate_id, source, kind, sync_date)
+  )`).run();
+  await db.prepare("CREATE INDEX IF NOT EXISTS idx_synclog_date ON sync_log(sync_date)").run();
+}
+
+// 揀一個今日未搞定嘅單元做。全部搞定就 { idle: true }，唔會多打 portal。
+async function syncNextUnit(db) {
+  await ensureSyncLog(db);
+  const today = hkDateStr();
   const { results: estates } = await db.prepare(
     `SELECT * FROM estates e
      WHERE (e.is_disabled = 0 OR e.is_disabled IS NULL)
        AND EXISTS (SELECT 1 FROM account_estates ae WHERE ae.estate_id = e.id)
-     ORDER BY e.id LIMIT ? OFFSET ?`
-  ).bind(size, offset).all();
-  const failures = [];
-  const warnings = [];
-  // 分細段跑（唔係一次過 Promise.all 晒）：一個屋苑要 scrape 3 個 source、
-  // 每個 source 分頁最多 10–20 個 request，並行太多會撞 CF subrequest/時間
-  // 上限，而且係靜靜 fail。段與段之間 await，peak 負擔就封頂。
-  for (let i = 0; i < estates.length; i += SYNC_CONCURRENCY) {
-    const chunk = estates.slice(i, i + SYNC_CONCURRENCY);
-    await Promise.all(chunk.map(async (estate) => {
-      // Per-estate non-fatal:一個屋苑爆咗唔阻其他,但要收集返 detail 通知 admin。
-      try {
-        const r = await syncOneEstate(db, estate);
-        for (const w of r.warnings || []) warnings.push(`${estate.name} (id=${estate.id}) — ${w}`);
-      } catch (e) { failures.push(`${estate.name} (id=${estate.id}): ${_errDetail(e)}`); }
-    }));
+     ORDER BY e.id`
+  ).all();
+  const { results: log } = await db.prepare(
+    "SELECT estate_id, source, kind, ok, attempts FROM sync_log WHERE sync_date = ?"
+  ).bind(today).all();
+  const seen = new Map(log.map((r) => [`${r.estate_id}|${r.source}|${r.kind}`, r]));
+
+  // 放盤排前（主數據：側邊欄數量／放盤趨勢／已下架判斷都靠佢），成交在後。
+  const pending = [];
+  for (const kind of ["listings", "txn"]) {
+    for (const e of estates) {
+      for (const s of SOURCES) {
+        if (!sourceEnabled(e, s)) continue;
+        const st = seen.get(`${e.id}|${s.id}|${kind}`);
+        if (st && (st.ok || st.attempts >= SYNC_MAX_ATTEMPTS)) continue;
+        pending.push({ estate: e, source: s, kind, attempts: st?.attempts ?? 0 });
+      }
+    }
   }
-  return { count: estates.length, failures, warnings };
+  if (!pending.length) return { idle: true };
+
+  // 未試過嘅優先，唔好一直重試同一個爛單元而拖住其他未做嘅
+  pending.sort((a, b) => a.attempts - b.attempts);
+  const u = pending[0];
+  const kindLabel = u.kind === "listings" ? "放盤" : "成交";
+  const label = `${u.estate.name} / ${u.source.label} / ${kindLabel}`;
+  const attempts = u.attempts + 1;
+  let ok = 0, detail = "";
+  try {
+    if (u.kind === "listings") {
+      const listings = await withTimeout(
+        Promise.resolve(u.source.scrape(u.estate)), DRIP_TIMEOUT_MS, `${label} scrape`);
+      await u.source.save(db, u.estate.id, listings);
+      detail = `${listings.length} 個盤`;
+    } else {
+      await withTimeout(
+        Promise.resolve(u.source.txn(db, u.estate)), DRIP_TIMEOUT_MS, `${label} scrape`);
+      detail = "ok";
+    }
+    ok = 1;
+  } catch (e) {
+    detail = _errDetail(e);
+  }
+  await db.prepare(
+    `INSERT INTO sync_log (estate_id, source, kind, sync_date, ok, attempts, detail)
+     VALUES (?,?,?,?,?,?,?)
+     ON CONFLICT(estate_id, source, kind, sync_date) DO UPDATE SET
+       ok = excluded.ok, attempts = excluded.attempts,
+       detail = excluded.detail, updated_at = datetime('now', '+8 hours')`
+  ).bind(u.estate.id, u.source.id, u.kind, today, ok, attempts, String(detail).slice(0, 300)).run();
+
+  return { idle: false, label, ok: !!ok, attempts, detail, pending: pending.length };
 }
 
-// ── Chunked daily sync via cron slots ───────────────────────────────────────
-// A full sync of every estate × every source can exceed the per-invocation
-// subrequest limit. Cloudflare blocks a Worker from self-fetching its own route
-// (error 1042) and this account has no Queues, so instead we run the daily sync
-// across several staggered cron triggers — each fires its OWN invocation with a
-// fresh subrequest budget and syncs one SYNC_SLOT_SIZE slice of estates.
-// SYNC_SLOTS maps each sync cron to a slice index. Capacity = slots × size.
-// 之前 4×4=16 剛好等於訂閱屋苑數，一個 headroom 都冇：加第 17 個屋苑佢就永遠
-// 輪唔到 sync（offset 超出所有 slot），而且冇任何警示。
-//
-// ⚠️ 加唔到 slot：Workers Free 上限係每個 account 5 個 cron trigger，而 4 個
-// sync + 1 個 email 已經用晒。所以只可以加大 size → 4 × 6 = 24（headroom 8）。
-//
-// 加大 size 本身唔係當初嗰個坑——真正爆嘅原因係「同一時間並行幾多個屋苑」
-// （一個屋苑 × 3 source，每個 source 分頁最多 10–20 個 request，並行 4 個屋苑
-// 已經過百 subrequest）。所以 syncEstatesBatch 改成用 SYNC_CONCURRENCY 分細段
-// 跑：peak 並行由 4 降到 3，容量反而升，兩邊都好過以前。
-const SYNC_SLOT_SIZE = 6;
-const SYNC_SLOTS = { "0 16 * * *": 0, "10 16 * * *": 1, "20 16 * * *": 2, "30 16 * * *": 3 };
-const SYNC_CAPACITY = Object.keys(SYNC_SLOTS).length * SYNC_SLOT_SIZE;
-// 一個 slot 入面同時最多跑幾個屋苑（其餘排隊）。細過舊版嘅 4，所以就算
-// slot size 大咗，peak subrequest / CPU 反而低過以前。
-const SYNC_CONCURRENCY = 3;
 
 // Send the "今日動態" digest email. Kept SEPARATE from the sync so it runs in
 // its own Worker invocation with a fresh subrequest budget — a full sync
@@ -3230,55 +3283,23 @@ export default {
             "每日 email task（top-level）", [_errDetail(e)]);
         }
       })());
-    } else if (event.cron in SYNC_SLOTS) {
-      const slot = SYNC_SLOTS[event.cron];
-      const offset = slot * SYNC_SLOT_SIZE;
+    } else if (event.cron === DRIP_CRON) {
+      // Drip sync：每 10 分鐘做一個單元。全部搞定就 idle（唔會多打 portal）。
+      // 一個單元試夠 SYNC_MAX_ATTEMPTS 次都唔得先出 telegram——中間嘅失敗
+      // 會自動喺 10 分鐘後重試，唔想每次都響。
       ctx.waitUntil((async () => {
-        // 個別屋苑 fail 收集晒一次過通知;整個 batch 爆(DB query 等)另一封。
         try {
           await ensureMultiAccount(env.DB);
-          // slot 0 順手查容量：訂閱屋苑多過 slots × size 嘅話，超出嗰批嘅
-          // offset 冇任何 slot cover 得到 → 永遠唔會 sync。以前呢個情況
-          // 完全冇聲出，加咗屋苑都唔知佢冇更新，所以要主動響。
-          if (slot === 0) {
-            const cap = await env.DB.prepare(
-              `SELECT COUNT(*) AS n FROM estates e
-               WHERE (e.is_disabled = 0 OR e.is_disabled IS NULL)
-                 AND EXISTS (SELECT 1 FROM account_estates ae WHERE ae.estate_id = e.id)`
-            ).first();
-            const n = cap?.n ?? 0;
-            if (n > SYNC_CAPACITY) {
-              const { results: missed } = await env.DB.prepare(
-                `SELECT e.id, e.name FROM estates e
-                 WHERE (e.is_disabled = 0 OR e.is_disabled IS NULL)
-                   AND EXISTS (SELECT 1 FROM account_estates ae WHERE ae.estate_id = e.id)
-                 ORDER BY e.id LIMIT -1 OFFSET ?`
-              ).bind(SYNC_CAPACITY).all();
-              await sendAdminAlert(env.DB, env,
-                `🚨 PropWatch 同步容量爆滿：${n} 個屋苑 / 容量 ${SYNC_CAPACITY}`,
-                `每日同步容量檢查（${Object.keys(SYNC_SLOTS).length} slots × ${SYNC_SLOT_SIZE}）`,
-                [
-                  `以下 ${missed.length} 個屋苑冇 slot cover，永遠唔會 sync：`,
-                  ...missed.map((e) => `• ${e.name} (id=${e.id})`),
-                  `解決：加大 SYNC_SLOT_SIZE 或者喺 wrangler.toml + SYNC_SLOTS 加 cron slot。`,
-                ]);
-            }
-          }
-          const { failures, warnings } = await syncEstatesBatch(env.DB, offset, SYNC_SLOT_SIZE);
-          if (failures.length) {
-            await sendAdminAlert(env.DB, env, `⚠️ PropWatch 同步 slot ${slot} 有 ${failures.length} 個屋苑失敗`,
-              `每日同步 slot ${slot}（cron ${event.cron}）`, failures);
-          }
-          // Source 層失敗（某個 portal 撈唔到／超時）：屋苑本身算 sync 成功，
-          // 但少咗一個 source 嘅數，會令「放盤數量」個圖跳、「已下架」誤判。
-          // 以前呢啲完全冇聲出，所以獨立報一封。
-          if (warnings.length) {
-            await sendAdminAlert(env.DB, env, `⚠️ PropWatch 同步 slot ${slot}：${warnings.length} 個 source 撈唔到`,
-              `每日同步 slot ${slot}（cron ${event.cron}）— 屋苑 sync 成功但個別 source 失敗`, warnings);
+          const r = await syncNextUnit(env.DB);
+          if (!r.idle && !r.ok && r.attempts >= SYNC_MAX_ATTEMPTS) {
+            await sendAdminAlert(env.DB, env,
+              `⚠️ PropWatch 同步失敗：${r.label}`,
+              `Drip sync（試咗 ${r.attempts} 次，今日唔再試；仲有 ${r.pending} 個單元排隊）`,
+              [r.detail]);
           }
         } catch (e) {
-          await sendAdminAlert(env.DB, env, `🚨 PropWatch 同步 slot ${slot} 整個失敗`,
-            `每日同步 slot ${slot}（cron ${event.cron}，top-level）`, [_errDetail(e)]);
+          await sendAdminAlert(env.DB, env, `🚨 PropWatch drip sync 整個失敗`,
+            `Drip sync（cron ${event.cron}，top-level）`, [_errDetail(e)]);
         }
       })());
     }
@@ -5201,6 +5222,39 @@ export default {
 
       // 一次性:清走同 combination 嘅重複成交 + 起唯一索引(先入為準)。
       // 即刻執行,唔使等下次 sync;force=1 可清 flag 重跑。
+      // 手動踢一下 drip sync（做一個單元）＋睇今日進度。cron 每 10 分鐘做一次，
+      // 呢個係俾人趕時間／debug 時即刻推進，同 cron 行同一個 syncNextUnit。
+      if (method === "POST" && path === "/api/admin/sync-next") {
+        if (!isAdminSession(session)) return json(403, { error: "admin only" });
+        const n = Math.min(Number(url.searchParams.get("n") || 1), 10);
+        const runs = [];
+        for (let i = 0; i < n; i++) {
+          const r = await syncNextUnit(db);
+          runs.push(r);
+          if (r.idle) break;
+        }
+        return json(200, { runs });
+      }
+
+      if (method === "GET" && path === "/api/admin/sync-status") {
+        if (!isAdminSession(session)) return json(403, { error: "admin only" });
+        await ensureSyncLog(db);
+        const date = url.searchParams.get("date") || hkDateStr();
+        const summary = await db.prepare(
+          `SELECT COUNT(*) AS logged,
+                  SUM(ok) AS ok,
+                  SUM(CASE WHEN ok = 0 THEN 1 ELSE 0 END) AS failed
+           FROM sync_log WHERE sync_date = ?`
+        ).bind(date).first();
+        const { results: rows } = await db.prepare(
+          `SELECT s.estate_id, e.name AS estate_name, s.source, s.kind, s.ok,
+                  s.attempts, s.detail, s.updated_at
+           FROM sync_log s LEFT JOIN estates e ON e.id = s.estate_id
+           WHERE s.sync_date = ? ORDER BY s.ok ASC, s.updated_at DESC`
+        ).bind(date).all();
+        return json(200, { date, summary, rows });
+      }
+
       if (method === "POST" && path === "/api/admin/dedupe-transactions") {
         if (url.searchParams.get("force") === "1") {
           // 兩個 flag 都要清：txn_combo_dedup 係舊版（key 用原始 building），
