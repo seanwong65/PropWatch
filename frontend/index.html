@@ -2461,6 +2461,26 @@ async function loadTodayHighlights() {
     const TH = (h1, h2, h3, h4, h5='') =>
       `<thead><tr class="hl-th"><th class="hl-c1">${h1}</th><th class="hl-c2">${h2}</th><th class="hl-c3">${h3}</th><th class="hl-c4">${h4}</th><th class="hl-c5">${h5}</th></tr></thead>`;
     const tbl = (headers, rows) => `<table class="hl-table">${headers}<tbody>${rows}</tbody></table>`;
+    // 同 email 一致：呎數／呎價，同埋「放咗幾耐」（一個月內講日、一年內講月、
+    // 再耐講年帶一個小數位，睇得出「擺咗好耐」）。
+    const sizePsf = (size, psf) => [
+      size ? `${Math.round(size)}實呎` : null,
+      psf ? `$${Math.round(psf).toLocaleString()}/呎` : null,
+    ].filter(Boolean).join('．');
+    const domStr = (listStart) => {
+      if (!listStart) return '';
+      const d = Math.round((Date.parse(data.date) - Date.parse(listStart)) / 86400000);
+      if (!Number.isFinite(d) || d < 0) return '';
+      if (d < 30) return `放咗${d}日`;
+      if (d < 365) return `放咗${Math.round(d / 30)}個月`;
+      return `放咗${(d / 365).toFixed(1)}年`;
+    };
+    const metaLine = (size, psf, listStart) =>
+      [sizePsf(size, psf), domStr(listStart)].filter(Boolean).join('．');
+    const metaDiv = (size, psf, listStart) => {
+      const s = metaLine(size, psf, listStart);
+      return s ? `<div class="unit-price">${s}</div>` : '';
+    };
 
     const hlTxnQueue = [];
     let html = "";
@@ -2474,7 +2494,8 @@ async function loadTodayHighlights() {
         const diffHtml = `<span style="color:${diff<=0?'var(--up)':'var(--down)'}">${diff<=0?'▼':'▲'} ${fmt(Math.abs(diff))}</span>`;
         const link = c.detail_url ? `<a href="${safeUrl(c.detail_url)}" target="_blank" style="color:var(--accent2);text-decoration:none">↗</a>` : '';
         rows += TR(
-          `<strong>${escHtml(c.estate_name||'')}</strong> ${escHtml(c.building_name||'')} ${escHtml(c.floor||'')} ${escHtml(c.l_unit||'')} ${link}`,
+          `<strong>${escHtml(c.estate_name||'')}</strong> ${escHtml(c.building_name||'')} ${escHtml(c.floor||'')} ${escHtml(c.l_unit||'')} ${link}`
+            + metaDiv(c.size_net, c.price_per_ft, c.list_start),
           c.view_price ? fmt(c.view_price) : '-',
           `<span style="text-decoration:line-through">${fmt(c.old_price)}</span>`,
           `<span style="font-weight:700;color:var(--accent)">${fmt(c.new_price)}</span>`,
@@ -2482,6 +2503,23 @@ async function loadTodayHighlights() {
         );
       }
       html += `<div class="highlights-group" style="border:1px solid rgba(251,191,36,0.35);border-radius:8px;padding:0.75rem;background:rgba(251,191,36,0.06);margin-bottom:1rem"><div class="highlights-group-label" style="color:#fbbf24;font-size:0.9rem;margin-bottom:0.5rem">🏷️ 睇過嘅放盤售價變動 (${linkedChanges.length})</div>${tbl(TH('屋苑 / 單位','睇樓價','原價','新價','變動'), rows)}</div>`;
+    }
+
+    // 對應放盤下架 — 盤冇咗＝可能已售或者收返，同改價一樣要擺頂
+    const linkedGone = data.linkedRemoved || [];
+    if (linkedGone.length) {
+      let rows = "";
+      for (const c of linkedGone) {
+        rows += TR(
+          `<strong>${escHtml(c.estate_name||'')}</strong> ${escHtml(c.building_name||'')} ${escHtml(c.floor||'')} ${escHtml(c.l_unit||'')}`
+            + metaDiv(c.size_net, c.price_per_ft, c.list_start),
+          c.view_price ? fmt(c.view_price) : '-',
+          `<span style="text-decoration:line-through">${fmt(c.price)}</span>`,
+          `<span style="color:var(--down)">已下架</span>`,
+          `<span style="font-size:0.75rem;color:var(--muted)">${escHtml(sourceLabel(c.source))}</span>`
+        );
+      }
+      html += `<div class="highlights-group" style="border:1px solid rgba(239,68,68,0.35);border-radius:8px;padding:0.75rem;background:rgba(239,68,68,0.06);margin-bottom:1rem"><div class="highlights-group-label" style="color:var(--down);font-size:0.9rem;margin-bottom:0.5rem">🚫 睇過嘅放盤下架 (${linkedGone.length})</div>${tbl(TH('屋苑 / 單位','睇樓價','原價','狀態','來源'), rows)}</div>`;
     }
 
     // 睇過嘅單位成交 — consolidated at top across all estates
@@ -2494,7 +2532,8 @@ async function loadTodayHighlights() {
           ? `<span style="color:${diff<=0?'var(--up)':'var(--down)'}">${diff<=0?'▼':'▲'} ${fmt(Math.abs(diff))}</span>`
           : '-';
         rows += TR(
-          `<strong>${escHtml(v.estate_name||'')}</strong> ${escHtml(v.building||'')} ${escHtml(v.floor||'')} ${escHtml(v.unit||'')}`,
+          `<strong>${escHtml(v.estate_name||'')}</strong> ${escHtml(v.building||'')} ${escHtml(v.floor||'')} ${escHtml(v.unit||'')}`
+            + metaDiv(v.size_net, v.price_per_ft, null),
           v.view_price ? fmt(v.view_price) : '-',
           `<span style="font-weight:700;color:var(--accent)">${v.txn_price ? fmt(v.txn_price) : '-'}</span>`,
           diffHtml,
@@ -2552,7 +2591,8 @@ async function loadTodayHighlights() {
           const d = pct(c.new_price, c.old_price);
           const col = d > 0 ? 'var(--up)' : 'var(--down)';
           rows += TR(
-            `${escHtml(c.building_name||'')} ${escHtml(c.floor||'')} ${escHtml(c.unit||'')}`,
+            `${escHtml(c.building_name||'')} ${escHtml(c.floor||'')} ${escHtml(c.unit||'')}`
+              + metaDiv(c.size_net, c.price_per_ft, c.list_start),
             `<span style="text-decoration:line-through">${fmt(c.old_price)}</span>`,
             `<span style="font-weight:700">${fmt(c.new_price)}</span>${c.ref_no ? `<br><button class="history-btn" style="font-size:0.75rem;padding:0.1rem 0.35rem;margin-top:0.2rem" onclick="showHistory('${escHtml(c.ref_no)}','${escHtml((c.building_name||'')+' '+(c.floor||'')+(c.unit||''))}')">歷史 ↓</button>` : ''}`,
             `<span style="color:${col}">${d>0?'▲':'▼'} ${Math.abs(d)}%</span>`,
@@ -2567,7 +2607,8 @@ async function loadTodayHighlights() {
         for (const l of newListings) {
           rows += TR(
             `${escHtml(l.building_name||'')} ${escHtml(l.floor||'')} ${escHtml(l.unit||'')}`,
-            `${l.bedrooms!=null?l.bedrooms+'房':'-'}${l.size_net?' '+l.size_net+'呎':''}`,
+            `${l.bedrooms!=null?l.bedrooms+'房':'-'}${l.size_net?' '+Math.round(l.size_net)+'呎':''}`
+              + (domStr(l.list_start) ? `<div class="unit-price">${domStr(l.list_start)}</div>` : ''),
             `<span style="font-weight:700;color:var(--accent)">${fmt(l.price)}</span>`,
             l.price_per_ft ? `$${Math.round(l.price_per_ft).toLocaleString()}/呎` : '',
             srcLink(l.detail_url, l.source)
@@ -2581,14 +2622,15 @@ async function loadTodayHighlights() {
         for (const l of removedListings) {
           // 已下架嘅盤條 link 去唔到（listing 已經落架），唔顯示來源 link
           rows += TR(
-            `${escHtml(l.building_name||'')} ${escHtml(l.floor||'')} ${escHtml(l.unit||'')}`,
+            `${escHtml(l.building_name||'')} ${escHtml(l.floor||'')} ${escHtml(l.unit||'')}`
+              + metaDiv(l.size_net, l.price_per_ft, l.list_start),
             l.bedrooms!=null ? l.bedrooms+'房' : '-',
             `<span style="text-decoration:line-through">${fmt(l.price)}</span>`,
             '',
             ''
           );
         }
-        inner += `<div class="highlights-subgroup"><div class="highlights-group-label" style="color:var(--down)">❌ 已下架 (${removedListings.length})</div>${tbl(TH('單位','房間','原價','',''), rows)}</div>`;
+        inner += `<div class="highlights-subgroup"><div class="highlights-group-label" style="color:var(--down)">❌ 已下架 (${removedListings.length})</div>${tbl(TH('單位 / 面積·呎價·放咗幾耐','房間','原價','',''), rows)}</div>`;
       }
 
       if (inner) {

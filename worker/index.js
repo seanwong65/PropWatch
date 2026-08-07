@@ -2569,6 +2569,14 @@ async function sendAdminAlert(db, env, subject, taskName, lines) {
 
 // Per-account:只包括呢個 account 訂閱嘅屋苑,而且動態由訂閱日(added_at)
 // 開始計——B 加入自選之前發生嘅嘢,B 嘅今日/歷史動態唔會見到。
+// 上盤日 = source 公佈日 同 我哋第一次見到 之間較早嗰個——同 /api/viewings 個
+// dom_days 用返同一把尺。淨用 first_seen 會嚴重低估（我哋 scrape 咗冇幾耐，
+// 對舊盤嚟講 first_seen 都好近期）。日數留返俾前端／email 各自計同格式化。
+const LIST_START_SQL = `(SELECT MIN(CASE
+    WHEN NULLIF(x.publish_date,'') IS NOT NULL AND x.publish_date < x.snapshot_date
+    THEN x.publish_date ELSE x.snapshot_date END)
+  FROM listings x WHERE x.ref_no = l.ref_no AND x.estate_id = l.estate_id)`;
+
 async function getTodayHighlights(db, accountId) {
   const today = hkDateStr();
   const yesterday = hkDateStr(-1);
@@ -2598,7 +2606,8 @@ async function getTodayHighlights(db, accountId) {
       ORDER BY (t.source='centanet') DESC, t.price DESC`).bind(accountId, today, today, `-${newTxnMaxAge} days`, hkDateStr(-2)).all(),
     db.prepare(`
       SELECT l.building_name, l.floor, l.unit, l.ref_no, l.price as new_price, ph_prev.price as old_price,
-             l.size_net, l.price_per_ft, l.detail_url, l.source, e.name as estate_name
+             l.size_net, l.price_per_ft, l.detail_url, l.source, e.name as estate_name,
+             ${LIST_START_SQL} AS list_start
       FROM listings l
       JOIN estates e ON e.id = l.estate_id
       JOIN account_estates ae ON ae.estate_id = e.id AND ae.account_id = ?
@@ -2617,7 +2626,8 @@ async function getTodayHighlights(db, accountId) {
       ORDER BY ABS(l.price - ph_prev.price) DESC`).bind(accountId, today, today, yesterday, yesterday).all(),
     db.prepare(`
       SELECT l.building_name, l.floor, l.unit, l.bedrooms, l.price, l.price_per_ft, l.size_net,
-             l.detail_url, l.source, e.name as estate_name
+             l.detail_url, l.source, e.name as estate_name,
+             ${LIST_START_SQL} AS list_start
       FROM listings l
       JOIN estates e ON e.id = l.estate_id
       JOIN account_estates ae ON ae.estate_id = e.id AND ae.account_id = ?
@@ -2633,7 +2643,8 @@ async function getTodayHighlights(db, accountId) {
       ORDER BY l.price ASC`).bind(accountId, today, today, yesterday, yesterday).all(),
     db.prepare(`
       SELECT l.building_name, l.floor, l.unit, l.bedrooms, l.price,
-             l.size_net, l.price_per_ft, l.detail_url, l.source, e.name as estate_name
+             l.size_net, l.price_per_ft, l.detail_url, l.source, e.name as estate_name,
+             ${LIST_START_SQL} AS list_start
       FROM listings l
       JOIN estates e ON e.id = l.estate_id
       JOIN account_estates ae ON ae.estate_id = e.id AND ae.account_id = ?
@@ -2686,7 +2697,8 @@ async function getTodayHighlights(db, accountId) {
              v.block, v.floor AS view_floor, v.unit AS view_unit,
              l.building_name, l.floor, l.unit AS l_unit, l.price AS new_price,
              l.size_net, l.price_per_ft, l.source,
-             l.detail_url, ph_prev.price AS old_price, e.name AS estate_name
+             l.detail_url, ph_prev.price AS old_price, e.name AS estate_name,
+             ${LIST_START_SQL} AS list_start
       FROM viewings v
       -- linked_ref_no 係逗號分隔多 ref（每 source 一個），用包含 match；
       -- 每個 linked 盤獨立出一行
@@ -2709,7 +2721,8 @@ async function getTodayHighlights(db, accountId) {
     db.prepare(`
       SELECT v.id AS viewing_id, v.price AS view_price, v.view_date,
              l.building_name, l.floor, l.unit AS l_unit, l.price,
-             l.size_net, l.price_per_ft, l.source, e.name AS estate_name
+             l.size_net, l.price_per_ft, l.source, e.name AS estate_name,
+             ${LIST_START_SQL} AS list_start
       FROM viewings v
       JOIN listings l ON (',' || v.linked_ref_no || ',') LIKE ('%,' || l.ref_no || ',%')
         AND l.estate_id = v.estate_id
@@ -2794,6 +2807,19 @@ function buildEmailHtml(highlights, bargains = []) {
     size ? `${Math.round(size)}實呎` : null,
     psf ? `$${Math.round(psf).toLocaleString()}/呎` : null,
   ].filter(Boolean).join("．");
+  // 放咗幾耐：一個月內講日數（睇得出係咪啱啱上），一年內講月數，
+  // 再耐就講年數帶一個小數位（1.3年 咁樣先睇得出「擺咗好耐」）。
+  const domStr = (listStart) => {
+    if (!listStart) return "";
+    const d = Math.round((Date.parse(date) - Date.parse(listStart)) / 86400000);
+    if (!Number.isFinite(d) || d < 0) return "";
+    if (d < 30) return `放咗${d}日`;
+    if (d < 365) return `放咗${Math.round(d / 30)}個月`;
+    return `放咗${(d / 365).toFixed(1)}年`;
+  };
+  // 呎數呎價 + 放咗幾耐，用同一個分隔符串埋一行
+  const metaLine = (size, psf, listStart) =>
+    [sizePsf(size, psf), domStr(listStart)].filter(Boolean).join("．");
 
   let sections = "";
   let bargainSection = "";   // 筍盤擺去 email 最後（其他動態行先）
@@ -2843,7 +2869,7 @@ function buildEmailHtml(highlights, bargains = []) {
       const diff = c.new_price - c.old_price;
       const col = diff <= 0 ? '#34d399' : '#f87171';
       const arrow = diff <= 0 ? '▼' : '▲';
-      const sp = sizePsf(c.size_net, c.price_per_ft);
+      const sp = metaLine(c.size_net, c.price_per_ft, c.list_start);
       rows += R(
         M(`${c.estate_name||''} ${c.building_name||''} ${c.floor||''} ${c.l_unit||''}`)
           + (sp ? S(sp) : '')
@@ -2861,7 +2887,7 @@ function buildEmailHtml(highlights, bargains = []) {
   if (linkedRemoved.length) {
     let rows = "";
     for (const c of linkedRemoved) {
-      const sp = sizePsf(c.size_net, c.price_per_ft);
+      const sp = metaLine(c.size_net, c.price_per_ft, c.list_start);
       rows += R(
         M(`${c.estate_name||''} ${c.building_name||''} ${c.floor||''} ${c.l_unit||''}`)
           + (sp ? S(sp) : '')
@@ -2931,7 +2957,7 @@ function buildEmailHtml(highlights, bargains = []) {
         const col = diff > 0 ? '#f87171' : '#34d399';
         rows += R(
           M(`${l.building_name || ""} ${l.floor || ""} ${l.unit || ""}`)
-            + (sizePsf(l.size_net, l.price_per_ft) ? S(sizePsf(l.size_net, l.price_per_ft)) : '')
+            + (metaLine(l.size_net, l.price_per_ft, l.list_start) ? S(metaLine(l.size_net, l.price_per_ft, l.list_start)) : '')
             + S(srcLink(l.detail_url, l.source)),
           priceCell(fmt(l.new_price))
             + S(`<span style="text-decoration:line-through">${fmt(l.old_price)}</span>`)
@@ -2945,7 +2971,7 @@ function buildEmailHtml(highlights, bargains = []) {
       for (const l of newListings) {
         rows += R(
           M(`${l.building_name || ""} ${l.floor || ""} ${l.unit || ""}`)
-            + S(`${l.bedrooms ?? "-"}房${l.size_net ? ' · ' + Math.round(l.size_net) + '實呎' : ''}　${srcLink(l.detail_url, l.source)}`),
+            + S(`${l.bedrooms ?? "-"}房${l.size_net ? ' · ' + Math.round(l.size_net) + '實呎' : ''}${domStr(l.list_start) ? ' · ' + domStr(l.list_start) : ''}　${srcLink(l.detail_url, l.source)}`),
           priceCell(fmt(l.price))
             + (l.price_per_ft ? S(`$${Math.round(l.price_per_ft).toLocaleString()}/呎`) : '')
         );
@@ -2956,7 +2982,7 @@ function buildEmailHtml(highlights, bargains = []) {
       rows += HR('#ef4444', `❌ 已下架 (${removedListings.length})`);
       for (const l of removedListings) {
         // 已下架嘅盤條 link 去唔到（listing 已經落架），唔好擺 srcLink
-        const sp = sizePsf(l.size_net, l.price_per_ft);
+        const sp = metaLine(l.size_net, l.price_per_ft, l.list_start);
         rows += R(
           M(`${l.building_name || ""} ${l.floor || ""} ${l.unit || ""}`)
             + S(`${l.bedrooms ?? "-"}房${sp ? '　' + sp : ''}`),
