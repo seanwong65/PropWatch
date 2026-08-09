@@ -2475,11 +2475,11 @@ async function loadTodayHighlights() {
       if (d < 365) return `放咗${Math.round(d / 30)}個月`;
       return `放咗${(d / 365).toFixed(1)}年`;
     };
-    const metaLine = (size, psf, listStart) =>
-      [sizePsf(size, psf), domStr(listStart)].filter(Boolean).join('．');
     const metaDiv = (size, psf, listStart) => {
-      const s = metaLine(size, psf, listStart);
-      return s ? `<div class="unit-price">${s}</div>` : '';
+      const sp = sizePsf(size, psf);
+      const dom = domStr(listStart);
+      return (sp ? `<div class="unit-price">${sp}</div>` : '')
+        + (dom ? `<div class="unit-price">${dom}</div>` : '');
     };
 
     const hlTxnQueue = [];
