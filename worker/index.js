@@ -721,6 +721,144 @@ function parseListing(item) {
   };
 }
 
+// 租盤個 response 用另一套欄位名，唔可以照抄 parseListing：
+//   月租   rentPrice   （買盤係 salePrice）
+//   實呎租 nUnitRent   （買盤係 nUnitPrice）
+// nUnitPrice 喺租盤 response 仍然係「買賣呎價」，撞名但完全唔同意思——
+// 如果照抄 parseListing 就會將 $18,409 當成呎租存落去。
+// salePrice 順手存（同時放售放租嘅盤先有），留返算租金回報率。
+function parseRentalListing(item) {
+  return {
+    listing_id: N(item.id),
+    ref_no: N(item.refNo),
+    building_name: N(item.buildingName),
+    floor: N(item.yAxis),
+    unit: N(item.xAxis),
+    bedrooms: N(item.bedroomCount),
+    direction: N(item.direction) || null,
+    size_net: item.nSize || null,
+    size_gross: item.size || null,
+    price: N(item.rentPrice),
+    price_per_ft: N(item.nUnitRent),
+    sale_price: N(item.salePrice),
+    detail_url: N(item.detailUrl),
+    thumbnail: N(item.thumbnail),
+    publish_date: item.publishDate ? item.publishDate.slice(0, 10) : null,
+  };
+}
+
+// 共用嘅租盤入庫：三個 source 都 map 成 parseRentalListing 個 shape 之後
+// 行呢個，唔使各自抄一份 INSERT。
+async function saveRentalListings(db, estateId, rows, source) {
+  await ensureRentalTables(db);
+  const today = hkDateStr();
+  const stmtListing = db.prepare(
+    `INSERT OR REPLACE INTO rental_listings
+     (estate_id, listing_id, ref_no, building_name, floor, unit, bedrooms, direction,
+      size_net, size_gross, price, price_per_ft, sale_price, detail_url, thumbnail,
+      publish_date, source, snapshot_date)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+  );
+  const stmtHistory = db.prepare(
+    `INSERT INTO rental_price_history (ref_no, estate_id, price, snapshot_date)
+     VALUES (?,?,?,?)
+     ON CONFLICT(ref_no, snapshot_date) DO UPDATE SET price = excluded.price`
+  );
+  // 三個 source 各自嘅 parser 唔一定齊料（例：利嘉閣個 HTML scraper 冇
+  // direction / size_gross / thumbnail / publish_date）。D1 唔收 undefined，
+  // 所以喺呢度統一 coalesce，唔好要求每個 caller 自己補齊。
+  const V = (x) => (x === undefined ? null : x);
+  const batch = [];
+  for (const l of rows) {
+    if (!l.listing_id) continue;
+    batch.push(stmtListing.bind(
+      estateId, String(l.listing_id), V(l.ref_no), V(l.building_name), V(l.floor),
+      V(normalizeUnit(l.unit)), V(l.bedrooms), V(l.direction), V(l.size_net), V(l.size_gross),
+      V(l.price), V(l.price_per_ft), V(l.sale_price), V(l.detail_url), V(l.thumbnail),
+      V(l.publish_date), source, today
+    ));
+    if (l.ref_no && l.price) batch.push(stmtHistory.bind(l.ref_no, estateId, l.price, today));
+  }
+  if (batch.length) await db.batch(batch);
+  return rows.length;
+}
+
+async function fetchCentanetRentalPage(estateName, offset) {
+  const res = await fetch(CENTANET_SEARCH, {
+    method: "POST",
+    headers: FETCH_HEADERS,
+    body: JSON.stringify({
+      postType: "Rent",
+      sort: "Ranking", order: "Ascending",
+      size: PAGE_SIZE, offset,
+      displayTextStyle: "WebResultList", pageSource: "search",
+      keyword: estateName, bigPhotoMode: false,
+    }),
+    ...CF_OPTIONS,
+  });
+  if (!res.ok) throw new Error(`Centanet rent API error: ${res.status}`);
+  return res.json();
+}
+
+async function scrapeCentanetRentals(estateName) {
+  const all = [];
+  for (let offset = 0; offset < 500; offset += PAGE_SIZE) {
+    const raw = await fetchCentanetRentalPage(estateName, offset);
+    const items = raw.data || [];
+    all.push(...items);
+    if (items.length < PAGE_SIZE) break;
+  }
+  return all.map(parseRentalListing);
+}
+
+// 租務成交：同買賣成交行同一個 API，只係 postType 由 Sale 改 Rent。欄位名一樣
+// （transactionPrice / nArea / nUnitPrice / insDate），所以 mapping 直接沿用——
+// 呢度個 nUnitPrice 係實呎租（response 上下文唔同），唔係買賣呎價。
+async function scrapeCentanetRentalTxns(estateName) {
+  const res = await fetch(CENTANET_TRANS, {
+    method: "POST",
+    headers: FETCH_HEADERS,
+    body: JSON.stringify({ postType: "Rent", size: 50, offset: 0, keyword: estateName }),
+    ...CF_OPTIONS,
+  });
+  if (!res.ok) return [];
+  const raw = await res.json();
+  return (raw.data || [])
+    .filter((t) => t.id && t.transTheme !== "CarPark" && t.specialCase?.value !== true)
+    .map((t) => ({
+      transaction_id: String(t.id),
+      building: t.buildingName ?? null,
+      floor: t.yAxis ?? null,
+      unit: t.xAxis ?? null,
+      price: t.transactionPrice ?? null,
+      size_net: t.nArea ?? null,
+      price_per_ft: t.nUnitPrice ?? null,
+      reg_date: t.insDate?.slice(0, 10) ?? null,
+    }));
+}
+
+// 共用租務成交入庫。UNIQUE(estate,bldg_key,floor,unit,price,reg_date) 擋重複，
+// 所以三個 source 各自報自己嘅租務成交都唔會 double count。
+async function saveRentalTxns(db, estateId, txns, source) {
+  await ensureRentalTables(db);
+  const today = hkDateStr();
+  const stmt = db.prepare(
+    `INSERT OR IGNORE INTO rental_transactions
+     (estate_id, transaction_id, building, bldg_key, floor, unit, price,
+      size_net, price_per_ft, reg_date, source, first_seen)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`
+  );
+  const batch = txns
+    .filter((t) => t.price && t.reg_date)
+    .map((t) => stmt.bind(
+      estateId, t.transaction_id ?? null, t.building ?? null, _blockKey(t.building),
+      t.floor ?? null, normalizeUnit(t.unit), t.price, t.size_net ?? null,
+      t.price_per_ft ?? null, t.reg_date, source, today
+    ));
+  if (batch.length) await db.batch(batch);
+  return batch.length;
+}
+
 async function saveSearchResults(db, estateId, listings) {
   const today = hkDateStr();
 
@@ -779,7 +917,10 @@ async function saveSearchResults(db, estateId, listings) {
     .run();
 }
 
-export async function scrapeRicacorpListings(ricacorpUrl) {
+// isRent 只影響價錢個 scale：買盤 HTML 寫 "$1,368" 代表 1368萬（所以要 ×10000），
+// 租盤寫 "$22,500" 已經係實際月租（唔可以乘）。其他 parsing（座/樓/室/房/呎/
+// 呎價、分頁、carry-forward）兩邊一模一樣，所以共用同一個 function。
+export async function scrapeRicacorpListings(ricacorpUrl, isRent = false) {
   const UA = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
   const listings = [];
   const seen = new Set();
@@ -878,7 +1019,8 @@ export async function scrapeRicacorpListings(ricacorpUrl) {
 
       // Price: <span class="price-container ..."> $1,368 </span> (may include comma for thousands)
       const priceMatch = block.match(/class="[^"]*price-container[^"]*">\s*\$\s*([0-9,.]+)\s*</);
-      const price = priceMatch ? Math.round(parseFloat(priceMatch[1].replace(/,/g, '')) * 10000) : null;
+      const priceRaw = priceMatch ? parseFloat(priceMatch[1].replace(/,/g, '')) : null;
+      const price = priceRaw == null ? null : Math.round(isRent ? priceRaw : priceRaw * 10000);
 
       // Price per sqft: <span class="unit-price ...">@ $13,867</span>
       const pfMatch = block.match(/class="[^"]*unit-price[^"]*">@ \$([,\d]+)</);
@@ -1070,7 +1212,7 @@ async function hkpApi(pathQuery, token) {
   return res.json();
 }
 
-function parseHkpProperty(p) {
+function parseHkpProperty(p, isRent = false) {
   return {
     ref_no: p.serial_no || null,
     building_name: p.building?.name || null,
@@ -1078,8 +1220,9 @@ function parseHkpProperty(p) {
     unit: p.flat != null && p.flat !== "" ? `${p.flat}室` : null,
     bedrooms: p.bedroom ?? null,
     size_net: p.net_area || null,
-    price: p.price_hkd || p.price || null,
-    price_per_ft: p.price_over_net_area || null,
+    // 租盤（tx_type=L）個 price_hkd 係 0，月租同呎租喺 rent_* 欄位
+    price: (isRent ? (p.rent_hkd || p.rent) : (p.price_hkd || p.price)) || null,
+    price_per_ft: (isRent ? p.rent_over_net_area : p.price_over_net_area) || null,
     detail_url: p.url_desc || null,
     // The current listing's post date (what hkp shows as 上盤日期). Fake-fresh
     // dates are caught on the client by taking the earlier of this and the day
@@ -1089,7 +1232,12 @@ function parseHkpProperty(p) {
   };
 }
 
-export async function scrapeHkpListings(estateName) {
+// txType: "S" = 買盤, "L" = 租盤（Lease）。實測 "R"/"Rent"/"r" 全部回 0 筆，
+// 只有 "L" 有數（昇悅居 21 個租盤）。
+// ⚠️ 而且租盤唔可以照用買盤個 parser：tx_type=L 嘅 response 裏面
+// price_hkd 係 0，真正嘅月租喺 rent_hkd、呎租喺 rent_over_net_area。
+// 照抄就會存到一堆 $0 租盤。
+export async function scrapeHkpListings(estateName, txType = "S") {
   const token = await hkpGetToken();
   if (!token) return [];
 
@@ -1101,13 +1249,13 @@ export async function scrapeHkpListings(estateName) {
   const seen = new Set();
   const limit = 50;
   for (let page = 1; page <= 20; page++) {
-    const data = await hkpApi(`/search/v1/properties?est_ids=${estId}&tx_type=S&limit=${limit}&page=${page}`, token);
+    const data = await hkpApi(`/search/v1/properties?est_ids=${estId}&tx_type=${txType}&limit=${limit}&page=${page}`, token);
     const results = data?.result || [];
     if (!results.length) break;
     for (const p of results) {
       if (!p.serial_no || seen.has(p.serial_no)) continue;
       seen.add(p.serial_no);
-      listings.push(parseHkpProperty(p));
+      listings.push(parseHkpProperty(p, txType === "L"));
     }
     if (listings.length >= (data.count || 0) || results.length < limit) break;
   }
@@ -1164,7 +1312,10 @@ function parseHkpTransaction(t) {
   };
 }
 
-export async function scrapeHkpTransactions(estateName) {
+// txType: "S" = 買賣成交（土地註冊處）, "L" = 租務成交（agent 自己嘅租務記錄，
+// 租約唔會公開登記，所以呢啲係代理報嘅）。實測兩邊 response 欄位一樣
+// （price / unit_price_net，租務嗰邊值就係月租同實呎租），所以 parser 共用。
+export async function scrapeHkpTransactions(estateName, txType = "S") {
   const token = await hkpGetToken();
   if (!token) return [];
   const ac = await hkpApi(`/search/v1/autocomplete/estates?text=${encodeURIComponent(estateName)}`, token);
@@ -1177,7 +1328,7 @@ export async function scrapeHkpTransactions(estateName) {
   const deadline = Date.now() + 25000; // 成交係補充非 critical，設總預算防拖死 sync
   for (let page = 1; page <= 10; page++) {
     if (Date.now() > deadline) break;
-    const data = await hkpApi(`/search/v1/transactions?est_ids=${estId}&tx_type=S&limit=${limit}&page=${page}`, token);
+    const data = await hkpApi(`/search/v1/transactions?est_ids=${estId}&tx_type=${txType}&limit=${limit}&page=${page}`, token);
     const results = data?.result || [];
     if (!results.length) break;
     let belowCutoff = false;
@@ -1219,23 +1370,44 @@ async function saveHkpTransactions(db, estateId, txns) {
 // else needs editing. Transactions / valuations stay centanet-only by design
 // (the other portals don't publish that data).
 const ricacorpUrlFor = (name) => `https://www.ricacorp.com/zh-hk/property/list/buy/${encodeURIComponent(name)}`;
-// txn: 每個 source 嘅成交入庫（一步做完 scrape + save）。drip sync 會將
-// 「放盤」同「成交」當成兩種獨立單元，所以兩邊都要喺呢個 registry 有 entry。
+const ricacorpRentUrlFor = (name) => `https://www.ricacorp.com/zh-hk/property/list/rent/${encodeURIComponent(name)}`;
+// 每個 source 各自宣告有咩能力，drip sync 見到冇嗰個 handler 就自動跳過該單元
+// —— 所以加／減 source 或者某個 source 冇某種數據都唔使改 sync 邏輯。
+//   scrape + save  買盤放盤
+//   txn            買賣成交
+//   rent           租盤放盤（回 parseRentalListing 個 shape）
+//   rentTxn        租務成交（回 saveRentalTxns 個 shape）
+// 利嘉閣冇 rentTxn：佢買賣成交嚟自 landregistry（土地註冊處，本質上冇租約），
+// 而佢個站冇現成租務成交頁（試過 transaction/estate、rentregistry、
+// leaseregistry 三條路徑都 fallback 去買賣頁）。
 const SOURCES = [
   { id: "centanet", label: "中原", enabledCol: "centanet_enabled", critical: true,
     scrape: async (estate) => (await fetchCentanet(estate.name)).data || [],
     save: saveSearchResults,
-    txn: (db, estate) => fetchAndSaveTransactions(db, estate.id, estate.name) },
+    txn: (db, estate) => fetchAndSaveTransactions(db, estate.id, estate.name),
+    rent: (estate) => scrapeCentanetRentals(estate.name),
+    rentTxn: async (db, estate) =>
+      saveRentalTxns(db, estate.id, await scrapeCentanetRentalTxns(estate.name), "centanet") },
   { id: "ricacorp", label: "利嘉閣", enabledCol: "ricacorp_enabled",
     scrape: (estate) => scrapeRicacorpListings(ricacorpUrlFor(estate.name)),
     save: saveRicacorpListings,
     txn: async (db, estate) =>
-      saveRicacorpTransactions(db, estate.id, await scrapeRicacorpTransactions(estate.name)) },
+      saveRicacorpTransactions(db, estate.id, await scrapeRicacorpTransactions(estate.name)),
+    rent: async (estate) => {
+      const rows = await scrapeRicacorpListings(ricacorpRentUrlFor(estate.name), true);
+      return rows.map((l) => ({ ...l, listing_id: l.ref_no, sale_price: null }));
+    } },
   { id: "hkp", label: "香港置業", enabledCol: "hkp_enabled",
     scrape: (estate) => scrapeHkpListings(estate.name),
     save: saveHkpListings,
     txn: async (db, estate) =>
-      saveHkpTransactions(db, estate.id, await scrapeHkpTransactions(estate.name)) },
+      saveHkpTransactions(db, estate.id, await scrapeHkpTransactions(estate.name)),
+    rent: async (estate) => {
+      const rows = await scrapeHkpListings(estate.name, "L");
+      return rows.map((l) => ({ ...l, listing_id: l.ref_no, sale_price: null }));
+    },
+    rentTxn: async (db, estate) =>
+      saveRentalTxns(db, estate.id, await scrapeHkpTransactions(estate.name, "L"), "hkp") },
 ];
 // centanet defaults on (enabled unless explicitly 0); others must be truthy.
 const sourceEnabled = (estate, s) => s.id === "centanet" ? estate[s.enabledCol] !== 0 : !!estate[s.enabledCol];
@@ -1494,6 +1666,81 @@ async function ensureManualRemoved(db) {
 // 唔使另外維護 counter 欄位（counter = COUNT DISTINCT account，實時 query 出嚟，
 // 唔會同真實記錄脫節）。單位資訊喺撳嗰刻 snapshot 低，因為放盤下架之後
 // listings 嗰行嘅最新 snapshot 就唔一定搵得返當時嘅價／面積。
+// ── 租盤 ────────────────────────────────────────────────────────────────────
+// 刻意用獨立表，唔喺 listings/transactions 加個 deal_type 欄。原因：現有幾十條
+// query 假設 listings 全部係買盤，而買賣呎價係 ~$17,000、實呎租係 ~$50。如果
+// 混埋一張表，漏咗一條 WHERE deal_type='S' 就會令抵買雷達／呎價中位數／趨勢圖
+// 靜靜計錯（唔會報錯），而呢批 scrape 返嚟嘅數據係整個系統嘅資產。獨立表就
+// 結構性咁唔可能污染。
+//
+// ⚠️ 欄位名同買盤表一樣（price / price_per_ft）係故意嘅：咁樣共用嘅
+// helper（detectChanges、email section、前端 render）可以參數化表名重用，
+// 唔使抄一份。語意由表名承載：rental_listings.price = 月租，
+// rental_listings.price_per_ft = 實呎租。
+// sale_price 係例外，因為佢真係另一件事——中原個租盤 response 會順手俾埋同一
+// 單位嘅叫價（同時放售放租嘅盤），存落去將來算租金回報率就唔使再抓。
+async function ensureRentalTables(db) {
+  await db.prepare(`CREATE TABLE IF NOT EXISTS rental_listings (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    estate_id INTEGER NOT NULL,
+    listing_id TEXT NOT NULL,
+    ref_no TEXT,
+    building_name TEXT,
+    floor TEXT,
+    unit TEXT,
+    bedrooms INTEGER,
+    direction TEXT,
+    size_net REAL,
+    size_gross REAL,
+    price REAL,
+    price_per_ft REAL,
+    sale_price REAL,
+    detail_url TEXT,
+    thumbnail TEXT,
+    publish_date TEXT,
+    source TEXT NOT NULL DEFAULT 'centanet',
+    snapshot_date TEXT NOT NULL,
+    UNIQUE(listing_id, snapshot_date)
+  )`).run();
+  await db.prepare("CREATE INDEX IF NOT EXISTS idx_rl_estate_date ON rental_listings(estate_id, snapshot_date)").run();
+  await db.prepare("CREATE INDEX IF NOT EXISTS idx_rl_ref ON rental_listings(ref_no)").run();
+
+  await db.prepare(`CREATE TABLE IF NOT EXISTS rental_price_history (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    estate_id INTEGER NOT NULL,
+    ref_no TEXT NOT NULL,
+    price REAL,
+    snapshot_date TEXT NOT NULL,
+    UNIQUE(ref_no, snapshot_date)
+  )`).run();
+  await db.prepare("CREATE INDEX IF NOT EXISTS idx_rph_ref ON rental_price_history(ref_no, snapshot_date)").run();
+
+  // 租務成交（agent 網自己嘅租務記錄，唔係土地註冊處——租約唔會公開登記）。
+  // 去重同買賣成交同一套：bldg_key 抹平「8座 / 08座 / N座 vs n座 / 屋苑名」
+  // 嘅跨 source 寫法差異。
+  await db.prepare(`CREATE TABLE IF NOT EXISTS rental_transactions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    estate_id INTEGER NOT NULL,
+    transaction_id TEXT,
+    building TEXT,
+    bldg_key TEXT,
+    floor TEXT,
+    unit TEXT,
+    price REAL,
+    size_net REAL,
+    price_per_ft REAL,
+    reg_date TEXT,
+    source TEXT NOT NULL DEFAULT 'centanet',
+    first_seen TEXT NOT NULL
+  )`).run();
+  await db.prepare("CREATE INDEX IF NOT EXISTS idx_rt_estate ON rental_transactions(estate_id, reg_date)").run();
+  await db.prepare(
+    `CREATE UNIQUE INDEX IF NOT EXISTS idx_rt_combo ON rental_transactions
+     (estate_id, COALESCE(bldg_key,''), COALESCE(floor,''), COALESCE(unit,''),
+      COALESCE(price,-1), COALESCE(reg_date,''))`
+  ).run();
+}
+
 async function ensureListingClicks(db) {
   await db.prepare(`CREATE TABLE IF NOT EXISTS listing_clicks (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -3221,12 +3468,32 @@ async function syncNextUnit(db) {
   ).bind(today).all();
   const seen = new Map(log.map((r) => [`${r.estate_id}|${r.source}|${r.kind}`, r]));
 
-  // 放盤排前（主數據：側邊欄數量／放盤趨勢／已下架判斷都靠佢），成交在後。
+  // 租盤唔需要咁即時，所以每日只抓一個 source（買盤照舊每日全部 source）。
+  // 用「日數 mod source 數」自動輪，唔 hardcode 邊個 source——將來加第四個
+  // source 就自動變成每 4 日一轉，唔使改呢度。
+  const rentSources = SOURCES.filter((s) => s.rent || s.rentTxn);
+  const rentSourceToday = rentSources.length
+    ? rentSources[Math.floor(Date.parse(`${today}T00:00:00Z`) / 86400000) % rentSources.length]
+    : null;
+  // 淨係「有 account 揀咗要租盤」嘅屋苑才抓租盤，唔好盲抓（慳 sync 額度）。
+  const rentEstateIds = new Set((await db.prepare(
+    `SELECT DISTINCT ae.estate_id AS id FROM account_estates ae
+     JOIN settings st ON st.key = 'pref_' || ae.account_id
+     WHERE st.value LIKE '%"R"%'`
+  ).all()).results.map((r) => r.id));
+
+  // 放盤排前（主數據：側邊欄數量／放盤趨勢／已下架判斷都靠佢），成交在後；
+  // 買盤排喺租盤之前（租盤唔急）。
   const pending = [];
-  for (const kind of ["listings", "txn"]) {
+  for (const kind of ["listings", "txn", "rent_listings", "rent_txn"]) {
+    const isRent = kind.startsWith("rent_");
     for (const e of estates) {
+      if (isRent && !rentEstateIds.has(e.id)) continue;
       for (const s of SOURCES) {
         if (!sourceEnabled(e, s)) continue;
+        if (isRent && s.id !== rentSourceToday?.id) continue;   // 今日只輪到一個
+        if (kind === "rent_listings" && !s.rent) continue;      // 冇能力就跳過
+        if (kind === "rent_txn" && !s.rentTxn) continue;
         const st = seen.get(`${e.id}|${s.id}|${kind}`);
         if (st && (st.ok || st.attempts >= SYNC_MAX_ATTEMPTS)) continue;
         pending.push({ estate: e, source: s, kind, attempts: st?.attempts ?? 0 });
@@ -3238,7 +3505,7 @@ async function syncNextUnit(db) {
   // 未試過嘅優先，唔好一直重試同一個爛單元而拖住其他未做嘅
   pending.sort((a, b) => a.attempts - b.attempts);
   const u = pending[0];
-  const kindLabel = u.kind === "listings" ? "放盤" : "成交";
+  const kindLabel = { listings: "放盤", txn: "成交", rent_listings: "租盤", rent_txn: "租務成交" }[u.kind];
   const label = `${u.estate.name} / ${u.source.label} / ${kindLabel}`;
   const attempts = u.attempts + 1;
   let ok = 0, detail = "";
@@ -3248,6 +3515,15 @@ async function syncNextUnit(db) {
         Promise.resolve(u.source.scrape(u.estate)), DRIP_TIMEOUT_MS, `${label} scrape`);
       await u.source.save(db, u.estate.id, listings);
       detail = `${listings.length} 個盤`;
+    } else if (u.kind === "rent_listings") {
+      const rows = await withTimeout(
+        Promise.resolve(u.source.rent(u.estate)), DRIP_TIMEOUT_MS, `${label} scrape`);
+      await saveRentalListings(db, u.estate.id, rows, u.source.id);
+      detail = `${rows.length} 個租盤`;
+    } else if (u.kind === "rent_txn") {
+      const n = await withTimeout(
+        Promise.resolve(u.source.rentTxn(db, u.estate)), DRIP_TIMEOUT_MS, `${label} scrape`);
+      detail = `${typeof n === "number" ? n : "?"} 宗租務成交`;
     } else {
       await withTimeout(
         Promise.resolve(u.source.txn(db, u.estate)), DRIP_TIMEOUT_MS, `${label} scrape`);
