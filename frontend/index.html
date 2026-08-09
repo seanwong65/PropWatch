@@ -1287,6 +1287,11 @@
     <div class="modal-title">＋ 新增睇樓記錄</div>
     <div class="modal-sub" id="viewing-modal-estate-name"></div>
     <form id="viewingForm" onsubmit="submitViewing(event)">
+      <label class="vf-label" id="vf-deal-row" style="display:none">類型<span>*</span></label>
+      <div id="vf-deal-types" style="display:none;gap:0.4rem;margin-bottom:0.7rem">
+        <button type="button" class="filter-chip" data-deal="S" onclick="setVfDeal('S')">🏠 買盤</button>
+        <button type="button" class="filter-chip" data-deal="R" onclick="setVfDeal('R')">🔑 租盤</button>
+      </div>
       <label class="vf-label">睇樓日期<span>*</span></label>
       <input class="vf-input" type="date" id="vf-date" required>
 
@@ -1330,11 +1335,11 @@
 
       <div class="vf-row2">
         <div>
-          <label class="vf-label">售價（萬）<span>*</span></label>
+          <label class="vf-label" id="vf-price-label">售價（萬）<span>*</span></label>
           <input class="vf-input" type="number" id="vf-price" placeholder="例：880" min="1" step="0.01" required>
         </div>
         <div>
-          <label class="vf-label">管理費/呎<span>*</span></label>
+          <label class="vf-label" id="vf-mgmt-label">管理費/呎<span>*</span></label>
           <input class="vf-input" type="number" id="vf-mgmt" placeholder="$" min="0" step="0.01" required>
         </div>
       </div>
@@ -3294,13 +3299,14 @@ async function showEstate(id, name, district) {
         <button class="filter-chip ${_estateDeal === 'R' ? 'active' : ''}" onclick="setEstateDeal('R',${id})">🔑 租盤</button>
       </div>` : ''}
       <div class="estate-tabs">
-        <button class="estate-tab active" onclick="switchTab('listings',${id})">最新放盤(${listings.length})</button>
+        <button class="estate-tab active" id="tab-btn-listings" onclick="switchTab('listings',${id})">${_estateDeal === 'R' ? '租盤' : '最新放盤'}(${_estateDeal === 'R' ? '…' : listings.length})</button>
         <button class="estate-tab" onclick="switchTab('transactions',${id})">成交記錄</button>
         <button class="estate-tab" id="tab-btn-viewings" onclick="switchTab('viewings',${id})">睇樓記錄</button>
         <button class="history-btn" id="batch-hs-btn" style="display:none;margin-left:auto;font-size:0.82rem;padding:0.35rem 0.85rem" onclick="isPaid() ? batchFetchHSVal() : showUpgrade('批量查估值')">批量查估值</button>
       </div>
 
       <div id="tab-listings">
+      <div id="buyListingsWrap" style="display:${_estateDeal === 'R' ? 'none' : ''}">
       <div class="stats-row" style="grid-template-columns:1fr">
         <div class="stat-card">
           <div class="stat-label">售價 / 實呎價範圍</div>
@@ -3341,6 +3347,8 @@ async function showEstate(id, name, district) {
             : '<div id="filterBar"></div><div id="listingsTable"></div>'
           }
         </div>
+      </div>
+      <div id="rentListingsWrap" style="display:${_estateDeal === 'R' ? '' : 'none'}"></div>
       </div>
 
       <div id="tab-transactions" style="display:none">
@@ -3459,7 +3467,34 @@ function sampleConfidence(n) {
 // 成交（sold_*）由後端 /api/viewings 算好（同層帶 fallback 全苑，門檻
 // market_min_sold）；在售（similarListings）沿用舊有邏輯，同房數+同樓層帶，
 // client-side 算，因為 allListings 本身已經喺度，唔使加 round trip。
+// 租盤版「價格尺」：冇恒生估值（嗰個係買樓概念）、冇「類近在售」（叫租
+// 淨係業主開嘅價，唔係市場真正接受嘅水平）——淨係「相對租務成交中位」，
+// 跟返早前傾好嘅範圍（基本盤 + 貴/平判斷，未做齊買盤嗰套完整分析）。
+// sold_med_psf/market_n_sold/vs_med_pct 等已經由 /api/viewings 用租務成交算好。
+function rentVerdictHtml(v) {
+  if (!isPaid()) return `<div class="pr-flex"><div class="pr-info">${lockChip('相對租務成交')}</div></div>`;
+  const days = _appCfg.market_median_days ?? 60;
+  const minSold = _appCfg.market_min_sold ?? 5;
+  if (v.sold_med_psf == null) {
+    const why = v.floor_tier == null ? '未有樓層帶' : `近${days}日租務成交唔夠${minSold}宗`;
+    return `<div class="pr-flex"><div class="pr-info"><div class="sub" title="${escHtml(why)}">相對租務成交：-</div></div></div>`;
+  }
+  const conf = sampleConfidence(v.market_n_sold);
+  const soldTip = v.market_basis === 'tier'
+    ? `同層帶近${days}日租務成交中位數（以該座成交最高層 ${v.tier_max_floor} 樓三等分）`
+    : `全苑近${days}日租務成交中位數`;
+  const pctHtml = v.vs_med_pct != null
+    ? `<span class="${v.vs_med_pct <= 0 ? 'gain-pos' : 'gain-neg'}" style="font-weight:600">${v.vs_med_pct <= 0 ? '平' : '貴'} ${Math.abs(v.vs_med_pct).toFixed(1)}%</span>`
+    : '';
+  return `<div class="pr-flex"><div class="pr-info">
+    <div style="white-space:nowrap">${pctHtml} <span style="color:var(--muted);font-size:0.78rem">vs 租務成交中位 $${Math.round(v.sold_med_psf).toLocaleString()}/呎</span></div>
+    <div class="sub" style="margin-top:0.2rem" title="${escHtml(soldConfTip(soldTip, conf))}">${v.market_basis === 'tier' ? '同層帶' : '全苑'}近${days}日 <span style="${conf.weak ? `color:${conf.color};font-weight:600` : ''}">${v.market_n_sold}宗${conf.mark}</span></div>
+  </div></div>`;
+}
+function soldConfTip(base, conf) { return conf.weak ? conf.tip : base; }
+
 function priceRulerHtml(v) {
+  if (v.deal_type === 'R') return rentVerdictHtml(v);
   const ownPsf = (v.price && v.size_net) ? v.price / v.size_net : null;
   const hsPsf  = (v.hs_price && v.size_net) ? v.hs_price / v.size_net : null;
   // 呢個單位本身沽咗嘅實際成交呎價（同左邊條「成交」帶唔同——嗰條係同層帶
@@ -3869,10 +3904,20 @@ async function setEstateDeal(deal, estateId) {
     b.classList.toggle('active', b.getAttribute('onclick')?.includes(`'${deal}'`)));
   const shown = ['listings', 'transactions', 'viewings']
     .find((t) => document.getElementById('tab-' + t)?.style.display !== 'none') || 'listings';
-  if (shown === 'listings') {
-    if (deal === 'R') await loadRentalListings(estateId);
-    else renderListingsTable();
-  } else if (shown === 'transactions') {
+  // 買/租兩張表分開兩個常駐 wrap（顯/隱切換，唔會互相destroy DOM）——租盤表
+  // 直接 innerHTML 成個 panel，如果同買盤共用一個 wrap，切走再切返買盤會揾
+  // 唔返 #listingsTable（renderListingsTable 淨係更新呢個子元素）。
+  const buyWrap = document.getElementById('buyListingsWrap');
+  const rentWrap = document.getElementById('rentListingsWrap');
+  if (buyWrap) buyWrap.style.display = deal === 'R' ? 'none' : '';
+  if (rentWrap) rentWrap.style.display = deal === 'R' ? '' : 'none';
+  // 兩個 wrap 淨係顯/隱、但內容要跟返：即使而家企喺「成交記錄」/「睇樓記錄」
+  // tab，都要背後 refresh 埋「最新放盤」個 wrap（cheap），否則之後切返嗰個
+  // tab 會見到啱啱先隱藏、從未 fetch 過嘅空白 wrap。
+  const tabBtn = document.getElementById('tab-btn-listings');
+  if (deal === 'R') await loadRentalListings(estateId);
+  else { renderListingsTable(); if (tabBtn) tabBtn.textContent = `最新放盤(${allListings.length})`; }
+  if (shown === 'transactions') {
     if (deal === 'R') await loadRentalTransactions(estateId);
     else loadTransactions(estateId, 0, false);
   }
@@ -3890,25 +3935,149 @@ async function setEstateDeal(deal, estateId) {
 // source toggle／已下架 filter 等一大堆狀態，全部假設買賣價。租盤要嘅係
 // 月租／實呎租／貴平，所以出一張乾淨嘅表，唔好為咗省 code 而搞亂買盤嗰邊。
 async function loadRentalListings(estateId) {
-  const panel = document.getElementById('tab-listings');
+  // 寫入獨立嘅 #rentListingsWrap（唔係成個 #tab-listings）——買盤嗰邊
+  // renderListingsTable() 淨係更新 #listingsTable 呢個子元素,唔重畫成個
+  // panel,所以租盤絕對唔可以覆蓋埋 #listingsSection/#filterBar 呢啲買盤
+  // 骨架,唔係切返買盤會壞晒(renderListingsTable 揾唔返 #listingsTable)。
+  const panel = document.getElementById('rentListingsWrap');
   if (!panel) return;
   panel.innerHTML = '<div class="loading"><div class="spinner"></div> 載入租盤…</div>';
+  const tabBtn = document.getElementById('tab-btn-listings');
   try {
     const d = await api(`/api/estates/${estateId}/rental-listings`);
     _rentalListings = d.listings || [];
     _rentMed = d.rentMed || null;
+    if (tabBtn) tabBtn.textContent = `租盤(${_rentalListings.length})`;
     renderRentalListingsTable();
   } catch (e) {
     panel.innerHTML = `<div class="listings-section" style="padding:1.5rem;color:var(--muted);text-align:center">載入失敗：${escHtml(e.message)}</div>`;
   }
 }
 
+// 租盤 filter/sort 狀態——獨立一套，唔同買盤嗰邊（filters/sortCol）撞。
+let _rentalFilters = { beds: 'all', building: 'all', unit: 'all', minPrice: '', maxPrice: '', minSize: '', maxSize: '', source: 'all', hideRemoved: true };
+let _rentalSortCol = 'price';
+let _rentalSortDir = 'asc';
+
+function setRentalFilter(key, val) {
+  _rentalFilters[key] = val;
+  renderRentalListingsTable();
+}
+function setRentalRangeFilter(key, val) {
+  _rentalFilters[key] = val;
+  renderRentalListingsTable();
+}
+function setRentalSort(col) {
+  if (_rentalSortCol === col) _rentalSortDir = _rentalSortDir === 'asc' ? 'desc' : 'asc';
+  else { _rentalSortCol = col; _rentalSortDir = 'asc'; }
+  renderRentalListingsTable();
+}
+function applyRentalFilters(listings) {
+  return listings.filter((l) => {
+    if (_rentalFilters.hideRemoved && l.removed_date) return false;
+    if (_rentalFilters.beds !== 'all') {
+      const b = l.bedrooms ?? 0;
+      if (_rentalFilters.beds === '4+' ? b < 4 : String(b) !== _rentalFilters.beds) return false;
+    }
+    if (_rentalFilters.building !== 'all' && l.building_name !== _rentalFilters.building) return false;
+    if (_rentalFilters.unit !== 'all' && l.unit !== _rentalFilters.unit) return false;
+    if (_rentalFilters.minPrice && l.price < Number(_rentalFilters.minPrice)) return false;
+    if (_rentalFilters.maxPrice && l.price > Number(_rentalFilters.maxPrice)) return false;
+    if (_rentalFilters.minSize && l.size_net < Number(_rentalFilters.minSize)) return false;
+    if (_rentalFilters.maxSize && l.size_net > Number(_rentalFilters.maxSize)) return false;
+    if (_rentalFilters.source !== 'all' && l.source !== _rentalFilters.source) return false;
+    return true;
+  });
+}
+function applyRentalSort(listings) {
+  const domOf = (l) => {
+    const cands = [l.publish_date, l.first_seen].filter(Boolean).map((x) => Date.parse(x)).filter(Number.isFinite);
+    return cands.length ? Math.min(...cands) : Infinity;   // 越舊個 timestamp 越細，"放咗最耐" sort 要揀返呢個方向
+  };
+  const colMap = {
+    price: (l) => l.price ?? 0,
+    price_per_ft: (l) => l.price_per_ft ?? 0,
+    building_name: (l) => l.building_name || '',
+    dom: (l) => domOf(l),
+  };
+  const fn = colMap[_rentalSortCol] || (() => 0);
+  const sorted = [...listings];
+  sorted.sort((a, b) => {
+    const av = fn(a), bv = fn(b);
+    if (av < bv) return _rentalSortDir === 'asc' ? -1 : 1;
+    if (av > bv) return _rentalSortDir === 'asc' ? 1 : -1;
+    return 0;
+  });
+  return sorted;
+}
+function renderRentalFilterBar() {
+  const bar = document.getElementById('rentalFilterBar');
+  if (!bar) return;
+  const bedOptions = ['all', '1', '2', '3', '4+'];
+  const buildings = ['all', ...Array.from(new Set((_rentalListings || []).map((l) => l.building_name).filter(Boolean))).sort()];
+  const units = ['all', ...Array.from(new Set((_rentalListings || []).map((l) => l.unit).filter(Boolean))).sort()];
+  const sel = (key, opts, labelFn) =>
+    `<select class="filter-select" onchange="setRentalFilter('${key}',this.value)">${opts.map((o) => `<option value="${escHtml(o)}"${_rentalFilters[key] === o ? ' selected' : ''}>${escHtml(labelFn(o))}</option>`).join('')}</select>`;
+  bar.innerHTML = `
+    <div class="filter-bar">
+      <div class="filter-pair">
+        <span class="filter-label">房數</span>
+        <div class="filter-group">
+          ${bedOptions.map((b) => `<button class="filter-chip ${_rentalFilters.beds === b ? 'active' : ''}" onclick="setRentalFilter('beds','${b}')">${b === 'all' ? '全部' : b + '房'}</button>`).join('')}
+        </div>
+      </div>
+      <div class="filter-sep"></div>
+      <div class="filter-pair">
+        <span class="filter-label">座</span>
+        <div class="filter-group">${sel('building', buildings, (o) => o === 'all' ? '全部' : o)}</div>
+      </div>
+      <div class="filter-sep"></div>
+      <div class="filter-pair">
+        <span class="filter-label">單位</span>
+        <div class="filter-group">${sel('unit', units, (o) => o === 'all' ? '全部' : o)}</div>
+      </div>
+      <div class="filter-sep"></div>
+      <div class="filter-pair">
+        <span class="filter-label">月租</span>
+        <div class="filter-group">
+          <input class="filter-input" type="number" placeholder="最低" value="${_rentalFilters.minPrice}" onchange="setRentalRangeFilter('minPrice',this.value)">
+          <span style="color:var(--muted);font-size:0.75rem">–</span>
+          <input class="filter-input" type="number" placeholder="最高" value="${_rentalFilters.maxPrice}" onchange="setRentalRangeFilter('maxPrice',this.value)">
+        </div>
+      </div>
+      <div class="filter-sep"></div>
+      <div class="filter-pair">
+        <span class="filter-label">實呎</span>
+        <div class="filter-group">
+          <input class="filter-input" type="number" placeholder="最低" value="${_rentalFilters.minSize}" onchange="setRentalRangeFilter('minSize',this.value)">
+          <span style="color:var(--muted);font-size:0.75rem">–</span>
+          <input class="filter-input" type="number" placeholder="最高" value="${_rentalFilters.maxSize}" onchange="setRentalRangeFilter('maxSize',this.value)">
+        </div>
+      </div>
+      <div class="filter-sep"></div>
+      <div class="filter-pair">
+        <span class="filter-label">來源</span>
+        <div class="filter-group">
+          <button class="filter-chip ${_rentalFilters.source === 'all' ? 'active' : ''}" onclick="setRentalFilter('source','all')">全部</button>
+          ${SOURCES.map((s) => `<button class="filter-chip ${_rentalFilters.source === s.id ? 'active' : ''}" onclick="setRentalFilter('source','${s.id}')">${s.label}</button>`).join('')}
+        </div>
+      </div>
+      <div class="filter-sep"></div>
+      <div class="filter-pair">
+        <label style="display:flex;align-items:center;gap:0.35rem;font-size:0.82rem;color:var(--text);cursor:pointer;white-space:nowrap">
+          <input type="checkbox" ${_rentalFilters.hideRemoved ? 'checked' : ''} onchange="setRentalFilter('hideRemoved',this.checked)" style="accent-color:var(--accent)">
+          隱藏已下架
+        </label>
+      </div>
+    </div>`;
+}
+
 function renderRentalListingsTable() {
-  const panel = document.getElementById('tab-listings');
+  const panel = document.getElementById('rentListingsWrap');
   if (!panel) return;
-  const rows0 = _rentalListings.filter((l) => !l.removed_date);
-  // 跟睇樓偏好（租盤預算）auto-apply，同買盤嗰邊一致
-  const rows = _hlPrefsUsable() ? rows0.filter((l) => prefMatchHl(l, true)) : rows0;
+  // 跟睇樓偏好（租盤預算）auto-apply，同買盤嗰邊一致；filter bar 係之後再加一層。
+  const rows0 = _hlPrefsUsable() ? _rentalListings.filter((l) => prefMatchHl(l, true)) : _rentalListings;
+  const rows = applyRentalSort(applyRentalFilters(rows0));
   const med = _rentMed?.med_psf || null;
   const medLine = med
     ? `<div style="font-size:0.82rem;color:var(--muted);margin-bottom:0.6rem">
@@ -3918,6 +4087,10 @@ function renderRentalListingsTable() {
          　<span style="color:var(--muted)">（貴／平係同呢個基準比）</span>
        </div>`
     : `<div style="font-size:0.82rem;color:var(--muted);margin-bottom:0.6rem">近期冇租務成交，所以出唔到貴／平判斷</div>`;
+  const sortTh = (key, label) => {
+    const arrow = _rentalSortCol === key ? (_rentalSortDir === 'asc' ? ' ▲' : ' ▼') : '';
+    return `<th onclick="setRentalSort('${key}')" style="cursor:pointer">${label}${arrow}</th>`;
+  };
   const body = rows.map((l) => {
     const psf = l.price_per_ft;
     let vs = '';
@@ -3937,23 +4110,24 @@ function renderRentalListingsTable() {
       <td>${l.detail_url ? `<a href="${safeUrl(l.detail_url)}" target="_blank" class="detail-link" style="font-size:0.75rem" onclick="trackListingClick('${escJsAttr(l.ref_no || '')}')">${escHtml(sourceLabel(l.source))} ↗</a>` : escHtml(sourceLabel(l.source))}</td>
     </tr>`;
   }).join('');
-  const hidden = rows0.length - rows.length;
   panel.innerHTML = `
     <div class="stats-row" style="grid-template-columns:1fr">
       <div class="stat-card">
-        <div class="stat-label">租盤（${rows.length}${hidden > 0 ? ` / ${rows0.length}，${hidden} 個唔啱預算` : ''}）</div>
+        <div class="stat-label">租盤（${rows.length} / ${_rentalListings.length}）</div>
         <div style="margin-top:0.5rem">${medLine}</div>
       </div>
     </div>
+    <div id="rentalFilterBar"></div>
     <div class="listings-section" id="rentalTableWrap"></div>`;
+  renderRentalFilterBar();
   if (!rows.length) {
     document.getElementById('rentalTableWrap').innerHTML =
-      `<div style="padding:1.5rem;color:var(--muted);text-align:center">${rows0.length ? '全部租盤都唔啱你個預算' : '暫時冇租盤'}</div>`;
+      `<div style="padding:1.5rem;color:var(--muted);text-align:center">${_rentalListings.length ? '冇符合篩選嘅租盤' : '暫時冇租盤'}</div>`;
     return;
   }
   renderFrozenTable(
     document.getElementById('rentalTableWrap'),
-    `<th>單位</th><th>房間 / 面積</th><th>月租</th><th>實呎租</th><th>vs 成交中位</th><th>放咗幾耐</th><th>來源</th>`,
+    `${sortTh('building_name', '單位')}<th>房間 / 面積</th>${sortTh('price', '月租')}${sortTh('price_per_ft', '實呎租')}<th>vs 成交中位</th>${sortTh('dom', '放咗幾耐')}<th>來源</th>`,
     body, 15, 'history-table data-table'
   );
 }
@@ -3969,35 +4143,100 @@ function domDaysStr(publishDate, firstSeen) {
   return `${(d / 365).toFixed(1)}年`;
 }
 
+let _rentTxnAll = [];
+let _rentTxnFilters = { building: 'all', dateMonths: 0 };
+let _rentTxnSortCol = 'reg_date';
+let _rentTxnSortDir = 'desc';
+
+function setRentTxnFilter(key, val) {
+  _rentTxnFilters[key] = val;
+  renderRentalTxnTable();
+}
+function setRentTxnSort(col) {
+  if (_rentTxnSortCol === col) _rentTxnSortDir = _rentTxnSortDir === 'asc' ? 'desc' : 'asc';
+  else { _rentTxnSortCol = col; _rentTxnSortDir = col === 'reg_date' ? 'desc' : 'asc'; }
+  renderRentalTxnTable();
+}
+function rentTxnFilterBarHtml() {
+  const buildings = ['all', ...Array.from(new Set(_rentTxnAll.map((t) => t.building).filter(Boolean))).sort()];
+  return `<div class="filter-bar" style="margin-bottom:0.6rem">
+    <div class="filter-pair">
+      <span class="filter-label">座</span>
+      <div class="filter-group"><select class="filter-select" onchange="setRentTxnFilter('building',this.value)">${
+        buildings.map((b) => `<option value="${escHtml(b)}"${_rentTxnFilters.building === b ? ' selected' : ''}>${escHtml(b === 'all' ? '全部' : b)}</option>`).join('')
+      }</select></div>
+    </div>
+    <div class="filter-sep"></div>
+    <div class="filter-pair">
+      <span class="filter-label">時期</span>
+      <div class="filter-group">
+        ${[[0, '全部'], [3, '近3個月'], [6, '近6個月'], [12, '近1年']].map(([v, l]) =>
+          `<button class="filter-chip ${_rentTxnFilters.dateMonths === v ? 'active' : ''}" onclick="setRentTxnFilter('dateMonths',${v})">${l}</button>`).join('')}
+      </div>
+    </div>
+  </div>`;
+}
+function renderRentalTxnTable() {
+  const panel = document.getElementById('tab-transactions');
+  if (!panel) return;
+  let txns = _rentTxnAll;
+  if (_rentTxnFilters.building !== 'all') txns = txns.filter((t) => t.building === _rentTxnFilters.building);
+  if (_rentTxnFilters.dateMonths > 0) {
+    const cutoff = new Date();
+    cutoff.setMonth(cutoff.getMonth() - _rentTxnFilters.dateMonths);
+    txns = txns.filter((t) => t.reg_date && new Date(t.reg_date) >= cutoff);
+  }
+  const colMap = {
+    reg_date: (t) => t.reg_date || '',
+    price: (t) => t.price ?? 0,
+    price_per_ft: (t) => t.price_per_ft ?? 0,
+    size_net: (t) => t.size_net ?? 0,
+  };
+  const fn = colMap[_rentTxnSortCol] || (() => 0);
+  txns = [...txns].sort((a, b) => {
+    const av = fn(a), bv = fn(b);
+    if (av < bv) return _rentTxnSortDir === 'asc' ? -1 : 1;
+    if (av > bv) return _rentTxnSortDir === 'asc' ? 1 : -1;
+    return 0;
+  });
+  if (!txns.length) {
+    panel.innerHTML = rentTxnFilterBarHtml() + `<div class="listings-section" style="padding:1.5rem;color:var(--muted);text-align:center">${_rentTxnAll.length ? '冇符合篩選嘅租務成交' : '暫時冇租務成交記錄'}</div>`;
+    return;
+  }
+  const sortTh = (key, label) => {
+    const arrow = _rentTxnSortCol === key ? (_rentTxnSortDir === 'asc' ? ' ▲' : ' ▼') : '';
+    return `<th onclick="setRentTxnSort('${key}')" style="cursor:pointer">${label}${arrow}</th>`;
+  };
+  const body = txns.map((t) => `<tr class="hl-tr">
+    <td>${escHtml(t.building || '')} ${escHtml(t.floor || '')} ${escHtml(t.unit || '')}</td>
+    <td>${t.size_net ? Math.round(t.size_net) + '呎' : '-'}</td>
+    <td><strong style="color:var(--accent)">$${t.price ? Math.round(t.price).toLocaleString() : '-'}</strong><div class="unit-price">/月</div></td>
+    <td>${t.price_per_ft ? '$' + Math.round(t.price_per_ft).toLocaleString() : '-'}<div class="unit-price">/呎</div></td>
+    <td class="txn-date">${escHtml(t.reg_date || '')}</td>
+    <td style="font-size:0.75rem;color:var(--muted)">${escHtml(sourceLabel(t.source))}</td>
+  </tr>`).join('');
+  panel.innerHTML = rentTxnFilterBarHtml() + `<div class="listings-section" id="rentTxnWrap"></div>`;
+  renderFrozenTable(
+    document.getElementById('rentTxnWrap'),
+    `<th>單位</th>${sortTh('size_net', '實呎')}${sortTh('price', '月租')}${sortTh('price_per_ft', '實呎租')}${sortTh('reg_date', '成交日期')}<th>來源</th>`,
+    body, 15, 'history-table data-table'
+  );
+}
+
 async function loadRentalTransactions(estateId) {
   const panel = document.getElementById('tab-transactions');
   if (!panel) return;
   panel.innerHTML = '<div class="loading"><div class="spinner"></div> 載入租務成交…</div>';
+  _rentTxnFilters = { building: 'all', dateMonths: 0 };
+  _rentTxnSortCol = 'reg_date'; _rentTxnSortDir = 'desc';
   try {
     const d = await api(`/api/estates/${estateId}/rental-transactions`);
-    const txns = d.transactions || [];
-    if (!txns.length) {
+    _rentTxnAll = d.transactions || [];
+    if (!_rentTxnAll.length) {
       panel.innerHTML = '<div class="listings-section" style="padding:1.5rem;color:var(--muted);text-align:center">暫時冇租務成交記錄</div>';
       return;
     }
-    const body = txns.map((t) => `<tr class="hl-tr">
-      <td>${escHtml(t.building || '')} ${escHtml(t.floor || '')} ${escHtml(t.unit || '')}</td>
-      <td>${t.size_net ? Math.round(t.size_net) + '呎' : '-'}</td>
-      <td><strong style="color:var(--accent)">$${t.price ? Math.round(t.price).toLocaleString() : '-'}</strong><div class="unit-price">/月</div></td>
-      <td>${t.price_per_ft ? '$' + Math.round(t.price_per_ft).toLocaleString() : '-'}<div class="unit-price">/呎</div></td>
-      <td class="txn-date">${escHtml(t.reg_date || '')}</td>
-      <td style="font-size:0.75rem;color:var(--muted)">${escHtml(sourceLabel(t.source))}</td>
-    </tr>`).join('');
-    panel.innerHTML = `
-      <p style="font-size:0.78rem;color:var(--muted);margin:0 0 0.6rem">
-        租務成交嚟自代理自己嘅租務記錄（租約唔會喺土地註冊處公開登記），所以係代理報嘅，未必齊全。
-      </p>
-      <div class="listings-section" id="rentTxnWrap"></div>`;
-    renderFrozenTable(
-      document.getElementById('rentTxnWrap'),
-      `<th>單位</th><th>實呎</th><th>月租</th><th>實呎租</th><th>成交日期</th><th>來源</th>`,
-      body, 15, 'history-table data-table'
-    );
+    renderRentalTxnTable();
   } catch (e) {
     panel.innerHTML = `<div class="listings-section" style="padding:1.5rem;color:var(--muted);text-align:center">載入失敗：${escHtml(e.message)}</div>`;
   }
@@ -4025,6 +4264,8 @@ window.addEventListener('resize', () => {
 });
 let _viewingImages = []; // [{dataUrl, file}]
 let _viewingEditId = null;
+let _vfDeal = 'S';           // 呢次新增/更改嘅睇樓記錄係買盤定租盤，null＝未揀（多過一個偏好類型時強制揀）
+let _viewingTypeFilter = 'all'; // 睇樓記錄列表 filter：all / S / R
 
 let _notesOptions = [];      // string[] — consumed by the per-unit note dropdown
 let _notesParams = [];       // {id, value}[] — backing rows for the settings CRUD editor
@@ -4112,7 +4353,8 @@ function findMatchingListings(viewing) {
   const blockNum = String(viewing.block).replace(/[座]/g, '').trim().toUpperCase();
   const unitNorm = String(viewing.unit).replace(/[室號]/g, '').trim().toUpperCase();
   const beds = Number(viewing.bedrooms) || 0;
-  return (allListings || []).filter(l => {
+  const pool = viewing.deal_type === 'R' ? (_rentalListings || []) : (allListings || []);
+  return pool.filter(l => {
     if (l.removed_date) return false;
     const lBlockRaw = String(l.building_name || '').replace(/[座]/g, '').trim().toUpperCase();
     const lBlock = lBlockRaw.match(/\d+/)?.[0] || lBlockRaw;
@@ -4849,7 +5091,18 @@ function openViewingModal(viewing = null) {
   document.getElementById('vf-size').value = viewing ? viewing.size_net : '';
   document.getElementById('vf-bedrooms').value = viewing ? (viewing.bedrooms || 2) : 2;
   document.getElementById('vf-direction').value = viewing ? (viewing.direction || '') : '';
-  document.getElementById('vf-price').value = viewing ? (viewing.price / 10000) : '';
+
+  // 類型（買/租）：偏好淨係揀咗一樣就默認嗰樣；兩樣都揀就唔預設，強制用戶
+  // 自己揀（submitViewing 會擋冇揀就唔准儲）。改記錄一律跟返個記錄本身嘅類型。
+  const prefDeals = (_userPrefs && Array.isArray(_userPrefs.deal_types) && _userPrefs.deal_types.length) ? _userPrefs.deal_types : ['S'];
+  const showDealPicker = prefDeals.includes('R');
+  document.getElementById('vf-deal-row').style.display = showDealPicker ? '' : 'none';
+  document.getElementById('vf-deal-types').style.display = showDealPicker ? 'flex' : 'none';
+  _vfDeal = viewing ? (viewing.deal_type === 'R' ? 'R' : 'S') : (prefDeals.length === 1 ? prefDeals[0] : null);
+  document.querySelectorAll('#vf-deal-types .filter-chip').forEach(b => b.classList.toggle('active', b.dataset.deal === _vfDeal));
+  syncVfPriceLabels();
+
+  document.getElementById('vf-price').value = viewing ? (viewing.deal_type === 'R' ? viewing.price : viewing.price / 10000) : '';
   document.getElementById('vf-mgmt').value = viewing ? (viewing.mgmt_fee || '') : '';
   populateNotesSelect(viewing ? (viewing.notes || '') : '');
   _vfRatings = viewing ? parseRatings(viewing) : {};
@@ -4869,11 +5122,29 @@ function openViewingModal(viewing = null) {
       preview.appendChild(thumb);
     });
   }
-  if (!viewing) {
+  if (!viewing && _vfDeal !== 'R') {
     api(`/api/viewings/last-mgmt-fee?estate_id=${_viewingEstateId}`).then(r => {
       if (r?.mgmt_fee) document.getElementById('vf-mgmt').value = r.mgmt_fee;
     }).catch(() => {});
   }
+}
+
+function setVfDeal(deal) {
+  _vfDeal = deal;
+  document.querySelectorAll('#vf-deal-types .filter-chip').forEach(b => b.classList.toggle('active', b.dataset.deal === deal));
+  syncVfPriceLabels();
+}
+
+function syncVfPriceLabels() {
+  const isRent = _vfDeal === 'R';
+  document.getElementById('vf-price-label').innerHTML = isRent ? '租金/月<span>*</span>' : '售價（萬）<span>*</span>';
+  document.getElementById('vf-price').placeholder = isRent ? '例：23000' : '例：880';
+  const mgmt = document.getElementById('vf-mgmt');
+  mgmt.disabled = isRent;
+  mgmt.required = !isRent;
+  mgmt.placeholder = isRent ? '租盤唔需要' : '$';
+  if (isRent) mgmt.value = '';
+  document.getElementById('vf-mgmt-label').style.opacity = isRent ? '0.4' : '1';
 }
 
 function closeViewingModal() {
@@ -4906,11 +5177,14 @@ function removeViewingImg(idx) {
 
 async function submitViewing(e) {
   e.preventDefault();
+  if (!_vfDeal) { alert('請揀「買盤」定「租盤」'); return; }
   const btn = e.target.querySelector('.vf-submit');
   btn.disabled = true; btn.textContent = '儲存中…';
   try {
     const images = _viewingImages.filter(Boolean).map(i => i.dataUrl);
-    const price = Math.round(parseFloat(document.getElementById('vf-price').value) * 10000);
+    const priceRaw = parseFloat(document.getElementById('vf-price').value);
+    // 買盤入面填緊「萬」要 ×10000；租盤直接係月租，原數存
+    const price = Math.round(_vfDeal === 'R' ? priceRaw : priceRaw * 10000);
     const body = {
       estate_id: _viewingEstateId,
       view_date: document.getElementById('vf-date').value,
@@ -4921,7 +5195,8 @@ async function submitViewing(e) {
       bedrooms: parseInt(document.getElementById('vf-bedrooms').value) || 2,
       direction: document.getElementById('vf-direction').value || null,
       price,
-      mgmt_fee: parseFloat(document.getElementById('vf-mgmt').value) || null,
+      deal_type: _vfDeal,
+      mgmt_fee: _vfDeal === 'R' ? null : (parseFloat(document.getElementById('vf-mgmt').value) || null),
       images: images.length ? JSON.stringify(images) : null,
       notes: getNotesValue(),
       ratings: _vfRatings,
@@ -4938,8 +5213,8 @@ async function submitViewing(e) {
     if (document.getElementById('tab-viewings')?.style.display !== 'none') {
       await loadViewings(_viewingEstateId);
     }
-    // Auto-fetch HS valuation in background
-    fetchViewingHSVal(savedId, body.block, body.floor, body.unit, body.price);
+    // Auto-fetch HS valuation in background（恒生估值係「買樓值幾錢」，租盤唔啱用）
+    if (_vfDeal !== 'R') fetchViewingHSVal(savedId, body.block, body.floor, body.unit, body.price);
   } catch(err) {
     alert('儲存失敗，請再試');
   } finally {
@@ -4991,13 +5266,49 @@ async function loadViewings(estateId) {
   try {
     const { viewings } = await api(`/api/viewings?estate_id=${estateId}`);
     _lastViewings = viewings;
-    const tabBtn = document.getElementById('tab-btn-viewings');
-    if (tabBtn) tabBtn.textContent = `睇樓記錄(${viewings?.length || 0})`;
-    if (!viewings?.length) {
-      panel.innerHTML = '<div class="listings-section" style="padding:1.5rem;color:var(--muted);text-align:center">未有睇樓記錄<br><small>按「新增睇樓」新增第一個記錄</small></div>';
-      return;
+    // 租盤睇樓記錄嘅「對應放盤」要用租盤在售資料搵——未開過「租盤」tab 就未有,
+    // 呢度自己攞一次(冇租盤記錄就唔使嘥呢個 request)。
+    if ((viewings || []).some(v => v.deal_type === 'R') && !_rentalListings.length) {
+      try {
+        const d = await api(`/api/estates/${estateId}/rental-listings`);
+        _rentalListings = d.listings || [];
+      } catch (_) {}
     }
+    await renderViewingsList(viewings, estateId, true);
+  } catch {
+    panel.innerHTML = '<div class="listings-section" style="padding:1.5rem;color:var(--muted);text-align:center">載入失敗</div>';
+  }
+}
+
+// 買/租 filter chip：只做 client-side re-render（唔重新 fetch），跟返 _lastViewings。
+function setViewingTypeFilter(t) {
+  _viewingTypeFilter = t;
+  renderViewingsList(_lastViewings, _viewingEstateId, false);
+}
+
+// fetchExtras=true 先會 fire「查上手成交」（首次載入用；filter 切換淨係 client-side re-render，唔好再打一輪）。
+async function renderViewingsList(viewings0, estateId, fetchExtras) {
+  const panel = document.getElementById('tab-viewings');
+  if (!panel) return;
+  const showTypeFilter = wantsDeal('R');
+  const filterBarHtml = showTypeFilter ? `
+    <div style="display:flex;gap:0.4rem;margin-bottom:0.6rem">
+      <button class="filter-chip ${_viewingTypeFilter==='all'?'active':''}" onclick="setViewingTypeFilter('all')">全部</button>
+      <button class="filter-chip ${_viewingTypeFilter==='S'?'active':''}" onclick="setViewingTypeFilter('S')">🏠 買盤</button>
+      <button class="filter-chip ${_viewingTypeFilter==='R'?'active':''}" onclick="setViewingTypeFilter('R')">🔑 租盤</button>
+    </div>` : '';
+  const viewings = (viewings0 || []).filter(v => _viewingTypeFilter === 'all' || (v.deal_type || 'S') === _viewingTypeFilter);
+  const tabBtn = document.getElementById('tab-btn-viewings');
+  if (tabBtn) tabBtn.textContent = `睇樓記錄(${(viewings0 || []).length})`;
+  if (!viewings.length) {
+    panel.innerHTML = filterBarHtml + `<div class="listings-section" style="padding:1.5rem;color:var(--muted);text-align:center">${
+      (viewings0 || []).length ? '冇符合嘅睇樓記錄' : '未有睇樓記錄<br><small>按「新增睇樓」新增第一個記錄</small>'
+    }</div>`;
+    return;
+  }
+  try {
     const fmt = p => p ? `$${(p/1e4).toFixed(p%10000===0?0:1)}萬` : '-';
+    const fmtRent = p => p ? `$${Math.round(p).toLocaleString()}/月` : '-';
     window._viewingImgsMap = {};
     window._viewingMap = {};
     // 手機用卡片、桌面用表格——兩款版面互斥（同一時間得一款喺 DOM 度），
@@ -5005,6 +5316,9 @@ async function loadViewings(estateId) {
     const isMobile = window.matchMedia('(max-width: 768px)').matches;
     _viewingsIsMobile = isMobile;
     const rows = viewings.map(v => {
+      const isRent = v.deal_type === 'R';
+      const pfmt = isRent ? fmtRent : fmt;
+      const typeBadge = showTypeFilter ? (isRent ? '🔑 ' : '🏠 ') : '';
       const imgs = v.images ? JSON.parse(v.images) : [];
       window._viewingImgsMap[v.id] = imgs;
       window._viewingMap[v.id] = v;
@@ -5012,7 +5326,7 @@ async function loadViewings(estateId) {
       const fmtBlock = v.block ? ((/座$/.test(v.block) ? v.block : v.block+'座')) : null;
       const fmtFloor = v.floor ? ((/樓$/.test(v.floor)||/層$/.test(v.floor) ? v.floor : v.floor+'樓')) : null;
       const fmtUnit = v.unit ? ((/室$/.test(v.unit)||/號$/.test(v.unit) ? v.unit : v.unit+'室')) : null;
-      const unitStr = [fmtBlock, fmtFloor, fmtUnit].filter(Boolean).map(s => escHtml(s)).join(' ');
+      const unitStr = typeBadge + [fmtBlock, fmtFloor, fmtUnit].filter(Boolean).map(s => escHtml(s)).join(' ');
       const mgmtMonthly = v.mgmt_fee ? (v.mgmt_fee > 100 ? Math.round(v.mgmt_fee) : (v.size_net ? Math.round(v.mgmt_fee * v.size_net) : null)) : null;
       const psfStr = v.price && v.size_net ? `$${Math.round(v.price/v.size_net).toLocaleString()}/呎` : '-';
       const vData = encodeURIComponent(JSON.stringify(v));
@@ -5040,9 +5354,9 @@ async function loadViewings(estateId) {
             const dateStr = d ? `${d[0]}年${d[1]}月${d[2]}日・` : '';
             const diff = v.price_change_new - v.price_change_old;
             const pct = v.price_change_old ? Math.abs(diff / v.price_change_old * 100).toFixed(1) : '0';
-            const dirLabel = diff < 0 ? '減價' : '加價';
+            const dirLabel = diff < 0 ? (isRent ? '減租' : '減價') : (isRent ? '加租' : '加價');
             const color = diff < 0 ? 'var(--down)' : 'var(--up)';
-            return `<span style="color:${color};font-size:0.8rem">${dateStr}${dirLabel}${fmt(Math.abs(diff))}（${pct}%）・原價${fmt(v.price_change_old)}</span>`;
+            return `<span style="color:${color};font-size:0.8rem">${dateStr}${dirLabel}${pfmt(Math.abs(diff))}（${pct}%）・原價${pfmt(v.price_change_old)}</span>`;
           })()
         : '<span style="color:var(--text);font-size:0.8rem">無變動</span>';
       // 單位／售價／成交／備注各自合併咗幾欄（16→12→9）：同一件事嘅資料
@@ -5054,23 +5368,24 @@ async function loadViewings(estateId) {
       if (v.txn_price && v.txn_reg_date >= v.view_date && v.price) {
         const diff = v.price - v.txn_price;
         const pct = Math.abs(diff / v.price * 100).toFixed(1);
-        if (diff > 0) sqzHtml = `<div style="color:var(--down);font-size:0.72rem">壓低 ${fmt(diff)}（${pct}%）</div>`;
-        else if (diff < 0) sqzHtml = `<div style="color:var(--up);font-size:0.72rem">加咗 ${fmt(-diff)}（${pct}%）</div>`;
+        if (diff > 0) sqzHtml = `<div style="color:var(--down);font-size:0.72rem">壓低 ${pfmt(diff)}（${pct}%）</div>`;
+        else if (diff < 0) sqzHtml = `<div style="color:var(--up);font-size:0.72rem">加咗 ${pfmt(-diff)}（${pct}%）</div>`;
       }
       const soldHtml = (v.txn_price && v.txn_reg_date >= v.view_date)
-        ? `<span style="color:var(--accent)"><strong>${fmt(v.txn_price)}</strong></span> <span style="color:var(--muted);font-size:0.75rem">${v.txn_reg_date}</span>${annualHtml}${sqzHtml}`
-        : `<span style="color:var(--text);font-size:0.95rem">未沽出</span>`;
+        ? `<span style="color:var(--accent)"><strong>${pfmt(v.txn_price)}</strong></span> <span style="color:var(--muted);font-size:0.75rem">${v.txn_reg_date}</span>${annualHtml}${sqzHtml}`
+        : `<span style="color:var(--text);font-size:0.95rem">${isRent ? '未租出' : '未沽出'}</span>`;
       // 手機卡片版專用：沽出／未沽出合埋一格，連放咗幾耐／上手購買都夾入嚟
       // （桌面表格版唔改，繼續用返上面嘅 soldHtml/domCell/獨立 vprev-）。
+      // 「上手購買」係買賣土地註冊處嘅概念，租盤冇呢樣嘢。
       const domMonths = v.dom_days != null ? Math.round(v.dom_days / 30) : null;
       const sqzInline = sqzHtml ? sqzHtml.replace(/^<div/, '<span').replace(/<\/div>$/, '</span>') : '';
       const soldMetaParts = [];
       if (sqzInline) soldMetaParts.push(sqzInline);
       if (domMonths != null && domMonths >= 1) soldMetaParts.push(`<span style="color:var(--muted);font-size:0.72rem">放咗${domMonths}個月</span>`);
       const soldBlockMobile = (v.txn_price && v.txn_reg_date >= v.view_date)
-        ? `<div>${v.txn_reg_date} <strong style="color:var(--accent)">${fmt(v.txn_price)}</strong> 沽出</div>${soldMetaParts.length ? `<div style="margin-top:0.15rem">${soldMetaParts.join(' <span style="color:var(--muted);font-size:0.7rem">·</span> ')}</div>` : ''}`
-        : `<div><span style="color:var(--muted);font-size:0.8rem">未沽出</span>${v.dom_days != null ? ` <span style="color:var(--muted);font-size:0.72rem">· 放咗${v.dom_days.toLocaleString()}日</span>` : ''}</div>
-           <div style="margin-top:0.25rem;font-size:0.75rem;color:var(--muted)">上手 <span id="vprev-${v.id}" style="cursor:pointer" onclick="fetchUnitTxn(${v.id})">查上手成交</span></div>`;
+        ? `<div>${v.txn_reg_date} <strong style="color:var(--accent)">${pfmt(v.txn_price)}</strong> ${isRent ? '租出' : '沽出'}</div>${soldMetaParts.length ? `<div style="margin-top:0.15rem">${soldMetaParts.join(' <span style="color:var(--muted);font-size:0.7rem">·</span> ')}</div>` : ''}`
+        : `<div><span style="color:var(--muted);font-size:0.8rem">${isRent ? '未租出' : '未沽出'}</span>${v.dom_days != null ? ` <span style="color:var(--muted);font-size:0.72rem">· 放咗${v.dom_days.toLocaleString()}日</span>` : ''}</div>
+           ${isRent ? '' : `<div style="margin-top:0.25rem;font-size:0.75rem;color:var(--muted)">上手 <span id="vprev-${v.id}" style="cursor:pointer" onclick="fetchUnitTxn(${v.id})">查上手成交</span></div>`}`;
       // 睇樓評分：平均分做個細 badge 貼喺單位名側（一眼比得到邊層好），
       // 逐項分數就同備注擺埋一齊。未評嘅項目唔顯示，亦唔入平均（睇 ratingAvg）。
       const rmap = parseRatings(v);
@@ -5104,10 +5419,10 @@ async function loadViewings(estateId) {
           </div>
           <div class="viewing-card-grid" style="grid-template-columns:repeat(2,1fr);margin-bottom:0.7rem">
             <div class="viewing-card-kv">
-              <strong style="color:var(--accent);font-size:1.05rem">${fmt(v.price)}</strong>
+              <strong style="color:var(--accent);font-size:1.05rem">${pfmt(v.price)}</strong>
               <span style="color:var(--muted);font-size:0.8rem;margin-left:0.4rem">${psfStr}</span>
               ${mgmtMonthly ? `<div style="color:var(--muted);font-size:0.75rem;margin-top:0.1rem">管理費 $${mgmtMonthly.toLocaleString()}/月</div>` : ''}
-              <div style="margin-top:0.2rem"><span style="color:var(--muted);font-size:0.72rem;margin-right:0.3rem">售價變動</span>${priceChangedCell}</div>
+              <div style="margin-top:0.2rem"><span style="color:var(--muted);font-size:0.72rem;margin-right:0.3rem">${isRent ? '租金變動' : '叫價變動'}</span>${priceChangedCell}</div>
             </div>
             <div class="viewing-card-kv">${soldBlockMobile}</div>
           </div>
@@ -5120,11 +5435,11 @@ async function loadViewings(estateId) {
         <td><strong>${unitStr}</strong>${rateBadge}
           ${unitSub ? `<div style="color:var(--muted);font-size:0.75rem">${unitSub}</div>` : ''}
           <div style="color:var(--muted);font-size:0.72rem">睇於 ${v.view_date}</div></td>
-        <td><strong style="color:var(--accent)">${fmt(v.price)}</strong>
+        <td><strong style="color:var(--accent)">${pfmt(v.price)}</strong>
           <div style="color:var(--muted);font-size:0.75rem">${psfStr}</div>
           ${mgmtMonthly ? `<div style="color:var(--muted);font-size:0.72rem">管理費 $${mgmtMonthly.toLocaleString()}/月</div>` : ''}</td>
         <td>
-          <div id="vprev-${v.id}"><span style="color:var(--muted);font-size:0.75rem;cursor:pointer" onclick="fetchUnitTxn(${v.id})">查上手成交</span></div>
+          ${isRent ? '' : `<div id="vprev-${v.id}"><span style="color:var(--muted);font-size:0.75rem;cursor:pointer" onclick="fetchUnitTxn(${v.id})">查上手成交</span></div>`}
           <div style="margin-top:0.2rem">${soldHtml}</div></td>
         <td>${priceRulerHtml(v)}</td>
         <td id="vmatch-${v.id}">${buildMatchCell(v)}</td>
@@ -5136,25 +5451,29 @@ async function loadViewings(estateId) {
     }).join('');
 
     if (isMobile) {
-      panel.innerHTML = `<div class="viewings-list" id="viewingsCardsWrap">${rows}</div>`;
-      // Auto-fetch 上次購買 for all rows using DetailByUnitCode
-      for (const v of viewings) {
-        fetchUnitTxn(v.id);
-        await new Promise(r => setTimeout(r, 300));
+      panel.innerHTML = filterBarHtml + `<div class="viewings-list" id="viewingsCardsWrap">${rows}</div>`;
+      if (fetchExtras) {
+        for (const v of viewings) {
+          if (v.deal_type === 'R') continue;   // 「上手購買」係買賣概念，租盤冇呢個 cell
+          fetchUnitTxn(v.id);
+          await new Promise(r => setTimeout(r, 300));
+        }
       }
       return;
     }
-    panel.innerHTML = `<div class="listings-section" id="viewingsTableWrap"></div>`;
+    panel.innerHTML = filterBarHtml + `<div class="listings-section" id="viewingsTableWrap"></div>`;
     renderFrozenTable(
       document.getElementById('viewingsTableWrap'),
-      `<th>單位</th><th>售價</th><th>成交</th><th>價格尺</th><th>對應放盤</th><th>放咗幾耐</th><th>售價變動</th><th>備注</th><th></th>`,
+      `<th>單位</th><th>叫價</th><th>成交</th><th>價格尺</th><th>對應放盤</th><th>放咗幾耐</th><th>叫價變動</th><th>備注</th><th></th>`,
       rows, 10, 'history-table data-table'
     );
 
-    // Auto-fetch 上次購買 for all rows using DetailByUnitCode
-    for (const v of viewings) {
-      fetchUnitTxn(v.id);
-      await new Promise(r => setTimeout(r, 300));
+    if (fetchExtras) {
+      for (const v of viewings) {
+        if (v.deal_type === 'R') continue;
+        fetchUnitTxn(v.id);
+        await new Promise(r => setTimeout(r, 300));
+      }
     }
   } catch {
     panel.innerHTML = '<div class="listings-section" style="padding:1.5rem;color:var(--muted);text-align:center">載入失敗</div>';

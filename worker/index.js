@@ -5194,10 +5194,12 @@ export default {
       if (method === "GET" && path === "/api/viewings") {
         const estateId = url.searchParams.get("estate_id");
         if (!estateId) return json(400, { error: "estate_id required" });
+        await db.prepare("ALTER TABLE viewings ADD COLUMN deal_type TEXT DEFAULT 'S'").run().catch(() => {});
+        await ensureRentalTables(db);
         const { results } = await db.prepare(`
           SELECT v.*,
-            t.price AS txn_price,
-            t.reg_date AS txn_reg_date,
+            COALESCE(t.price, rt.price) AS txn_price,
+            COALESCE(t.reg_date, rt.reg_date) AS txn_reg_date,
             t.prev_price AS txn_prev_price,
             t.held_days AS txn_held_days
           FROM viewings v
@@ -5210,6 +5212,17 @@ export default {
             AND t.floor = CASE WHEN v.floor LIKE '%樓' OR v.floor LIKE '%層' THEN v.floor ELSE v.floor || '樓' END
             AND t.unit = CASE WHEN v.unit LIKE '%室' OR v.unit LIKE '%號' THEN v.unit ELSE v.unit || '室' END
             AND t.rn = 1
+            AND COALESCE(v.deal_type, 'S') = 'S'
+          LEFT JOIN (
+            SELECT estate_id, building, floor, unit, price, reg_date,
+                   ROW_NUMBER() OVER (PARTITION BY estate_id, building, floor, unit ORDER BY reg_date DESC) AS rn
+            FROM rental_transactions
+          ) rt ON rt.estate_id = v.estate_id
+            AND rt.building = CASE WHEN v.block LIKE '%座' THEN v.block ELSE v.block || '座' END
+            AND rt.floor = CASE WHEN v.floor LIKE '%樓' OR v.floor LIKE '%層' THEN v.floor ELSE v.floor || '樓' END
+            AND rt.unit = CASE WHEN v.unit LIKE '%室' OR v.unit LIKE '%號' THEN v.unit ELSE v.unit || '室' END
+            AND rt.rn = 1
+            AND v.deal_type = 'R'
           WHERE v.estate_id = ? AND v.account_id = ?
           ORDER BY v.view_date DESC, v.created_at DESC
         `).bind(estateId, session.account_id).all();
@@ -5222,7 +5235,7 @@ export default {
         // viewing 喺 JS 度計中位數,而唔係用一個 shared aggregate map。
         const eid = Number(estateId);
         const vcfg = await getConfig(db, session.account_id);
-        const [{ results: rawTxns }, { results: maxfRows }] = await Promise.all([
+        const [{ results: rawTxns }, { results: maxfRows }, { results: rawRentTxns }] = await Promise.all([
           db.prepare(`
             SELECT building, floor, unit, price_per_ft,
                    CAST(REPLACE(REPLACE(floor,'樓',''),'層','') AS INT) fl
@@ -5235,16 +5248,26 @@ export default {
             WHERE estate_id = ? AND CAST(REPLACE(REPLACE(floor,'樓',''),'層','') AS INT) > 0
             GROUP BY building
           `).bind(eid).all(),
+          // 租盤嘅相對市價用租務成交（唔係買賣成交）——同「最新放盤」租盤模式
+          // 個 rentMed 一致基準，先啱得起「貴/平」比較。
+          db.prepare(`
+            SELECT building, floor, unit, price_per_ft,
+                   CAST(REPLACE(REPLACE(floor,'樓',''),'層','') AS INT) fl
+            FROM rental_transactions
+            WHERE estate_id = ? AND price_per_ft > 0 AND reg_date >= date('now', ?)
+          `).bind(eid, `-${vcfg.market_median_days} days`).all(),
         ]);
         const maxfMap = new Map(maxfRows.map((r) => [r.building, r.max_fl]));
         for (const v of results) {
+          const isR = v.deal_type === 'R';
           const psf = v.price && v.size_net ? v.price / v.size_net : null;
           const floorNum = parseInt(String(v.floor ?? "").replace(/[樓層]/g, ""), 10) || null;
           const bldg = v.block ? (/座$/.test(v.block) ? v.block : v.block + "座") : null;
           const maxFl = maxfMap.get(bldg) ?? null;
           const tier = deriveFloorTier(floorNum, maxFl);
           const nb = bldg ? _normBldg(bldg) : null, nu = v.unit ? _normUnit(v.unit) : null;
-          const pool = rawTxns.filter((t) =>
+          const srcTxns = isR ? rawRentTxns : rawTxns;
+          const pool = srcTxns.filter((t) =>
             !(nb && nu && _normBldg(t.building) === nb && _normUnit(t.unit) === nu && t.fl === floorNum)
           );
           const tierPool = tier ? pool.filter((t) => deriveFloorTier(t.fl, maxfMap.get(t.building)) === tier) : [];
@@ -5282,6 +5305,18 @@ export default {
           price_bounds AS (
             SELECT ref_no, MIN(snapshot_date) AS min_d, MAX(snapshot_date) AS max_d
             FROM listing_price_history GROUP BY ref_no
+          ),
+          rsrc_latest AS (
+            SELECT source, MAX(snapshot_date) AS d FROM rental_listings WHERE estate_id = ?1 GROUP BY source
+          ),
+          rper_ref AS (
+            SELECT ref_no, source, MIN(snapshot_date) AS first_seen, MAX(snapshot_date) AS last_seen,
+                   MIN(NULLIF(publish_date, '')) AS publish_date
+            FROM rental_listings WHERE estate_id = ?1 GROUP BY ref_no, source
+          ),
+          rprice_bounds AS (
+            SELECT ref_no, MIN(snapshot_date) AS min_d, MAX(snapshot_date) AS max_d
+            FROM rental_price_history GROUP BY ref_no
           )
           SELECT v.id AS viewing_id, pr.ref_no,
             -- 上盤日 = source 公佈日 同 我哋第一次見到 之間較早嗰個，同
@@ -5298,7 +5333,23 @@ export default {
           LEFT JOIN price_bounds pb ON pb.ref_no = pr.ref_no
           LEFT JOIN listing_price_history fp ON fp.ref_no = pr.ref_no AND fp.snapshot_date = pb.min_d
           LEFT JOIN listing_price_history lp ON lp.ref_no = pr.ref_no AND lp.snapshot_date = pb.max_d
-          WHERE v.estate_id = ?1 AND v.account_id = ?2 AND v.linked_ref_no IS NOT NULL
+          WHERE v.estate_id = ?1 AND v.account_id = ?2 AND v.linked_ref_no IS NOT NULL AND COALESCE(v.deal_type,'S') = 'S'
+
+          UNION ALL
+
+          SELECT v.id AS viewing_id, pr.ref_no,
+            CASE WHEN pr.publish_date IS NOT NULL AND pr.publish_date < pr.first_seen
+                 THEN pr.publish_date ELSE pr.first_seen END AS list_start,
+            CASE WHEN pr.last_seen < sl.d THEN pr.last_seen ELSE NULL END AS removed_date,
+            (SELECT COUNT(DISTINCT price) FROM rental_price_history h WHERE h.ref_no = pr.ref_no) AS price_variants,
+            fp.price AS old_price, lp.price AS new_price, pb.max_d AS change_date
+          FROM viewings v
+          JOIN rper_ref pr ON (',' || v.linked_ref_no || ',') LIKE ('%,' || pr.ref_no || ',%')
+          JOIN rsrc_latest sl ON sl.source = pr.source
+          LEFT JOIN rprice_bounds pb ON pb.ref_no = pr.ref_no
+          LEFT JOIN rental_price_history fp ON fp.ref_no = pr.ref_no AND fp.snapshot_date = pb.min_d
+          LEFT JOIN rental_price_history lp ON lp.ref_no = pr.ref_no AND lp.snapshot_date = pb.max_d
+          WHERE v.estate_id = ?1 AND v.account_id = ?2 AND v.linked_ref_no IS NOT NULL AND v.deal_type = 'R'
         `).bind(estateId, session.account_id).all();
         const todayStr = hkDateStr();
         const domByViewing = new Map();    // viewing_id -> 最長 dom_days
@@ -5400,25 +5451,30 @@ export default {
       if (method === "POST" && path === "/api/viewings") {
         const body = await request.json();
         const { estate_id, view_date, block, floor, unit, size_net, direction, price, mgmt_fee, images, notes, bedrooms, ratings } = body;
+        const dealType = body.deal_type === 'R' ? 'R' : 'S';
         if (!estate_id || !view_date || !floor || !unit || !size_net || !price)
           return json(400, { error: "Missing required fields" });
         await db.prepare("ALTER TABLE viewings ADD COLUMN bedrooms INTEGER").run().catch(() => {});
         await db.prepare("ALTER TABLE viewings ADD COLUMN ratings TEXT").run().catch(() => {});
+        await db.prepare("ALTER TABLE viewings ADD COLUMN deal_type TEXT DEFAULT 'S'").run().catch(() => {});
         const result = await db.prepare(
-          "INSERT INTO viewings (estate_id, view_date, block, floor, unit, size_net, direction, price, mgmt_fee, images, notes, bedrooms, ratings, account_id) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)"
-        ).bind(estate_id, view_date, block||null, floor, unit, size_net, direction||null, price, mgmt_fee||null, images||null, notes||null, bedrooms||2, sanitizeRatings(ratings), session.account_id).run();
+          "INSERT INTO viewings (estate_id, view_date, block, floor, unit, size_net, direction, price, mgmt_fee, images, notes, bedrooms, ratings, account_id, deal_type) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)"
+        ).bind(estate_id, view_date, block||null, floor, unit, size_net, direction||null, price, dealType === 'R' ? null : (mgmt_fee||null), images||null, notes||null, bedrooms||2, sanitizeRatings(ratings), session.account_id, dealType).run();
         return json(200, { ok: true, id: result.meta.last_row_id });
       }
 
       // 改/刪都帶 account_id 條件——一個 account 掂唔到另一個 account 嘅記錄。
       if (method === "PUT" && path.startsWith("/api/viewings/")) {
         const viewingId = path.split("/").pop();
-        const { view_date, block, floor, unit, size_net, direction, price, mgmt_fee, images, notes, bedrooms, ratings } = await request.json();
+        const body = await request.json();
+        const { view_date, block, floor, unit, size_net, direction, price, mgmt_fee, images, notes, bedrooms, ratings } = body;
+        const dealType = body.deal_type === 'R' ? 'R' : 'S';
         await db.prepare("ALTER TABLE viewings ADD COLUMN bedrooms INTEGER").run().catch(() => {});
         await db.prepare("ALTER TABLE viewings ADD COLUMN ratings TEXT").run().catch(() => {});
+        await db.prepare("ALTER TABLE viewings ADD COLUMN deal_type TEXT DEFAULT 'S'").run().catch(() => {});
         await db.prepare(
-          "UPDATE viewings SET view_date=?, block=?, floor=?, unit=?, size_net=?, direction=?, price=?, mgmt_fee=?, images=?, notes=?, bedrooms=?, ratings=?, hs_price=NULL WHERE id=? AND account_id=?"
-        ).bind(view_date, block||null, floor, unit, size_net, direction||null, price, mgmt_fee||null, images||null, notes||null, bedrooms||2, sanitizeRatings(ratings), viewingId, session.account_id).run();
+          "UPDATE viewings SET view_date=?, block=?, floor=?, unit=?, size_net=?, direction=?, price=?, mgmt_fee=?, images=?, notes=?, bedrooms=?, ratings=?, deal_type=?, hs_price=NULL WHERE id=? AND account_id=?"
+        ).bind(view_date, block||null, floor, unit, size_net, direction||null, price, dealType === 'R' ? null : (mgmt_fee||null), images||null, notes||null, bedrooms||2, sanitizeRatings(ratings), dealType, viewingId, session.account_id).run();
         return json(200, { ok: true });
       }
 
