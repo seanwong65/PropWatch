@@ -3476,10 +3476,15 @@ async function syncNextUnit(db) {
     ? rentSources[Math.floor(Date.parse(`${today}T00:00:00Z`) / 86400000) % rentSources.length]
     : null;
   // 淨係「有 account 揀咗要租盤」嘅屋苑才抓租盤，唔好盲抓（慳 sync 額度）。
+  // 用 JSON1 精確 match deal_types 有冇 "R"，唔用 LIKE '%"R"%'——後者會夾中
+  // JSON 任何位置嘅 "R"（例如將來某個欄位嘅值係 "R"）。冇 deal_types 嘅
+  // 既有帳戶會回 0，即係默認唔抓租盤，符合「既有帳戶默認買盤」。
   const rentEstateIds = new Set((await db.prepare(
     `SELECT DISTINCT ae.estate_id AS id FROM account_estates ae
      JOIN settings st ON st.key = 'pref_' || ae.account_id
-     WHERE st.value LIKE '%"R"%'`
+     WHERE EXISTS (
+       SELECT 1 FROM json_each(COALESCE(json_extract(st.value, '$.deal_types'), '[]'))
+       WHERE value = 'R')`
   ).all()).results.map((r) => r.id));
 
   // 放盤排前（主數據：側邊欄數量／放盤趨勢／已下架判斷都靠佢），成交在後；
@@ -3625,13 +3630,28 @@ async function getPrefs(db, accountId) {
   try { return JSON.parse(row.value); } catch (_) { return null; }
 }
 function prefsUsable(p) {
-  return !!(p && (p.price_min || p.price_max || p.beds || p.size_min || p.size_max));
+  return !!(p && (p.price_min || p.price_max || p.beds || p.size_min || p.size_max
+    || p.rent_min || p.rent_max));
 }
+// 用戶想搵買盤／租盤？冇設過就當買盤（既有帳戶冇 deal_types 欄位）。
+const wantsDeal = (p, t) => {
+  const dt = p?.deal_types;
+  return Array.isArray(dt) && dt.length ? dt.includes(t) : t === "S";
+};
 // 對齊前端 prefMatchHl：欄位缺失（例如售價變動冇房數）嗰項條件唔計。
-function prefMatchRow(p, r) {
+// isRent：租盤行 rent_*（單位 $/月，唔使 ×1e4），買盤行 price_*（單位 萬）。
+// 兩者用錯咗會靜靜篩走全部盤（例：租盤 $23,000 撞買盤上限 800萬×1e4 就永遠過關，
+// 或者買盤 800萬 撞租盤上限 30,000 就全部被篩走），所以一定要分清。
+function prefMatchRow(p, r, isRent = false) {
   const price = r.price ?? r.new_price;
-  if (p.price_min && price != null && price < p.price_min * 1e4) return false;
-  if (p.price_max && price != null && price > p.price_max * 1e4) return false;
+  if (isRent) {
+    if (p.rent_min && price != null && price < p.rent_min) return false;
+    if (p.rent_max && price != null && price > p.rent_max) return false;
+  } else {
+    if (p.price_min && price != null && price < p.price_min * 1e4) return false;
+    if (p.price_max && price != null && price > p.price_max * 1e4) return false;
+  }
+  // 房數／實呎買租共用
   if (p.beds && r.bedrooms != null) {
     if (p.beds === "4+" ? r.bedrooms < 4 : String(r.bedrooms) !== p.beds) return false;
   }
@@ -5483,12 +5503,19 @@ export default {
       if (method === "PUT" && path === "/api/preferences") {
         const body = await request.json();
         const prefs = {};
-        // 數字欄位：淨係收有效正數，其他一律唔存（optional）
-        for (const k of ["price_min", "price_max", "size_min", "size_max"]) {
+        // 數字欄位：淨係收有效正數，其他一律唔存（optional）。
+        // price_* 係買盤預算（單位：萬），rent_* 係租盤預算（單位：$/月）——
+        // 兩套獨立存，用戶轉搵盤類型唔會蓋咗對方個數字。
+        for (const k of ["price_min", "price_max", "size_min", "size_max", "rent_min", "rent_max"]) {
           const n = Number(body[k]);
           if (Number.isFinite(n) && n > 0) prefs[k] = n;
         }
         if (["1", "2", "3", "4+"].includes(String(body.beds))) prefs.beds = String(body.beds);
+        // 搵盤類型：S=買盤 R=租盤，可以兩樣都要。唔傳／傳垃圾就當買盤
+        // （既有帳戶冇呢個欄位，所以 default 一定要係 ['S']，唔可以突然變租盤）。
+        const dt = Array.isArray(body.deal_types)
+          ? [...new Set(body.deal_types.filter((t) => t === "S" || t === "R"))] : [];
+        prefs.deal_types = dt.length ? dt : ["S"];
         if (body.dismissed === true) prefs.dismissed = true;
         await db.prepare("CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT)").run();
         await db.prepare(

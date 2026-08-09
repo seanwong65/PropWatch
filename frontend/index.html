@@ -1099,11 +1099,27 @@
     <button class="modal-close" onclick="closePrefsModal()">✕</button>
     <div class="modal-title">🎯 睇樓偏好</div>
     <p style="font-size:0.82rem;color:var(--muted);margin:0.25rem 0 1rem">話俾系統知你想搵咩樓，開「最新放盤」時會自動幫你 filter。全部 optional，之後喺 ⚙️ 設定都改到。</p>
-    <label class="vf-label">想睇幾錢嘅樓（萬）</label>
-    <div style="display:flex;align-items:center;gap:0.5rem">
-      <input class="vf-input" type="number" id="pref-price-min" placeholder="最低" style="margin:0" oninput="updatePrefsModalPreview()">
-      <span style="color:var(--muted)">–</span>
-      <input class="vf-input" type="number" id="pref-price-max" placeholder="最高" style="margin:0" oninput="updatePrefsModalPreview()">
+    <label class="vf-label">想搵買盤定租盤？</label>
+    <div id="pref-deal-types" style="display:flex;gap:0.4rem;flex-wrap:wrap">
+      <button type="button" class="filter-chip active" data-deal="S" onclick="togglePrefDeal(this)">🏠 買盤</button>
+      <button type="button" class="filter-chip" data-deal="R" onclick="togglePrefDeal(this)">🔑 租盤</button>
+    </div>
+    <!-- 買／租各自一套預算：轉搵盤類型唔會蓋咗對方個數字 -->
+    <div id="pref-buy-budget">
+      <label class="vf-label" style="margin-top:0.9rem">買盤預算（萬）</label>
+      <div style="display:flex;align-items:center;gap:0.5rem">
+        <input class="vf-input" type="number" id="pref-price-min" placeholder="最低" style="margin:0" oninput="updatePrefsModalPreview()">
+        <span style="color:var(--muted)">–</span>
+        <input class="vf-input" type="number" id="pref-price-max" placeholder="最高" style="margin:0" oninput="updatePrefsModalPreview()">
+      </div>
+    </div>
+    <div id="pref-rent-budget" style="display:none">
+      <label class="vf-label" style="margin-top:0.9rem">租盤預算（$/月）</label>
+      <div style="display:flex;align-items:center;gap:0.5rem">
+        <input class="vf-input" type="number" id="pref-rent-min" placeholder="最低" style="margin:0" oninput="updatePrefsModalPreview()">
+        <span style="color:var(--muted)">–</span>
+        <input class="vf-input" type="number" id="pref-rent-max" placeholder="最高" style="margin:0" oninput="updatePrefsModalPreview()">
+      </div>
     </div>
     <label class="vf-label" style="margin-top:0.9rem">目標房數</label>
     <div id="pref-beds" style="display:flex;gap:0.4rem;flex-wrap:wrap">
@@ -4287,8 +4303,15 @@ function openPrefsModal(prefill) {
   const p = prefill || {};
   document.getElementById('pref-price-min').value = p.price_min || '';
   document.getElementById('pref-price-max').value = p.price_max || '';
+  document.getElementById('pref-rent-min').value = p.rent_min || '';
+  document.getElementById('pref-rent-max').value = p.rent_max || '';
   document.getElementById('pref-size-min').value = p.size_min || '';
   document.getElementById('pref-size-max').value = p.size_max || '';
+  // 冇 deal_types（既有帳戶）就當買盤——唔可以突然變租盤模式
+  const dts = Array.isArray(p.deal_types) && p.deal_types.length ? p.deal_types : ['S'];
+  document.querySelectorAll('#pref-deal-types .filter-chip').forEach(b =>
+    b.classList.toggle('active', dts.includes(b.dataset.deal)));
+  syncPrefBudgetRows();
   document.querySelectorAll('#pref-beds .filter-chip').forEach(b =>
     b.classList.toggle('active', (b.dataset.beds || '') === (p.beds || '')));
   document.getElementById('pref-dismiss').checked = false;
@@ -4297,6 +4320,26 @@ function openPrefsModal(prefill) {
   // 評分項目係即時 CRUD（唔跟「儲存」掣），所以開個 popup 就即刻拉最新嗰份
   renderRatingCrits();
   loadRatingCriteria().then(renderRatingCrits);
+}
+
+// 搵盤類型可以多選（買/租兩樣都要），但唔准全部熄——冇類型就唔知篩咩，
+// 所以最後一個唔准 uncheck。
+function togglePrefDeal(btn) {
+  const all = [...document.querySelectorAll('#pref-deal-types .filter-chip')];
+  const on = all.filter(b => b.classList.contains('active'));
+  if (btn.classList.contains('active') && on.length === 1) return;
+  btn.classList.toggle('active');
+  syncPrefBudgetRows();
+  updatePrefsModalPreview();
+}
+
+// 只顯示揀咗嗰種類型嘅預算欄（兩套數字都照留喺 DOM／DB，唔會互相蓋）
+function syncPrefBudgetRows() {
+  const has = (t) => !!document.querySelector(`#pref-deal-types .filter-chip.active[data-deal="${t}"]`);
+  const buy = document.getElementById('pref-buy-budget');
+  const rent = document.getElementById('pref-rent-budget');
+  if (buy) buy.style.display = has('S') ? '' : 'none';
+  if (rent) rent.style.display = has('R') ? '' : 'none';
 }
 
 function setPrefBeds(btn) {
@@ -4313,9 +4356,12 @@ function updatePrefsModalPreview() {
   const p = {
     price_min: document.getElementById('pref-price-min').value,
     price_max: document.getElementById('pref-price-max').value,
+    rent_min: document.getElementById('pref-rent-min').value,
+    rent_max: document.getElementById('pref-rent-max').value,
     size_min: document.getElementById('pref-size-min').value,
     size_max: document.getElementById('pref-size-max').value,
     beds: document.querySelector('#pref-beds .filter-chip.active')?.dataset.beds || '',
+    deal_types: [...document.querySelectorAll('#pref-deal-types .filter-chip.active')].map(b => b.dataset.deal),
   };
   el.textContent = formatPrefsSummary(p);
 }
@@ -4324,9 +4370,12 @@ async function savePrefsFromModal() {
   const body = {
     price_min: document.getElementById('pref-price-min').value,
     price_max: document.getElementById('pref-price-max').value,
+    rent_min: document.getElementById('pref-rent-min').value,
+    rent_max: document.getElementById('pref-rent-max').value,
     size_min: document.getElementById('pref-size-min').value,
     size_max: document.getElementById('pref-size-max').value,
     beds: document.querySelector('#pref-beds .filter-chip.active')?.dataset.beds || '',
+    deal_types: [...document.querySelectorAll('#pref-deal-types .filter-chip.active')].map(b => b.dataset.deal),
   };
   if (document.getElementById('pref-dismiss').checked) body.dismissed = true;
   try {
@@ -4355,17 +4404,32 @@ let _hlPrefFilterOn = true; // 「🎯 偏好」chip：預設開，撳一下睇�
 // 偏好有冇可以攞嚟篩嘅欄位（dismissed-only 就唔使顯示 chip）
 function _hlPrefsUsable() {
   const p = _userPrefs || {};
-  return !!(p.price_min || p.price_max || p.beds || p.size_min || p.size_max);
+  return !!(p.price_min || p.price_max || p.beds || p.size_min || p.size_max
+    || p.rent_min || p.rent_max);
+}
+
+// 用戶想搵買盤／租盤？冇設過就當買盤（既有帳戶冇 deal_types）。
+// 同 worker 個 wantsDeal 保持一致。
+function wantsDeal(t) {
+  const dt = (_userPrefs || {}).deal_types;
+  return Array.isArray(dt) && dt.length ? dt.includes(t) : t === 'S';
 }
 
 // Highlights row 篩選：欄位缺失（例如成交冇房數）嗰項條件就唔計，唔一刀切走。
 // 「睇過嘅盤」相關組唔經呢度——自己睇過嘅嘢一定要顯示。
-function prefMatchHl(r) {
+// isRent：租盤行 rent_*（單位 $/月），買盤行 price_*（單位 萬，要 ×1e4）。
+// 用錯咗會靜靜篩走全部盤，所以一定要分清。
+function prefMatchHl(r, isRent = false) {
   if (!_hlPrefFilterOn || !_hlPrefsUsable()) return true;
   const p = _userPrefs;
   const price = r.price ?? r.new_price;
-  if (p.price_min && price != null && price < p.price_min * 1e4) return false;
-  if (p.price_max && price != null && price > p.price_max * 1e4) return false;
+  if (isRent) {
+    if (p.rent_min && price != null && price < p.rent_min) return false;
+    if (p.rent_max && price != null && price > p.rent_max) return false;
+  } else {
+    if (p.price_min && price != null && price < p.price_min * 1e4) return false;
+    if (p.price_max && price != null && price > p.price_max * 1e4) return false;
+  }
   if (p.beds && r.bedrooms != null) {
     if (p.beds === '4+' ? r.bedrooms < 4 : String(r.bedrooms) !== p.beds) return false;
   }
@@ -4398,9 +4462,22 @@ function syncHlPrefChips() {
 function formatPrefsSummary(p) {
   p = p || {};
   const parts = [];
-  if (p.price_min && p.price_max) parts.push(`$${p.price_min}–${p.price_max}萬`);
-  else if (p.price_max) parts.push(`${p.price_max}萬內`);
-  else if (p.price_min) parts.push(`${p.price_min}萬以上`);
+  // 冇 deal_types（既有帳戶）當買盤。兩樣都揀就兩個預算都寫出嚟，
+  // 唔好淨係寫一個令人以為另一邊冇設定。
+  const dts = Array.isArray(p.deal_types) && p.deal_types.length ? p.deal_types : ['S'];
+  if (dts.length === 2) parts.push('買盤+租盤');
+  else parts.push(dts[0] === 'R' ? '租盤' : '買盤');
+  if (dts.includes('S')) {
+    if (p.price_min && p.price_max) parts.push(`$${p.price_min}–${p.price_max}萬`);
+    else if (p.price_max) parts.push(`${p.price_max}萬內`);
+    else if (p.price_min) parts.push(`${p.price_min}萬以上`);
+  }
+  if (dts.includes('R')) {
+    const k = (v) => `$${Number(v).toLocaleString()}`;
+    if (p.rent_min && p.rent_max) parts.push(`租 ${k(p.rent_min)}–${k(p.rent_max)}/月`);
+    else if (p.rent_max) parts.push(`租 ${k(p.rent_max)}/月內`);
+    else if (p.rent_min) parts.push(`租 ${k(p.rent_min)}/月以上`);
+  }
   if (p.beds) parts.push(`${p.beds}房`);
   if (p.size_min && p.size_max) parts.push(`${p.size_min}–${p.size_max}呎`);
   else if (p.size_max) parts.push(`${p.size_max}呎內`);
