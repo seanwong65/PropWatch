@@ -4230,6 +4230,122 @@ export default {
         return json(200, { listings: results });
       }
 
+      // 租盤列表。刻意同買盤 endpoint 分開（表都係分開嘅），但「已下架」判斷
+      // 用返同一套 per-source 邏輯：同自己 source 嘅最新 snapshot 比，唔可以
+      // 同屋苑整體最新比，否則某個 source 落後一日未 sync 就會令佢全部租盤
+      // 被誤判下架。租盤每日只輪一個 source，所以呢點更加重要——如果同整體
+      // 最新比，冇輪到嗰兩個 source 嘅盤日日都會扮下架。
+      if (method === "GET" && path.match(/^\/api\/estates\/\d+\/rental-listings$/)) {
+        await ensureRentalTables(db);
+        const estateId = path.split("/")[3];
+        const sub = await db.prepare("SELECT added_at FROM account_estates WHERE account_id = ? AND estate_id = ?")
+          .bind(session.account_id, estateId).first();
+        const addedAt = sub?.added_at ?? "9999-12-31";
+        const { results } = await db.prepare(
+          `WITH src_latest AS (
+             SELECT source, MAX(snapshot_date) AS d FROM rental_listings
+             WHERE estate_id = ?1 GROUP BY source
+           ),
+           per_listing AS (
+             SELECT listing_id, MIN(snapshot_date) AS first_seen, MAX(snapshot_date) AS last_seen
+             FROM rental_listings WHERE estate_id = ?1 GROUP BY listing_id
+           )
+           SELECT l.*, pl.first_seen,
+             CASE WHEN pl.last_seen < sl.d THEN pl.last_seen ELSE NULL END AS removed_date,
+             prev.price AS prev_price,
+             (SELECT COUNT(DISTINCT h.price) FROM rental_price_history h
+               WHERE h.ref_no = l.ref_no AND h.snapshot_date >= ?2) AS price_variants
+           FROM rental_listings l
+           JOIN per_listing pl ON pl.listing_id = l.listing_id
+           JOIN src_latest sl ON sl.source = l.source
+           LEFT JOIN rental_price_history prev
+             ON prev.ref_no = l.ref_no
+             AND prev.snapshot_date = (
+               SELECT MIN(snapshot_date) FROM rental_price_history
+               WHERE ref_no = l.ref_no AND snapshot_date >= ?2
+             )
+           WHERE l.estate_id = ?1 AND l.snapshot_date = pl.last_seen
+           ORDER BY removed_date IS NOT NULL ASC, l.price ASC`
+        ).bind(estateId, addedAt).all();
+
+        // 實呎租中位數（貴/平基準）用真實租務成交，唔用叫租——叫租係業主
+        // 開嘅價，成交租金才係市場真正接受嘅水平。窗口跟買盤同一個 config。
+        const rcfg = await getConfig(db, session.account_id);
+        const days = rcfg.market_median_days ?? 60;
+        const { results: rentPsfs } = await db.prepare(
+          `SELECT price_per_ft FROM rental_transactions
+           WHERE estate_id = ? AND price_per_ft IS NOT NULL
+             AND reg_date >= date('now','+8 hours',?)`
+        ).bind(estateId, `-${days} days`).all();
+        const psfs = rentPsfs.map((r) => r.price_per_ft).filter(Boolean);
+        const rentMed = psfs.length ? { med_psf: _sqlMedian(psfs), n: psfs.length, days } : null;
+
+        if (!isPaidSession(session)) {
+          const free = results
+            .filter((r) => !r.removed_date)
+            .map(({ first_seen, removed_date, prev_price, price_variants, ...rest }) => rest);
+          return json(200, { listings: free, rentMed: null, tierLimited: true });
+        }
+        return json(200, { listings: results, rentMed });
+      }
+
+      // 租盤呎租趨勢（趨勢圖喺租盤模式用）。實呎租 ~$50 vs 買賣呎價 ~$17,000，
+      // 差 300 倍，所以一定要獨立一條線，唔可以同買盤共用個 y 軸。
+      if (method === "GET" && path.match(/^\/api\/estates\/\d+\/rental-trends$/)) {
+        if (!isPaidSession(session)) return paywall("趨勢圖");
+        await ensureRentalTables(db);
+        const estateId = path.split("/")[3];
+        const beds = url.searchParams.get("beds") || "all";
+        const sub = await db.prepare("SELECT added_at FROM account_estates WHERE account_id = ? AND estate_id = ?")
+          .bind(session.account_id, estateId).first();
+        const addedAt = sub?.added_at ?? "9999-12-31";
+        const { results: rows } = await db.prepare(
+          `SELECT snapshot_date, bedrooms, price_per_ft FROM rental_listings
+           WHERE estate_id = ? AND snapshot_date >= ? AND price_per_ft IS NOT NULL`
+        ).bind(estateId, addedAt).all();
+        const byDate = new Map();
+        for (const r of rows) {
+          if (!_bedMatch(beds, r.bedrooms)) continue;
+          if (!byDate.has(r.snapshot_date)) byDate.set(r.snapshot_date, []);
+          byDate.get(r.snapshot_date).push(r.price_per_ft);
+        }
+        const trends = [...byDate.entries()].sort((a, b) => a[0].localeCompare(b[0])).slice(-90)
+          .map(([d, vals]) => ({
+            snapshot_date: d,
+            avg_price_ft: Math.round(vals.reduce((s, v) => s + v, 0) / vals.length),
+            listing_count: vals.length,
+          }));
+        // 租務成交呎租趨勢（trailing median），同買盤個 soldTrend 一樣概念
+        const { results: txns } = await db.prepare(
+          `SELECT reg_date, price_per_ft FROM rental_transactions
+           WHERE estate_id = ? AND price_per_ft IS NOT NULL AND reg_date IS NOT NULL`
+        ).bind(estateId).all();
+        const winDays = (await getConfig(db, session.account_id)).market_median_days ?? 60;
+        const soldTrend = trends.map((pt) => {
+          const end = Date.parse(pt.snapshot_date);
+          const vals = txns
+            .filter((t) => {
+              const d = Date.parse(t.reg_date);
+              return Number.isFinite(d) && d <= end && d >= end - winDays * 86400000;
+            })
+            .map((t) => t.price_per_ft);
+          return vals.length ? _sqlMedian(vals) : null;
+        });
+        return json(200, { trends, soldTrend });
+      }
+
+      // 租務成交列表（「成交記錄」tab 喺租盤模式用）
+      if (method === "GET" && path.match(/^\/api\/estates\/\d+\/rental-transactions$/)) {
+        await ensureRentalTables(db);
+        const estateId = path.split("/")[3];
+        const { results } = await db.prepare(
+          `SELECT building, floor, unit, price, size_net, price_per_ft, reg_date, source
+           FROM rental_transactions WHERE estate_id = ?
+           ORDER BY reg_date DESC, price DESC LIMIT 300`
+        ).bind(estateId).all();
+        return json(200, { transactions: results });
+      }
+
       // 屋苑市場溫度:在售量、30/90日成交、消化率(答「買家定賣家市場」)
       if (method === "GET" && path.match(/^\/api\/estates\/\d+\/market-temp$/)) {
         const estateId = path.split("/")[3];

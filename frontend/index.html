@@ -1400,6 +1400,11 @@
 <script>
 const API = "https://propwatch-worker.johnwong777.workers.dev";
 let activeEstateId = null;
+// 屋苑頁睇買盤定租盤（'S'|'R'）。只喺偏好有揀租盤時個 toggle 才出現；
+// 每次開屋苑重設做買盤，唔好記住上次（免得開另一個屋苑莫名其妙係租盤模式）。
+let _estateDeal = 'S';
+let _rentalListings = [];
+let _rentMed = null;
 let searchTimer = null;
 let chart = null;
 
@@ -2881,14 +2886,17 @@ async function loadEstateChart(estateId, beds) {
   _estateChartId = estateId;
   _estateOverlay = null;
   try {
-    const { trends, soldTrend } = await api(`/api/estates/${estateId}/trends?beds=${beds}`);
+    // 租盤模式行另一條 endpoint：實呎租 ~$50 vs 買賣呎價 ~$17,000，差 300 倍，
+    // 唔可以同一條線／同一個 y 軸。
+    const ep = _estateDeal === 'R' ? 'rental-trends' : 'trends';
+    const { trends, soldTrend } = await api(`/api/estates/${estateId}/${ep}?beds=${beds}`);
     // 期間切咗屋苑 或 快速轉 beds（避免 stale response 蓋過最新）就唔好覆蓋
     if (_estateChartId !== estateId || estateChartBeds !== beds) return;
     _estateTrends = trends || [];
     _estateSoldTrend = soldTrend || [];
     drawEstateChart();
     // 全組合 overlay 係全苑呎價指數，同房數無關 → 淨係「全部房 + 實呎價」先疊
-    if (beds === "all" && _estateTrends.length >= 2) {
+    if (beds === "all" && _estateDeal !== 'R' && _estateTrends.length >= 2) {
       api('/api/market-index').then(({ index }) => {
         if (!index || index.length < 2 || _estateChartId !== estateId || estateChartBeds !== "all") return;
         const idxMap = new Map(index.map(r => [r.snapshot_date, r.idx]));
@@ -2915,7 +2923,9 @@ function setEstateChartMetric(metric) {
     btn.classList.toggle("active", btn.dataset.metric === metric);
   });
   const titleEl = document.getElementById("estate-chart-title");
-  if (titleEl) titleEl.textContent = metric === "count" ? "放盤數量趨勢" : "實用呎價趨勢";
+  if (titleEl) titleEl.textContent = metric === "count"
+    ? (_estateDeal === 'R' ? "租盤數量趨勢" : "放盤數量趨勢")
+    : (_estateDeal === 'R' ? "實用呎租趨勢" : "實用呎價趨勢");
   drawEstateChart();
 }
 function setEstateChartBeds(beds) {
@@ -3235,6 +3245,10 @@ async function showEstate(id, name, district) {
     // 開屋苑 auto-apply 用戶「目標房數」偏好（同「最新放盤」filter 一致邏輯）；
     // 冇設定就跟返「全部」，user 之後照可以手動撳 chip 改
     estateChartBeds = (_userPrefs && _userPrefs.beds) || "all";
+    // 每次開屋苑都重設做買盤——如果記住上次，開另一個屋苑會莫名其妙係租盤模式。
+    // 但如果用戶偏好「只要租盤」，就默認開租盤（唔使佢每次自己撳）。
+    _estateDeal = (wantsDeal('R') && !wantsDeal('S')) ? 'R' : 'S';
+    _rentalListings = []; _rentMed = null;
 
     main.innerHTML = `
       <div class="estate-header" style="display:flex;align-items:flex-start;justify-content:space-between">
@@ -3272,6 +3286,13 @@ async function showEstate(id, name, district) {
         </div>
       </div>
 
+      <!-- 買/租 toggle：只喺用戶偏好有揀「租盤」時出現，唔想幫買盤 user 加噪音。
+           控制「最新放盤」同「成交記錄」兩個 tab 睇買盤定租盤數據。 -->
+      ${wantsDeal('R') ? `
+      <div id="estate-deal-toggle" style="display:flex;gap:0.3rem;margin:0.75rem 0 0.25rem">
+        <button class="filter-chip ${_estateDeal === 'S' ? 'active' : ''}" onclick="setEstateDeal('S',${id})">🏠 買盤</button>
+        <button class="filter-chip ${_estateDeal === 'R' ? 'active' : ''}" onclick="setEstateDeal('R',${id})">🔑 租盤</button>
+      </div>` : ''}
       <div class="estate-tabs">
         <button class="estate-tab active" onclick="switchTab('listings',${id})">最新放盤(${listings.length})</button>
         <button class="estate-tab" onclick="switchTab('transactions',${id})">成交記錄</button>
@@ -3359,6 +3380,8 @@ async function showEstate(id, name, district) {
       renderSourceToggles();
       renderListingsTable();
     }
+    // 偏好「只要租盤」就開頁即刻拉租盤（上面 _estateDeal 已經設咗 'R'）
+    if (_estateDeal === 'R') loadRentalListings(id);
 
     // Load estate info (non-blocking)
     loadEstateInfo(id);
@@ -3831,8 +3854,153 @@ function switchTab(tab, estateId) {
   document.getElementById("tab-viewings").style.display = tab === "viewings" ? "" : "none";
   const batchBtn = document.getElementById("batch-hs-btn");
   if (batchBtn) batchBtn.style.display = (tab === "transactions" || tab === "viewings") ? "" : "none";
-  if (tab === "transactions") loadTransactions(estateId, 0, false);
+  if (tab === "transactions") {
+    if (_estateDeal === 'R') loadRentalTransactions(estateId);
+    else loadTransactions(estateId, 0, false);
+  }
   if (tab === "viewings") loadViewings(estateId);
+}
+
+// 切買/租：重載當前 tab 嘅數據。租盤同買盤係兩張表、兩個 endpoint，
+// 所以唔可以純粹前端 filter，一定要重新拉。
+async function setEstateDeal(deal, estateId) {
+  _estateDeal = deal;
+  document.querySelectorAll('#estate-deal-toggle .filter-chip').forEach((b) =>
+    b.classList.toggle('active', b.getAttribute('onclick')?.includes(`'${deal}'`)));
+  const shown = ['listings', 'transactions', 'viewings']
+    .find((t) => document.getElementById('tab-' + t)?.style.display !== 'none') || 'listings';
+  if (shown === 'listings') {
+    if (deal === 'R') await loadRentalListings(estateId);
+    else renderListingsTable();
+  } else if (shown === 'transactions') {
+    if (deal === 'R') await loadRentalTransactions(estateId);
+    else loadTransactions(estateId, 0, false);
+  }
+  // 趨勢圖：租盤模式畫呎租，買盤畫呎價。兩者 scale 差 300 倍，唔可以同一條線。
+  // 標題本來只由 setEstateChartMetric 更新，切買/租唔會經佢，所以要自己 sync。
+  const titleEl = document.getElementById('estate-chart-title');
+  if (titleEl) titleEl.textContent = estateChartMetric === 'count'
+    ? (deal === 'R' ? '租盤數量趨勢' : '放盤數量趨勢')
+    : (deal === 'R' ? '實用呎租趨勢' : '實用呎價趨勢');
+  if (_estateChartId) loadEstateChart(_estateChartId, estateChartBeds);
+}
+
+// ── 租盤列表 ────────────────────────────────────────────────────────────────
+// 刻意用獨立 render（唔硬套買盤個 renderListingsTable）：買盤表有群組模式／
+// source toggle／已下架 filter 等一大堆狀態，全部假設買賣價。租盤要嘅係
+// 月租／實呎租／貴平，所以出一張乾淨嘅表，唔好為咗省 code 而搞亂買盤嗰邊。
+async function loadRentalListings(estateId) {
+  const panel = document.getElementById('tab-listings');
+  if (!panel) return;
+  panel.innerHTML = '<div class="loading"><div class="spinner"></div> 載入租盤…</div>';
+  try {
+    const d = await api(`/api/estates/${estateId}/rental-listings`);
+    _rentalListings = d.listings || [];
+    _rentMed = d.rentMed || null;
+    renderRentalListingsTable();
+  } catch (e) {
+    panel.innerHTML = `<div class="listings-section" style="padding:1.5rem;color:var(--muted);text-align:center">載入失敗：${escHtml(e.message)}</div>`;
+  }
+}
+
+function renderRentalListingsTable() {
+  const panel = document.getElementById('tab-listings');
+  if (!panel) return;
+  const rows0 = _rentalListings.filter((l) => !l.removed_date);
+  // 跟睇樓偏好（租盤預算）auto-apply，同買盤嗰邊一致
+  const rows = _hlPrefsUsable() ? rows0.filter((l) => prefMatchHl(l, true)) : rows0;
+  const med = _rentMed?.med_psf || null;
+  const medLine = med
+    ? `<div style="font-size:0.82rem;color:var(--muted);margin-bottom:0.6rem">
+         同屋苑近 ${_rentMed.days} 日<b style="color:var(--text)">租務成交</b>實呎租中位
+         <b style="color:var(--text)">$${Math.round(med).toLocaleString()}</b>
+         · ${_rentMed.n} 宗${_rentMed.n < (_appCfg.sample_weak_n ?? 5) ? ' <span style="color:var(--accent)">⚠ 樣本少</span>' : ''}
+         　<span style="color:var(--muted)">（貴／平係同呢個基準比）</span>
+       </div>`
+    : `<div style="font-size:0.82rem;color:var(--muted);margin-bottom:0.6rem">近期冇租務成交，所以出唔到貴／平判斷</div>`;
+  const body = rows.map((l) => {
+    const psf = l.price_per_ft;
+    let vs = '';
+    if (med && psf) {
+      const pct = (psf - med) / med * 100;
+      const cls = pct <= 0 ? 'gain-pos' : 'gain-neg';
+      vs = `<span class="${cls}">${pct <= 0 ? '平' : '貴'} ${Math.abs(pct).toFixed(1)}%</span>`;
+    }
+    const dom = l.first_seen ? domDaysStr(l.publish_date, l.first_seen) : '';
+    return `<tr class="hl-tr">
+      <td>${escHtml(l.building_name || '')} ${escHtml(l.floor || '')} ${escHtml(l.unit || '')}</td>
+      <td>${l.bedrooms != null ? l.bedrooms + '房' : '-'}${l.size_net ? ' · ' + Math.round(l.size_net) + '呎' : ''}</td>
+      <td><strong style="color:var(--accent)">$${l.price ? Math.round(l.price).toLocaleString() : '-'}</strong><div class="unit-price">/月</div></td>
+      <td>${psf ? '$' + Math.round(psf).toLocaleString() : '-'}<div class="unit-price">/呎</div></td>
+      <td>${vs || '-'}</td>
+      <td>${dom || '-'}</td>
+      <td>${l.detail_url ? `<a href="${safeUrl(l.detail_url)}" target="_blank" class="detail-link" style="font-size:0.75rem" onclick="trackListingClick('${escJsAttr(l.ref_no || '')}')">${escHtml(sourceLabel(l.source))} ↗</a>` : escHtml(sourceLabel(l.source))}</td>
+    </tr>`;
+  }).join('');
+  const hidden = rows0.length - rows.length;
+  panel.innerHTML = `
+    <div class="stats-row" style="grid-template-columns:1fr">
+      <div class="stat-card">
+        <div class="stat-label">租盤（${rows.length}${hidden > 0 ? ` / ${rows0.length}，${hidden} 個唔啱預算` : ''}）</div>
+        <div style="margin-top:0.5rem">${medLine}</div>
+      </div>
+    </div>
+    <div class="listings-section" id="rentalTableWrap"></div>`;
+  if (!rows.length) {
+    document.getElementById('rentalTableWrap').innerHTML =
+      `<div style="padding:1.5rem;color:var(--muted);text-align:center">${rows0.length ? '全部租盤都唔啱你個預算' : '暫時冇租盤'}</div>`;
+    return;
+  }
+  renderFrozenTable(
+    document.getElementById('rentalTableWrap'),
+    `<th>單位</th><th>房間 / 面積</th><th>月租</th><th>實呎租</th><th>vs 成交中位</th><th>放咗幾耐</th><th>來源</th>`,
+    body, 15, 'history-table data-table'
+  );
+}
+
+// 上盤日 = publish_date 同 first_seen 取較早（同 worker 個 LIST_START_SQL 一致）
+function domDaysStr(publishDate, firstSeen) {
+  const cands = [publishDate, firstSeen].filter(Boolean).map((x) => Date.parse(x)).filter(Number.isFinite);
+  if (!cands.length) return '';
+  const d = Math.round((Date.now() - Math.min(...cands)) / 86400000);
+  if (!Number.isFinite(d) || d < 0) return '';
+  if (d < 30) return `${d}日`;
+  if (d < 365) return `${Math.round(d / 30)}個月`;
+  return `${(d / 365).toFixed(1)}年`;
+}
+
+async function loadRentalTransactions(estateId) {
+  const panel = document.getElementById('tab-transactions');
+  if (!panel) return;
+  panel.innerHTML = '<div class="loading"><div class="spinner"></div> 載入租務成交…</div>';
+  try {
+    const d = await api(`/api/estates/${estateId}/rental-transactions`);
+    const txns = d.transactions || [];
+    if (!txns.length) {
+      panel.innerHTML = '<div class="listings-section" style="padding:1.5rem;color:var(--muted);text-align:center">暫時冇租務成交記錄</div>';
+      return;
+    }
+    const body = txns.map((t) => `<tr class="hl-tr">
+      <td>${escHtml(t.building || '')} ${escHtml(t.floor || '')} ${escHtml(t.unit || '')}</td>
+      <td>${t.size_net ? Math.round(t.size_net) + '呎' : '-'}</td>
+      <td><strong style="color:var(--accent)">$${t.price ? Math.round(t.price).toLocaleString() : '-'}</strong><div class="unit-price">/月</div></td>
+      <td>${t.price_per_ft ? '$' + Math.round(t.price_per_ft).toLocaleString() : '-'}<div class="unit-price">/呎</div></td>
+      <td class="txn-date">${escHtml(t.reg_date || '')}</td>
+      <td style="font-size:0.75rem;color:var(--muted)">${escHtml(sourceLabel(t.source))}</td>
+    </tr>`).join('');
+    panel.innerHTML = `
+      <p style="font-size:0.78rem;color:var(--muted);margin:0 0 0.6rem">
+        租務成交嚟自代理自己嘅租務記錄（租約唔會喺土地註冊處公開登記），所以係代理報嘅，未必齊全。
+      </p>
+      <div class="listings-section" id="rentTxnWrap"></div>`;
+    renderFrozenTable(
+      document.getElementById('rentTxnWrap'),
+      `<th>單位</th><th>實呎</th><th>月租</th><th>實呎租</th><th>成交日期</th><th>來源</th>`,
+      body, 15, 'history-table data-table'
+    );
+  } catch (e) {
+    panel.innerHTML = `<div class="listings-section" style="padding:1.5rem;color:var(--muted);text-align:center">載入失敗：${escHtml(e.message)}</div>`;
+  }
 }
 
 // ── Viewing modal ──────────────────────────────────────────────
