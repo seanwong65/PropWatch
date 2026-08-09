@@ -2823,6 +2823,11 @@ const LIST_START_SQL = `(SELECT MIN(CASE
     WHEN NULLIF(x.publish_date,'') IS NOT NULL AND x.publish_date < x.snapshot_date
     THEN x.publish_date ELSE x.snapshot_date END)
   FROM listings x WHERE x.ref_no = l.ref_no AND x.estate_id = l.estate_id)`;
+// 租盤版 LIST_START_SQL——同上面個買盤版一模一樣邏輯，淨係表換咗 rental_listings。
+const RENTAL_LIST_START_SQL = `(SELECT MIN(CASE
+    WHEN NULLIF(x.publish_date,'') IS NOT NULL AND x.publish_date < x.snapshot_date
+    THEN x.publish_date ELSE x.snapshot_date END)
+  FROM rental_listings x WHERE x.ref_no = l.ref_no AND x.estate_id = l.estate_id)`;
 
 async function getTodayHighlights(db, accountId) {
   const today = hkDateStr();
@@ -2998,6 +3003,163 @@ async function getTodayHighlights(db, accountId) {
       ORDER BY e.name, l.price DESC`).bind(accountId, today, today).all(),
   ]);
 
+  // 租盤動態：淨係揀咗「租盤」偏好嘅帳戶先計，買盤淨用戶唔嘥呢輪 query。
+  // 租盤 sync 按日輪流一個 source（唔似買盤全部 source 日日 sync），所以「連續
+  // 兩次都唔見先當下架」呢個判斷天然已經有排啲（每個 source 自己嘅節奏），
+  // scrape-health guard（比對「today」個 count）反而唔啱用（呢個 ref 嘅 source
+  // 未必今日啱啱 sync 過），所以租盤版冇呢層 guard，淨係靠兩次獨立 sync 都
+  // 唔見嚟判斷（本身已經係跨幾日嘅獨立觀察，唔似買盤日日 sync 咁易一次半次
+  // scrape 甩漏就誤報）。
+  const prefs = await getPrefs(db, accountId);
+  const showRent = wantsDeal(prefs, "R");
+  let newRentTxns = { results: [] }, rentPriceChanges = { results: [] }, newRentals = { results: [] },
+    removedRentals = { results: [] }, viewedRentTxns = { results: [] },
+    linkedRentPriceChanges = { results: [] }, linkedRentRemoved = { results: [] };
+  if (showRent) {
+    [newRentTxns, rentPriceChanges, newRentals, removedRentals, viewedRentTxns, linkedRentPriceChanges, linkedRentRemoved] = await Promise.all([
+      db.prepare(`
+        SELECT t.*, e.name as estate_name FROM rental_transactions t
+        JOIN estates e ON e.id = t.estate_id
+        JOIN account_estates ae ON ae.estate_id = e.id AND ae.account_id = ?
+        WHERE t.first_seen = ?
+          AND t.first_seen >= ae.added_at
+          AND t.reg_date >= date(?, ?)
+          AND date(e.first_seen) <= ?
+          AND (e.is_disabled = 0 OR e.is_disabled IS NULL)
+          AND NOT EXISTS (
+            SELECT 1 FROM rental_transactions t2
+            WHERE t2.estate_id = t.estate_id
+              AND COALESCE(t2.floor,'') = COALESCE(t.floor,'')
+              AND COALESCE(t2.unit,'')  = COALESCE(t.unit,'')
+              AND t2.price = t.price
+              AND t2.first_seen < t.first_seen
+          )
+        ORDER BY (t.source='centanet') DESC, t.price DESC`).bind(accountId, today, today, `-${newTxnMaxAge} days`, hkDateStr(-2)).all(),
+      db.prepare(`
+        SELECT l.building_name, l.floor, l.unit, l.ref_no, l.price as new_price, ph_prev.price as old_price,
+               l.size_net, l.price_per_ft, l.detail_url, l.source, e.name as estate_name,
+               ${RENTAL_LIST_START_SQL} AS list_start
+        FROM rental_listings l
+        JOIN estates e ON e.id = l.estate_id
+        JOIN account_estates ae ON ae.estate_id = e.id AND ae.account_id = ?
+        JOIN rental_price_history ph_prev
+          ON ph_prev.ref_no = l.ref_no
+          AND ph_prev.snapshot_date = (
+            SELECT MAX(snapshot_date) FROM rental_price_history
+            WHERE ref_no = l.ref_no AND snapshot_date < ?
+          )
+        WHERE l.snapshot_date = ?
+          AND l.ref_no IS NOT NULL
+          AND ABS(l.price - ph_prev.price) > 200
+          AND ae.added_at <= ?
+          AND date(e.first_seen) <= ?
+          AND (e.is_disabled = 0 OR e.is_disabled IS NULL)
+        ORDER BY ABS(l.price - ph_prev.price) DESC`).bind(accountId, today, today, yesterday, yesterday).all(),
+      db.prepare(`
+        SELECT l.building_name, l.floor, l.unit, l.bedrooms, l.price, l.price_per_ft, l.size_net,
+               l.detail_url, l.source, e.name as estate_name,
+               ${RENTAL_LIST_START_SQL} AS list_start
+        FROM rental_listings l
+        JOIN estates e ON e.id = l.estate_id
+        JOIN account_estates ae ON ae.estate_id = e.id AND ae.account_id = ?
+        WHERE l.snapshot_date = ?
+          AND l.ref_no IS NOT NULL
+          AND l.ref_no NOT IN (
+            SELECT ref_no FROM rental_price_history
+            WHERE estate_id = l.estate_id AND snapshot_date < ?
+          )
+          AND ae.added_at <= ?
+          AND date(e.first_seen) <= ?
+          AND (e.is_disabled = 0 OR e.is_disabled IS NULL)
+        ORDER BY l.price ASC`).bind(accountId, today, today, yesterday, yesterday).all(),
+      db.prepare(`
+        SELECT l.building_name, l.floor, l.unit, l.bedrooms, l.price,
+               l.size_net, l.price_per_ft, l.detail_url, l.source, e.name as estate_name,
+               ${RENTAL_LIST_START_SQL} AS list_start
+        FROM rental_listings l
+        JOIN estates e ON e.id = l.estate_id
+        JOIN account_estates ae ON ae.estate_id = e.id AND ae.account_id = ?
+        WHERE l.ref_no IS NOT NULL
+          AND l.snapshot_date = (
+            SELECT MAX(snapshot_date) FROM rental_listings x
+            WHERE x.estate_id = l.estate_id AND x.ref_no = l.ref_no
+          )
+          AND l.snapshot_date = (
+            SELECT MAX(snapshot_date) FROM rental_listings
+            WHERE estate_id = l.estate_id AND snapshot_date < (
+              SELECT MAX(snapshot_date) FROM rental_listings
+              WHERE estate_id = l.estate_id AND snapshot_date < ?
+            )
+          )
+          AND ae.added_at <= ?
+          AND date(e.first_seen) <= ?
+          AND (e.is_disabled = 0 OR e.is_disabled IS NULL)`).bind(accountId, today, yesterday, yesterday).all(),
+      db.prepare(`
+        SELECT t.building, t.floor, t.unit, t.price AS txn_price, t.size_net, t.price_per_ft, t.reg_date,
+               v.price AS view_price, v.view_date, v.id AS viewing_id,
+               e.name AS estate_name
+        FROM rental_transactions t
+        JOIN estates e ON e.id = t.estate_id
+        JOIN viewings v ON v.estate_id = t.estate_id
+          AND v.account_id = ?
+          AND v.deal_type = 'R'
+          AND t.building = CASE WHEN v.block LIKE '%座' THEN v.block ELSE v.block || '座' END
+          AND t.floor    = CASE WHEN v.floor LIKE '%樓' OR v.floor LIKE '%層' THEN v.floor ELSE v.floor || '樓' END
+          AND t.unit     = CASE WHEN v.unit LIKE '%室' OR v.unit LIKE '%號' THEN v.unit ELSE v.unit || '室' END
+        WHERE t.first_seen = ?
+          AND (e.is_disabled = 0 OR e.is_disabled IS NULL)
+        ORDER BY e.name, t.price DESC`).bind(accountId, today).all(),
+      db.prepare(`
+        SELECT v.id AS viewing_id, v.price AS view_price, v.view_date,
+               v.block, v.floor AS view_floor, v.unit AS view_unit,
+               l.building_name, l.floor, l.unit AS l_unit, l.price AS new_price,
+               l.size_net, l.price_per_ft, l.source,
+               l.detail_url, ph_prev.price AS old_price, e.name AS estate_name,
+               ${RENTAL_LIST_START_SQL} AS list_start
+        FROM viewings v
+        JOIN rental_listings l ON (',' || v.linked_ref_no || ',') LIKE ('%,' || l.ref_no || ',%') AND l.snapshot_date = ?
+        JOIN estates e ON e.id = v.estate_id
+        JOIN rental_price_history ph_prev
+          ON ph_prev.ref_no = l.ref_no
+          AND ph_prev.snapshot_date = (
+            SELECT MAX(snapshot_date) FROM rental_price_history
+            WHERE ref_no = l.ref_no AND snapshot_date < ?
+          )
+        WHERE v.linked_ref_no IS NOT NULL
+          AND v.deal_type = 'R'
+          AND v.account_id = ?
+          AND ABS(l.price - ph_prev.price) > 200
+          AND (e.is_disabled = 0 OR e.is_disabled IS NULL)
+        ORDER BY ABS(l.price - ph_prev.price) DESC`).bind(today, today, accountId).all(),
+      db.prepare(`
+        SELECT v.id AS viewing_id, v.price AS view_price, v.view_date,
+               l.building_name, l.floor, l.unit AS l_unit, l.price,
+               l.size_net, l.price_per_ft, l.source, e.name AS estate_name,
+               ${RENTAL_LIST_START_SQL} AS list_start
+        FROM viewings v
+        JOIN rental_listings l ON (',' || v.linked_ref_no || ',') LIKE ('%,' || l.ref_no || ',%')
+          AND l.estate_id = v.estate_id
+        JOIN estates e ON e.id = v.estate_id
+        WHERE v.linked_ref_no IS NOT NULL
+          AND v.deal_type = 'R'
+          AND v.account_id = ?
+          AND l.ref_no IS NOT NULL
+          AND l.snapshot_date = (
+            SELECT MAX(snapshot_date) FROM rental_listings x
+            WHERE x.estate_id = l.estate_id AND x.ref_no = l.ref_no
+          )
+          AND l.snapshot_date = (
+            SELECT MAX(snapshot_date) FROM rental_listings
+            WHERE estate_id = l.estate_id AND snapshot_date < (
+              SELECT MAX(snapshot_date) FROM rental_listings
+              WHERE estate_id = l.estate_id AND snapshot_date < ?
+            )
+          )
+          AND (e.is_disabled = 0 OR e.is_disabled IS NULL)
+        ORDER BY e.name, l.price DESC`).bind(accountId, today).all(),
+    ]);
+  }
+
   // Fetch estate order (per-account)
   const { results: estateOrder } = await db.prepare(
     `SELECT e.name, ae.sort_order, ae.is_favourite
@@ -3037,17 +3199,52 @@ async function getTodayHighlights(db, accountId) {
 
   // Also expose flat list of all viewedTxns for top-of-email placement
   const allViewedTxns = [...estateMap.values()].flatMap(e => e.viewedTxns.map(v => ({ ...v, estate_name: e.estate })));
+
+  // 租盤動態：同一套 estateMap group 邏輯，獨立一份（唔跟買盤混埋一行）。
+  const rentMap = new Map();
+  const getRentEstate = (name) => {
+    if (!rentMap.has(name)) rentMap.set(name, { estate: name, newRentTransactions: [], rentPriceChanges: [], newRentals: [], removedRentals: [], viewedRentTxns: [] });
+    return rentMap.get(name);
+  };
+  const _seenRentTxn = new Set();
+  const dedupNewRentTxns = newRentTxns.results.filter((t) => {
+    const k = `${t.estate_id}|${_blockKey(t.building)}|${String(t.floor || "").replace(/\D/g, "")}|${_normUnit(t.unit)}|${t.price}`;
+    if (_seenRentTxn.has(k)) return false;
+    _seenRentTxn.add(k);
+    return true;
+  });
+  for (const t of dedupNewRentTxns)         getRentEstate(t.estate_name).newRentTransactions.push(t);
+  for (const p of rentPriceChanges.results) getRentEstate(p.estate_name).rentPriceChanges.push(p);
+  for (const l of newRentals.results)       getRentEstate(l.estate_name).newRentals.push(l);
+  for (const r of removedRentals.results)   getRentEstate(r.estate_name).removedRentals.push(r);
+  for (const v of viewedRentTxns.results)   getRentEstate(v.estate_name).viewedRentTxns.push(v);
+  const byEstateRent = [...rentMap.values()].sort((a, b) => {
+    const ia = orderIndex.has(a.estate) ? orderIndex.get(a.estate) : 9999;
+    const ib = orderIndex.has(b.estate) ? orderIndex.get(b.estate) : 9999;
+    return ia - ib;
+  });
+  const allViewedRentTxns = [...rentMap.values()].flatMap(e => e.viewedRentTxns.map(v => ({ ...v, estate_name: e.estate })));
+
   return {
     date: today, byEstate, allViewedTxns,
     linkedPriceChanges: linkedPriceChanges.results || [],
     linkedRemoved: linkedRemoved.results || [],
+    byEstateRent, allViewedRentTxns,
+    linkedRentPriceChanges: linkedRentPriceChanges.results || [],
+    linkedRentRemoved: linkedRentRemoved.results || [],
   };
 }
 
 function buildEmailHtml(highlights, bargains = []) {
   const fmt = (p) => p ? `$${(p / 1e4).toFixed(0)}萬` : "-";
+  // 租盤價錢係實數（月租），唔似買盤咁要 ×萬——兩個 fmt 唔可以共用，
+  // 撞咗會將 $23,000/月 錯錯誤誤變 $2萬（睇落好似買賣價，差成 1e4 倍）。
+  const fmtRent = (p) => p ? `$${Math.round(p).toLocaleString()}/月` : "-";
   const pct = (n, o) => o ? ((n - o) / o * 100).toFixed(1) : null;
-  const { date, byEstate = [], allViewedTxns = [], linkedPriceChanges = [], linkedRemoved = [] } = highlights;
+  const {
+    date, byEstate = [], allViewedTxns = [], linkedPriceChanges = [], linkedRemoved = [],
+    byEstateRent = [], allViewedRentTxns = [], linkedRentPriceChanges = [], linkedRentRemoved = [],
+  } = highlights;
   // 每個盤都要見到「幾大 + 幾錢一呎」先夠判斷貴平，所以全部 section 共用呢個。
   // 兩樣都冇就回空字串，唔好出個孤零零嘅「．」。
   const sizePsf = (size, psf) => [
@@ -3147,6 +3344,44 @@ function buildEmailHtml(highlights, bargains = []) {
       `<h2 style="margin:0 0 6px;font-size:17px;color:#ef4444">🚫 睇過嘅放盤下架 (${linkedRemoved.length})</h2>${tbl(rows)}`);
   }
 
+  // 🔑 睇過嘅租盤租金變動（同上面買盤嗰個一樣邏輯，淨係換咗 fmtRent）
+  if (linkedRentPriceChanges.length) {
+    let rows = "";
+    for (const c of linkedRentPriceChanges) {
+      const diff = c.new_price - c.old_price;
+      const col = diff <= 0 ? '#34d399' : '#f87171';
+      const arrow = diff <= 0 ? '▼' : '▲';
+      const sp = metaLine(c.size_net, c.price_per_ft, c.list_start);
+      rows += R(
+        M(`${c.estate_name||''} ${c.building_name||''} ${c.floor||''} ${c.l_unit||''}`)
+          + (sp ? S(sp) : '')
+          + S(`睇樓租 ${c.view_price ? fmtRent(c.view_price) : '-'}　${srcLink(c.detail_url, c.source)}`),
+        priceCell(fmtRent(c.new_price))
+          + S(`<span style="text-decoration:line-through">${fmtRent(c.old_price)}</span>`)
+          + `<div style="color:${col};font-weight:700;font-size:13px">${arrow} ${fmtRent(Math.abs(diff))}</div>`
+      );
+    }
+    sections += card('rgba(251,191,36,0.35)', 'rgba(251,191,36,0.06)',
+      `<h2 style="margin:0 0 6px;font-size:17px;color:#fbbf24">🔑 睇過嘅租盤租金變動 (${linkedRentPriceChanges.length})</h2>${tbl(rows)}`);
+  }
+
+  // 🔑 睇過嘅租盤下架
+  if (linkedRentRemoved.length) {
+    let rows = "";
+    for (const c of linkedRentRemoved) {
+      const sp = metaLine(c.size_net, c.price_per_ft, c.list_start);
+      rows += R(
+        M(`${c.estate_name||''} ${c.building_name||''} ${c.floor||''} ${c.l_unit||''}`)
+          + (sp ? S(sp) : '')
+          + S(`睇樓 ${c.view_date||''}　睇樓租 ${c.view_price ? fmtRent(c.view_price) : '-'}　${srcName(c.source)}`),
+        `<div style="color:#94a3b8;font-weight:700;font-size:15px;text-decoration:line-through">${fmtRent(c.price)}</div>`
+          + `<div style="color:#f87171;font-weight:700;font-size:13px">已下架</div>`
+      );
+    }
+    sections += card('rgba(239,68,68,0.4)', 'rgba(239,68,68,0.06)',
+      `<h2 style="margin:0 0 6px;font-size:17px;color:#ef4444">🔑 睇過嘅租盤下架 (${linkedRentRemoved.length})</h2>${tbl(rows)}`);
+  }
+
   // 👀 睇過嘅單位成交 — at the very top
   if (allViewedTxns.length) {
     let rows = "";
@@ -3166,6 +3401,27 @@ function buildEmailHtml(highlights, bargains = []) {
     sections += card('rgba(248,113,113,0.4)', 'rgba(248,113,113,0.06)',
       `<h2 style="margin:0 0 6px;font-size:17px;color:#f87171">👀 睇過嘅單位成交 (${allViewedTxns.length})</h2>${tbl(rows)}`);
   }
+
+  // 👀 睇過嘅單位租務成交
+  if (allViewedRentTxns.length) {
+    let rows = "";
+    for (const v of allViewedRentTxns) {
+      const diff = v.view_price && v.txn_price ? v.txn_price - v.view_price : null;
+      const diffHtml = diff != null
+        ? `<div style="color:${diff<=0?'#34d399':'#f87171'};font-weight:700;font-size:13px">${diff<=0?'▼':'▲'} ${fmtRent(Math.abs(diff))}</div>`
+        : '';
+      const sp = sizePsf(v.size_net, v.price_per_ft);
+      rows += R(
+        M(`${v.estate_name||''} ${v.building||''} ${v.floor||''} ${v.unit||''}`)
+          + (sp ? S(sp) : '')
+          + S(`睇樓 ${v.view_date||''}　睇樓租 ${v.view_price ? fmtRent(v.view_price) : '-'}`),
+        priceCell(v.txn_price ? fmtRent(v.txn_price) : '-') + diffHtml
+      );
+    }
+    sections += card('rgba(248,113,113,0.4)', 'rgba(248,113,113,0.06)',
+      `<h2 style="margin:0 0 6px;font-size:17px;color:#f87171">👀 睇過嘅單位租務成交 (${allViewedRentTxns.length})</h2>${tbl(rows)}`);
+  }
+
   for (const { estate, newTransactions = [], priceChanges = [], newListings = [], removedListings = [] } of byEstate) {
     if (!newTransactions.length && !priceChanges.length && !newListings.length && !removedListings.length) continue;
     let rows = "";
@@ -3239,6 +3495,69 @@ function buildEmailHtml(highlights, bargains = []) {
     }
 
     sections += `<div style="margin-bottom:22px"><h2 style="margin:0 0 6px;font-size:17px;color:#fbbf24">${estate}</h2>${tbl(rows)}</div>`;
+  }
+
+  // 🔑 租盤動態——跟買盤同一套 layout，獨立擺喺買盤所有屋苑之後（買盤先做慣咗嘅
+  // 主角，租盤係加埋嘅新功能，唔好搶咗買盤原本嘅排位）。
+  for (const { estate, newRentTransactions = [], rentPriceChanges = [], newRentals = [], removedRentals = [] } of byEstateRent) {
+    if (!newRentTransactions.length && !rentPriceChanges.length && !newRentals.length && !removedRentals.length) continue;
+    let rows = "";
+
+    if (newRentTransactions.length) {
+      rows += HR('#a78bfa', `🔑 新租務成交 (${newRentTransactions.length})`);
+      for (const t of newRentTransactions) {
+        const sizeLine = [t.size_net ? `${t.size_net}實呎` : null, t.price_per_ft ? `$${Math.round(t.price_per_ft).toLocaleString()}/呎` : null]
+          .filter(Boolean).join('．');
+        rows += R(
+          M(`${t.building || ""} ${t.floor || ""} ${t.unit || ""}`)
+            + (sizeLine ? S(sizeLine) : '')
+            + S(`成交 ${t.reg_date || "-"}`),
+          priceCell(fmtRent(t.price))
+        );
+      }
+    }
+
+    if (rentPriceChanges.length) {
+      rows += HR('#fbbf24', `💰 租金變動 (${rentPriceChanges.length})`);
+      for (const l of rentPriceChanges) {
+        const diff = pct(l.new_price, l.old_price);
+        const col = diff > 0 ? '#f87171' : '#34d399';
+        rows += R(
+          M(`${l.building_name || ""} ${l.floor || ""} ${l.unit || ""}`)
+            + (metaLine(l.size_net, l.price_per_ft, l.list_start) ? S(metaLine(l.size_net, l.price_per_ft, l.list_start)) : '')
+            + S(srcLink(l.detail_url, l.source)),
+          priceCell(fmtRent(l.new_price))
+            + S(`<span style="text-decoration:line-through">${fmtRent(l.old_price)}</span>`)
+            + `<div style="color:${col};font-weight:700;font-size:13px">${diff > 0 ? "▲" : "▼"} ${Math.abs(diff)}%</div>`
+        );
+      }
+    }
+
+    if (newRentals.length) {
+      rows += HR('#34d399', `🆕 新租盤 (${newRentals.length})`);
+      for (const l of newRentals) {
+        rows += R(
+          M(`${l.building_name || ""} ${l.floor || ""} ${l.unit || ""}`)
+            + S(`${l.bedrooms ?? "-"}房${l.size_net ? ' · ' + Math.round(l.size_net) + '實呎' : ''}${domStr(l.list_start) ? ' · ' + domStr(l.list_start) : ''}　${srcLink(l.detail_url, l.source)}`),
+          priceCell(fmtRent(l.price))
+            + (l.price_per_ft ? S(`$${Math.round(l.price_per_ft).toLocaleString()}/呎`) : '')
+        );
+      }
+    }
+
+    if (removedRentals.length) {
+      rows += HR('#ef4444', `❌ 租盤下架 (${removedRentals.length})`);
+      for (const l of removedRentals) {
+        const sp = metaLine(l.size_net, l.price_per_ft, l.list_start);
+        rows += R(
+          M(`${l.building_name || ""} ${l.floor || ""} ${l.unit || ""}`)
+            + S(`${l.bedrooms ?? "-"}房${sp ? '　' + sp : ''}`),
+          `<div style="color:#94a3b8;font-weight:700;font-size:14px;text-decoration:line-through">${fmtRent(l.price)}</div>`
+        );
+      }
+    }
+
+    sections += `<div style="margin-bottom:22px"><h2 style="margin:0 0 6px;font-size:17px;color:#fbbf24">🔑 ${estate}</h2>${tbl(rows)}</div>`;
   }
 
   const body = (sections + bargainSection) || `<p style="color:#cbd5e1;font-size:15px">今日無更新</p>`;
@@ -3688,6 +4007,12 @@ async function sendDailyEmail(db, env, onlyAccountId = null) {
           e.newListings     = e.newListings.filter((r) => prefMatchRow(prefs, r));
           e.removedListings = e.removedListings.filter((r) => prefMatchRow(prefs, r));
         }
+        for (const e of highlights.byEstateRent || []) {
+          e.newRentTransactions = e.newRentTransactions.filter((r) => prefMatchRow(prefs, r, true));
+          e.rentPriceChanges    = e.rentPriceChanges.filter((r) => prefMatchRow(prefs, r, true));
+          e.newRentals          = e.newRentals.filter((r) => prefMatchRow(prefs, r, true));
+          e.removedRentals      = e.removedRentals.filter((r) => prefMatchRow(prefs, r, true));
+        }
       }
       // 筍盤 Top N（每個帳戶自己嘅 ⚙️ 設定；0=唔要；non-fatal）。
       // 要先攞晒全部筍盤、跟睇樓偏好篩完，先至 slice top N——唔係咁做嘅話
@@ -3702,19 +4027,28 @@ async function sendDailyEmail(db, env, onlyAccountId = null) {
           bargains = bargains.slice(0, emailTop);
         }
       } catch (e) { /* non-fatal */ }
-      const { byEstate } = highlights;
+      const { byEstate, byEstateRent = [] } = highlights;
       const totalTxns    = byEstate.reduce((s, e) => s + e.newTransactions.length, 0);
       const totalPrice   = byEstate.reduce((s, e) => s + e.priceChanges.length, 0);
       const totalNew     = byEstate.reduce((s, e) => s + e.newListings.length, 0);
       const totalDel     = byEstate.reduce((s, e) => s + e.removedListings.length, 0);
       const totalViewed  = byEstate.reduce((s, e) => s + e.viewedTxns.length, 0);
+      const totalRentTxns    = byEstateRent.reduce((s, e) => s + e.newRentTransactions.length, 0);
+      const totalRentPrice   = byEstateRent.reduce((s, e) => s + e.rentPriceChanges.length, 0);
+      const totalRentNew     = byEstateRent.reduce((s, e) => s + e.newRentals.length, 0);
+      const totalRentDel     = byEstateRent.reduce((s, e) => s + e.removedRentals.length, 0);
+      const totalRentViewed  = byEstateRent.reduce((s, e) => s + e.viewedRentTxns.length, 0);
       // 「睇過嘅放盤」兩段唔喺 byEstate 入面（獨立擺 email 頂），要另計——
       // 唔計嘅話，如果今日淨係得呢兩類動態，subject 會寫「今日無更新」但
       // 內文其實有嘢。
       const totalLinkedPrice = (highlights.linkedPriceChanges || []).length;
       const totalLinkedDel   = (highlights.linkedRemoved || []).length;
+      const totalLinkedRentPrice = (highlights.linkedRentPriceChanges || []).length;
+      const totalLinkedRentDel   = (highlights.linkedRentRemoved || []).length;
       const hasChanges = totalTxns + totalPrice + totalNew + totalDel + totalViewed
-        + totalLinkedPrice + totalLinkedDel > 0;
+        + totalLinkedPrice + totalLinkedDel
+        + totalRentTxns + totalRentPrice + totalRentNew + totalRentDel + totalRentViewed
+        + totalLinkedRentPrice + totalLinkedRentDel > 0;
       const parts = [];
       if (totalViewed) parts.push(`${totalViewed} 個睇過嘅單位成交`);
       if (totalLinkedDel)   parts.push(`${totalLinkedDel} 個睇過嘅放盤下架`);
@@ -3723,6 +4057,10 @@ async function sendDailyEmail(db, env, onlyAccountId = null) {
       if (totalPrice)  parts.push(`${totalPrice} 個價格變動`);
       if (totalNew)    parts.push(`${totalNew} 個新放盤`);
       if (totalDel)    parts.push(`${totalDel} 個已下架`);
+      if (totalRentTxns || totalRentPrice || totalRentNew || totalRentDel || totalRentViewed
+        || totalLinkedRentPrice || totalLinkedRentDel) {
+        parts.push(`${totalRentTxns + totalRentPrice + totalRentNew + totalRentDel + totalRentViewed + totalLinkedRentPrice + totalLinkedRentDel} 個租盤動態`);
+      }
       if (bargains.length) parts.push(`${bargains.length} 個筍盤`);
       const subject = hasChanges || bargains.length ? `PropWatch 通知：${parts.join("、")}` : "PropWatch 通知：今日無更新";
       await sendEmail(env, acc.email, subject, buildEmailHtml(highlights, bargains));

@@ -2473,6 +2473,9 @@ async function loadTodayHighlights() {
     const data = await api("/api/today-highlights");
     if (dateEl) dateEl.textContent = data.date || "";
     const fmt = p => p ? `$${(p/1e4).toFixed(0)}萬` : "-";
+    // 租盤價錢係實數月租，唔似買盤要 ×萬——同 fmt 撞用會將 $23,000/月
+    // 讀成 $2萬（差 1e4 倍），一定要獨立一個 formatter。
+    const fmtRent = p => p ? `$${Math.round(p).toLocaleString()}/月` : "-";
     const pct = (n, o) => o ? ((n-o)/o*100).toFixed(1) : null;
     // Shared row renderer — mirrors buildEmailHtml columns exactly
     // Each section returns <tr> rows; caller wraps in <table>
@@ -2567,6 +2570,62 @@ async function loadTodayHighlights() {
         );
       }
       html += `<div class="highlights-group" style="border:1px solid rgba(248,113,113,0.35);border-radius:8px;padding:0.75rem;background:rgba(248,113,113,0.06);margin-bottom:1rem"><div class="highlights-group-label" style="color:#f87171;font-size:0.9rem;margin-bottom:0.5rem">👀 睇過嘅單位成交 (${allViewedTxns.length})</div>${tbl(TH('屋苑 / 單位','睇樓價','成交價','差價','睇樓日期'), rows)}</div>`;
+    }
+
+    // 🔑 租盤動態——同上面買盤三組一樣邏輯，淨係換咗 fmtRent + byEstateRent。
+    const linkedRentChanges = data.linkedRentPriceChanges || [];
+    if (linkedRentChanges.length) {
+      let rows = "";
+      for (const c of linkedRentChanges) {
+        const diff = c.new_price - c.old_price;
+        const diffHtml = `<span style="color:${diff<=0?'var(--up)':'var(--down)'}">${diff<=0?'▼':'▲'} ${fmtRent(Math.abs(diff))}</span>`;
+        const link = c.detail_url ? `<a href="${safeUrl(c.detail_url)}" target="_blank" style="color:var(--accent2);text-decoration:none">↗</a>` : '';
+        rows += TR(
+          `<strong>${escHtml(c.estate_name||'')}</strong> ${escHtml(c.building_name||'')} ${escHtml(c.floor||'')} ${escHtml(c.l_unit||'')} ${link}`
+            + metaDiv(c.size_net, c.price_per_ft, c.list_start),
+          c.view_price ? fmtRent(c.view_price) : '-',
+          `<span style="text-decoration:line-through">${fmtRent(c.old_price)}</span>`,
+          `<span style="font-weight:700;color:var(--accent)">${fmtRent(c.new_price)}</span>`,
+          diffHtml
+        );
+      }
+      html += `<div class="highlights-group" style="border:1px solid rgba(251,191,36,0.35);border-radius:8px;padding:0.75rem;background:rgba(251,191,36,0.06);margin-bottom:1rem"><div class="highlights-group-label" style="color:#fbbf24;font-size:0.9rem;margin-bottom:0.5rem">🔑 睇過嘅租盤租金變動 (${linkedRentChanges.length})</div>${tbl(TH('屋苑 / 單位','睇樓租','原租','新租','變動'), rows)}</div>`;
+    }
+
+    const linkedRentGone = data.linkedRentRemoved || [];
+    if (linkedRentGone.length) {
+      let rows = "";
+      for (const c of linkedRentGone) {
+        rows += TR(
+          `<strong>${escHtml(c.estate_name||'')}</strong> ${escHtml(c.building_name||'')} ${escHtml(c.floor||'')} ${escHtml(c.l_unit||'')}`
+            + metaDiv(c.size_net, c.price_per_ft, c.list_start),
+          c.view_price ? fmtRent(c.view_price) : '-',
+          `<span style="text-decoration:line-through">${fmtRent(c.price)}</span>`,
+          `<span style="color:var(--down)">已下架</span>`,
+          `<span style="font-size:0.75rem;color:var(--muted)">${escHtml(sourceLabel(c.source))}</span>`
+        );
+      }
+      html += `<div class="highlights-group" style="border:1px solid rgba(239,68,68,0.35);border-radius:8px;padding:0.75rem;background:rgba(239,68,68,0.06);margin-bottom:1rem"><div class="highlights-group-label" style="color:var(--down);font-size:0.9rem;margin-bottom:0.5rem">🔑 睇過嘅租盤下架 (${linkedRentGone.length})</div>${tbl(TH('屋苑 / 單位','睇樓租','原租','狀態','來源'), rows)}</div>`;
+    }
+
+    const allViewedRentTxns = (data.byEstateRent || []).flatMap(e => (e.viewedRentTxns || []).map(v => ({ ...v, estate_name: e.estate })));
+    if (allViewedRentTxns.length) {
+      let rows = "";
+      for (const v of allViewedRentTxns) {
+        const diff = v.view_price && v.txn_price ? v.txn_price - v.view_price : null;
+        const diffHtml = diff != null
+          ? `<span style="color:${diff<=0?'var(--up)':'var(--down)'}">${diff<=0?'▼':'▲'} ${fmtRent(Math.abs(diff))}</span>`
+          : '-';
+        rows += TR(
+          `<strong>${escHtml(v.estate_name||'')}</strong> ${escHtml(v.building||'')} ${escHtml(v.floor||'')} ${escHtml(v.unit||'')}`
+            + metaDiv(v.size_net, v.price_per_ft, null),
+          v.view_price ? fmtRent(v.view_price) : '-',
+          `<span style="font-weight:700;color:var(--accent)">${v.txn_price ? fmtRent(v.txn_price) : '-'}</span>`,
+          diffHtml,
+          `<span style="font-size:0.75rem">${v.view_date||''}</span>`
+        );
+      }
+      html += `<div class="highlights-group" style="border:1px solid rgba(248,113,113,0.35);border-radius:8px;padding:0.75rem;background:rgba(248,113,113,0.06);margin-bottom:1rem"><div class="highlights-group-label" style="color:#f87171;font-size:0.9rem;margin-bottom:0.5rem">👀 睇過嘅單位租務成交 (${allViewedRentTxns.length})</div>${tbl(TH('屋苑 / 單位','睇樓租','成交租','差價','睇樓日期'), rows)}</div>`;
     }
 
     syncHlPrefChips();
@@ -2664,6 +2723,85 @@ async function loadTodayHighlights() {
         const hdr = estateObj
           ? `<div class="highlights-estate-header" style="cursor:pointer" onclick="showEstate(${estateObj.id},'${escHtml(estate).replace(/'/g,"\\'")}','${escHtml(estateObj.district||'').replace(/'/g,"\\'")}');closeSidebar()">${escHtml(estate)} <span style="font-size:0.75rem;color:var(--accent2);vertical-align:middle">↗</span></div>`
           : `<div class="highlights-estate-header">${escHtml(estate)}</div>`;
+        html += `<div class="highlights-group">${hdr}${inner}</div>`;
+      }
+    }
+
+    // 🔑 租盤動態——跟買盤同一套 layout，逐屋苑擺喺買盤所有屋苑之後。
+    for (const _g of (data.byEstateRent || [])) {
+      const estate = _g.estate;
+      const newRentTransactions = (_g.newRentTransactions || []).filter((r) => prefMatchHl(r, true));
+      const rentPriceChanges = (_g.rentPriceChanges || []).filter((r) => prefMatchHl(r, true));
+      const newRentals = (_g.newRentals || []).filter((r) => prefMatchHl(r, true));
+      const removedRentals = (_g.removedRentals || []).filter((r) => prefMatchHl(r, true));
+      let inner = "";
+
+      if (newRentTransactions.length) {
+        let rows = "";
+        for (const t of newRentTransactions) {
+          const sizeLine = [t.size_net ? `${t.size_net}實呎` : null, t.price_per_ft ? `$${Math.round(t.price_per_ft).toLocaleString()}/呎` : null]
+            .filter(Boolean).join('．');
+          rows += TR(
+            `${escHtml(t.building||'')} ${escHtml(t.floor||'')} ${escHtml(t.unit||'')}` + (sizeLine ? `<div class="unit-price">${sizeLine}</div>` : ''),
+            escHtml(t.reg_date||''),
+            `<span style="font-weight:700;color:var(--accent)">${t.price ? fmtRent(t.price) : '-'}</span>`,
+            '-', '-'
+          );
+        }
+        inner += `<div class="highlights-subgroup"><div class="highlights-group-label" style="color:#a78bfa">🔑 新租務成交 (${newRentTransactions.length})</div>${tbl(TH('單位','成交日期','成交租','',''), rows)}</div>`;
+      }
+
+      if (rentPriceChanges.length) {
+        let rows = "";
+        for (const c of rentPriceChanges) {
+          const d = pct(c.new_price, c.old_price);
+          const col = d > 0 ? 'var(--up)' : 'var(--down)';
+          rows += TR(
+            `${escHtml(c.building_name||'')} ${escHtml(c.floor||'')} ${escHtml(c.unit||'')}`
+              + metaDiv(c.size_net, c.price_per_ft, c.list_start),
+            `<span style="text-decoration:line-through">${fmtRent(c.old_price)}</span>`,
+            `<span style="font-weight:700">${fmtRent(c.new_price)}</span>`,
+            `<span style="color:${col}">${d>0?'▲':'▼'} ${Math.abs(d)}%</span>`,
+            srcLink(c.detail_url, c.source)
+          );
+        }
+        inner += `<div class="highlights-subgroup"><div class="highlights-group-label" style="color:var(--accent)">💰 租金變動 (${rentPriceChanges.length})</div>${tbl(TH('單位','原租','新租','變動','來源'), rows)}</div>`;
+      }
+
+      if (newRentals.length) {
+        let rows = "";
+        for (const l of newRentals) {
+          rows += TR(
+            `${escHtml(l.building_name||'')} ${escHtml(l.floor||'')} ${escHtml(l.unit||'')}`,
+            `${l.bedrooms!=null?l.bedrooms+'房':'-'}${l.size_net?' '+Math.round(l.size_net)+'呎':''}`
+              + (domStr(l.list_start) ? `<div class="unit-price">${domStr(l.list_start)}</div>` : ''),
+            `<span style="font-weight:700;color:var(--accent)">${fmtRent(l.price)}</span>`,
+            l.price_per_ft ? `$${Math.round(l.price_per_ft).toLocaleString()}/呎` : '',
+            srcLink(l.detail_url, l.source)
+          );
+        }
+        inner += `<div class="highlights-subgroup"><div class="highlights-group-label" style="color:var(--up)">🆕 新租盤 (${newRentals.length})</div>${tbl(TH('單位','房間 / 面積','月租','實呎租','來源'), rows)}</div>`;
+      }
+
+      if (removedRentals.length) {
+        let rows = "";
+        for (const l of removedRentals) {
+          rows += TR(
+            `${escHtml(l.building_name||'')} ${escHtml(l.floor||'')} ${escHtml(l.unit||'')}`
+              + metaDiv(l.size_net, l.price_per_ft, l.list_start),
+            l.bedrooms!=null ? l.bedrooms+'房' : '-',
+            `<span style="text-decoration:line-through">${fmtRent(l.price)}</span>`,
+            '', ''
+          );
+        }
+        inner += `<div class="highlights-subgroup"><div class="highlights-group-label" style="color:var(--down)">❌ 租盤下架 (${removedRentals.length})</div>${tbl(TH('單位 / 面積·呎租·放咗幾耐','房間','原租','',''), rows)}</div>`;
+      }
+
+      if (inner) {
+        const estateObj = dashboardEstates.find(e => e.name === estate);
+        const hdr = estateObj
+          ? `<div class="highlights-estate-header" style="cursor:pointer" onclick="showEstate(${estateObj.id},'${escHtml(estate).replace(/'/g,"\\'")}','${escHtml(estateObj.district||'').replace(/'/g,"\\'")}');closeSidebar()">🔑 ${escHtml(estate)} <span style="font-size:0.75rem;color:var(--accent2);vertical-align:middle">↗</span></div>`
+          : `<div class="highlights-estate-header">🔑 ${escHtml(estate)}</div>`;
         html += `<div class="highlights-group">${hdr}${inner}</div>`;
       }
     }
