@@ -6770,11 +6770,34 @@ async function syncAll() {
   }
 }
 
+const _daysBetween = (a, b) => Math.round((Date.parse(b) - Date.parse(a)) / 86400000);
+
+// 售價歷史 collapse：後端回逐日一行（放咗一年嘅盤就三百幾行，絕大部分係
+// 「持平」），要捲好久先見到唯一一次改價。呢度摺做「一段一個價」——每段講
+// 個價由邊日開始、維持咗幾日，改價嗰段先標加/減幾多。
+// 純顯示層摺埋，後端照回原本 shape（其他分析邏輯都靠嗰個 shape），所以
+// 唔會影響今日動態／email／趨勢圖任何計算。
+// 門檻用 1000 元（同 today-highlights 個 ABS(price-prev)>1000 一致），
+// 避免 source 微調／四捨五入被當成一次改價。
+function collapsePriceHistory(history) {
+  const segs = [];
+  for (const h of history) {          // 後端已經 ORDER BY snapshot_date ASC
+    const last = segs[segs.length - 1];
+    if (last && Math.abs(h.price - last.price) <= 1000) { last.end = h.snapshot_date; continue; }
+    segs.push({
+      start: h.snapshot_date, end: h.snapshot_date,
+      price: h.price, price_per_ft: h.price_per_ft,
+      prev: last ? last.price : null,
+    });
+  }
+  return segs;
+}
+
 async function showHistory(refNo, label) {
   const overlay = document.createElement("div");
   overlay.className = "modal-overlay";
   overlay.innerHTML = `
-    <div class="modal">
+    <div class="modal" style="max-width:600px">
       <button class="modal-close" onclick="this.closest('.modal-overlay').remove()">✕</button>
       <div class="modal-title">${escHtml(label)}</div>
       <div class="modal-sub" id="historyModalSub">放盤編號：${escHtml(refNo)}</div>
@@ -6792,27 +6815,61 @@ async function showHistory(refNo, label) {
       ? `<a href="${safeUrl(detail_url)}" target="_blank" class="detail-link">${escHtml(refNo)} ↗</a>`
       : escHtml(refNo)
     } &nbsp;<span style="font-size:0.75rem;color:var(--muted);background:var(--surface2);border-radius:4px;padding:0.1rem 0.4rem">${srcLabel}</span>`;
+    // 用戶趕得快、fetch 未返就閂咗個 popup → 個 DOM 已經冇咗，唔好照寫落去
+    // （之前會 throw，連 catch 嗰句都跟住 throw，變成 uncaught error）。
     const content = document.getElementById("historyContent");
+    if (!content) return;
     if (!history.length) {
       content.innerHTML = '<div class="no-data">暫無歷史記錄</div>';
       return;
     }
-    const rows = [...history].reverse().map((h, i) => `
-      <tr class="${i === 0 ? 'history-row-latest' : ''}">
-        <td>${h.snapshot_date}</td>
-        <td>$${(h.price/1e4).toFixed(0)}萬</td>
-        <td>$${h.price_per_ft ? h.price_per_ft.toLocaleString() : '-'}/呎</td>
-        <td>${i < history.length - 1 ? priceChangeBadge(h.price, history[history.length - 2 - i]?.price) : '首日'}</td>
-      </tr>
-    `).join('');
+    const segs = collapsePriceHistory(history);
+    const today = new Date(Date.now() + 8 * 3600000).toISOString().slice(0, 10);
+    const lastEnd = segs[segs.length - 1].end;
+    const totalDays = _daysBetween(segs[0].start, lastEnd) + 1;
+    // 由舊到新讀落去（同「維持幾日」嘅時序一致），最新一段用 highlight。
+    const rows = segs.map((s, i) => {
+      const isLast = i === segs.length - 1;
+      const heldDays = isLast
+        ? _daysBetween(s.start, s.end) + 1
+        : _daysBetween(s.start, segs[i + 1].start);
+      const stillLive = isLast && lastEnd === today;
+      return `
+      <tr class="${isLast ? 'history-row-latest' : ''}" style="white-space:nowrap">
+        <td>${escHtml(s.start)}</td>
+        <td>$${(s.price / 1e4).toFixed(0)}萬</td>
+        <td>$${s.price_per_ft ? s.price_per_ft.toLocaleString() : '-'}/呎</td>
+        <td>${s.prev == null ? '<span style="color:var(--muted)">首次記錄</span>' : priceChangeBadge(s.price, s.prev)}</td>
+        <td>${heldDays} 日${stillLive ? ' <span style="color:var(--muted)">（至今）</span>' : ''}</td>
+      </tr>`;
+    }).join('');
+    const nChanges = segs.length - 1;
+    // 累計變幅（頭一個記錄價 → 最新價）。逐段睇每次改幾多之外，仲要一眼睇到
+    // 「由頭到尾其實減/加咗幾多」——連環減價嗰啲盤呢個數最有用。
+    let cumHtml = '';
+    if (nChanges) {
+      const first = segs[0].price, lastP = segs[segs.length - 1].price;
+      const diff = lastP - first;
+      const pct = (diff / first * 100).toFixed(1);
+      const cls = diff <= 0 ? 'gain-pos' : 'gain-neg';
+      cumHtml = ` · 累${diff <= 0 ? '減' : '加'} <span class="${cls}">$${(Math.abs(diff) / 1e4).toFixed(0)}萬 (${pct}%)</span>`;
+    }
     content.innerHTML = `
-      <table class="history-table">
-        <thead><tr><th>日期</th><th>售價</th><th>實呎價</th><th>變化</th></tr></thead>
-        <tbody>${rows}</tbody>
-      </table>
+      <div style="font-size:0.8rem;color:var(--muted);margin-bottom:0.5rem">
+        追蹤 <b style="color:var(--text)">${totalDays}</b> 日 ·
+        ${nChanges ? `改價 <b style="color:var(--text)">${nChanges}</b> 次` : '未改過價'}${cumHtml}
+        ${lastEnd !== today ? ` · 最後見到 ${escHtml(lastEnd)}` : ''}
+      </div>
+      <div style="overflow-x:auto">
+        <table class="history-table">
+          <thead><tr style="white-space:nowrap"><th>由邊日</th><th>售價</th><th>實呎價</th><th>變化</th><th>維持</th></tr></thead>
+          <tbody>${rows}</tbody>
+        </table>
+      </div>
     `;
   } catch (err) {
-    document.getElementById("historyContent").innerHTML = `<div class="no-data">載入失敗：${err.message}</div>`;
+    const el = document.getElementById("historyContent");
+    if (el) el.innerHTML = `<div class="no-data">載入失敗：${escHtml(err.message)}</div>`;
   }
 }
 
