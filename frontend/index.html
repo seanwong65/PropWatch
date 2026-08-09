@@ -861,6 +861,40 @@
     }
     .filter-chip:hover  { border-color: var(--accent2); color: var(--text); }
     .filter-chip.active { background: rgba(251,191,36,0.12); border-color: var(--accent); color: var(--accent); }
+    /* 買盤/租盤 toggle：獨立一套樣式（唔用返 filter-chip），做到似真係一個
+       開關掣咁搶眼——呢個係成個屋苑頁「而家睇緊邊種盤」嘅唯一指示，
+       同其他細細粒嘅 filter chip 唔應該撞樣。 */
+    .deal-toggle {
+      display: inline-flex;
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 999px;
+      padding: 4px;
+      gap: 2px;
+    }
+    .deal-toggle-btn {
+      border: none;
+      background: transparent;
+      color: var(--muted);
+      font-size: 0.92rem;
+      font-weight: 700;
+      padding: 0.5rem 1.2rem;
+      border-radius: 999px;
+      cursor: pointer;
+      transition: all 0.18s;
+      white-space: nowrap;
+    }
+    .deal-toggle-btn:hover { color: var(--text); }
+    .deal-toggle-btn.buy.active {
+      background: rgba(59,130,246,0.18);
+      color: #60a5fa;
+      box-shadow: 0 0 0 1px rgba(59,130,246,0.45) inset;
+    }
+    .deal-toggle-btn.rent.active {
+      background: rgba(251,191,36,0.18);
+      color: var(--accent);
+      box-shadow: 0 0 0 1px rgba(251,191,36,0.55) inset;
+    }
     .filter-input {
       background: var(--surface);
       border: 1px solid var(--border);
@@ -3056,7 +3090,19 @@ async function loadEstateChart(estateId, beds) {
   } catch (_) { /* 保留現狀 */ }
 }
 // 按 metric 決定畫咩：price → 在售+成交線+全組合；count → 淨係在售數量。
+// 買/租切換嗰陣 _estateTrends 會換咗第二組數（scale 差成 300 倍），如果新
+// 一組唔夠 2 個點，drawChart() 會直接 return 唔郁 canvas——舊嗰組嘅圖案就會
+// 一直留喺度，睇落好似「轉咗做租盤但個圖仲係買盤數據」。所以呢度要自己
+// 判斷夠唔夠點先，唔夠就把成個 wrap 換做「需要更多數據」提示，清走舊圖。
 function drawEstateChart() {
+  const wrap = document.getElementById('chart-wrap');
+  if (wrap && _estateTrends.length < 2) {
+    wrap.innerHTML = '<div class="no-data">需要至少 2 天數據才能顯示趨勢圖<br><small>每日 09:00 自動更新</small></div>';
+    return;
+  }
+  if (wrap && !document.getElementById('trendChart')) {
+    wrap.innerHTML = '<div class="chart-wrap"><canvas id="trendChart"></canvas></div>';
+  }
   const isPrice = estateChartMetric !== "count";
   drawChart(_estateTrends, isPrice ? _estateOverlay : null, isPrice ? _estateSoldTrend : null);
 }
@@ -3407,7 +3453,7 @@ async function showEstate(id, name, district) {
         <div style="flex:1 1 65%;min-width:280px">
           ${!isPaid() ? lockPanel('呎價走勢圖', '叫價／成交走勢 + 全組合大市對照線，睇你追緊嘅屋苑跑贏定跑輸大市') : `
           <div style="display:flex;align-items:center;justify-content:space-between;gap:0.6rem;flex-wrap:wrap;margin-bottom:0.5rem">
-            <div class="section-title" id="estate-chart-title" style="margin:0">${estateChartMetric === 'count' ? '放盤數量趨勢' : '實用呎價趨勢'}</div>
+            <div class="section-title" id="estate-chart-title" style="margin:0">${estateChartMetric === 'count' ? (_estateDeal === 'R' ? '租盤數量趨勢' : '放盤數量趨勢') : (_estateDeal === 'R' ? '實用呎租趨勢' : '實用呎價趨勢')}</div>
             <div style="display:flex;align-items:center;gap:0.75rem;flex-wrap:wrap">
               <div id="estate-chart-beds" style="display:flex;gap:0.3rem">
                 ${['all','1','2','3','4+'].map(b => `<button class="filter-chip ${estateChartBeds===b?'active':''}" data-beds="${b}" onclick="setEstateChartBeds('${b}')">${b==='all'?'全部':b+'房'}</button>`).join('')}
@@ -3418,23 +3464,24 @@ async function showEstate(id, name, district) {
               </div>
             </div>
           </div>
-          ${trends.length < 2
+          <div id="chart-wrap">${trends.length < 2
             ? '<div class="no-data">需要至少 2 天數據才能顯示趨勢圖<br><small>每日 09:00 自動更新</small></div>'
             : '<div class="chart-wrap"><canvas id="trendChart"></canvas></div>'
-          }`}
+          }</div>`}
         </div>
-        <div class="stat-card" id="market-temp-card" style="flex:1 1 30%;min-width:200px">
+        <div class="stat-card" id="market-temp-card" style="flex:1 1 30%;min-width:200px;display:${_estateDeal === 'R' ? 'none' : ''}">
           <div class="stat-label" title="去貨月數＝在售盤數 ÷ 近30日成交宗數，即係幾多個月先賣晒現有在售盤。>12個月＝極淡．買家話事；6–12個月＝偏淡．買家有利；3–6個月＝均衡；<3個月＝偏熱．賣家有利。">市場溫度</div>
           <div style="margin-top:0.35rem;font-size:0.8rem;color:var(--muted)">載入中…</div>
         </div>
       </div>
 
       <!-- 買/租 toggle：只喺用戶偏好有揀「租盤」時出現，唔想幫買盤 user 加噪音。
-           控制「最新放盤」同「成交記錄」兩個 tab 睇買盤定租盤數據。 -->
+           控制「最新放盤」同「成交記錄」兩個 tab 睇買盤定租盤數據——係成個頁面
+           「而家睇緊邊種盤」嘅唯一指示，樣要夠搶眼，唔可以同其他 filter chip 撞樣。 -->
       ${wantsDeal('R') ? `
-      <div id="estate-deal-toggle" style="display:flex;gap:0.3rem;margin:0.75rem 0 0.25rem">
-        <button class="filter-chip ${_estateDeal === 'S' ? 'active' : ''}" onclick="setEstateDeal('S',${id})">🏠 買盤</button>
-        <button class="filter-chip ${_estateDeal === 'R' ? 'active' : ''}" onclick="setEstateDeal('R',${id})">🔑 租盤</button>
+      <div id="estate-deal-toggle" class="deal-toggle" style="margin:0.75rem 0 0.25rem">
+        <button class="deal-toggle-btn buy ${_estateDeal === 'S' ? 'active' : ''}" onclick="setEstateDeal('S',${id})">🏠 買盤</button>
+        <button class="deal-toggle-btn rent ${_estateDeal === 'R' ? 'active' : ''}" onclick="setEstateDeal('R',${id})">🔑 租盤</button>
       </div>` : ''}
       <div class="estate-tabs">
         <button class="estate-tab active" id="tab-btn-listings" onclick="switchTab('listings',${id})">${_estateDeal === 'R' ? '租盤' : '最新放盤'}(${_estateDeal === 'R' ? '…' : listings.length})</button>
@@ -3504,7 +3551,9 @@ async function showEstate(id, name, district) {
 
     // 走勢圖：載入在售 + 成交趨勢（按 beds），畫在售線 + 成交線 + 全組合。
     // 每次開屋苑重設房數做「全部」；trends.length 已喺上面 render 決定顯唔顯示。
-    if (trends.length >= 2 && isPaid()) loadEstateChart(id, estateChartBeds);
+    // 開頁即係租盤模式（用戶淨要租盤）嗰陣，唔可以淨睇買盤 trends.length 決定
+    // 攞唔攞——買盤有數唔代表租盤有數，反之亦然，一定要自己去攞埋先知。
+    if (isPaid() && (trends.length >= 2 || _estateDeal === 'R')) loadEstateChart(id, estateChartBeds);
     loadMarketTemp(id);
 
     // Init listings sort/filter state and render
@@ -4038,8 +4087,12 @@ function switchTab(tab, estateId) {
 // 所以唔可以純粹前端 filter，一定要重新拉。
 async function setEstateDeal(deal, estateId) {
   _estateDeal = deal;
-  document.querySelectorAll('#estate-deal-toggle .filter-chip').forEach((b) =>
+  document.querySelectorAll('#estate-deal-toggle .deal-toggle-btn').forEach((b) =>
     b.classList.toggle('active', b.getAttribute('onclick')?.includes(`'${deal}'`)));
+  // 市場溫度純粹買賣概念（去貨月數／買家話事），租盤模式冇對應數據，
+  // 顯住舊嘅買盤數字會好誤導，索性隱藏（未來想做返租務市場溫度先再加）。
+  const tempCard = document.getElementById('market-temp-card');
+  if (tempCard) tempCard.style.display = deal === 'R' ? 'none' : '';
   const shown = ['listings', 'transactions', 'viewings']
     .find((t) => document.getElementById('tab-' + t)?.style.display !== 'none') || 'listings';
   // 買/租兩張表分開兩個常駐 wrap（顯/隱切換，唔會互相destroy DOM）——租盤表
