@@ -3977,6 +3977,24 @@ async function sendSyncSummary(db, env) {
   const txn = await db.prepare(
     "SELECT COUNT(*) AS n FROM transactions WHERE first_seen = ?"
   ).bind(date).first();
+
+  // 租盤版：sync_log 嘅 units/ok/failed 已經包埋 rent_listings/rent_txn（呢兩個
+  // kind 都寫落同一個 sync_log），淨係下面呢個逐 source breakdown 之前冇拆開
+  // 顯示過，睇落好似個 summary 冇計租盤。
+  await ensureRentalTables(db);
+  const { results: rentCountBySrc } = await db.prepare(
+    "SELECT source, COUNT(*) AS n FROM rental_listings WHERE snapshot_date = ? GROUP BY source"
+  ).bind(date).all();
+  const { results: rentEstatesBySrc } = await db.prepare(
+    `SELECT source, COUNT(*) AS estates FROM sync_log
+     WHERE sync_date = ? AND kind = 'rent_listings' AND ok = 1 GROUP BY source`
+  ).bind(date).all();
+  const rentEstatesMap = new Map(rentEstatesBySrc.map((r) => [r.source, r.estates]));
+  const rentBySrc = rentCountBySrc.map((r) => ({ source: r.source, n: r.n, estates: rentEstatesMap.get(r.source) ?? 0 }))
+    .sort((a, b) => a.source.localeCompare(b.source));
+  const rentTxn = await db.prepare(
+    "SELECT COUNT(*) AS n FROM rental_transactions WHERE first_seen = ?"
+  ).bind(date).first();
   const { results: fails } = await db.prepare(
     `SELECT e.name AS estate_name, sl.source, sl.kind, sl.attempts, sl.detail
      FROM sync_log sl LEFT JOIN estates e ON e.id = sl.estate_id
@@ -4002,11 +4020,23 @@ async function sendSyncSummary(db, env) {
     ...bySrc.map((r) => `  ${label[r.source] || r.source}　${r.n} 個 / ${r.estates} 屋苑`),
     `成交：新入 ${txn?.n ?? 0} 宗`,
   ];
+  // 租盤：得返一個 source 今日輪到（按日輪流，見 syncNextUnit），冇嘢輪到嗰啲
+  // source 就係 0/0，唔顯示都得住——但成個 section 冇做過任何租盤先淨係唔顯示，
+  // 避免每日都出返一句「0 個」嘅噪音。
+  if (rentBySrc.length || rentTxn?.n) {
+    lines.push(
+      ``,
+      `租盤（今日 snapshot，按日輪流一個 source）`,
+      ...rentBySrc.map((r) => `  ${label[r.source] || r.source}　${r.n} 個 / ${r.estates} 屋苑`),
+      `租務成交：新入 ${rentTxn?.n ?? 0} 宗`,
+    );
+  }
   if (fails.length) {
+    const kindLabel = { listings: "放盤", txn: "成交", rent_listings: "租盤", rent_txn: "租務成交" };
     lines.push(``, `⚠️ 失敗 ${fails.length} 個`);
     for (const f of fails.slice(0, 10)) {
       lines.push(`  • ${f.estate_name || "?"} / ${label[f.source] || f.source} / ` +
-        `${f.kind === "listings" ? "放盤" : "成交"}（試 ${f.attempts} 次）` +
+        `${kindLabel[f.kind] || f.kind}（試 ${f.attempts} 次）` +
         `${String(f.detail || "").split("\n")[0].slice(0, 60)}`);
     }
     if (fails.length > 10) lines.push(`  …另外 ${fails.length - 10} 個`);
