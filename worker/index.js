@@ -3317,10 +3317,16 @@ function buildEmailHtml(highlights, bargains = []) {
     [sizePsf(size, psf), domStr(listStart)].filter(Boolean).join("．");
   // 「睇過嘅放盤/租盤變動」淨顯示今日新舊價睇唔到成個故仔（連環減咗幾次、
   // 加埋一齊減咗幾多）——呢度用摺疊史（history，已經喺 getTodayHighlights
-  // 攞埋）補一行细字，一眼睇晒。少過 2 段（即係得返今次呢個價，冇更舊記錄）
-  // 就唔顯示，避免同上面果句「原價 → 新價」重複。
+  // 攞埋）補一行细字，一眼睇晒。得返一段（冇改過價，例如「已下架」入面好多
+  // 盤其實一直冇變過價）就講返「追蹤幾耐、價格冇變動」，唔好淨係乜都唔顯示
+  // ——「冇資料」同「有資料但冇變」係兩回事，後者都值得話俾用戶知。
   const historyLine = (segs, fmtFn) => {
-    if (!segs || segs.length < 2) return '';
+    if (!segs || !segs.length) return '';
+    if (segs.length < 2) {
+      const s = segs[0];
+      const days = Math.round((Date.parse(s.end) - Date.parse(s.start)) / 86400000) + 1;
+      return `<div style="margin-top:4px;font-size:11px;color:#94a3b8">追蹤${days}日，價格冇變動</div>`;
+    }
     const parts = segs.map((s, i) => {
       const d = s.start.slice(5);
       if (i === 0) return `${d} ${fmtFn(s.price)}`;

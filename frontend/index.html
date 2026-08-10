@@ -2546,10 +2546,16 @@ async function loadTodayHighlights() {
     };
     // 「睇過嘅放盤/租盤變動」淨顯示今日呢次新舊價，睇唔到成個故仔（連環減咗
     // 幾次、加埋一齊減咗幾多）——history 係後端已經摺疊好嘅 segment 陣列，
-    // 呢度加一行细字帶出嚟，跟返 email 同一個樣。少過 2 段（即係冇更舊記錄）
-    // 就唔顯示，避免同上面「原價 → 新價」重複。
+    // 呢度加一行细字帶出嚟，跟返 email 同一個樣。得返一段（冇改過價，例如
+    // 「已下架」入面好多盤其實一直冇變過價）就講返「追蹤幾耐、價格冇變動」，
+    // 「冇資料」同「有資料但冇變」係兩回事，後者都值得話俾用戶知。
     const historyLine = (segs, fmtFn) => {
-      if (!segs || segs.length < 2) return '';
+      if (!segs || !segs.length) return '';
+      if (segs.length < 2) {
+        const s = segs[0];
+        const days = _daysBetween(s.start, s.end) + 1;
+        return `<div style="margin-top:0.3rem;font-size:0.72rem;color:var(--muted)">追蹤${days}日，價格冇變動</div>`;
+      }
       const parts = segs.map((s, i) => {
         const d = s.start.slice(5);
         if (i === 0) return `${d} ${fmtFn(s.price)}`;
