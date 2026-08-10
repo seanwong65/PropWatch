@@ -2829,6 +2829,38 @@ const RENTAL_LIST_START_SQL = `(SELECT MIN(CASE
     THEN x.publish_date ELSE x.snapshot_date END)
   FROM rental_listings x WHERE x.ref_no = l.ref_no AND x.estate_id = l.estate_id)`;
 
+// 摺售價歷史做「一段一個價」——同前端 collapsePriceHistory 一模一樣邏輯
+// （逐日一行摺埋做：呢個價由邊日開始、維持到邊日），呢度用喺
+// 「睇過嘅放盤/租盤變動」：淨顯示新舊價睇唔到成個故仔（連環減咗幾次、
+// 加埋一齊減咗幾多），依家連埋歷史一次過帶俾用戶。門檻 1000 元同
+// linkedPriceChanges 個 ABS(price-prev)>1000 一致。
+function collapsePriceHistory(history) {
+  const segs = [];
+  for (const h of history) {
+    const last = segs[segs.length - 1];
+    if (last && Math.abs(h.price - last.price) <= 1000) { last.end = h.snapshot_date; continue; }
+    segs.push({ start: h.snapshot_date, end: h.snapshot_date, price: h.price, price_per_ft: h.price_per_ft, prev: last ? last.price : null });
+  }
+  return segs;
+}
+
+// 幫「睇過嘅放盤/租盤變動」個 list 逐個 ref_no 帶埋完整摺疊史（history 欄位）。
+// 呢批 list 通常得幾條（用戶自己 tick 過對應放盤嘅先會入嚟），批量攞唔會貴。
+async function attachPriceHistorySegments(db, rows, table) {
+  const refNos = [...new Set(rows.map((r) => r.ref_no).filter(Boolean))];
+  if (!refNos.length) return;
+  const { results } = await db.prepare(
+    `SELECT ref_no, snapshot_date, price, price_per_ft FROM ${table}
+     WHERE ref_no IN (${refNos.map(() => '?').join(',')}) ORDER BY ref_no, snapshot_date ASC`
+  ).bind(...refNos).all();
+  const byRef = new Map();
+  for (const r of results) {
+    if (!byRef.has(r.ref_no)) byRef.set(r.ref_no, []);
+    byRef.get(r.ref_no).push(r);
+  }
+  for (const row of rows) row.history = collapsePriceHistory(byRef.get(row.ref_no) || []);
+}
+
 async function getTodayHighlights(db, accountId) {
   const today = hkDateStr();
   const yesterday = hkDateStr(-1);
@@ -2947,7 +2979,7 @@ async function getTodayHighlights(db, accountId) {
     db.prepare(`
       SELECT v.id AS viewing_id, v.price AS view_price, v.view_date,
              v.block, v.floor AS view_floor, v.unit AS view_unit,
-             l.building_name, l.floor, l.unit AS l_unit, l.price AS new_price,
+             l.ref_no, l.building_name, l.floor, l.unit AS l_unit, l.price AS new_price,
              l.size_net, l.price_per_ft, l.source,
              l.detail_url, ph_prev.price AS old_price, e.name AS estate_name,
              ${LIST_START_SQL} AS list_start
@@ -3112,7 +3144,7 @@ async function getTodayHighlights(db, accountId) {
       db.prepare(`
         SELECT v.id AS viewing_id, v.price AS view_price, v.view_date,
                v.block, v.floor AS view_floor, v.unit AS view_unit,
-               l.building_name, l.floor, l.unit AS l_unit, l.price AS new_price,
+               l.ref_no, l.building_name, l.floor, l.unit AS l_unit, l.price AS new_price,
                l.size_net, l.price_per_ft, l.source,
                l.detail_url, ph_prev.price AS old_price, e.name AS estate_name,
                ${RENTAL_LIST_START_SQL} AS list_start
@@ -3225,12 +3257,20 @@ async function getTodayHighlights(db, accountId) {
   });
   const allViewedRentTxns = [...rentMap.values()].flatMap(e => e.viewedRentTxns.map(v => ({ ...v, estate_name: e.estate })));
 
+  // 「睇過嘅放盤/租盤變動」帶埋完整摺疊史，唔止顯示今日呢一次變動。
+  const linkedPriceChangesRows = linkedPriceChanges.results || [];
+  const linkedRentPriceChangesRows = linkedRentPriceChanges.results || [];
+  await Promise.all([
+    attachPriceHistorySegments(db, linkedPriceChangesRows, 'listing_price_history'),
+    attachPriceHistorySegments(db, linkedRentPriceChangesRows, 'rental_price_history'),
+  ]);
+
   return {
     date: today, byEstate, allViewedTxns,
-    linkedPriceChanges: linkedPriceChanges.results || [],
+    linkedPriceChanges: linkedPriceChangesRows,
     linkedRemoved: linkedRemoved.results || [],
     byEstateRent, allViewedRentTxns,
-    linkedRentPriceChanges: linkedRentPriceChanges.results || [],
+    linkedRentPriceChanges: linkedRentPriceChangesRows,
     linkedRentRemoved: linkedRentRemoved.results || [],
   };
 }
@@ -3264,6 +3304,20 @@ function buildEmailHtml(highlights, bargains = []) {
   // 呎數呎價 + 放咗幾耐，用同一個分隔符串埋一行
   const metaLine = (size, psf, listStart) =>
     [sizePsf(size, psf), domStr(listStart)].filter(Boolean).join("．");
+  // 「睇過嘅放盤/租盤變動」淨顯示今日新舊價睇唔到成個故仔（連環減咗幾次、
+  // 加埋一齊減咗幾多）——呢度用摺疊史（history，已經喺 getTodayHighlights
+  // 攞埋）補一行细字，一眼睇晒。少過 2 段（即係得返今次呢個價，冇更舊記錄）
+  // 就唔顯示，避免同上面果句「原價 → 新價」重複。
+  const historyLine = (segs, fmtFn) => {
+    if (!segs || segs.length < 2) return '';
+    const parts = segs.map((s, i) => {
+      const d = s.start.slice(5);
+      if (i === 0) return `${d} ${fmtFn(s.price)}`;
+      const col = s.price <= s.prev ? '#34d399' : '#f87171';
+      return `<span style="color:${col}">→ ${d} ${fmtFn(s.price)}</span>`;
+    });
+    return `<div style="margin-top:4px;font-size:11px;color:#94a3b8;line-height:1.6">${parts.join(' ')}</div>`;
+  };
 
   let sections = "";
   let bargainSection = "";   // 筍盤擺去 email 最後（其他動態行先）
@@ -3317,7 +3371,8 @@ function buildEmailHtml(highlights, bargains = []) {
       rows += R(
         M(`${c.estate_name||''} ${c.building_name||''} ${c.floor||''} ${c.l_unit||''}`)
           + (sp ? S(sp) : '')
-          + S(`睇樓價 ${c.view_price ? fmt(c.view_price) : '-'}　${srcLink(c.detail_url, c.source)}`),
+          + S(`睇樓價 ${c.view_price ? fmt(c.view_price) : '-'}　${srcLink(c.detail_url, c.source)}`)
+          + historyLine(c.history, fmt),
         priceCell(fmt(c.new_price))
           + S(`<span style="text-decoration:line-through">${fmt(c.old_price)}</span>`)
           + `<div style="color:${col};font-weight:700;font-size:13px">${arrow} ${fmt(Math.abs(diff))}</div>`
@@ -3355,7 +3410,8 @@ function buildEmailHtml(highlights, bargains = []) {
       rows += R(
         M(`${c.estate_name||''} ${c.building_name||''} ${c.floor||''} ${c.l_unit||''}`)
           + (sp ? S(sp) : '')
-          + S(`睇樓租 ${c.view_price ? fmtRent(c.view_price) : '-'}　${srcLink(c.detail_url, c.source)}`),
+          + S(`睇樓租 ${c.view_price ? fmtRent(c.view_price) : '-'}　${srcLink(c.detail_url, c.source)}`)
+          + historyLine(c.history, fmtRent),
         priceCell(fmtRent(c.new_price))
           + S(`<span style="text-decoration:line-through">${fmtRent(c.old_price)}</span>`)
           + `<div style="color:${col};font-weight:700;font-size:13px">${arrow} ${fmtRent(Math.abs(diff))}</div>`

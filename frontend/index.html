@@ -2544,6 +2544,20 @@ async function loadTodayHighlights() {
       return (sp ? `<div class="unit-price">${sp}</div>` : '')
         + (dom ? `<div class="unit-price">${dom}</div>` : '');
     };
+    // 「睇過嘅放盤/租盤變動」淨顯示今日呢次新舊價，睇唔到成個故仔（連環減咗
+    // 幾次、加埋一齊減咗幾多）——history 係後端已經摺疊好嘅 segment 陣列，
+    // 呢度加一行细字帶出嚟，跟返 email 同一個樣。少過 2 段（即係冇更舊記錄）
+    // 就唔顯示，避免同上面「原價 → 新價」重複。
+    const historyLine = (segs, fmtFn) => {
+      if (!segs || segs.length < 2) return '';
+      const parts = segs.map((s, i) => {
+        const d = s.start.slice(5);
+        if (i === 0) return `${d} ${fmtFn(s.price)}`;
+        const cls = s.price <= s.prev ? 'gain-pos' : 'gain-neg';
+        return `<span class="${cls}">→ ${d} ${fmtFn(s.price)}</span>`;
+      });
+      return `<div style="margin-top:0.3rem;font-size:0.72rem;color:var(--muted);line-height:1.6">${parts.join(' ')}</div>`;
+    };
 
     const hlTxnQueue = [];
     let html = "";
@@ -2556,9 +2570,11 @@ async function loadTodayHighlights() {
         const diff = c.new_price - c.old_price;
         const diffHtml = `<span style="color:${diff<=0?'var(--up)':'var(--down)'}">${diff<=0?'▼':'▲'} ${fmt(Math.abs(diff))}</span>`;
         const link = c.detail_url ? `<a href="${safeUrl(c.detail_url)}" target="_blank" style="color:var(--accent2);text-decoration:none">↗</a>` : '';
+        const histBtn = c.ref_no ? ` <button class="history-btn" style="font-size:0.7rem;padding:0.05rem 0.3rem" onclick="showHistory('${escJsAttr(c.ref_no)}','${escJsAttr((c.building_name||'')+' '+(c.floor||'')+(c.l_unit||''))}')">歷史 ↓</button>` : '';
         rows += TR(
-          `<strong>${escHtml(c.estate_name||'')}</strong> ${escHtml(c.building_name||'')} ${escHtml(c.floor||'')} ${escHtml(c.l_unit||'')} ${link}`
-            + metaDiv(c.size_net, c.price_per_ft, c.list_start),
+          `<strong>${escHtml(c.estate_name||'')}</strong> ${escHtml(c.building_name||'')} ${escHtml(c.floor||'')} ${escHtml(c.l_unit||'')} ${link}${histBtn}`
+            + metaDiv(c.size_net, c.price_per_ft, c.list_start)
+            + historyLine(c.history, fmt),
           c.view_price ? fmt(c.view_price) : '-',
           `<span style="text-decoration:line-through">${fmt(c.old_price)}</span>`,
           `<span style="font-weight:700;color:var(--accent)">${fmt(c.new_price)}</span>`,
@@ -2616,7 +2632,8 @@ async function loadTodayHighlights() {
         const link = c.detail_url ? `<a href="${safeUrl(c.detail_url)}" target="_blank" style="color:var(--accent2);text-decoration:none">↗</a>` : '';
         rows += TR(
           `<strong>${escHtml(c.estate_name||'')}</strong> ${escHtml(c.building_name||'')} ${escHtml(c.floor||'')} ${escHtml(c.l_unit||'')} ${link}`
-            + metaDiv(c.size_net, c.price_per_ft, c.list_start),
+            + metaDiv(c.size_net, c.price_per_ft, c.list_start)
+            + historyLine(c.history, fmtRent),
           c.view_price ? fmtRent(c.view_price) : '-',
           `<span style="text-decoration:line-through">${fmtRent(c.old_price)}</span>`,
           `<span style="font-weight:700;color:var(--accent)">${fmtRent(c.new_price)}</span>`,
