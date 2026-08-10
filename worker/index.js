@@ -2396,7 +2396,7 @@ const CONFIG_DEFS = [
   { key: "email_bargain_top", label: "Email 筍盤數目", def: 5, min: 0, max: 20,
     groups: ["每日 Email"],
     desc: "每日 email「今日筍盤」最多列幾多個；設 0 成段唔出。" },
-  { key: "new_txn_max_age_days", label: "新成交最大登記日數", def: 180, min: 1, max: 3650,
+  { key: "new_txn_max_age_days", label: "新成交最大登記日數", def: 90, min: 1, max: 3650,
     groups: ["每日 Email", "今日動態"],
     desc: "成交登記日超過呢個日數就唔當「新成交」（每日 email／今日動態）。防止新 source（利嘉閣／香港置業）首次抓返一大堆舊成交時被當成新成交。" },
   { key: "absorption_days", label: "消化率窗口（日）", def: 30, min: 7, max: 180,
@@ -2867,7 +2867,7 @@ async function getTodayHighlights(db, accountId) {
   // 「新成交」淨計登記日夠新嘅（sec 唔關事，係分析 config）。防止新 source
   // （利嘉閣／香港置業）首次抓返一大堆舊成交時，全部 first_seen=今日 而被
   // 當成「新成交」（用戶收到 100+ 舊成交嘅通知就係咁）。
-  const newTxnMaxAge = (await getConfig(db, accountId)).new_txn_max_age_days ?? 180;
+  const newTxnMaxAge = (await getConfig(db, accountId)).new_txn_max_age_days ?? 90;
 
   const [newTxns, priceChanges, newListings, removedListings, viewedTxns, linkedPriceChanges, linkedRemoved] = await Promise.all([
     db.prepare(`
@@ -2926,7 +2926,7 @@ async function getTodayHighlights(db, accountId) {
         AND (e.is_disabled = 0 OR e.is_disabled IS NULL)
       ORDER BY l.price ASC`).bind(accountId, today, today, yesterday, yesterday).all(),
     db.prepare(`
-      SELECT l.building_name, l.floor, l.unit, l.bedrooms, l.price,
+      SELECT l.ref_no, l.building_name, l.floor, l.unit, l.bedrooms, l.price,
              l.size_net, l.price_per_ft, l.detail_url, l.source, e.name as estate_name,
              ${LIST_START_SQL} AS list_start
       FROM listings l
@@ -3004,7 +3004,7 @@ async function getTodayHighlights(db, accountId) {
     // 下架比改價更值得知（盤冇咗＝可能已售或者收返），所以獨立一段擺 email 頂。
     db.prepare(`
       SELECT v.id AS viewing_id, v.price AS view_price, v.view_date,
-             l.building_name, l.floor, l.unit AS l_unit, l.price,
+             l.ref_no, l.building_name, l.floor, l.unit AS l_unit, l.price,
              l.size_net, l.price_per_ft, l.source, e.name AS estate_name,
              ${LIST_START_SQL} AS list_start
       FROM viewings v
@@ -3105,7 +3105,7 @@ async function getTodayHighlights(db, accountId) {
           AND (e.is_disabled = 0 OR e.is_disabled IS NULL)
         ORDER BY l.price ASC`).bind(accountId, today, today, yesterday, yesterday).all(),
       db.prepare(`
-        SELECT l.building_name, l.floor, l.unit, l.bedrooms, l.price,
+        SELECT l.ref_no, l.building_name, l.floor, l.unit, l.bedrooms, l.price,
                l.size_net, l.price_per_ft, l.detail_url, l.source, e.name as estate_name,
                ${RENTAL_LIST_START_SQL} AS list_start
         FROM rental_listings l
@@ -3165,7 +3165,7 @@ async function getTodayHighlights(db, accountId) {
         ORDER BY ABS(l.price - ph_prev.price) DESC`).bind(today, today, accountId).all(),
       db.prepare(`
         SELECT v.id AS viewing_id, v.price AS view_price, v.view_date,
-               l.building_name, l.floor, l.unit AS l_unit, l.price,
+               l.ref_no, l.building_name, l.floor, l.unit AS l_unit, l.price,
                l.size_net, l.price_per_ft, l.source, e.name AS estate_name,
                ${RENTAL_LIST_START_SQL} AS list_start
         FROM viewings v
@@ -3257,21 +3257,32 @@ async function getTodayHighlights(db, accountId) {
   });
   const allViewedRentTxns = [...rentMap.values()].flatMap(e => e.viewedRentTxns.map(v => ({ ...v, estate_name: e.estate })));
 
-  // 「睇過嘅放盤/租盤變動」帶埋完整摺疊史，唔止顯示今日呢一次變動。
+  // 「售價/租金變動」+「已下架」全部帶埋完整摺疊史，唔止顯示今日/落架前
+  // 嗰一刻嘅單一價錢——落架前有冇連環減過價，一樣係判斷「呢個盤仲值唔值得
+  // 留意」嘅重要線索。已下架嘅盤 history 會截到落架嗰日為止（listing_price_
+  // history 冧咗個 ref 之後就冇新 snapshot），啱啱好係「落架前嘅完整軌跡」。
   const linkedPriceChangesRows = linkedPriceChanges.results || [];
   const linkedRentPriceChangesRows = linkedRentPriceChanges.results || [];
+  const linkedRemovedRows = linkedRemoved.results || [];
+  const linkedRentRemovedRows = linkedRentRemoved.results || [];
+  const removedListingsRows = removedListings.results || [];
+  const removedRentalsRows = removedRentals.results || [];
   await Promise.all([
     attachPriceHistorySegments(db, linkedPriceChangesRows, 'listing_price_history'),
     attachPriceHistorySegments(db, linkedRentPriceChangesRows, 'rental_price_history'),
+    attachPriceHistorySegments(db, linkedRemovedRows, 'listing_price_history'),
+    attachPriceHistorySegments(db, linkedRentRemovedRows, 'rental_price_history'),
+    attachPriceHistorySegments(db, removedListingsRows, 'listing_price_history'),
+    attachPriceHistorySegments(db, removedRentalsRows, 'rental_price_history'),
   ]);
 
   return {
     date: today, byEstate, allViewedTxns,
     linkedPriceChanges: linkedPriceChangesRows,
-    linkedRemoved: linkedRemoved.results || [],
+    linkedRemoved: linkedRemovedRows,
     byEstateRent, allViewedRentTxns,
     linkedRentPriceChanges: linkedRentPriceChangesRows,
-    linkedRentRemoved: linkedRentRemoved.results || [],
+    linkedRentRemoved: linkedRentRemovedRows,
   };
 }
 
@@ -3390,7 +3401,8 @@ function buildEmailHtml(highlights, bargains = []) {
       rows += R(
         M(`${c.estate_name||''} ${c.building_name||''} ${c.floor||''} ${c.l_unit||''}`)
           + (sp ? S(sp) : '')
-          + S(`睇樓 ${c.view_date||''}　睇樓價 ${c.view_price ? fmt(c.view_price) : '-'}　${srcName(c.source)}`),
+          + S(`睇樓 ${c.view_date||''}　睇樓價 ${c.view_price ? fmt(c.view_price) : '-'}　${srcName(c.source)}`)
+          + historyLine(c.history, fmt),
         `<div style="color:#94a3b8;font-weight:700;font-size:15px;text-decoration:line-through">${fmt(c.price)}</div>`
           + `<div style="color:#f87171;font-weight:700;font-size:13px">已下架</div>`
       );
@@ -3429,7 +3441,8 @@ function buildEmailHtml(highlights, bargains = []) {
       rows += R(
         M(`${c.estate_name||''} ${c.building_name||''} ${c.floor||''} ${c.l_unit||''}`)
           + (sp ? S(sp) : '')
-          + S(`睇樓 ${c.view_date||''}　睇樓租 ${c.view_price ? fmtRent(c.view_price) : '-'}　${srcName(c.source)}`),
+          + S(`睇樓 ${c.view_date||''}　睇樓租 ${c.view_price ? fmtRent(c.view_price) : '-'}　${srcName(c.source)}`)
+          + historyLine(c.history, fmtRent),
         `<div style="color:#94a3b8;font-weight:700;font-size:15px;text-decoration:line-through">${fmtRent(c.price)}</div>`
           + `<div style="color:#f87171;font-weight:700;font-size:13px">已下架</div>`
       );
@@ -3544,7 +3557,8 @@ function buildEmailHtml(highlights, bargains = []) {
         const sp = metaLine(l.size_net, l.price_per_ft, l.list_start);
         rows += R(
           M(`${l.building_name || ""} ${l.floor || ""} ${l.unit || ""}`)
-            + S(`${l.bedrooms ?? "-"}房${sp ? '　' + sp : ''}`),
+            + S(`${l.bedrooms ?? "-"}房${sp ? '　' + sp : ''}`)
+            + historyLine(l.history, fmt),
           `<div style="color:#94a3b8;font-weight:700;font-size:14px;text-decoration:line-through">${fmt(l.price)}</div>`
         );
       }
@@ -3607,7 +3621,8 @@ function buildEmailHtml(highlights, bargains = []) {
         const sp = metaLine(l.size_net, l.price_per_ft, l.list_start);
         rows += R(
           M(`${l.building_name || ""} ${l.floor || ""} ${l.unit || ""}`)
-            + S(`${l.bedrooms ?? "-"}房${sp ? '　' + sp : ''}`),
+            + S(`${l.bedrooms ?? "-"}房${sp ? '　' + sp : ''}`)
+            + historyLine(l.history, fmtRent),
           `<div style="color:#94a3b8;font-weight:700;font-size:14px;text-decoration:line-through">${fmtRent(l.price)}</div>`
         );
       }

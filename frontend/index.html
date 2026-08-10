@@ -2589,9 +2589,11 @@ async function loadTodayHighlights() {
     if (linkedGone.length) {
       let rows = "";
       for (const c of linkedGone) {
+        const histBtn = c.ref_no ? ` <button class="history-btn" style="font-size:0.7rem;padding:0.05rem 0.3rem" onclick="showHistory('${escJsAttr(c.ref_no)}','${escJsAttr((c.building_name||'')+' '+(c.floor||'')+(c.l_unit||''))}')">歷史 ↓</button>` : '';
         rows += TR(
-          `<strong>${escHtml(c.estate_name||'')}</strong> ${escHtml(c.building_name||'')} ${escHtml(c.floor||'')} ${escHtml(c.l_unit||'')}`
-            + metaDiv(c.size_net, c.price_per_ft, c.list_start),
+          `<strong>${escHtml(c.estate_name||'')}</strong> ${escHtml(c.building_name||'')} ${escHtml(c.floor||'')} ${escHtml(c.l_unit||'')}${histBtn}`
+            + metaDiv(c.size_net, c.price_per_ft, c.list_start)
+            + historyLine(c.history, fmt),
           c.view_price ? fmt(c.view_price) : '-',
           `<span style="text-decoration:line-through">${fmt(c.price)}</span>`,
           `<span style="color:var(--down)">已下架</span>`,
@@ -2649,7 +2651,8 @@ async function loadTodayHighlights() {
       for (const c of linkedRentGone) {
         rows += TR(
           `<strong>${escHtml(c.estate_name||'')}</strong> ${escHtml(c.building_name||'')} ${escHtml(c.floor||'')} ${escHtml(c.l_unit||'')}`
-            + metaDiv(c.size_net, c.price_per_ft, c.list_start),
+            + metaDiv(c.size_net, c.price_per_ft, c.list_start)
+            + historyLine(c.history, fmtRent),
           c.view_price ? fmtRent(c.view_price) : '-',
           `<span style="text-decoration:line-through">${fmtRent(c.price)}</span>`,
           `<span style="color:var(--down)">已下架</span>`,
@@ -2759,7 +2762,8 @@ async function loadTodayHighlights() {
           // 已下架嘅盤條 link 去唔到（listing 已經落架），唔顯示來源 link
           rows += TR(
             `${escHtml(l.building_name||'')} ${escHtml(l.floor||'')} ${escHtml(l.unit||'')}`
-              + metaDiv(l.size_net, l.price_per_ft, l.list_start),
+              + metaDiv(l.size_net, l.price_per_ft, l.list_start)
+              + historyLine(l.history, fmt),
             l.bedrooms!=null ? l.bedrooms+'房' : '-',
             `<span style="text-decoration:line-through">${fmt(l.price)}</span>`,
             '',
@@ -2839,7 +2843,8 @@ async function loadTodayHighlights() {
         for (const l of removedRentals) {
           rows += TR(
             `${escHtml(l.building_name||'')} ${escHtml(l.floor||'')} ${escHtml(l.unit||'')}`
-              + metaDiv(l.size_net, l.price_per_ft, l.list_start),
+              + metaDiv(l.size_net, l.price_per_ft, l.list_start)
+              + historyLine(l.history, fmtRent),
             l.bedrooms!=null ? l.bedrooms+'房' : '-',
             `<span style="text-decoration:line-through">${fmtRent(l.price)}</span>`,
             '', ''
