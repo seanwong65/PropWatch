@@ -3812,13 +3812,13 @@ async function syncOneEstate(db, estate) {
 }
 
 
-// ── Drip sync：每 10 分鐘做「一個單元」 ─────────────────────────────────────
+// ── Drip sync：每 2 分鐘做「一個單元」 ──────────────────────────────────────
 // 一個 invocation 唔可能 run 幾個鐘（實測 CF 60 秒就斬，而俾斬係「死」唔係
-// throw，catch 收唔到、亦冇 alert）。所以改成用 144 個細 invocation 鋪開一日：
-// 每次只做一個 (屋苑 × source × 放盤/成交) 單元，做完即刻 exit。
+// throw，catch 收唔到、亦冇 alert）。所以改成用一大堆細 invocation 鋪開一日：
+// 每次只做一個 (屋苑 × source × 放盤/成交/租盤/租務成交) 單元，做完即刻 exit。
 //
 // 「5 個 cron trigger」個限制係計 expression 數目，唔係執行次數——所以
-// "*/10 * * * *" 只佔 1 個名額但一日跑 144 次，比原本 4 個固定時間好用得多。
+// "*/2 * * * *" 只佔 1 個名額但一日跑 720 次，比原本 4 個固定時間好用得多。
 //
 // 因為一次只做一個 scrape，timeout 可以放寬到 DRIP_TIMEOUT_MS（原本幾個
 // scrape 分 28 秒預算，利嘉閣 10 秒唔夠一定 timeout；而家佢自己有 25 秒）。
@@ -3827,7 +3827,12 @@ async function syncOneEstate(db, estate) {
 // 真係冇盤放嘅屋苑（例：別樹一居 0 個盤）永遠冇 row，會被當成永遠未做，
 // 一路重試餓死其他單元。失敗都要記 attempts：試夠 SYNC_MAX_ATTEMPTS 次就
 // 唔再試（唔霸位），同時發 telegram。
-const DRIP_CRON = "*/3 * * * *";
+//
+// ⚠️ 呢個值一定要同 wrangler.toml 個 crons 完全一致——scheduled() 靠
+// `event.cron === DRIP_CRON` 分流，唔一致 drip sync 會靜靜完全唔行。
+// 亦唔好縮到每分鐘：慢單元可以行足 DRIP_TIMEOUT_MS（45s），兩個 invocation
+// 會 overlap 揀到同一個 pending[0]，白撞 portal。詳見 wrangler.toml 註解。
+const DRIP_CRON = "*/2 * * * *";
 // 要大過各個 scraper 自己嘅內部 deadline（利嘉閣 30s）+ 最後一頁嘅 10s，
 // 否則會喺人家 graceful bail（carry forward 上次嘅盤）之前就 abort，
 // 令「部分成功」變成「完全失敗」。一次只做一個 scrape 所以食得起。
@@ -3995,6 +4000,28 @@ async function sendSyncSummary(db, env) {
   const rentTxn = await db.prepare(
     "SELECT COUNT(*) AS n FROM rental_transactions WHERE first_seen = ?"
   ).bind(date).first();
+  // 各 source 嘅重試統計——用嚟診斷「邊個 source／邊類單元最唔穩」。
+  // attempts=1 且 ok=1 = 一次過搞掂；attempts>1 = 要重試（可能最後成功可能失敗）；
+  // retry_total = SUM(attempts-1) 即係總共白試幾多次（同「幾多個單元要重試」
+  // 分開睇：1 個單元試 3 次 vs 3 個單元各試 1 次，係兩件唔同嘅事）。
+  const { results: retryBySrc } = await db.prepare(
+    `SELECT source,
+            COUNT(*) AS units,
+            SUM(CASE WHEN ok = 1 AND attempts = 1 THEN 1 ELSE 0 END) AS clean,
+            SUM(CASE WHEN attempts > 1 THEN 1 ELSE 0 END) AS retried,
+            SUM(attempts - 1) AS retry_total,
+            SUM(CASE WHEN ok = 0 THEN 1 ELSE 0 END) AS failed
+     FROM sync_log WHERE sync_date = ? GROUP BY source`
+  ).bind(date).all();
+  // 逐 (source × kind) 睇邊類單元出事——放盤同成交嘅失敗成因通常唔同
+  // （例：利嘉閣放盤要分 15 頁好易 timeout，成交只 10 頁又冇 retry）。
+  // 只列有重試過嘅，冇事嘅唔嘈。
+  const { results: retryByKind } = await db.prepare(
+    `SELECT source, kind, SUM(attempts - 1) AS retry_total,
+            SUM(CASE WHEN attempts > 1 THEN 1 ELSE 0 END) AS retried
+     FROM sync_log WHERE sync_date = ? GROUP BY source, kind
+     HAVING retry_total > 0 ORDER BY retry_total DESC`
+  ).bind(date).all();
   const { results: fails } = await db.prepare(
     `SELECT e.name AS estate_name, sl.source, sl.kind, sl.attempts, sl.detail
      FROM sync_log sl LEFT JOIN estates e ON e.id = sl.estate_id
@@ -4009,6 +4036,7 @@ async function sendSyncSummary(db, env) {
   })();
   const dur = mins == null ? "?" : `${Math.floor(mins / 60)} 小時 ${mins % 60} 分`;
   const label = { centanet: "中原", ricacorp: "利嘉閣", hkp: "香港置業" };
+  const kindLabel = { listings: "放盤", txn: "成交", rent_listings: "租盤", rent_txn: "租務成交" };
 
   const lines = [
     `✅ PropWatch 今日同步完成（${date}）`,
@@ -4031,8 +4059,26 @@ async function sendSyncSummary(db, env) {
       `租務成交：新入 ${rentTxn?.n ?? 0} 宗`,
     );
   }
+  // 🔁 各 source 穩定度：重試多嘅排前，一眼睇到邊個 source 最唔穩。
+  // Telegram 係純文字（冇 monospace），所以唔靠空格對齊，用「・」分隔。
+  if (retryBySrc.length) {
+    const rows = [...retryBySrc].sort((a, b) => (b.retry_total - a.retry_total) || (b.failed - a.failed));
+    lines.push(``, `🔁 各 source 穩定度`);
+    for (const r of rows) {
+      const src = label[r.source] || r.source;
+      if (!r.retry_total && !r.failed) { lines.push(`  ${src}：${r.units} 單元・全部一次過 ✓`); continue; }
+      const parts = [`${r.units} 單元`, `一次過 ${r.clean}`];
+      if (r.retried) parts.push(`重試 ${r.retried} 個（共 ${r.retry_total} 次）`);
+      if (r.failed) parts.push(`失敗 ${r.failed}`);
+      lines.push(`  ${src}：${parts.join("・")}`);
+    }
+    if (retryByKind.length) {
+      lines.push(`  重試熱點：` + retryByKind.slice(0, 5)
+        .map((r) => `${label[r.source] || r.source}/${kindLabel[r.kind] || r.kind} ${r.retry_total} 次`)
+        .join("・"));
+    }
+  }
   if (fails.length) {
-    const kindLabel = { listings: "放盤", txn: "成交", rent_listings: "租盤", rent_txn: "租務成交" };
     lines.push(``, `⚠️ 失敗 ${fails.length} 個`);
     for (const f of fails.slice(0, 10)) {
       lines.push(`  • ${f.estate_name || "?"} / ${label[f.source] || f.source} / ` +

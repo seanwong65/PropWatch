@@ -11,16 +11,32 @@ database_id = "b4330ef2-78c4-48be-ae88-b1d94614faad"
 # own invocation (Cloudflare blocks self-fetch chaining; no Queues on this plan).
 # 每個 slot 嘅 offset / 屋苑範圍由 index.js 嘅 SYNC_SLOTS + SYNC_SLOT_SIZE 決定，
 # 容量 = slot 數 × SYNC_SLOT_SIZE。加屋苑加到爆容量，slot 0 會發 telegram 警示。
-#   "*/3 * * * *" = 每 3 分鐘 → drip sync：做一個 (屋苑 × source × 放盤/成交)
-#                   單元，做完即刻 exit；今日全部搞定就唔做嘢。
-#                   16 屋苑 × 3 source × 2 類 = 96 個單元 → 一轉約 4.8 小時，
-#                   HK 時間 00:00 開始（sync_date 用 hkDateStr），約 05:00 做完，
-#                   09:00 寄「今日動態」時數據已齊；剩低嘅時間用嚟重試失敗單元。
+#   "*/2 * * * *" = 每 2 分鐘 → drip sync：做一個 (屋苑 × source × 放盤/成交/
+#                   租盤/租務成交) 單元，做完即刻 exit；今日全部搞定就唔做嘢。
+#                   實測 112 個單元（14 屋苑 × 3 source × 買放盤+買成交，加
+#                   14 × 1 輪流 source × 租盤+租務成交）：
+#                     */3 → 5 小時 33 分（實測 00:00:21 → 05:33:24）
+#                     */2 → 約 3 小時 45 分
+#                   HK 時間 00:00 開始（sync_date 用 hkDateStr），
+#                   09:00 寄「今日動態」時數據已齊；剩低嘅時間重試失敗單元。
+#
+#                   ⚠️ 唔好再縮到 "* * * * *"（每分鐘）：DRIP_TIMEOUT_MS 係 45 秒
+#                   （利嘉閣自己 30s deadline + 尾頁 10s），慢單元可以行足 45 秒。
+#                   Cron invocation 之間唔會等上一個完，兩個 invocation 會讀到
+#                   同一份 sync_log snapshot、揀到同一個 pending[0]，即係同一個
+#                   單元 scrape 兩次（數據唔會壞——sync_log 同 saveXxx 都
+#                   idempotent——但白撞 portal）。*/2 有 75s vs 45s margin，穩陣。
+#                   要再快就要一個 invocation 做多個單元，但要守 Free 版
+#                   50 subrequest/invocation 上限：利嘉閣放盤一個單元最壞已經用
+#                   30 個（15 頁 × 2 retry），兩個夾埋就爆。
 #   "0 1 * * *"   = 09:00 HKT → "今日動態" email (separate invocation)
 #
 # ⚠️ Workers Free 上限係每個 account 5 個 cron trigger，但個限制係計 expression
-# 數目而唔係執行次數："*/3 * * * *" 只佔 1 個名額，一日卻跑 480 次。之前用 4 個
+# 數目而唔係執行次數："*/2 * * * *" 只佔 1 個名額，一日卻跑 720 次。之前用 4 個
 # 固定時間（16:00/16:10/16:20/16:30）佔 4 個名額但一日只跑 4 次，好蝕。
 # 而家用 2 個名額，剩 3 個備用。
+#
+# ⚠️ 改呢條 expression 一定要同時改 index.js 個 DRIP_CRON 常數——
+# scheduled() 靠 `event.cron === DRIP_CRON` 分流，唔一致 drip sync 會完全唔行。
 [triggers]
-crons = ["*/3 * * * *", "0 1 * * *"]
+crons = ["*/2 * * * *", "0 1 * * *"]
