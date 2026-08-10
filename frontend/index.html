@@ -3477,6 +3477,16 @@ async function showEstate(id, name, district) {
         <button class="sync-btn" style="background:var(--down);border-color:var(--down);white-space:nowrap;flex-shrink:0;margin-top:0.2rem" onclick="openViewingModal()">＋ 新增睇樓</button>
       </div>
 
+      <!-- 買/租 toggle：只喺用戶偏好有揀「租盤」時出現，唔想幫買盤 user 加噪音。
+           擺喺圖表上面——佢控制埋下面個趨勢圖顯示買定租，擺喺圖表之前先睇得出
+           因果關係；仲控制「最新放盤」同「成交記錄」兩個 tab 睇邊種盤。樣要夠
+           搶眼，唔可以同其他 filter chip 撞樣。 -->
+      ${wantsDeal('R') ? `
+      <div id="estate-deal-toggle" class="deal-toggle" style="margin:0.75rem 0 0.25rem">
+        <button class="deal-toggle-btn buy ${_estateDeal === 'S' ? 'active' : ''}" onclick="setEstateDeal('S',${id})">🏠 買盤</button>
+        <button class="deal-toggle-btn rent ${_estateDeal === 'R' ? 'active' : ''}" onclick="setEstateDeal('R',${id})">🔑 租盤</button>
+      </div>` : ''}
+
       <div class="chart-section" style="margin-top:1rem;display:flex;gap:1rem;flex-wrap:wrap;align-items:flex-start">
         <div style="flex:1 1 65%;min-width:280px">
           ${!isPaid() ? lockPanel('呎價走勢圖', '叫價／成交走勢 + 全組合大市對照線，睇你追緊嘅屋苑跑贏定跑輸大市') : `
@@ -3503,14 +3513,6 @@ async function showEstate(id, name, district) {
         </div>
       </div>
 
-      <!-- 買/租 toggle：只喺用戶偏好有揀「租盤」時出現，唔想幫買盤 user 加噪音。
-           控制「最新放盤」同「成交記錄」兩個 tab 睇買盤定租盤數據——係成個頁面
-           「而家睇緊邊種盤」嘅唯一指示，樣要夠搶眼，唔可以同其他 filter chip 撞樣。 -->
-      ${wantsDeal('R') ? `
-      <div id="estate-deal-toggle" class="deal-toggle" style="margin:0.75rem 0 0.25rem">
-        <button class="deal-toggle-btn buy ${_estateDeal === 'S' ? 'active' : ''}" onclick="setEstateDeal('S',${id})">🏠 買盤</button>
-        <button class="deal-toggle-btn rent ${_estateDeal === 'R' ? 'active' : ''}" onclick="setEstateDeal('R',${id})">🔑 租盤</button>
-      </div>` : ''}
       <div class="estate-tabs">
         <button class="estate-tab active" id="tab-btn-listings" onclick="switchTab('listings',${id})">${_estateDeal === 'R' ? '租盤' : '最新放盤'}(${_estateDeal === 'R' ? '…' : listings.length})</button>
         <button class="estate-tab" onclick="switchTab('transactions',${id})">成交記錄</button>
@@ -3603,6 +3605,17 @@ async function showEstate(id, name, district) {
       renderSourceToggles();
       renderListingsTable();
     }
+    // 租盤 filter bar 都要跟返睇樓偏好 auto-apply（買盤嗰邊 `filters` 已經咁做），
+    // 淨係之前漏咗冇跟——房數/月租跟 pref，其他保持預設，之後 user 照可以手動改。
+    _rentalFilters = {
+      beds: (_userPrefs && _userPrefs.beds) || "all",
+      building: "all", unit: "all",
+      minPrice: (_userPrefs && _userPrefs.rent_min) || "",
+      maxPrice: (_userPrefs && _userPrefs.rent_max) || "",
+      minSize: (_userPrefs && _userPrefs.size_min) || "",
+      maxSize: (_userPrefs && _userPrefs.size_max) || "",
+      source: "all", hideRemoved: true,
+    };
     // 偏好「只要租盤」就開頁即刻拉租盤（上面 _estateDeal 已經設咗 'R'）
     if (_estateDeal === 'R') loadRentalListings(id);
 
