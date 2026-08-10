@@ -1477,7 +1477,13 @@ function renderFrozenTable(container, theadTr, tbodyHtml, rowsToShow = 10, table
   const n = Math.min(rowsToShow, bodyRows.length);
   let h = 0;
   for (let i = 0; i < n; i++) h += bodyRows[i].offsetHeight;
-  if (h > 0) bodyWrap.style.maxHeight = h + 'px';
+  // 「凍結表頭」淨係喺個表自己嘅內部 scroll 先做得到——如果 rowsToShow 太多，
+  // 成個表（表頭+表身）會高過個 viewport，用戶要 scroll 成頁先睇到表尾，但
+  // 表頭本身唔係 sticky（正常 document flow），一 scroll 成頁佢就跟住冇埋，
+  // 睇落好似「凍結表頭」壞咗。用 viewport 高度做多一重上限，防止表身撐爆
+  // 個 viewport（唔理 rowsToShow 有幾多），保證表頭+表身一定同時見到。
+  const viewportCap = Math.max(200, window.innerHeight * 0.55);
+  if (h > 0) bodyWrap.style.maxHeight = Math.min(h, viewportCap) + 'px';
   return { headerWrap, bodyWrap };
 }
 
@@ -4360,7 +4366,7 @@ function renderRentalListingsTable() {
   renderFrozenTable(
     document.getElementById('rentalTableWrap'),
     `${sortTh('building_name', '單位')}<th>房間 / 面積</th>${sortTh('price', '月租')}${sortTh('price_per_ft', '實呎租')}<th>vs 成交中位</th>${sortTh('dom', '放咗幾耐')}<th>來源</th>`,
-    body, 15, 'history-table data-table'
+    body, 10, 'history-table data-table'
   );
 }
 
@@ -4451,7 +4457,7 @@ function renderRentalTxnTable() {
   renderFrozenTable(
     document.getElementById('rentTxnWrap'),
     `<th>單位</th>${sortTh('size_net', '實呎')}${sortTh('price', '月租')}${sortTh('price_per_ft', '實呎租')}${sortTh('reg_date', '成交日期')}<th>來源</th>`,
-    body, 15, 'history-table data-table'
+    body, 10, 'history-table data-table'
   );
 }
 
