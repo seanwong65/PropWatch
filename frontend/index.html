@@ -1185,6 +1185,12 @@
     </div>
     <div style="margin-top:0.75rem;font-size:0.82rem;color:var(--muted)">目前設定：<span id="pref-modal-preview" style="color:var(--text);font-weight:600">未設定</span></div>
 
+    <label class="vf-label" style="margin-top:1.1rem">📧 每日 email 通知</label>
+    <p style="font-size:0.78rem;color:var(--muted);margin:0 0 0.5rem">每朝 9:00 寄「今日動態」——新放盤／成交／變價／下架。隨時可以喺呢度或者 email 底部退訂。</p>
+    <label style="display:flex;align-items:center;gap:0.45rem;font-size:0.85rem;color:var(--text);cursor:pointer">
+      <input type="checkbox" id="pref-email-optin" checked style="accent-color:var(--accent)"> 我要收每日通知 email
+    </label>
+
     <label class="vf-label" style="margin-top:1.1rem">睇樓評分項目</label>
     <p style="font-size:0.78rem;color:var(--muted);margin:0 0 0.5rem">睇樓時逐項打分（1–5 星，半星都得），之後可以比較邊層樓最合你心水。</p>
     <div class="ratecrit-list" style="display:flex;flex-direction:column;gap:0.4rem;margin-bottom:0.5rem"></div>
@@ -1302,7 +1308,10 @@
     <div class="modal-sub" style="margin-top:1.25rem">🎯 睇樓偏好</div>
     <p style="font-size:0.78rem;color:var(--muted);margin:0.25rem 0 0.5rem">開「最新放盤」時自動 apply 嘅 filter（售價／房數／實呎），留空＝唔限</p>
     <div style="display:flex;align-items:center;gap:0.6rem">
-      <span id="settings-prefs-summary" style="flex:1;font-size:0.85rem"></span>
+      <div style="flex:1;min-width:0">
+        <div id="settings-prefs-summary" style="font-size:0.85rem"></div>
+        <div id="settings-email-state" style="font-size:0.78rem;margin-top:0.15rem"></div>
+      </div>
       <button class="vf-submit" style="width:auto;padding:0.5rem 1rem;margin:0;white-space:nowrap" onclick="openPrefsModal(_userPrefs||{})">修改</button>
     </div>
     <!-- 分析參數：淨係 admin 睇到（一般 user 得睇樓偏好）。由 applyRoleToSettings() 控制顯示 -->
@@ -4951,8 +4960,16 @@ async function handleBillingReturn() {
 // ── 睇樓偏好（首次登入 popup + filter auto-apply + ⚙️ 可改）──
 let _userPrefs = null; // { price_min, price_max, beds, size_min, size_max, dismissed } | null（未設定過）
 
+// 每日 email 訂閱狀態。唔喺 _userPrefs 入面（後端係 accounts 一個欄位，
+// 唔係 prefs JSON），所以獨立一個 state。冇載到就當「有訂」，同後端 default 一致。
+let _emailOptIn = true;
+
 async function loadPreferences() {
-  try { _userPrefs = (await api('/api/preferences')).prefs; } catch (_) {}
+  try {
+    const d = await api('/api/preferences');
+    _userPrefs = d.prefs;
+    if (typeof d.email_opt_in === 'boolean') _emailOptIn = d.email_opt_in;
+  } catch (_) {}
   return _userPrefs;
 }
 
@@ -4984,6 +5001,8 @@ function openPrefsModal(prefill) {
   document.querySelectorAll('#pref-beds .filter-chip').forEach(b =>
     b.classList.toggle('active', (b.dataset.beds || '') === (p.beds || '')));
   document.getElementById('pref-dismiss').checked = false;
+  // 訂閱狀態跟 server（唔係跟 prefill）——由 ⚙️ 設定入嚟改完再開，要見到真嘅狀態
+  document.getElementById('pref-email-optin').checked = _emailOptIn;
   document.getElementById('prefsModalOverlay').style.display = 'flex';
   updatePrefsModalPreview();
   // 評分項目係即時 CRUD（唔跟「儲存」掣），所以開個 popup 就即刻拉最新嗰份
@@ -5047,9 +5066,11 @@ async function savePrefsFromModal() {
     deal_types: [...document.querySelectorAll('#pref-deal-types .filter-chip.active')].map(b => b.dataset.deal),
   };
   if (document.getElementById('pref-dismiss').checked) body.dismissed = true;
+  body.email_opt_in = document.getElementById('pref-email-optin').checked;
   try {
     const d = await api('/api/preferences', { method: 'PUT', body: JSON.stringify(body) });
     _userPrefs = d.prefs;
+    if (typeof d.email_opt_in === 'boolean') _emailOptIn = d.email_opt_in;
   } catch (e) { alert('儲存失敗：' + e.message); return; }
   document.getElementById('prefsModalOverlay').style.display = 'none';
   renderPrefsSummary();
@@ -5160,6 +5181,12 @@ function renderPrefsSummary() {
   const text = formatPrefsSummary(_userPrefs);
   el.textContent = text;
   el.style.color = text === '未設定' ? 'var(--muted)' : 'var(--text)';
+  // 訂閱狀態喺 summary 直接見到，唔使開個 popup 先知自己有冇訂
+  const em = document.getElementById('settings-email-state');
+  if (em) {
+    em.textContent = _emailOptIn ? '📧 每日 email：開' : '📧 每日 email：關';
+    em.style.color = _emailOptIn ? 'var(--up)' : 'var(--muted)';
+  }
 }
 
 // 分析參數列表：label + number input + 說明。onchange 即刻 PUT,後端 clamp

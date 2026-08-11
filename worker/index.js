@@ -4,6 +4,10 @@ const CORS = {
   "Access-Control-Allow-Headers": "Content-Type, Authorization",
 };
 
+// Email 入面嘅連結唔可以靠 Origin／相對路徑（用戶喺 email client 撳），要絕對 URL。
+const WORKER_BASE = "https://propwatch-worker.johnwong777.workers.dev";
+const APP_BASE = "https://propwatch.pages.dev";
+
 // 瀏覽器跨域只准自己嘅前端；curl/server-side 唔受 CORS 限（靠 auth + rate limit 守）。
 function isAllowedOrigin(origin) {
   if (origin === "https://propwatch.pages.dev") return true;
@@ -271,6 +275,24 @@ function json(status, data) {
   });
 }
 
+// 由 email 撳入嚟嘅頁（unsubscribe 確認）——用戶係喺瀏覽器睇，唔可以回 JSON。
+// noindex：呢啲 URL 帶 token，唔好俾 search engine 收錄。
+function htmlPage(status, title, bodyHtml) {
+  return new Response(
+    `<!doctype html><html lang="zh-HK"><head><meta charset="utf-8">
+     <meta name="viewport" content="width=device-width,initial-scale=1">
+     <meta name="robots" content="noindex,nofollow">
+     <title>${_escHtmlW(title)}</title></head>
+     <body style="margin:0;background:#0a0f1a;color:#f1f5f9;font-family:-apple-system,system-ui,sans-serif;display:flex;min-height:100vh;align-items:center;justify-content:center;padding:20px">
+       <div style="background:#111827;border:1px solid #1f2937;border-radius:14px;padding:28px;max-width:420px;width:100%">
+         <div style="font-size:20px;font-weight:700;margin-bottom:14px">🏙️ PropWatch</div>
+         ${bodyHtml}
+       </div>
+     </body></html>`,
+    { status, headers: { "Content-Type": "text/html; charset=UTF-8" } }
+  );
+}
+
 async function sha256(text) {
   const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text));
   return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, "0")).join("");
@@ -422,6 +444,12 @@ async function ensureAuthTables(db) {
   )`).run();
   // Backfill is_active for pre-existing tables (CREATE IF NOT EXISTS won't add it).
   try { await db.prepare("ALTER TABLE accounts ADD COLUMN is_active INTEGER NOT NULL DEFAULT 1").run(); } catch (_) {}
+  // 每日 email 訂閱狀態。DEFAULT 1 = 既有帳戶照收（唔可以靜靜幫人取消訂閱）。
+  try { await db.prepare("ALTER TABLE accounts ADD COLUMN email_opt_in INTEGER NOT NULL DEFAULT 1").run(); } catch (_) {}
+  // Unsubscribe 連結用嘅 per-account 隨機 token（256-bit）。email 內嘅退訂 link
+  // 冇得行 auth（用戶喺 email client 撳，冇我哋嘅 token），所以靠呢個猜唔到嘅
+  // token 做授權。Lazy generate（第一次寄信先開），revoke 就 set NULL。
+  try { await db.prepare("ALTER TABLE accounts ADD COLUMN unsub_token TEXT").run(); } catch (_) {}
   await db.prepare(`CREATE TABLE IF NOT EXISTS sessions (
     token TEXT PRIMARY KEY,
     account_id INTEGER NOT NULL,
@@ -2727,14 +2755,21 @@ function _b64utf8(str) {
   return btoa(bin);
 }
 
-async function sendEmail(env, to, subject, html) {
+// extraHeaders：額外 MIME header（例如 List-Unsubscribe）。值一律當唔可信處理
+// ——剝走 CR/LF，否則有人喺 email 值入面塞 \r\n 就可以注入自訂 header／改收件人
+// （email header injection）。
+async function sendEmail(env, to, subject, html, extraHeaders = {}) {
   if (!env.GMAIL_REFRESH_TOKEN) throw new Error("no GMAIL credentials");
   const token = await gmailAccessToken(env);
+  const hdrLines = Object.entries(extraHeaders)
+    .filter(([, v]) => v != null && v !== "")
+    .map(([k, v]) => `${String(k).replace(/[\r\n]/g, "")}: ${String(v).replace(/[\r\n]/g, "")}`);
   // 中文 subject 用 RFC 2047 encoded-word；body 用 base64 transfer encoding
   const mime = [
     `From: PropWatch <hkbuyhouse@gmail.com>`,
-    `To: ${to}`,
+    `To: ${String(to).replace(/[\r\n]/g, "")}`,
     `Subject: =?UTF-8?B?${_b64utf8(subject)}?=`,
+    ...hdrLines,
     `MIME-Version: 1.0`,
     `Content-Type: text/html; charset=UTF-8`,
     `Content-Transfer-Encoding: base64`,
@@ -3327,7 +3362,7 @@ async function getTodayHighlights(db, accountId) {
   };
 }
 
-function buildEmailHtml(highlights, bargains = []) {
+function buildEmailHtml(highlights, bargains = [], unsubUrl = null) {
   const fmt = (p) => p ? `$${(p / 1e4).toFixed(0)}萬` : "-";
   // 租盤價錢係實數（月租），唔似買盤咁要 ×萬——兩個 fmt 唔可以共用，
   // 撞咗會將 $23,000/月 錯錯誤誤變 $2萬（睇落好似買賣價，差成 1e4 倍）。
@@ -3685,8 +3720,12 @@ function buildEmailHtml(highlights, bargains = []) {
       <p style="margin:0 0 20px;color:#94a3b8;font-size:14px">${date}</p>
       ${body}
       <p style="margin-top:24px;font-size:12px;color:#94a3b8">
-        <a href="https://propwatch.pages.dev" style="color:#60a5fa">前往 PropWatch</a>
+        <a href="${APP_BASE}" style="color:#60a5fa">前往 PropWatch</a>
       </p>
+      ${unsubUrl ? `<p style="margin:8px 0 0;font-size:11px;color:#64748b;border-top:1px solid #1e293b;padding-top:10px">
+        唔想再收每日通知？<a href="${_escHtmlW(unsubUrl)}" style="color:#94a3b8">取消訂閱</a>（撳完會有確認頁，唔會即刻退）。
+        亦可以喺 ⚙️ 設定自己開返。
+      </p>` : ""}
     </div>`;
 }
 
@@ -4173,15 +4212,29 @@ function prefMatchRow(p, r, isRent = false) {
   return true;
 }
 
+// 攞（冇就開）某帳戶嘅 unsubscribe token。Lazy generate：唔會為未寄過信嘅
+// 帳戶白開 token。撞到 race（兩個 invocation 同時開）都冇壞——第二次 UPDATE
+// 蓋咗第一個，舊 link 失效但新 link 照用，最壞情況係個舊 email 嘅退訂 link 過期。
+async function getUnsubToken(db, accountId) {
+  const row = await db.prepare("SELECT unsub_token FROM accounts WHERE id = ?").bind(accountId).first();
+  if (row?.unsub_token) return row.unsub_token;
+  const tok = randomToken();
+  await db.prepare("UPDATE accounts SET unsub_token = ? WHERE id = ?").bind(tok, accountId).run();
+  return tok;
+}
+
 async function sendDailyEmail(db, env, onlyAccountId = null, overrideEmail = null) {
   if (!env?.GMAIL_REFRESH_TOKEN) return { error: "no GMAIL credentials" };
   // 逐個有 email 嘅帳戶寄——各自用自己嘅訂閱/設定/雷達視角。
   // 冇訂閱任何屋苑嘅帳戶跳過（新用戶未加屋苑，冇嘢好通知）。
+  // email_opt_in = 0 即係用戶撳過退訂（或者喺 ⚙️ 設定熄咗）——一定要喺呢度
+  // 就篩走，唔可以靠寄之前再判斷，否則新加嘅寄信路徑好易漏咗個 check。
   // onlyAccountId：手動 trigger 測試單一帳戶用（唔影響正常 cron 全帳戶寄）。
   const { results: accounts } = await db.prepare(`
     SELECT a.id, a.username, a.email FROM accounts a
     WHERE a.email IS NOT NULL AND a.email != ''
       AND (a.is_active IS NULL OR a.is_active = 1)
+      AND (a.email_opt_in IS NULL OR a.email_opt_in = 1)
       AND (a.tier = 'paid' OR a.role = 'admin')
       AND EXISTS (SELECT 1 FROM account_estates ae WHERE ae.account_id = a.id)
       AND (? IS NULL OR a.id = ?)
@@ -4258,7 +4311,15 @@ async function sendDailyEmail(db, env, onlyAccountId = null, overrideEmail = nul
       if (bargains.length) parts.push(`${bargains.length} 個筍盤`);
       const subject = hasChanges || bargains.length ? `PropWatch 通知：${parts.join("、")}` : "PropWatch 通知：今日無更新";
       const toEmail = overrideEmail || acc.email;
-      await sendEmail(env, toEmail, subject, buildEmailHtml(highlights, bargains));
+      // 退訂：footer link（人手撳）+ List-Unsubscribe header（Gmail/Outlook 自己
+      // 個「取消訂閱」掣）。One-Click 指定 POST，所以 email client 唔會因為掃
+      // link 而靜靜退訂——同 footer 個 GET link 行確認頁係同一個理由。
+      const unsubTok = await getUnsubToken(db, acc.id);
+      const unsubUrl = `${WORKER_BASE}/api/unsubscribe?token=${unsubTok}`;
+      await sendEmail(env, toEmail, subject, buildEmailHtml(highlights, bargains, unsubUrl), {
+        "List-Unsubscribe": `<${unsubUrl}>`,
+        "List-Unsubscribe-Post": "List-Unsubscribe=One-Click",
+      });
       out.push({ account: acc.username, to: toEmail, ok: true });
     } catch (err) {
       console.error(`Email to ${acc.username} failed:`, err.message);
@@ -4389,6 +4450,61 @@ export default {
             .bind(String(e?.message || e).slice(0, 500), event.id).run();
         }
         return json(200, { ok: true });
+      }
+
+      // ── Email 退訂 — 第二個（同最後一個）公開 route ────────────────────────
+      // 冇得行 auth guard：用戶喺 email client 撳，冇我哋嘅 token；而「要先登入
+      // 先退得訂」本身就係反 pattern（收信人可能已經唔記得密碼）。
+      // 跟 stripe-webhook 同一套硬規矩：
+      //   - 靠 secret 驗身（per-account 256-bit 隨機 unsub_token，猜唔到）；
+      //     驗唔過即刻 400，唔准「搵唔到就當佢真」。
+      //   - 只准寫狀態（email_opt_in = 0），**唔准回任何帳戶數據**——確認頁
+      //     連 email address 都唔顯示，否則 token 洩漏就變咗查 email 嘅窗口。
+      //   - Idempotent：撳幾多次都係同一個結果。
+      // GET 淨係出確認頁（唔改狀態）：Gmail/Outlook 嘅 link scanner 會靜靜
+      // prefetch GET，直接喺 GET 退訂會令用戶乜都冇撳就被退。真正嘅寫入淨係
+      // 喺 POST（確認頁個掣，或者 List-Unsubscribe-Post One-Click）。
+      if ((method === "GET" || method === "POST") && path === "/api/unsubscribe") {
+        let token = url.searchParams.get("token") || "";
+        if (method === "POST" && !token) {
+          // 確認頁個 form POST：token 喺 body。One-Click 就照喺 query string。
+          try {
+            const form = await request.formData();
+            token = String(form.get("token") || "");
+          } catch (_) { /* 唔係 form body：當冇 token */ }
+        }
+        const acc = token
+          ? await db.prepare("SELECT id FROM accounts WHERE unsub_token = ?").bind(token).first()
+          : null;
+        if (!acc) {
+          return htmlPage(400, "連結無效 — PropWatch",
+            `<p style="color:#f87171;font-size:14px;line-height:1.6;margin:0">呢條退訂連結無效或者已經失效。</p>
+             <p style="color:#94a3b8;font-size:13px;line-height:1.6;margin:12px 0 0">
+               可以喺 <a href="${APP_BASE}" style="color:#60a5fa">PropWatch</a> 登入之後，
+               喺 ⚙️ 設定自己較「每日 email 通知」。</p>`);
+        }
+
+        if (method === "GET") {
+          return htmlPage(200, "取消訂閱 — PropWatch",
+            `<p style="color:#cbd5e1;font-size:14px;line-height:1.6;margin:0 0 18px">
+               確認取消 PropWatch <b>每日通知 email</b>？<br>
+               <span style="color:#94a3b8;font-size:13px">帳戶同數據唔會受影響，之後想收返可以喺 ⚙️ 設定自己開返。</span></p>
+             <form method="POST" action="/api/unsubscribe">
+               <input type="hidden" name="token" value="${_escHtmlW(token)}">
+               <button type="submit" style="width:100%;background:#dc2626;color:#fff;border:none;border-radius:10px;padding:12px;font-size:15px;font-weight:600;cursor:pointer;font-family:inherit">確認取消訂閱</button>
+             </form>
+             <p style="margin:14px 0 0;text-align:center">
+               <a href="${APP_BASE}" style="color:#94a3b8;font-size:13px">唔係，返去 PropWatch</a></p>`);
+        }
+
+        await db.prepare("UPDATE accounts SET email_opt_in = 0 WHERE id = ?").bind(acc.id).run();
+        return htmlPage(200, "已取消訂閱 — PropWatch",
+          `<p style="color:#4ade80;font-size:15px;font-weight:600;margin:0 0 10px">✓ 已取消訂閱</p>
+           <p style="color:#cbd5e1;font-size:14px;line-height:1.6;margin:0">
+             以後唔會再收到每日通知 email。</p>
+           <p style="color:#94a3b8;font-size:13px;line-height:1.6;margin:12px 0 0">
+             想收返？登入 <a href="${APP_BASE}" style="color:#60a5fa">PropWatch</a> →
+             ⚙️ 設定 → 開返「每日 email 通知」。</p>`);
       }
 
       // Login endpoint — public
@@ -6229,7 +6345,16 @@ export default {
           .bind(`pref_${session.account_id}`).first();
         let prefs = null;
         if (row) { try { prefs = JSON.parse(row.value); } catch (_) {} }
-        return json(200, { prefs });
+        // email_opt_in 唔存喺 prefs JSON，係 accounts 一個欄位——cron 寄信要用
+        // SQL 直接篩（WHERE email_opt_in = 1），唔可以要逐個帳戶 parse JSON。
+        // 呢度一齊回，前端一個 request 就攞齊個 popup 要嘅嘢。
+        const acc = await db.prepare("SELECT email, email_opt_in FROM accounts WHERE id = ?")
+          .bind(session.account_id).first();
+        return json(200, {
+          prefs,
+          email_opt_in: acc?.email_opt_in == null ? true : acc.email_opt_in === 1,
+          has_email: !!acc?.email,
+        });
       }
       if (method === "PUT" && path === "/api/preferences") {
         const body = await request.json();
@@ -6252,7 +6377,19 @@ export default {
         await db.prepare(
           "INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value"
         ).bind(`pref_${session.account_id}`, JSON.stringify(prefs)).run();
-        return json(200, { ok: true, prefs });
+        // email 訂閱：淨係 body 明確傳 boolean 先改。上面個 prefs 係「傳咩存咩,
+        // 冇傳就當清空」,但呢個唔可以跟同一套——「略過」個掣淨係傳 dismissed,
+        // 跟嘅話就會靜靜幫人退訂。
+        if (typeof body.email_opt_in === "boolean") {
+          await db.prepare("UPDATE accounts SET email_opt_in = ? WHERE id = ?")
+            .bind(body.email_opt_in ? 1 : 0, session.account_id).run();
+        }
+        const accAfter = await db.prepare("SELECT email_opt_in FROM accounts WHERE id = ?")
+          .bind(session.account_id).first();
+        return json(200, {
+          ok: true, prefs,
+          email_opt_in: accAfter?.email_opt_in == null ? true : accAfter.email_opt_in === 1,
+        });
       }
 
       // ── 朋友屋企 ──────────────────────────────────────────────────────────

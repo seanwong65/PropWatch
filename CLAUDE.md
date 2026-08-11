@@ -8,18 +8,30 @@ XSS/HTML injection、API 被人狂抽數據去做類似嘅系統。**每個新 f
 ### Worker（後端）
 
 1. **新 endpoint 一律放喺 auth guard 後面**（`const session = await authenticate(...)` 之後）。
-   唯一例外係 `/api/login`、`/api/logout`、`/api/register`、`/api/stripe-webhook`
-   — 唔准再加新嘅公開 route。
+   唯一例外係 `/api/login`、`/api/logout`、`/api/register`、`/api/stripe-webhook`、
+   `/api/unsubscribe` — 唔准再加新嘅公開 route。
    如果某功能「好似」要公開（例如 debug、email trigger），都要行 auth：
    之前 `/api/send-today-email` 同 `/api/debug-ricacorp-pages` 公開過，係漏洞，已搬入 guard 內。
 
+   **公開 route 嘅硬規矩**（兩個現存例外都要跟，將來真係逼不得已要加都要跟）：
+   - 一定要有一層**唔靠 session 嘅驗身**，驗唔過即刻 400，唔准「驗唔到就當佢真」；
+   - 只准**寫狀態**，**唔准回任何帳戶數據**俾 caller（唔可以變成免 auth 嘅讀取窗口）；
+   - 要 **idempotent**（同一個 request 打幾次結果一樣）。
+
    `/api/stripe-webhook` 冇得行 auth（Stripe server 打嚟，冇我哋嘅 token），
-   所以佢**改為靠 HMAC 簽名驗證**（`stripeVerifySignature`，Stripe 官方演算法 +
-   300 秒 replay window）。加呢類 endpoint 嘅硬規矩：
-   - 一定要驗簽，驗唔過即刻 400，唔准「驗唔到就當佢真」；
-   - 一定要用 **raw body** 驗（parse 完再 stringify 會爆簽名）；
-   - 只准寫狀態，**唔准回任何數據**俾 caller（唔可以變成免 auth 嘅讀取窗口）；
-   - 要 idempotent（`payment_events.stripe_event_id` UNIQUE），因為 Stripe 會重試。
+   靠 **HMAC 簽名驗證**（`stripeVerifySignature`，Stripe 官方演算法 + 300 秒
+   replay window）。額外要點：一定要用 **raw body** 驗（parse 完再 stringify 會爆
+   簽名）；idempotency 靠 `payment_events.stripe_event_id` UNIQUE（Stripe 會重試）。
+
+   `/api/unsubscribe` 冇得行 auth（用戶喺 email client 撳個退訂 link，冇 token；
+   而且「要先登入先退得訂」係反 pattern）。靠 **per-account 256-bit 隨機
+   `accounts.unsub_token`** 驗身（`randomToken()`，lazy generate）。額外要點：
+   - **GET 只出確認頁，唔准改狀態**；真正寫入淨係喺 POST。Gmail/Outlook 嘅 link
+     scanner 會靜靜 prefetch GET — 喺 GET 退訂會令用戶乜都冇撳就被退訂。
+   - 確認頁**連 email address 都唔准顯示**（token 洩漏唔可以變成查 email 嘅窗口）。
+   - `List-Unsubscribe-Post: List-Unsubscribe=One-Click` 一定要配 POST（同上同一個理由）。
+   - 加 email header 一律經 `sendEmail(..., extraHeaders)`，個 helper 會剝走 CR/LF
+     防 header injection；唔准自己拼 MIME 字串。
 2. **CORS 係 allow-list**（`isAllowedOrigin()` / `applyCors()`，喺 fetch 出口統一 reflect）。
    加新 origin 前要諗清楚；唔准改返做 `*`。
 3. **安全數字參數用全局 `sec_*` settings key + code default**（`SEC_DEFAULTS`）。
