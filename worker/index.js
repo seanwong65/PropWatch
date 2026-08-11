@@ -2849,8 +2849,9 @@ function collapsePriceHistory(history) {
 async function attachPriceHistorySegments(db, rows, table) {
   const refNos = [...new Set(rows.map((r) => r.ref_no).filter(Boolean))];
   if (!refNos.length) return;
+  const hasPsf = table === 'listing_price_history';
   const { results } = await db.prepare(
-    `SELECT ref_no, snapshot_date, price, price_per_ft FROM ${table}
+    `SELECT ref_no, snapshot_date, price, ${hasPsf ? 'price_per_ft' : 'NULL AS price_per_ft'} FROM ${table}
      WHERE ref_no IN (${refNos.map(() => '?').join(',')}) ORDER BY ref_no, snapshot_date ASC`
   ).bind(...refNos).all();
   const byRef = new Map();
