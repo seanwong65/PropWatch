@@ -3117,11 +3117,14 @@ async function getTodayHighlights(db, accountId) {
             SELECT MAX(snapshot_date) FROM rental_listings x
             WHERE x.estate_id = l.estate_id AND x.ref_no = l.ref_no
           )
+          -- 租盤按日輪流一個 source sync，「上一次」要跟返呢個 source 自己
+          -- 嘅 sync 節奏比較，唔可以攞屋苑層面「全部 source 最新」——否則
+          -- 第二日輪去另一個 source sync 就會誤判呢個 ref 做「下架」。
           AND l.snapshot_date = (
             SELECT MAX(snapshot_date) FROM rental_listings
-            WHERE estate_id = l.estate_id AND snapshot_date < (
+            WHERE estate_id = l.estate_id AND source = l.source AND snapshot_date < (
               SELECT MAX(snapshot_date) FROM rental_listings
-              WHERE estate_id = l.estate_id AND snapshot_date < ?
+              WHERE estate_id = l.estate_id AND source = l.source AND snapshot_date < ?
             )
           )
           AND ae.added_at <= ?
@@ -3181,11 +3184,12 @@ async function getTodayHighlights(db, accountId) {
             SELECT MAX(snapshot_date) FROM rental_listings x
             WHERE x.estate_id = l.estate_id AND x.ref_no = l.ref_no
           )
+          -- 同 removedRentals 一樣：跟返呢個 source 自己嘅 sync 節奏比較。
           AND l.snapshot_date = (
             SELECT MAX(snapshot_date) FROM rental_listings
-            WHERE estate_id = l.estate_id AND snapshot_date < (
+            WHERE estate_id = l.estate_id AND source = l.source AND snapshot_date < (
               SELECT MAX(snapshot_date) FROM rental_listings
-              WHERE estate_id = l.estate_id AND snapshot_date < ?
+              WHERE estate_id = l.estate_id AND source = l.source AND snapshot_date < ?
             )
           )
           AND (e.is_disabled = 0 OR e.is_disabled IS NULL)
@@ -4133,7 +4137,7 @@ function prefMatchRow(p, r, isRent = false) {
   return true;
 }
 
-async function sendDailyEmail(db, env, onlyAccountId = null) {
+async function sendDailyEmail(db, env, onlyAccountId = null, overrideEmail = null) {
   if (!env?.GMAIL_REFRESH_TOKEN) return { error: "no GMAIL credentials" };
   // 逐個有 email 嘅帳戶寄——各自用自己嘅訂閱/設定/雷達視角。
   // 冇訂閱任何屋苑嘅帳戶跳過（新用戶未加屋苑，冇嘢好通知）。
@@ -4217,8 +4221,9 @@ async function sendDailyEmail(db, env, onlyAccountId = null) {
       }
       if (bargains.length) parts.push(`${bargains.length} 個筍盤`);
       const subject = hasChanges || bargains.length ? `PropWatch 通知：${parts.join("、")}` : "PropWatch 通知：今日無更新";
-      await sendEmail(env, acc.email, subject, buildEmailHtml(highlights, bargains));
-      out.push({ account: acc.username, to: acc.email, ok: true });
+      const toEmail = overrideEmail || acc.email;
+      await sendEmail(env, toEmail, subject, buildEmailHtml(highlights, bargains));
+      out.push({ account: acc.username, to: toEmail, ok: true });
     } catch (err) {
       console.error(`Email to ${acc.username} failed:`, err.message);
       out.push({ account: acc.username, error: err.message });
@@ -4554,7 +4559,8 @@ export default {
         if (!isAdminSession(session)) return json(403, { error: "admin only" });
         // ?accountId= 淨係測試單一帳戶（例如自己），唔畀就寄全部（同 cron 一樣）。
         const onlyAccountId = url.searchParams.get("accountId");
-        const result = await sendDailyEmail(db, env, onlyAccountId ? Number(onlyAccountId) : null);
+        const overrideEmail = url.searchParams.get("to");
+        const result = await sendDailyEmail(db, env, onlyAccountId ? Number(onlyAccountId) : null, overrideEmail || null);
         return json(200, { ok: !result?.error, result });
       }
 
