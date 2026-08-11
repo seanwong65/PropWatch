@@ -1739,6 +1739,16 @@ async function ensureRentalTables(db) {
      (estate_id, COALESCE(bldg_key,''), COALESCE(floor,''), COALESCE(unit,''),
       COALESCE(price,-1), COALESCE(reg_date,''))`
   ).run();
+
+  // 租盤下架只提一次：租盤 source 按日輪流,「連續兩次都唔見」呢個判斷
+  // 唔似買盤咁日日刷新會自然過期,一個真下架可能連續幾日都命中同一條
+  // query,要靠呢個表記低「呢個帳戶已經見過呢個 ref 下架」嚟 dedup。
+  await db.prepare(`CREATE TABLE IF NOT EXISTS removed_rent_notified (
+    account_id INTEGER NOT NULL,
+    ref_no TEXT NOT NULL,
+    notified_at TEXT NOT NULL,
+    PRIMARY KEY (account_id, ref_no)
+  )`).run();
 }
 
 async function ensureListingClicks(db) {
@@ -2863,6 +2873,7 @@ async function attachPriceHistorySegments(db, rows, table) {
 }
 
 async function getTodayHighlights(db, accountId) {
+  await ensureRentalTables(db);
   const today = hkDateStr();
   const yesterday = hkDateStr(-1);
   // 「新成交」淨計登記日夠新嘅（sec 唔關事，係分析 config）。防止新 source
@@ -3129,7 +3140,13 @@ async function getTodayHighlights(db, accountId) {
           )
           AND ae.added_at <= ?
           AND date(e.first_seen) <= ?
-          AND (e.is_disabled = 0 OR e.is_disabled IS NULL)`).bind(accountId, today, yesterday, yesterday).all(),
+          AND (e.is_disabled = 0 OR e.is_disabled IS NULL)
+          -- 只提一次：呢個帳戶已經見過呢個 ref 下架就唔再顯示（同一個 ref
+          -- 可能因為 source 幾日先輪一次而連續幾日都命中上面嗰個判斷）。
+          AND NOT EXISTS (
+            SELECT 1 FROM removed_rent_notified rn
+            WHERE rn.account_id = ae.account_id AND rn.ref_no = l.ref_no
+          )`).bind(accountId, today, yesterday, yesterday).all(),
       db.prepare(`
         SELECT t.building, t.floor, t.unit, t.price AS txn_price, t.size_net, t.price_per_ft, t.reg_date,
                v.price AS view_price, v.view_date, v.id AS viewing_id,
@@ -3193,6 +3210,10 @@ async function getTodayHighlights(db, accountId) {
             )
           )
           AND (e.is_disabled = 0 OR e.is_disabled IS NULL)
+          AND NOT EXISTS (
+            SELECT 1 FROM removed_rent_notified rn
+            WHERE rn.account_id = v.account_id AND rn.ref_no = l.ref_no
+          )
         ORDER BY e.name, l.price DESC`).bind(accountId, today).all(),
     ]);
   }
@@ -3280,6 +3301,21 @@ async function getTodayHighlights(db, accountId) {
     attachPriceHistorySegments(db, removedListingsRows, 'listing_price_history'),
     attachPriceHistorySegments(db, removedRentalsRows, 'rental_price_history'),
   ]);
+
+  // 只提一次：呢輪出咗嘅租盤下架，記低落嚟，之後嘅 query 唔會再揀返呢啲
+  // ref（NOT EXISTS removed_rent_notified）。用 ON CONFLICT DO NOTHING 頂住
+  // dashboard 同一日內載多次都撞唔到 unique key 錯。
+  const notifyRefs = [...new Set(
+    [...removedRentalsRows, ...linkedRentRemovedRows].map((r) => r.ref_no).filter(Boolean)
+  )];
+  if (notifyRefs.length) {
+    await Promise.all(notifyRefs.map((ref) =>
+      db.prepare(
+        `INSERT INTO removed_rent_notified (account_id, ref_no, notified_at) VALUES (?, ?, ?)
+         ON CONFLICT(account_id, ref_no) DO NOTHING`
+      ).bind(accountId, ref, today).run()
+    ));
+  }
 
   return {
     date: today, byEstate, allViewedTxns,
