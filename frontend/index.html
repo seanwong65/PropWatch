@@ -859,6 +859,20 @@
       transition: all 0.15s;
       white-space: nowrap;
     }
+    /* 「睇過」標記：細粒、低調——表本身資訊已經好密，唔想搶走價錢／呎價
+       嘅注意力，但掠一眼又睇得出邊啲盤自己開過。 */
+    .visited-dot {
+      display: inline-block;
+      margin-left: 0.3rem;
+      font-size: 0.65rem;
+      color: var(--accent2);
+      background: rgba(59,130,246,0.14);
+      border-radius: 3px;
+      padding: 0 0.25rem;
+      white-space: nowrap;
+      cursor: help;
+      vertical-align: 1px;
+    }
     .filter-chip:hover  { border-color: var(--accent2); color: var(--text); }
     .filter-chip.active { background: rgba(251,191,36,0.12); border-color: var(--accent); color: var(--accent); }
     /* 買盤/租盤 toggle：獨立一套樣式（唔用返 filter-chip），做到似真係一個
@@ -1491,7 +1505,11 @@ function renderFrozenTable(container, theadTr, tbodyHtml, rowsToShow = 10, table
 let allListings = [];
 let estatesById = {};
 let groupOverrides = {};   // ref_no -> {status:'ungrouped'|'grouped', group_key}
-let _clickedMine = new Set();  // 今次 session 已經報咗上去嘅 ref_no（慳重複 request）
+// 自己撳過嘅盤：ref_no → 幾時撳（HK 時間字串）。由 /api/listing-clicks/mine
+// 載入（per-account），所以 reload 之後「睇過」標記照樣喺。同時兼任「慳重複
+// POST」個角色——已經喺 Map 入面就唔使再報上去（後端本身都 ON CONFLICT
+// DO NOTHING，所以跳過純粹係慳個 request）。
+let _visitedRefs = new Map();
 let groupSelectMode = false;
 let groupSelected = new Set();
 let sortCol = "price";
@@ -4345,7 +4363,7 @@ function renderRentalListingsTable() {
       <td>${psf ? '$' + Math.round(psf).toLocaleString() : '-'}<div class="unit-price">/呎</div></td>
       <td>${vs || '-'}</td>
       <td>${dom || '-'}</td>
-      <td>${l.detail_url ? `<a href="${safeUrl(l.detail_url)}" target="_blank" class="detail-link" style="font-size:0.75rem" onclick="trackListingClick('${escJsAttr(l.ref_no || '')}')">${escHtml(sourceLabel(l.source))} ↗</a>` : escHtml(sourceLabel(l.source))}</td>
+      <td>${l.detail_url ? `<a href="${safeUrl(l.detail_url)}" target="_blank" class="detail-link" style="font-size:0.75rem" data-vref="${escHtml(l.ref_no || '')}" onclick="trackListingClick('${escJsAttr(l.ref_no || '')}')">${escHtml(sourceLabel(l.source))} ↗</a>${visitedMark(l.ref_no)}` : escHtml(sourceLabel(l.source))}</td>
     </tr>`;
   }).join('');
   panel.innerHTML = `
@@ -4941,6 +4959,9 @@ async function loadPreferences() {
 // login 成功／有現存 session 開 app 時 call：未設定過偏好（連 dismissed 都冇）就彈 popup
 async function checkFirstLoginPrefs() {
   await loadPreferences();
+  // 順路載埋「自己撳過邊啲盤」，令「睇過」標記 reload 之後照樣出得到。
+  // 唔 await（同 prefs popup 冇關係），render 表嗰陣先用到。
+  loadVisitedRefs();
   if (_userPrefs === null) openPrefsModal();
 }
 
@@ -6363,13 +6384,47 @@ async function applyGroupOverride(action, refNos) {
 }
 
 // 放盤外連 click 追蹤。撳親就 fire-and-forget 打去後端（唔 await、唔 preventDefault，
-// 等個 link 照常開新 tab）。後端同一個 account 同一條盤只會記一次，所以本地
-// 見到自己撳過就唔使再打，慳返個 request。
+// 等個 link 照常開新 tab）。後端同一個 account 同一條盤只會記一次（ON CONFLICT
+// DO NOTHING），所以本地見到自己撳過就唔使再打，慳返個 request。
 function trackListingClick(refNo) {
-  if (!refNo || _clickedMine.has(refNo)) return;
-  _clickedMine.add(refNo);
+  if (!refNo || _visitedRefs.has(refNo)) return;
+  // 樂觀更新：即刻標記 + 即刻喺畫面出「睇過」，唔等 server 回。撳完個 link
+  // 會開新 tab，用戶返嚟就已經見到標記。
+  const now = new Date(Date.now() + 8 * 3600000).toISOString().slice(0, 16).replace('T', ' ');
+  _visitedRefs.set(refNo, now);
+  markVisitedInDom(refNo);
   api(`/api/listings/${encodeURIComponent(refNo)}/click`, { method: 'POST' })
     .catch(() => {});   // 追蹤失敗唔好阻住用戶睇盤
+}
+
+// 撳完即刻喺 DOM 出標記，唔重畫成個表——重畫會搞亂 frozen table 個 scroll
+// 位置同展開狀態。靠 data-vref 揾返同一條 ref 嘅全部 link（同一條盤可能
+// 同時出現喺幾個表／幾個位）。
+function markVisitedInDom(refNo) {
+  for (const a of document.querySelectorAll(`[data-vref="${CSS.escape(refNo)}"]`)) {
+    // 標記係插喺個 <a> 之後做 sibling，所以要查 nextElementSibling，
+    // 唔係查 <a> 裏面（查錯位就會每次撳都插多一粒）。
+    if (a.nextElementSibling?.classList.contains('visited-dot')) continue;
+    a.insertAdjacentHTML('afterend', visitedMark(refNo));
+  }
+}
+
+// 「睇過」標記。刻意做得細（一粒點 + tooltip 講幾時睇過）——表本身已經好多
+// 資訊，唔想搶走價錢/呎價嘅注意力，但掠一眼又睇得出邊啲盤自己開過。
+function visitedMark(refNo) {
+  const at = _visitedRefs.get(refNo);
+  if (!at) return '';
+  return `<span class="visited-dot" title="${escHtml(`你喺 ${at} 開過呢條盤`)}">✓睇過</span>`;
+}
+
+// 載入自己撳過嘅盤（per-account，後端 scope 咗）。全 app 共用一個 Map，
+// 所以買盤表／租盤表／將來任何列表都出得到標記。失敗唔好阻住成個 app——
+// 冇標記只係少個提示，唔係壞功能。
+async function loadVisitedRefs() {
+  try {
+    const { clicks } = await api('/api/listing-clicks/mine');
+    _visitedRefs = new Map(Object.entries(clicks || {}));
+  } catch (_) { /* 保持空 Map */ }
 }
 
 // ── Admin：放盤點擊統計 ────────────────────────────────────────────────────
@@ -6563,7 +6618,7 @@ function renderListingsTable() {
   const sourceCell = l => {
     if (l._combined) {
       const links = l.sources.map(s => s.detail_url
-        ? `<a href="${safeUrl(s.detail_url)}" target="_blank" class="detail-link" style="font-size:0.72rem;white-space:nowrap" onclick="trackListingClick('${escJsAttr(s.ref_no||'')}')">${sourceLabel(s.source)} $${(s.price/1e4).toFixed(0)} ↗</a>`
+        ? `<a href="${safeUrl(s.detail_url)}" target="_blank" class="detail-link" style="font-size:0.72rem;white-space:nowrap" data-vref="${escHtml(s.ref_no||'')}" onclick="trackListingClick('${escJsAttr(s.ref_no||'')}')">${sourceLabel(s.source)} $${(s.price/1e4).toFixed(0)} ↗</a>${visitedMark(s.ref_no)}`
         : `<span style="font-size:0.72rem;white-space:nowrap;color:var(--muted)">${sourceLabel(s.source)} $${(s.price/1e4).toFixed(0)}</span>`
       ).join('<br>');
       const refs = l.sources.map(s => s.ref_no).filter(Boolean);
@@ -6575,7 +6630,7 @@ function renderListingsTable() {
       return links + '<br>' + undoBtn;
     }
     const link = l.detail_url
-      ? `<a href="${safeUrl(l.detail_url)}" target="_blank" class="detail-link" style="font-size:0.75rem" onclick="trackListingClick('${escJsAttr(l.ref_no||'')}')">${sourceLabel(l.source)} ↗</a>`
+      ? `<a href="${safeUrl(l.detail_url)}" target="_blank" class="detail-link" style="font-size:0.75rem" data-vref="${escHtml(l.ref_no||'')}" onclick="trackListingClick('${escJsAttr(l.ref_no||'')}')">${sourceLabel(l.source)} ↗</a>${visitedMark(l.ref_no)}`
       : `<span style="font-size:0.75rem">${sourceLabel(l.source)}</span>`;
     const hasOverride = l.ref_no && groupOverrides[l.ref_no];
     const resetBtn = hasOverride

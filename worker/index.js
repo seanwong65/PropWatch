@@ -4958,15 +4958,40 @@ export default {
       // 放盤外連 click 追蹤。同一個 account 撳同一條盤,第二次之後 ON CONFLICT
       // 食咗佢,所以 counter 唔會再加。單位資訊由後端自己喺 listings 攞返
       // snapshot——唔信 client 送咩就存咩(client 可以亂作價錢/面積)。
+      // 自己撳過邊啲盤（俾前端出「睇過」標記）。只回自己 account 嘅——
+      // ref_no 本身唔算敏感，但「邊個撳過乜」係用戶行為，一定要 scope。
+      // 回一個 { ref_no: clicked_at } map，前端用嚟出標記 + tooltip 顯示幾時睇過。
+      if (method === "GET" && path === "/api/listing-clicks/mine") {
+        await ensureListingClicks(db);
+        const { results } = await db.prepare(
+          "SELECT ref_no, clicked_at FROM listing_clicks WHERE account_id = ?"
+        ).bind(session.account_id).all();
+        const clicks = {};
+        for (const r of results) clicks[r.ref_no] = r.clicked_at;
+        return json(200, { clicks });
+      }
+
       if (method === "POST" && path.match(/^\/api\/listings\/.+\/click$/)) {
         await ensureListingClicks(db);
+        await ensureRentalTables(db);
         const refNo = decodeURIComponent(path.split("/")[3]);
-        // listings.estate_name 好多時係空,所以 fallback 去 estates.name
+        // listings.estate_name 好多時係空,所以 fallback 去 estates.name。
+        // 揾唔到就試 rental_listings——租盤表個 source link 都會 call 呢個
+        // endpoint，之前只查 listings，租盤 ref 一定 miss，變成存一行齋
+        // account_id + ref_no 嘅空 metadata（「睇過」標記仍然 work，但 admin
+        // 點擊統計會見到一行冇屋苑冇價錢嘅記錄）。
         const l = await db.prepare(
           `SELECT l.estate_id, COALESCE(NULLIF(l.estate_name,''), e.name) AS estate_name,
                   l.source, l.building_name, l.floor, l.unit,
                   l.bedrooms, l.size_net, l.price, l.price_per_ft, l.detail_url
            FROM listings l LEFT JOIN estates e ON e.id = l.estate_id
+           WHERE l.ref_no = ? ORDER BY l.snapshot_date DESC LIMIT 1`
+        ).bind(refNo).first()
+        ?? await db.prepare(
+          `SELECT l.estate_id, e.name AS estate_name,
+                  l.source, l.building_name, l.floor, l.unit,
+                  l.bedrooms, l.size_net, l.price, l.price_per_ft, l.detail_url
+           FROM rental_listings l LEFT JOIN estates e ON e.id = l.estate_id
            WHERE l.ref_no = ? ORDER BY l.snapshot_date DESC LIMIT 1`
         ).bind(refNo).first();
         await db.prepare(
