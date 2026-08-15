@@ -3934,10 +3934,10 @@ async function ensureSyncLog(db) {
   await db.prepare("CREATE INDEX IF NOT EXISTS idx_synclog_date ON sync_log(sync_date)").run();
 }
 
-// 揀一個今日未搞定嘅單元做。全部搞定就 { idle: true }，唔會多打 portal。
-async function syncNextUnit(db) {
-  await ensureSyncLog(db);
-  const today = hkDateStr();
+// 攞返今日全部未搞定嘅單元（唔執行，淨係計）。抽出嚟俾 syncNextUnit（單個，
+// admin 手動測試用）同 syncBatch（一個 invocation 做多個，真正 cron 用）共用，
+// 兩者都要用返同一套「邊個 pending」邏輯，唔可以有兩份漂移。
+async function buildPendingUnits(db, today) {
   const { results: estates } = await db.prepare(
     `SELECT * FROM estates e
      WHERE (e.is_disabled = 0 OR e.is_disabled IS NULL)
@@ -3986,11 +3986,13 @@ async function syncNextUnit(db) {
       }
     }
   }
-  if (!pending.length) return { idle: true };
-
   // 未試過嘅優先，唔好一直重試同一個爛單元而拖住其他未做嘅
   pending.sort((a, b) => a.attempts - b.attempts);
-  const u = pending[0];
+  return pending;
+}
+
+// 淨係執行一個單元（唔理 pending 排隊邏輯），寫 sync_log，回執行結果。
+async function runSyncUnit(db, today, u) {
   const kindLabel = { listings: "放盤", txn: "成交", rent_listings: "租盤", rent_txn: "租務成交" }[u.kind];
   const label = `${u.estate.name} / ${u.source.label} / ${kindLabel}`;
   const attempts = u.attempts + 1;
@@ -4026,12 +4028,92 @@ async function syncNextUnit(db) {
        ok = excluded.ok, attempts = excluded.attempts,
        detail = excluded.detail, updated_at = datetime('now', '+8 hours')`
   ).bind(u.estate.id, u.source.id, u.kind, today, ok, attempts, String(detail).slice(0, 300)).run();
+  return { label, ok: !!ok, attempts, detail, source: u.source.id, kind: u.kind };
+}
 
-  // 呢個單元搞定（成功／試夠數）就唔再算 pending。remaining 變 0 即係今日
-  // 全部單元都有結論 → cron 會發完成 summary。
-  const resolved = ok || attempts >= SYNC_MAX_ATTEMPTS;
+// 揀一個今日未搞定嘅單元做。全部搞定就 { idle: true }，唔會多打 portal。
+// 淨係做「一個」——留返俾 /api/admin/sync-next 咁樣嘅細粒度手動測試；
+// 真正 cron 用 syncBatch（一個 invocation 做多個，快好多）。
+async function syncNextUnit(db) {
+  await ensureSyncLog(db);
+  const today = hkDateStr();
+  const pending = await buildPendingUnits(db, today);
+  if (!pending.length) return { idle: true };
+  const r = await runSyncUnit(db, today, pending[0]);
+  const resolved = r.ok || r.attempts >= SYNC_MAX_ATTEMPTS;
   const remaining = pending.length - (resolved ? 1 : 0);
-  return { idle: false, label, ok: !!ok, attempts, detail, pending: pending.length, remaining };
+  return { idle: false, ...r, pending: pending.length, remaining };
+}
+
+// 一個 invocation 做嘅單元每個嘅「保守 worst-case subrequest 估計」——用嚟
+// 喺一個 invocation 入面決定「仲夾唔夾多一個先」，唔可以真係逐個數（fetch
+// 冇 hook 得到），所以用呢個表估到盡。利嘉閣放盤/租盤要揭最多 15 頁、每頁
+// 重試多一次 = 30；其他 source/kind 用返實測經驗值（都係一位數）。
+const UNIT_SUBREQ_COST = {
+  ricacorp: { listings: 30, rent_listings: 30, txn: 6 },
+  centanet: { listings: 4, rent_listings: 4, rent_txn: 4, txn: 3 },
+  hkp:      { listings: 4, rent_listings: 4, rent_txn: 4, txn: 3 },
+};
+function unitSubreqCost(u) {
+  return UNIT_SUBREQ_COST[u.source.id]?.[u.kind] ?? 8;
+}
+
+// Cloudflare Free/Bundled 版每個 invocation 淨係俾 50 個 subrequest；一個
+// invocation 實測 ~60 秒就會俾硬斬（HTTP 000，唔係 throw）。兩個數字都留大量
+// buffer——時間嗰邊留 ~7 秒（一個利嘉閣單元最壞 45 秒，兩個夾埋就爆 60），
+// subrequest 嗰邊留 5 個（避免最後一個單元啱啱好踩爆上限）。
+// 一個 invocation 做幾多個單元純粹睇 pending queue 個組合（快嘅 source 多、
+// 就做多幾個；撞正連續利嘉閣就做少幾個）——冇固定數目，靠呢兩個預算自動夾。
+//
+// 實測（2026-08-15，92 個單元、真實 portal scrape、逐個 invocation 打）：
+// 34 個 invocation 跑完全部，冇一個 retry、冇一個 failedOut，單個 invocation
+// 內部 elapsed 最大 55s（50000 呢個舊數值之下）。放喺 */2 cron 節奏，34 個
+// invocation ≈ 68 分鐘——貼近但仲未夠「1 個鐘完成」個 target，主要係因為
+// queue 尾段剩返一兩個慢單元嗰陣，每次 invocation 都做唔到多過一個（冇更多
+// 嘢好夾），2 分鐘嘅 cron gap 大部分浪費咗。53000 係喺呢個實測基礎上細幅
+// 加大（+3s），換多少少每 invocation 嘅產量，仍然留住 buffer——就算撞正
+// worst-case（budget 啱啱用晒先開始一個 45s 嘅利嘉閣單元），都仲有得靠
+// 「invocation 俾斬咗都唔會壞數據／唔算 retry」呢個已驗證嘅特性頂住。
+const DRIP_BATCH_TIME_BUDGET_MS = 53000;
+const DRIP_BATCH_SUBREQ_BUDGET = 45;
+
+// 一個 invocation 入面盡量做多幾個單元（跑到就快跑埋，跑唔切下次 cron 再嚟）。
+// Pending list 淨係喺 invocation 開頭攞一次（唔逐個單元重新 query DB），
+// 靠自己個 loop 維護邊個做咗，做完一個就即刻寫 sync_log（就算後面俾 CF
+// 硬斬，已經寫低嘅唔會唔見——實測驗證過：一個 invocation 俾斬咗都好，之前
+// 逐個成功寫落嘅單元完全冇事，得最後嗰個 in-flight 嘅會冇寫到，下次揀返佢
+// 做過，attempts 都冇加，唔算「重試」）。
+async function syncBatch(db) {
+  await ensureSyncLog(db);
+  const today = hkDateStr();
+  const pending = await buildPendingUnits(db, today);
+  if (!pending.length) return { idle: true, processed: 0, ok: 0, failedOut: [], remaining: 0 };
+
+  const startedAt = Date.now();
+  let subreqEst = 0;
+  const results = [];
+  let i = 0;
+  for (; i < pending.length; i++) {
+    const u = pending[i];
+    const cost = unitSubreqCost(u);
+    if (i > 0) {
+      // 第一個單元一定做（就算佢自己已經頂晒個 budget，都好過乜都唔做）；
+      // 之後每個先睇夾唔夾得落先做。
+      if (Date.now() - startedAt > DRIP_BATCH_TIME_BUDGET_MS) break;
+      if (subreqEst + cost > DRIP_BATCH_SUBREQ_BUDGET) break;
+    }
+    const r = await runSyncUnit(db, today, u);
+    results.push(r);
+    subreqEst += cost;
+  }
+  const failedOut = results.filter((r) => !r.ok && r.attempts >= SYNC_MAX_ATTEMPTS);
+  const okCount = results.filter((r) => r.ok).length;
+  const resolvedCount = results.filter((r) => r.ok || r.attempts >= SYNC_MAX_ATTEMPTS).length;
+  const remaining = pending.length - resolvedCount;
+  return {
+    idle: false, processed: results.length, ok: okCount, failedOut, results,
+    remaining, elapsedMs: Date.now() - startedAt,
+  };
 }
 
 // 今日同步完成 summary（telegram）。用 sendTelegram 而唔係 sendAdminAlert——
@@ -4354,18 +4436,19 @@ export default {
         }
       })());
     } else if (event.cron === DRIP_CRON) {
-      // Drip sync：每 10 分鐘做一個單元。全部搞定就 idle（唔會多打 portal）。
-      // 一個單元試夠 SYNC_MAX_ATTEMPTS 次都唔得先出 telegram——中間嘅失敗
-      // 會自動喺 10 分鐘後重試，唔想每次都響。
+      // Drip sync：一個 invocation 盡量做多個單元（跑到 DRIP_BATCH_TIME_BUDGET_MS
+      // /DRIP_BATCH_SUBREQ_BUDGET 頂晒為止），全部搞定就 idle（唔會多打 portal）。
+      // 單元試夠 SYNC_MAX_ATTEMPTS 次都唔得先出 telegram——中間嘅失敗會自動
+      // 下次 cron 再試，唔想每次都響。
       ctx.waitUntil((async () => {
         try {
           await ensureMultiAccount(env.DB);
-          const r = await syncNextUnit(env.DB);
-          if (!r.idle && !r.ok && r.attempts >= SYNC_MAX_ATTEMPTS) {
+          const r = await syncBatch(env.DB);
+          if (!r.idle && r.failedOut.length) {
             await sendAdminAlert(env.DB, env,
-              `⚠️ PropWatch 同步失敗：${r.label}`,
-              `Drip sync（試咗 ${r.attempts} 次，今日唔再試；仲有 ${r.pending} 個單元排隊）`,
-              [r.detail]);
+              `⚠️ PropWatch 同步失敗：${r.failedOut.length} 個單元`,
+              `Drip sync（試夠 ${SYNC_MAX_ATTEMPTS} 次，今日唔再試；仲有 ${r.remaining} 個單元排隊）`,
+              r.failedOut.map((f) => `${f.label}: ${f.detail}`));
           }
           // 最後一個單元有結論 → 今日跑完，發 summary。之後嘅 invocation 會
           // idle（早 return），所以一日只會發一次。
@@ -6588,6 +6671,14 @@ export default {
           if (r.idle) break;
         }
         return json(200, { runs });
+      }
+
+      // 測試 syncBatch（真正 cron 用嘅「一個 invocation 做多個單元」邏輯）
+      // 手動觸發一次，唔使等下個 cron slot——量 performance 用。
+      if (method === "POST" && path === "/api/admin/sync-batch") {
+        if (!isAdminSession(session)) return json(403, { error: "admin only" });
+        const r = await syncBatch(db);
+        return json(200, r);
       }
 
       // 即刻發一次今日 summary（測試／想即時睇進度時用）。cron 做完最後一個
