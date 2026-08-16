@@ -2409,110 +2409,57 @@ async function loadViewingComps() {
     // viewImgFull 靠呢個 map 攞相片 array（睇樓記錄嗰邊都係咁），
     // 「睇過嘅盤」而家都顯示相片，所以要一齊填。
     window._viewingImgsMap = window._viewingImgsMap || {};
+    body.innerHTML = '<div class="loading"><div class="spinner"></div> 載入睇過嘅盤…</div>';
 
-    // 對應在售放盤:攞每個「追蹤中」屋苑嘅在售放盤,計匹配(前身係「追蹤中放盤」
-    // tab,而家併入呢度)。listings 存落 window._matchListingsByEstate,俾
-    // buildMatchCell(靠 allListings) 同 confirm/dismiss re-render 用返啱嘅屋苑。
-    const _listed0 = _compsData.filter(v => v.status !== 'sold');
-    const _estIds = [...new Set(_listed0.map(v => v.estate_id).filter(Boolean))];
+    // 兩輪 per-estate fetch：
+    //  ① listings — 對應在售放盤（buildMatchCell 靠全局 allListings，所以要
+    //     逐個屋苑存落 _matchListingsByEstate，render 嗰陣先換）。
+    //  ② viewings — 卡片 detail 要嘅嘢（價格尺／成交／放咗幾耐／叫價變動／
+    //     估值）全部由 /api/viewings 計，comps endpoint 冇。攞返 enriched 版
+    //     再用 id merge，令「睇過嘅盤」同「睇樓記錄」共用 renderOneViewing()，
+    //     唔會兩邊 design 分叉。
+    // 呢兩輪都係 per-estate，14 個屋苑實測：viewings ~8.5s、listings ~6.5s。
+    // 排住行要成 23 秒先出到卡，所以：**淨係等 viewings 就出卡**（卡片主體
+    // 靠佢），listings 擺背景行，返到嚟先填「對應放盤」嗰格。咁用戶 8 秒
+    // 左右就見到嘢，唔使乾等 16 秒。
+    const _listedEstIds = [...new Set(_compsData.filter(v => v.status !== 'sold')
+      .map(v => v.estate_id).filter(Boolean))];
+    const _allEstIds = [...new Set(_compsData.map(v => v.estate_id).filter(Boolean))];
     window._matchListingsByEstate = {};
-    await Promise.all(_estIds.map(async eid => {
-      try { const { listings } = await api(`/api/estates/${eid}/listings`); window._matchListingsByEstate[eid] = listings || []; }
-      catch (_) { window._matchListingsByEstate[eid] = []; }
+
+    const enrichedById = {};
+    await Promise.all(_allEstIds.map(async eid => {
+      try {
+        const { viewings } = await api(`/api/viewings?estate_id=${eid}`);
+        for (const ev of (viewings || [])) enrichedById[ev.id] = ev;
+      } catch (_) { /* 攞唔到就用返 comps 本身嗰份，卡片會少咗分析欄 */ }
     }));
-    const matchHtmlById = {};
-    { const _saved = allListings;
-      for (const v of _listed0) { allListings = window._matchListingsByEstate[v.estate_id] || []; matchHtmlById[v.id] = buildMatchCell(v); }
-      allListings = _saved; }
+    // comps 專有嘅欄位（status/sold/range/verdict/comp_count/排序用嘅屋苑次序）
+    // 要留返，所以係 enriched 打底、comps 蓋上去。
+    _compsData = _compsData.map(v => ({ ...(enrichedById[v.id] || {}), ...v }));
+    _lastViewings = _compsData;
 
-    // Header 跟返「睇樓記錄」卡片嗰套：單位 + ⭐平均分 badge，第二行係
-    // 面積/房/座向/睇樓日期。買定租用返同一個 badge 寫法。
-    const cardHead = v => {
-      const ravg = ratingAvg(parseRatings(v));
-      const rateBadge = ravg != null
-        ? ` <span style="color:var(--accent);font-size:0.75rem;white-space:nowrap" title="平均分（未評嘅項目唔計入）">⭐${ravg.toFixed(1)}</span>` : '';
-      const typeBadge = v.deal_type === 'R' ? '🔑 ' : '';
-      const sub = [
-        v.size_net ? v.size_net + '呎' : '',
-        v.bedrooms ? v.bedrooms + '房' : '',
-        v.direction ? '向' + escHtml(v.direction) : '',
-        v.view_date ? '睇於 ' + escHtml(v.view_date) : '',
-      ].filter(Boolean).join(' · ');
-      return `<div style="display:flex;justify-content:space-between;align-items:baseline;gap:0.5rem;flex-wrap:wrap">
-        <div style="font-size:0.9rem;font-weight:600;color:var(--text)">${typeBadge}${escHtml(v.estate_name)} · ${_unitTitle(v)}${rateBadge}</div>
-      </div>
-      <div style="font-size:0.75rem;color:var(--muted);margin-top:0.15rem">${sub}</div>`;
-    };
-
-    // 評分細項 + 備注 + 相片——同「睇樓記錄」卡片一樣嘅次序同寫法。
-    // 相片撳落去開返全螢幕（viewImgFull 靠 window._viewingImgsMap）。
-    const cardDetails = v => {
-      const rmap = parseRatings(v);
-      const ratedCrits = _ratingCriteria.filter(c => rmap[c.id]);
-      const imgs = (() => { try { return v.images ? JSON.parse(v.images) : []; } catch { return []; } })();
-      window._viewingImgsMap[v.id] = imgs;
-      const mgmtMonthly = v.mgmt_fee ? (v.mgmt_fee > 100 ? Math.round(v.mgmt_fee) : (v.size_net ? Math.round(v.mgmt_fee * v.size_net) : null)) : null;
-      const parts = [
-        mgmtMonthly ? `<div style="color:var(--muted);font-size:0.72rem">管理費 $${mgmtMonthly.toLocaleString()}/月</div>` : '',
-        ratedCrits.length ? `<div style="font-size:0.72rem;color:var(--muted);margin-top:0.2rem">${
-          ratedCrits.map(c => `${escHtml(c.value)} ${rmap[c.id]}`).join(' · ')}</div>` : '',
-        v.notes ? `<div style="margin-top:0.25rem"><span style="font-size:0.78rem;background:var(--surface2);border-radius:4px;padding:0.15rem 0.4rem">${escHtml(v.notes)}</span></div>` : '',
-        imgs.length ? `<div style="margin-top:0.25rem" onclick="event.stopPropagation()"><img src="${safeImgSrc(imgs[0])}" onclick="viewImgFull(${v.id},0)" style="height:56px;border-radius:4px;cursor:pointer">${
-          imgs.length > 1 ? `<span style="font-size:0.72rem;color:var(--muted);margin-left:0.3rem">+${imgs.length - 1} 張</span>` : ''}</div>` : '',
-      ].filter(Boolean).join('');
-      return parts ? `<div style="margin-top:0.4rem;padding-top:0.4rem;border-top:1px solid var(--border)">${parts}</div>` : '';
-    };
-
-    const listedCard = v => {
-      let badge = '';
-      if (v.range && v.verdict != null) {
-        if (v.verdict <= -3) badge = `<span style="color:var(--up);font-size:0.75rem;font-weight:600">低於參考 ${Math.abs(v.verdict)}% · 偏抵</span>`;
-        else if (v.verdict >= 3) badge = `<span style="color:var(--down);font-size:0.75rem;font-weight:600">高於參考 ${v.verdict}% · 偏貴</span>`;
-        else badge = `<span style="color:var(--muted);font-size:0.75rem">約市價</span>`;
-      }
-      const rangeTxt = v.range
-        ? `$${_wan(v.range.price_low)}–${_wan(v.range.price_high)}萬 <span style="color:var(--muted);font-size:0.75rem">@$${v.range.ppf_low.toLocaleString()}–${v.range.ppf_high.toLocaleString()}</span>`
-        : `<span style="color:var(--muted)">近12個月冇足夠參考成交</span>`;
-      // 對應在售放盤(前身係「追蹤中放盤」tab)。有匹配先顯示;✓/✕ 掣要
-      // stopPropagation,唔好連埋觸發成張卡嘅 openCompModal。
-      const match = matchHtmlById[v.id];
-      const hasMatch = match && match !== '-' && !match.includes('冇匹配');
-      const matchRow = hasMatch
-        ? `<div onclick="event.stopPropagation()" style="margin-top:0.35rem;padding-top:0.35rem;border-top:1px solid var(--border)">
-             <div style="font-size:0.72rem;color:var(--muted);margin-bottom:0.15rem">對應在售放盤</div>
-             <div id="vmatch-${v.id}">${match}</div>
-           </div>` : '';
-      return `<div onclick="openCompModal(${v.id})" style="background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:0.7rem 0.85rem;margin-bottom:0.5rem;cursor:pointer">
-        ${cardHead(v)}
-        <div style="display:flex;justify-content:space-between;align-items:baseline;gap:0.5rem;flex-wrap:wrap;margin-top:0.35rem">
-          <div style="font-size:0.8rem;color:var(--muted)">睇樓價 <span style="color:var(--text);font-weight:600">$${_wan(v.price)}萬</span></div>
-          ${badge}
-        </div>
-        <div style="display:flex;justify-content:space-between;align-items:center;gap:0.5rem;margin-top:0.35rem;padding-top:0.35rem;border-top:1px solid var(--border)">
-          <div style="font-size:0.8rem;color:var(--accent)">推算 ${rangeTxt}</div>
-          <div style="font-size:0.75rem;color:var(--muted);white-space:nowrap">${v.comp_count} 宗參考 ›</div>
-        </div>
-        ${matchRow}
-        ${cardDetails(v)}
-      </div>`;
-    };
-
-    const soldCard = v => {
-      const vs = v.sold.vs_view;
-      const gap = vs == null ? '' : `<span style="font-size:0.75rem;color:${vs <= 0 ? 'var(--up)' : 'var(--down)'}">成交 ${vs > 0 ? '+' : ''}${vs}% ${vs <= 0 ? '低於' : '高於'}睇樓價</span>`;
-      return `<div onclick="openCompModal(${v.id})" style="background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:0.7rem 0.85rem;margin-bottom:0.5rem;cursor:pointer">
-        ${cardHead(v)}
-        <div style="display:flex;justify-content:space-between;align-items:center;gap:0.5rem;flex-wrap:wrap;margin-top:0.35rem">
-          <div style="font-size:0.8rem;color:var(--muted)">睇樓價 <span style="color:var(--text)">$${_wan(v.price)}萬</span> → 成交價 <span style="color:var(--up);font-weight:700">$${_wan(v.sold.price)}萬</span></div>
-          <div style="font-size:0.75rem;color:var(--muted);white-space:nowrap">${v.sold.reg_date} · ${v.comp_count} 宗參考 ›</div>
-        </div>
-        ${gap ? `<div style="margin-top:0.3rem">${gap}</div>` : ''}
-        ${cardDetails(v)}
-      </div>`;
-    };
-
-    window._compsCards = { listed: listedCard, sold: soldCard };
     renderCompsPanel();
+
+    // listings 一定要等 viewings 行晒先開始——瀏覽器同一個 host 只得 6 條
+    // 連線，兩批一齊發只會互相爭，實測反而由 16s 變 18s。排住行嘅話
+    // viewings 食晒 6 條，卡片 ~8s 就出到，之後先慢慢填「對應放盤」。
+    // 填嗰陣淨係換嗰格 innerHTML，唔重畫成塊板——唔想搞亂用戶已經碌到
+    // 嘅位置、或者佢啱啱㨂緊嘅 sub-tab／排序。
+    (async () => {
+      await Promise.all(_listedEstIds.map(async eid => {
+        try { const { listings } = await api(`/api/estates/${eid}/listings`); window._matchListingsByEstate[eid] = listings || []; }
+        catch (_) { window._matchListingsByEstate[eid] = []; }
+      }));
+      const saved = allListings;
+      for (const v of _compsData) {
+        const cell = document.getElementById(`vmatch-${v.id}`);
+        if (!cell) continue;
+        allListings = window._matchListingsByEstate[v.estate_id] || [];
+        cell.innerHTML = buildMatchCell(v);
+      }
+      allListings = saved;
+    })();
   } catch (e) {
     body.innerHTML = `<span style="color:var(--down)">載入失敗:${escHtml(e.message)}</span>`;
   }
@@ -2568,11 +2515,10 @@ function _compsSorted(rows) {
 
 function renderCompsPanel() {
   const body = document.getElementById('comps-body');
-  if (!body || !window._compsCards) return;
+  if (!body) return;
   const sold = _compsData.filter(v => v.status === 'sold');
   const listed = _compsData.filter(v => v.status !== 'sold');
   const rows = _compsSubTab === 'sold' ? sold : listed;
-  const card = _compsSubTab === 'sold' ? window._compsCards.sold : window._compsCards.listed;
 
   // Sub-tab bar：同上面 dashboard 個 tab bar 一模一樣嘅寫法（底線 + 字色），
   // 令兩層 tab 睇落係同一個系統，唔會以為係第二種控件。
@@ -2595,13 +2541,26 @@ function renderCompsPanel() {
     </div>`;
 
   const blurb = _compsSubTab === 'sold'
-    ? '呢啲單位睇完之後已經成交,顯示真實成交價。'
-    : '配近 12 個月同屋苑可比成交推算合理價,同埋對應返而家市面嘅在售放盤。撳卡睇詳情。';
-  body.innerHTML = bar + (rows.length
-    ? `<p style="font-size:0.75rem;color:var(--muted);margin:-0.1rem 0 0.5rem">${blurb}</p>` +
-      _compsSorted(rows).map(card).join('')
-    : `<div style="padding:1.2rem;color:var(--muted);font-size:0.85rem;text-align:center">${
-        _compsSubTab === 'sold' ? '未有睇過嘅單位成交。' : '冇追蹤緊嘅睇樓記錄。'}</div>`);
+    ? '呢啲單位睇完之後已經成交,價格尺會顯示真實成交價。'
+    : '配近 12 個月同屋苑可比成交推算合理價,同埋對應返而家市面嘅在售放盤。';
+  if (!rows.length) {
+    body.innerHTML = bar + `<div style="padding:1.2rem;color:var(--muted);font-size:0.85rem;text-align:center">${
+      _compsSubTab === 'sold' ? '未有睇過嘅單位成交。' : '冇追蹤緊嘅睇樓記錄。'}</div>`;
+    return;
+  }
+  // 用返「睇樓記錄」同一個 renderOneViewing（卡片版）——唔喺呢度另砌一款卡。
+  // 屋苑名淨係喺呢度加返（睇樓記錄本身喺屋苑頁入面，唔使重複寫屋苑名）。
+  // buildMatchCell 靠全局 allListings，跨屋苑要逐張卡換返啱嗰個屋苑先 render。
+  const saved = allListings;
+  const cards = _compsSorted(rows).map(v => {
+    allListings = (window._matchListingsByEstate || {})[v.estate_id] || [];
+    return `<div style="margin-bottom:0.15rem"><div style="font-size:0.75rem;color:var(--accent2);font-weight:600;margin:0 0 0.15rem 0.15rem">${
+      escHtml(v.estate_name || '')}</div>${renderOneViewing(v, v.estate_id, true, true)}</div>`;
+  }).join('');
+  allListings = saved;
+  body.innerHTML = bar +
+    `<p style="font-size:0.75rem;color:var(--muted);margin:-0.1rem 0 0.5rem">${blurb}</p>` +
+    `<div class="viewings-list">${cards}</div>`;
 }
 
 function openCompModal(id) {
@@ -3883,7 +3842,9 @@ function priceRulerHtml(v) {
   // 呢個 block 要喺 isPaid() 判斷之前起好，先至唔會俾條尺個 paywall 累埋佢。
   const hsInner = v.hs_price
     ? `<span style="color:var(--muted);font-size:0.75rem">估值</span>${hsValHtml(v.hs_price)}${hsDiffHtml(v.hs_price, v.price)}`
-    : `<button class="hs-val-btn" onclick="manualFetchViewingHSVal(${v.id},${_viewingEstateId},'${escJsAttr(v.block||'')}','${escJsAttr(v.floor||'')}','${escJsAttr(v.unit||'')}',${v.price||0})">查估值</button>`;
+    // 屋苑 id 跟返張卡自己嗰個（v.estate_id），唔可以淨靠 _viewingEstateId——
+    // dashboard「睇過嘅盤」係跨屋苑，嗰度個全局係 null／上一個屋苑，會查錯苑。
+    : `<button class="hs-val-btn" onclick="manualFetchViewingHSVal(${v.id},${v.estate_id || _viewingEstateId},'${escJsAttr(v.block||'')}','${escJsAttr(v.floor||'')}','${escJsAttr(v.unit||'')}',${v.price||0})">查估值</button>`;
   // wrapper 用 flex 逼 hsValHtml/hsDiffHtml 兩個 block-level 元素企埋同一行；
   // 呢個 style 喺 fetchViewingHSVal 之後唔會俾人覆蓋（佢哋淨係更新內容）。
   const hsBlock = `<div id="vhs-${v.id}" style="display:flex;align-items:baseline;gap:0.4rem;white-space:nowrap">${hsInner}</div>`;
@@ -5718,11 +5679,26 @@ async function renderViewingsList(viewings0, estateId, fetchExtras) {
     // 咁 id="vmatch-"/"vprev-"/"vhs-" 呢啲畀 async 更新用嘅 id 唔會撞。
     const isMobile = window.matchMedia('(max-width: 768px)').matches;
     _viewingsIsMobile = isMobile;
-    const rows = viewings.map(v => {
+    const rows = viewings.map(v => renderOneViewing(v, estateId, isMobile, showTypeFilter)).join('');
+    _renderViewingsTail(panel, rows, filterBarHtml, isMobile, viewings, fetchExtras);
+  } catch {
+    panel.innerHTML = '<div class="listings-section" style="padding:1.5rem;color:var(--muted);text-align:center">載入失敗</div>';
+  }
+}
+
+// 一張睇樓記錄（手機＝卡片、桌面＝表格行）。抽咗出嚟做共用——dashboard
+// 「睇過嘅盤」都要一模一樣嘅卡片，唔可以喺嗰邊另起爐灶砌第二款（之前咁做過，
+// 兩邊 design 就會慢慢分叉）。estateId 只係俾刪除掣用；跨屋苑（睇過嘅盤）
+// 傳 v.estate_id 入嚟就得。
+function renderOneViewing(v, estateId, isMobile, showTypeFilter) {
+      const fmt = p => p ? `$${(p/1e4).toFixed(p%10000===0?0:1)}萬` : '-';
+      const fmtRent = p => p ? `$${Math.round(p).toLocaleString()}/月` : '-';
       const isRent = v.deal_type === 'R';
       const pfmt = isRent ? fmtRent : fmt;
       const typeBadge = showTypeFilter ? (isRent ? '🔑 ' : '🏠 ') : '';
-      const imgs = v.images ? JSON.parse(v.images) : [];
+      const imgs = (() => { try { return v.images ? JSON.parse(v.images) : []; } catch { return []; } })();
+      window._viewingImgsMap = window._viewingImgsMap || {};
+      window._viewingMap = window._viewingMap || {};
       window._viewingImgsMap[v.id] = imgs;
       window._viewingMap[v.id] = v;
       const imgHtml = imgs.length ? `<img class="viewing-card-img" src="${safeImgSrc(imgs[0])}" onclick="viewImgFull(${v.id},0)" style="height:56px;border-radius:4px;cursor:pointer;margin-top:0.3rem">${imgs.length>1?`<span style="font-size:0.75rem;color:var(--muted);display:block;margin-top:2px">+${imgs.length-1} 張</span>`:''}` : '';
@@ -5851,35 +5827,25 @@ async function renderViewingsList(viewings0, estateId, fetchExtras) {
         <td>${notesHtml}</td>
         <td style="white-space:nowrap">${editBtn}${delBtn}</td>
       </tr>`;
-    }).join('');
+}
 
-    if (isMobile) {
-      panel.innerHTML = filterBarHtml + `<div class="viewings-list" id="viewingsCardsWrap">${rows}</div>`;
-      if (fetchExtras) {
-        for (const v of viewings) {
-          if (v.deal_type === 'R') continue;   // 「上手購買」係買賣概念，租盤冇呢個 cell
-          fetchUnitTxn(v.id);
-          await new Promise(r => setTimeout(r, 300));
-        }
-      }
-      return;
-    }
+async function _renderViewingsTail(panel, rows, filterBarHtml, isMobile, viewings, fetchExtras) {
+  if (isMobile) {
+    panel.innerHTML = filterBarHtml + `<div class="viewings-list" id="viewingsCardsWrap">${rows}</div>`;
+  } else {
     panel.innerHTML = filterBarHtml + `<div class="listings-section" id="viewingsTableWrap"></div>`;
     renderFrozenTable(
       document.getElementById('viewingsTableWrap'),
       `<th>單位</th><th>叫價</th><th>成交</th><th>價格尺</th><th>對應放盤</th><th>放咗幾耐</th><th>叫價變動</th><th>備注</th><th></th>`,
       rows, 10, 'history-table data-table'
     );
-
-    if (fetchExtras) {
-      for (const v of viewings) {
-        if (v.deal_type === 'R') continue;
-        fetchUnitTxn(v.id);
-        await new Promise(r => setTimeout(r, 300));
-      }
+  }
+  if (fetchExtras) {
+    for (const v of viewings) {
+      if (v.deal_type === 'R') continue;   // 「上手購買」係買賣概念，租盤冇呢個 cell
+      fetchUnitTxn(v.id);
+      await new Promise(r => setTimeout(r, 300));
     }
-  } catch {
-    panel.innerHTML = '<div class="listings-section" style="padding:1.5rem;color:var(--muted);text-align:center">載入失敗</div>';
   }
 }
 
@@ -5893,7 +5859,8 @@ async function fetchUnitTxn(viewingId) {
   const floor    = /[樓層]$/.test(v.floor||'') ? v.floor : (v.floor||'') + '樓';
   const unit     = /[室號]$/.test(v.unit||'') ? v.unit : (v.unit||'') + '室';
   try {
-    const params = new URLSearchParams({ estate: _viewingEstateName, building, floor, unit, view_date: v.view_date || '' });
+    // 同 priceRulerHtml 一樣：跨屋苑（睇過嘅盤）要用返張卡自己嗰個屋苑名
+    const params = new URLSearchParams({ estate: v.estate_name || _viewingEstateName, building, floor, unit, view_date: v.view_date || '' });
     const data = await api(`/api/viewings/unit-txn?${params}`);
     const t = data.txn;
     if (!t?.price) {
