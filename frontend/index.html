@@ -1523,7 +1523,7 @@ let groupSelectMode = false;
 let groupSelected = new Set();
 let sortCol = "price";
 let sortDir = "asc";
-let filters = { beds: "all", floor: "all", building: "all", unit: "all", minPrice: "", maxPrice: "", minSize: "", maxSize: "", priceChanged: "all", source: "all", dom: "all", hideRemoved: true };
+let filters = { beds: "all", floor: "all", building: "all", unit: "all", minPrice: "", maxPrice: "", minSize: "", maxSize: "", minPsf: "", maxPsf: "", priceChanged: "all", source: "all", dom: "all", hideRemoved: true };
 
 // ── Toast ──────────────────────────────────────────────────────
 function toast(msg, type = "info") {
@@ -2406,6 +2406,9 @@ async function loadViewingComps() {
       return;
     }
     _lastViewings = _compsData;   // 俾 ✓/✕ (confirm/dismiss) 搵返個 viewing
+    // viewImgFull 靠呢個 map 攞相片 array（睇樓記錄嗰邊都係咁），
+    // 「睇過嘅盤」而家都顯示相片，所以要一齊填。
+    window._viewingImgsMap = window._viewingImgsMap || {};
 
     // 對應在售放盤:攞每個「追蹤中」屋苑嘅在售放盤,計匹配(前身係「追蹤中放盤」
     // tab,而家併入呢度)。listings 存落 window._matchListingsByEstate,俾
@@ -2422,10 +2425,43 @@ async function loadViewingComps() {
       for (const v of _listed0) { allListings = window._matchListingsByEstate[v.estate_id] || []; matchHtmlById[v.id] = buildMatchCell(v); }
       allListings = _saved; }
 
-    const cardHead = v => `<div style="display:flex;justify-content:space-between;align-items:baseline;gap:0.5rem;flex-wrap:wrap">
-        <div style="font-size:0.9rem;font-weight:600;color:var(--text)">${escHtml(v.estate_name)} · ${_unitTitle(v)}</div>
-        <div style="font-size:0.75rem;color:var(--muted)">${v.size_net || '?'}呎${v.bedrooms ? ' · ' + v.bedrooms + '房' : ''}</div>
-      </div>`;
+    // Header 跟返「睇樓記錄」卡片嗰套：單位 + ⭐平均分 badge，第二行係
+    // 面積/房/座向/睇樓日期。買定租用返同一個 badge 寫法。
+    const cardHead = v => {
+      const ravg = ratingAvg(parseRatings(v));
+      const rateBadge = ravg != null
+        ? ` <span style="color:var(--accent);font-size:0.75rem;white-space:nowrap" title="平均分（未評嘅項目唔計入）">⭐${ravg.toFixed(1)}</span>` : '';
+      const typeBadge = v.deal_type === 'R' ? '🔑 ' : '';
+      const sub = [
+        v.size_net ? v.size_net + '呎' : '',
+        v.bedrooms ? v.bedrooms + '房' : '',
+        v.direction ? '向' + escHtml(v.direction) : '',
+        v.view_date ? '睇於 ' + escHtml(v.view_date) : '',
+      ].filter(Boolean).join(' · ');
+      return `<div style="display:flex;justify-content:space-between;align-items:baseline;gap:0.5rem;flex-wrap:wrap">
+        <div style="font-size:0.9rem;font-weight:600;color:var(--text)">${typeBadge}${escHtml(v.estate_name)} · ${_unitTitle(v)}${rateBadge}</div>
+      </div>
+      <div style="font-size:0.75rem;color:var(--muted);margin-top:0.15rem">${sub}</div>`;
+    };
+
+    // 評分細項 + 備注 + 相片——同「睇樓記錄」卡片一樣嘅次序同寫法。
+    // 相片撳落去開返全螢幕（viewImgFull 靠 window._viewingImgsMap）。
+    const cardDetails = v => {
+      const rmap = parseRatings(v);
+      const ratedCrits = _ratingCriteria.filter(c => rmap[c.id]);
+      const imgs = (() => { try { return v.images ? JSON.parse(v.images) : []; } catch { return []; } })();
+      window._viewingImgsMap[v.id] = imgs;
+      const mgmtMonthly = v.mgmt_fee ? (v.mgmt_fee > 100 ? Math.round(v.mgmt_fee) : (v.size_net ? Math.round(v.mgmt_fee * v.size_net) : null)) : null;
+      const parts = [
+        mgmtMonthly ? `<div style="color:var(--muted);font-size:0.72rem">管理費 $${mgmtMonthly.toLocaleString()}/月</div>` : '',
+        ratedCrits.length ? `<div style="font-size:0.72rem;color:var(--muted);margin-top:0.2rem">${
+          ratedCrits.map(c => `${escHtml(c.value)} ${rmap[c.id]}`).join(' · ')}</div>` : '',
+        v.notes ? `<div style="margin-top:0.25rem"><span style="font-size:0.78rem;background:var(--surface2);border-radius:4px;padding:0.15rem 0.4rem">${escHtml(v.notes)}</span></div>` : '',
+        imgs.length ? `<div style="margin-top:0.25rem" onclick="event.stopPropagation()"><img src="${safeImgSrc(imgs[0])}" onclick="viewImgFull(${v.id},0)" style="height:56px;border-radius:4px;cursor:pointer">${
+          imgs.length > 1 ? `<span style="font-size:0.72rem;color:var(--muted);margin-left:0.3rem">+${imgs.length - 1} 張</span>` : ''}</div>` : '',
+      ].filter(Boolean).join('');
+      return parts ? `<div style="margin-top:0.4rem;padding-top:0.4rem;border-top:1px solid var(--border)">${parts}</div>` : '';
+    };
 
     const listedCard = v => {
       let badge = '';
@@ -2457,6 +2493,7 @@ async function loadViewingComps() {
           <div style="font-size:0.75rem;color:var(--muted);white-space:nowrap">${v.comp_count} 宗參考 ›</div>
         </div>
         ${matchRow}
+        ${cardDetails(v)}
       </div>`;
     };
 
@@ -2470,22 +2507,101 @@ async function loadViewingComps() {
           <div style="font-size:0.75rem;color:var(--muted);white-space:nowrap">${v.sold.reg_date} · ${v.comp_count} 宗參考 ›</div>
         </div>
         ${gap ? `<div style="margin-top:0.3rem">${gap}</div>` : ''}
+        ${cardDetails(v)}
       </div>`;
     };
 
-    const sold = _compsData.filter(v => v.status === 'sold');
-    const listed = _compsData.filter(v => v.status !== 'sold');
-    const heading = (t, n) => `<div style="font-size:0.9rem;font-weight:700;color:var(--text);margin:0.2rem 0 0.5rem">${t} <span style="color:var(--muted);font-size:0.75rem;font-weight:400">${n}</span></div>`;
-    body.innerHTML =
-      (listed.length ? heading('🔍 未成交(追蹤中)', listed.length) +
-        `<p style="font-size:0.75rem;color:var(--muted);margin:-0.2rem 0 0.5rem">配近 12 個月同屋苑可比成交推算合理價,同埋對應返而家市面嘅在售放盤。撳卡睇詳情。</p>` +
-        listed.map(listedCard).join('') : '') +
-      (sold.length ? `<div style="height:0.4rem"></div>` + heading('✅ 已成交', sold.length) +
-        `<p style="font-size:0.75rem;color:var(--muted);margin:-0.2rem 0 0.5rem">呢啲單位睇完之後已經成交,顯示真實成交價。</p>` +
-        sold.map(soldCard).join('') : '');
+    window._compsCards = { listed: listedCard, sold: soldCard };
+    renderCompsPanel();
   } catch (e) {
     body.innerHTML = `<span style="color:var(--down)">載入失敗:${escHtml(e.message)}</span>`;
   }
+}
+
+// ── 「睇過嘅盤」：未成交／已成交 sub-tab + 排序 ─────────────────────────────
+// 兩個 state 都淨係影響顯示，唔會重新 fetch（_compsData 已經喺手）。
+let _compsSubTab = 'listed';   // 'listed' = 未成交（追蹤中）｜'sold' = 已成交
+let _compsSort = 'estate';     // estate | view_date | rating | price
+
+// 排序：屋苑跟返側邊欄／睇樓偏好嗰個次序（最愛行先→手動拖曳嘅 sort_order），
+// 唔可以喺前端 by 名排——咁會同用戶熟悉嗰個次序唔同。其餘三個都係「大→細」
+// （最新／最高分／最貴行先），冇分嗰啲（例如未評分）一律排最後，唔好夾雜
+// 喺中間扮有值。
+const COMPS_SORTS = [
+  { id: 'estate',    label: '屋苑' },
+  { id: 'view_date', label: '睇樓日期' },
+  { id: 'rating',    label: '評分' },
+  { id: 'price',     label: '價錢' },
+];
+
+function setCompsSubTab(t) { _compsSubTab = t; renderCompsPanel(); }
+function setCompsSort(s) { _compsSort = s; renderCompsPanel(); }
+
+function _compsSorted(rows) {
+  const arr = rows.slice();
+  // 已成交嗰邊「價錢」排成交價（真實），未成交排睇樓價——同張卡主打嗰個
+  // 數字一致，否則用戶會覺得排錯。
+  const priceOf = v => (v.status === 'sold' && v.sold ? v.sold.price : v.price) ?? null;
+  const nullsLast = (a, b, get) => {
+    const x = get(a), y = get(b);
+    if (x == null && y == null) return 0;
+    if (x == null) return 1;
+    if (y == null) return -1;
+    return y - x;   // 大→細
+  };
+  if (_compsSort === 'view_date') {
+    arr.sort((a, b) => String(b.view_date || '').localeCompare(String(a.view_date || '')));
+  } else if (_compsSort === 'rating') {
+    arr.sort((a, b) => nullsLast(a, b, v => ratingAvg(parseRatings(v))));
+  } else if (_compsSort === 'price') {
+    arr.sort((a, b) => nullsLast(a, b, priceOf));
+  } else {
+    // 屋苑：最愛→sort_order→同屋苑內睇樓日期新到舊（同後端 ORDER BY 一致）
+    arr.sort((a, b) =>
+      (b.is_favourite || 0) - (a.is_favourite || 0) ||
+      (a.sort_order ?? 9999) - (b.sort_order ?? 9999) ||
+      String(a.estate_name || '').localeCompare(String(b.estate_name || '')) ||
+      String(b.view_date || '').localeCompare(String(a.view_date || '')));
+  }
+  return arr;
+}
+
+function renderCompsPanel() {
+  const body = document.getElementById('comps-body');
+  if (!body || !window._compsCards) return;
+  const sold = _compsData.filter(v => v.status === 'sold');
+  const listed = _compsData.filter(v => v.status !== 'sold');
+  const rows = _compsSubTab === 'sold' ? sold : listed;
+  const card = _compsSubTab === 'sold' ? window._compsCards.sold : window._compsCards.listed;
+
+  // Sub-tab bar：同上面 dashboard 個 tab bar 一模一樣嘅寫法（底線 + 字色），
+  // 令兩層 tab 睇落係同一個系統，唔會以為係第二種控件。
+  const tabBtn = (id, label, n) => {
+    const active = _compsSubTab === id;
+    return `<button onclick="setCompsSubTab('${id}')" style="background:none;border:none;border-bottom:2px solid ${
+      active ? 'var(--accent)' : 'transparent'};margin-bottom:-2px;color:${active ? 'var(--text)' : 'var(--muted)'};font-size:0.85rem;font-weight:${
+      active ? '600' : '400'};padding:0.3rem 0.7rem;cursor:pointer">${label} <span style="color:var(--muted);font-size:0.75rem;font-weight:400">${n}</span></button>`;
+  };
+  const bar = `<div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:0.4rem;margin-bottom:0.6rem">
+      <div style="display:flex;gap:0;border-bottom:2px solid var(--border)">
+        ${tabBtn('listed', '🔍 未成交', listed.length)}${tabBtn('sold', '✅ 已成交', sold.length)}
+      </div>
+      <div style="display:flex;align-items:center;gap:0.35rem">
+        <span style="font-size:0.75rem;color:var(--muted)">排序</span>
+        <select class="filter-select" onchange="setCompsSort(this.value)">
+          ${COMPS_SORTS.map(s => `<option value="${s.id}"${_compsSort === s.id ? ' selected' : ''}>${s.label}</option>`).join('')}
+        </select>
+      </div>
+    </div>`;
+
+  const blurb = _compsSubTab === 'sold'
+    ? '呢啲單位睇完之後已經成交,顯示真實成交價。'
+    : '配近 12 個月同屋苑可比成交推算合理價,同埋對應返而家市面嘅在售放盤。撳卡睇詳情。';
+  body.innerHTML = bar + (rows.length
+    ? `<p style="font-size:0.75rem;color:var(--muted);margin:-0.1rem 0 0.5rem">${blurb}</p>` +
+      _compsSorted(rows).map(card).join('')
+    : `<div style="padding:1.2rem;color:var(--muted);font-size:0.85rem;text-align:center">${
+        _compsSubTab === 'sold' ? '未有睇過嘅單位成交。' : '冇追蹤緊嘅睇樓記錄。'}</div>`);
 }
 
 function openCompModal(id) {
@@ -3632,6 +3748,7 @@ async function showEstate(id, name, district) {
         maxPrice: (_userPrefs && _userPrefs.price_max) || "",
         minSize: (_userPrefs && _userPrefs.size_min) || "",
         maxSize: (_userPrefs && _userPrefs.size_max) || "",
+        minPsf: "", maxPsf: "",
         priceChanged: "all", source: "all", dom: "all", hideRemoved: true,
       };
       renderFilterBar();
@@ -6184,6 +6301,15 @@ function renderFilterBar() {
       </div>
       <div class="filter-sep"></div>
       <div class="filter-pair">
+        <span class="filter-label">實呎價($)</span>
+        <div class="filter-group">
+          <input class="filter-input" type="number" placeholder="最低" value="${filters.minPsf}" onchange="setRangeFilter('minPsf',this.value)">
+          <span style="color:var(--muted);font-size:0.75rem">–</span>
+          <input class="filter-input" type="number" placeholder="最高" value="${filters.maxPsf}" onchange="setRangeFilter('maxPsf',this.value)">
+        </div>
+      </div>
+      <div class="filter-sep"></div>
+      <div class="filter-pair">
         <span class="filter-label">售價變動</span>
         <div class="filter-group">
           <button class="filter-chip ${filters.priceChanged==='all'?'active':''}" onclick="setFilter('priceChanged','all')">全部</button>
@@ -6277,6 +6403,14 @@ function applyFilters(listings) {
     if (filters.maxPrice && l.price > filters.maxPrice * 1e4) return false;
     if (filters.minSize && l.size_net < Number(filters.minSize)) return false;
     if (filters.maxSize && l.size_net > Number(filters.maxSize)) return false;
+    // 實呎價：source 冇畀就用售價/實呎自己計（同表格顯示嗰欄同一套 fallback）。
+    // 兩樣都冇（冇實呎）就當「唔知呎價」——一設咗呎價範圍就篩走，唔好扮啱。
+    if (filters.minPsf || filters.maxPsf) {
+      const psf = l.price_per_ft || (l.price && l.size_net ? l.price / l.size_net : null);
+      if (psf == null) return false;
+      if (filters.minPsf && psf < Number(filters.minPsf)) return false;
+      if (filters.maxPsf && psf > Number(filters.maxPsf)) return false;
+    }
     const hasChange = l.prev_price && Math.abs(l.price - l.prev_price) > 1000;
     if (filters.priceChanged === 'yes' && !hasChange) return false;
     if (filters.priceChanged === 'no' && hasChange) return false;

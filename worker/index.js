@@ -2300,9 +2300,17 @@ async function computeViewingComps(db, accountId) {
   // 排序跟屋苑偏好(同側欄屋苑清單一致):已標星最愛優先,再跟手動拖曳嘅
   // sort_order;同一屋苑內嘅卡再按睇樓日期新到舊。Per-account:只計自己
   // 嘅睇樓記錄,偏好嚟自 account_estates(冇訂閱嘅排最後)。
+  // 除咗 comps 要用嘅欄位，仲要帶埋「睇樓記錄」顯示嗰套（評分／備注／相片／
+  // 管理費／座向／買定租）——「睇過嘅盤」而家用返同一套 detail 排版。
+  // is_favourite/sort_order 亦要出返俾前端：前端「按屋苑排序」要同側邊欄／
+  // 睇樓偏好完全一致嘅次序，唔可以喺前端自己再 by 名排（會唔同咗）。
   const { results: viewings } = await db.prepare(`
     SELECT v.id, v.estate_id, e.name AS estate_name, v.block, v.floor, v.unit,
-           v.size_net, v.bedrooms, v.price, v.view_date, v.linked_ref_no, v.dismissed_refs
+           v.size_net, v.bedrooms, v.price, v.view_date, v.linked_ref_no, v.dismissed_refs,
+           v.ratings, v.notes, v.images, v.direction, v.mgmt_fee, v.hs_price,
+           COALESCE(v.deal_type, 'S') AS deal_type,
+           COALESCE(ae.is_favourite, 0) AS is_favourite,
+           COALESCE(ae.sort_order, 9999) AS sort_order
     FROM viewings v
     JOIN estates e ON e.id = v.estate_id
     LEFT JOIN account_estates ae ON ae.estate_id = v.estate_id AND ae.account_id = v.account_id
@@ -2404,6 +2412,10 @@ async function computeViewingComps(db, accountId) {
       block: v.block, floor: v.floor, unit: v.unit, size_net: v.size_net, bedrooms: v.bedrooms,
       price: v.price, view_date: v.view_date, status: sold ? "sold" : "listed", sold,
       linked_ref_no: v.linked_ref_no, dismissed_refs: v.dismissed_refs,
+      // 「睇樓記錄」嗰套 detail（前端用返同一個 card 排版）
+      ratings: v.ratings, notes: v.notes, images: v.images, direction: v.direction,
+      mgmt_fee: v.mgmt_fee, hs_price: v.hs_price, deal_type: v.deal_type,
+      is_favourite: v.is_favourite, sort_order: v.sort_order,
       range, verdict, comp_count: comps.length, comps };
   });
 }
