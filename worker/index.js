@@ -346,6 +346,46 @@ function rateLimited(key, limit, windowMs = 60000) {
   return b.count > limit;
 }
 
+// settings 表嘅細 helper（sec_* / cfg_* 各自有自己嗰套讀法，呢兩個係俾
+// 單一 key 用，例如 cron heartbeat）。
+async function getSetting(db, key) {
+  try {
+    const r = await db.prepare("SELECT value FROM settings WHERE key = ?").bind(key).first();
+    return r?.value ?? null;
+  } catch (_) { return null; }
+}
+async function setSetting(db, key, value) {
+  try {
+    await db.prepare("CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT)").run();
+    await db.prepare(
+      "INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value"
+    ).bind(key, String(value)).run();
+  } catch (_) { /* heartbeat 寫唔到唔可以連累個 task */ }
+}
+
+// Cron watchdog：由**用戶流量**觸發，唔靠 cron 自己監察自己。
+// 點解要咁：alert 一路以嚟都係喺 cron handler 入面發，即係「cron 死咗」
+// 呢個 case 永遠唔會有 alert（實測 2026-08-17 00:25–04:18 cron 完全停，
+// 一個 telegram 都冇出過）。而家改成任何一個 API request 都順手查一查，
+// 太耐冇 heartbeat 就出一次 telegram。
+const CRON_STALE_MS = 25 * 60 * 1000;        // 超過 25 分鐘冇 heartbeat 就當死（*/2 正常）
+const CRON_ALERT_COOLDOWN_MS = 6 * 3600 * 1000; // 同一次故障最多 6 個鐘響一次
+async function checkCronWatchdog(db, env) {
+  const last = await getSetting(db, "cron_last_drip");
+  if (!last) return;                     // 未有 heartbeat（啱 deploy）——唔好即刻嘈
+  const age = Date.now() - Date.parse(last);
+  if (!Number.isFinite(age) || age < CRON_STALE_MS) return;
+  const lastAlert = Date.parse(await getSetting(db, "cron_alert_sent_at") || "") || 0;
+  if (Date.now() - lastAlert < CRON_ALERT_COOLDOWN_MS) return;
+  await setSetting(db, "cron_alert_sent_at", new Date().toISOString());
+  const mins = Math.round(age / 60000);
+  await sendAdminAlert(db, env, "🚨 PropWatch cron 好似停咗",
+    "Cron watchdog（由 API 流量觸發，唔係 cron 自己）",
+    [`Drip sync 已經 ${mins} 分鐘冇跑過（最後一次：${last}）。`,
+     `正常每 2 分鐘一次。Cloudflare 嘅 cron trigger 試過無聲停咗，`,
+     `喺 worker/ 行一次 \`npx wrangler deploy\` 重新註冊就會返生。`]);
+}
+
 function randomToken() {
   const arr = new Uint8Array(32);
   crypto.getRandomValues(arr);
@@ -4455,6 +4495,11 @@ export default {
       ctx.waitUntil((async () => {
         try {
           await ensureMultiAccount(env.DB);
+          // Heartbeat：每次 drip cron 行到就打卡。俾下面個 watchdog 判斷
+          // 「cron 係咪死咗」——實測過 cron trigger 會無聲無息停（2026-08-17
+          // 00:25 停到 04:18，redeploy 先返生），停咗嘅話任何靠 cron 自己發
+          // 嘅 alert 都一定唔會出，所以要有個唔靠 cron 嘅偵測。
+          await setSetting(env.DB, "cron_last_drip", new Date().toISOString());
           const r = await syncBatch(env.DB);
           if (!r.idle && r.failedOut.length) {
             await sendAdminAlert(env.DB, env,
@@ -4476,6 +4521,12 @@ export default {
   async fetch(request, env, ctx) {
     // 所有 response 經 applyCors：只 reflect allow-list 內嘅 Origin
     const resp = await this.handleRequest(request, env, ctx);
+    // Cron watchdog 搭順風車：擺 waitUntil 入面，唔阻住 response。
+    // 淨係 /api/* 先查（避開 OPTIONS preflight 同靜態嘢），入面仲有
+    // cooldown，所以實際 DB 讀寫好疏。
+    if (request.method !== "OPTIONS" && new URL(request.url).pathname.startsWith("/api/")) {
+      ctx.waitUntil(checkCronWatchdog(env.DB, env).catch(() => {}));
+    }
     return applyCors(resp, request);
   },
 
@@ -5961,11 +6012,14 @@ export default {
       }
 
       // Viewings
-      if (method === "GET" && path === "/api/viewings") {
-        const estateId = url.searchParams.get("estate_id");
-        if (!estateId) return json(400, { error: "estate_id required" });
+      // estate_id 唔傳＝攞全部屋苑（dashboard「睇過嘅盤」用）。之前前端要
+      // 逐個屋苑打一次，14 個屋苑實測 8.5 秒；一個 request 拎晒快好多。
+      if (method === "GET" && (path === "/api/viewings" || path === "/api/viewings/all")) {
+        const estateId = path === "/api/viewings" ? url.searchParams.get("estate_id") : null;
+        if (path === "/api/viewings" && !estateId) return json(400, { error: "estate_id required" });
         await db.prepare("ALTER TABLE viewings ADD COLUMN deal_type TEXT DEFAULT 'S'").run().catch(() => {});
         await ensureRentalTables(db);
+        const scopeSql = estateId ? "v.estate_id = ?2" : "1=1";
         const { results } = await db.prepare(`
           SELECT v.*,
             COALESCE(t.price, rt.price) AS txn_price,
@@ -5993,9 +6047,13 @@ export default {
             AND rt.unit = CASE WHEN v.unit LIKE '%室' OR v.unit LIKE '%號' THEN v.unit ELSE v.unit || '室' END
             AND rt.rn = 1
             AND v.deal_type = 'R'
-          WHERE v.estate_id = ? AND v.account_id = ?
+          WHERE v.account_id = ?1 AND ${scopeSql}
           ORDER BY v.view_date DESC, v.created_at DESC
-        `).bind(estateId, session.account_id).all();
+        `).bind(...(estateId ? [session.account_id, estateId] : [session.account_id])).all();
+        // 跨屋苑要每個屋苑自己一套市場基準，所以下面全部 per-estate map 住做。
+        const estateIds = [...new Set(results.map((v) => v.estate_id).filter(Boolean))];
+        if (!estateIds.length) return json(200, { viewings: [] });
+        const eidPh = estateIds.map(() => "?").join(",");
         // 相對市價（同抵買雷達同一把尺）：優先同層帶（高/中/低層，以該座
         // 成交最高層三等分）嘅近N日中位數，唔夠宗數先 fallback 全苑。
         // 窗口日數／最少宗數都喺 ⚙️ 設定度改（getConfig）。
@@ -6003,32 +6061,47 @@ export default {
         // ——攞自己嘅成交嚟同自己比較係循環論證,樣本細(n=1)嗰陣個 verdict
         // 會完全失真(變成「同自己一樣」)。所以呢度攞返 raw 成交,逐個
         // viewing 喺 JS 度計中位數,而唔係用一個 shared aggregate map。
-        const eid = Number(estateId);
         const vcfg = await getConfig(db, session.account_id);
-        const [{ results: rawTxns }, { results: maxfRows }, { results: rawRentTxns }] = await Promise.all([
+        const [{ results: rawTxnsAll }, { results: maxfRowsAll }, { results: rawRentTxnsAll }] = await Promise.all([
           db.prepare(`
-            SELECT building, floor, unit, price_per_ft,
+            SELECT estate_id, building, floor, unit, price_per_ft,
                    CAST(REPLACE(REPLACE(floor,'樓',''),'層','') AS INT) fl
             FROM transactions
-            WHERE estate_id = ? AND price_per_ft > 0 AND reg_date >= date('now', ?)
-          `).bind(eid, `-${vcfg.market_median_days} days`).all(),
+            WHERE estate_id IN (${eidPh}) AND price_per_ft > 0 AND reg_date >= date('now', ?)
+          `).bind(...estateIds, `-${vcfg.market_median_days} days`).all(),
           db.prepare(`
-            SELECT building, MAX(CAST(REPLACE(REPLACE(floor,'樓',''),'層','') AS INT)) max_fl
+            SELECT estate_id, building, MAX(CAST(REPLACE(REPLACE(floor,'樓',''),'層','') AS INT)) max_fl
             FROM transactions
-            WHERE estate_id = ? AND CAST(REPLACE(REPLACE(floor,'樓',''),'層','') AS INT) > 0
-            GROUP BY building
-          `).bind(eid).all(),
+            WHERE estate_id IN (${eidPh}) AND CAST(REPLACE(REPLACE(floor,'樓',''),'層','') AS INT) > 0
+            GROUP BY estate_id, building
+          `).bind(...estateIds).all(),
           // 租盤嘅相對市價用租務成交（唔係買賣成交）——同「最新放盤」租盤模式
           // 個 rentMed 一致基準，先啱得起「貴/平」比較。
           db.prepare(`
-            SELECT building, floor, unit, price_per_ft,
+            SELECT estate_id, building, floor, unit, price_per_ft,
                    CAST(REPLACE(REPLACE(floor,'樓',''),'層','') AS INT) fl
             FROM rental_transactions
-            WHERE estate_id = ? AND price_per_ft > 0 AND reg_date >= date('now', ?)
-          `).bind(eid, `-${vcfg.market_median_days} days`).all(),
+            WHERE estate_id IN (${eidPh}) AND price_per_ft > 0 AND reg_date >= date('now', ?)
+          `).bind(...estateIds, `-${vcfg.market_median_days} days`).all(),
         ]);
-        const maxfMap = new Map(maxfRows.map((r) => [r.building, r.max_fl]));
+        // 一次過拉晒，再喺 JS 度按屋苑分堆——同一個屋苑嘅盤先可以互相做基準，
+        // 唔可以撈埋第二個屋苑嘅成交嚟計中位數。
+        const byEid = (rows) => {
+          const m = new Map();
+          for (const r of rows) { if (!m.has(r.estate_id)) m.set(r.estate_id, []); m.get(r.estate_id).push(r); }
+          return m;
+        };
+        const rawTxnsByEid = byEid(rawTxnsAll);
+        const rawRentByEid = byEid(rawRentTxnsAll);
+        const maxfByEid = new Map();
+        for (const r of maxfRowsAll) {
+          if (!maxfByEid.has(r.estate_id)) maxfByEid.set(r.estate_id, new Map());
+          maxfByEid.get(r.estate_id).set(r.building, r.max_fl);
+        }
         for (const v of results) {
+          const rawTxns = rawTxnsByEid.get(v.estate_id) || [];
+          const rawRentTxns = rawRentByEid.get(v.estate_id) || [];
+          const maxfMap = maxfByEid.get(v.estate_id) || new Map();
           const isR = v.deal_type === 'R';
           const psf = v.price && v.size_net ? v.price / v.size_net : null;
           const floorNum = parseInt(String(v.floor ?? "").replace(/[樓層]/g, ""), 10) || null;
@@ -6063,26 +6136,31 @@ export default {
         // ②有冇轉過價（全歷史，唔跟 added_at 截——純粹想知呢個 ref 出現過幾多
         // 個價）。removed_date 判斷用返同 /api/estates/:id/listings 一致嘅
         // per-source 邏輯（同一 source 自己最新 snapshot 比，唔跨 source 誤判）。
+        // 跨屋苑版：全部 CTE 都要 GROUP BY 埋 estate_id，join 返 pr.estate_id
+        // ——唔係嘅話，A 苑某個 source 嘅最新 snapshot 會攞去同 B 苑比，
+        // removed_date／放咗幾耐會計錯。
         const { results: refRows } = await db.prepare(`
           WITH src_latest AS (
-            SELECT source, MAX(snapshot_date) AS d FROM listings WHERE estate_id = ?1 GROUP BY source
+            SELECT estate_id, source, MAX(snapshot_date) AS d FROM listings
+            WHERE estate_id IN (${eidPh}) GROUP BY estate_id, source
           ),
           per_ref AS (
-            SELECT ref_no, source, MIN(snapshot_date) AS first_seen, MAX(snapshot_date) AS last_seen,
+            SELECT estate_id, ref_no, source, MIN(snapshot_date) AS first_seen, MAX(snapshot_date) AS last_seen,
                    MIN(NULLIF(publish_date, '')) AS publish_date
-            FROM listings WHERE estate_id = ?1 GROUP BY ref_no, source
+            FROM listings WHERE estate_id IN (${eidPh}) GROUP BY estate_id, ref_no, source
           ),
           price_bounds AS (
             SELECT ref_no, MIN(snapshot_date) AS min_d, MAX(snapshot_date) AS max_d
             FROM listing_price_history GROUP BY ref_no
           ),
           rsrc_latest AS (
-            SELECT source, MAX(snapshot_date) AS d FROM rental_listings WHERE estate_id = ?1 GROUP BY source
+            SELECT estate_id, source, MAX(snapshot_date) AS d FROM rental_listings
+            WHERE estate_id IN (${eidPh}) GROUP BY estate_id, source
           ),
           rper_ref AS (
-            SELECT ref_no, source, MIN(snapshot_date) AS first_seen, MAX(snapshot_date) AS last_seen,
+            SELECT estate_id, ref_no, source, MIN(snapshot_date) AS first_seen, MAX(snapshot_date) AS last_seen,
                    MIN(NULLIF(publish_date, '')) AS publish_date
-            FROM rental_listings WHERE estate_id = ?1 GROUP BY ref_no, source
+            FROM rental_listings WHERE estate_id IN (${eidPh}) GROUP BY estate_id, ref_no, source
           ),
           rprice_bounds AS (
             SELECT ref_no, MIN(snapshot_date) AS min_d, MAX(snapshot_date) AS max_d
@@ -6098,12 +6176,14 @@ export default {
             (SELECT COUNT(DISTINCT price) FROM listing_price_history h WHERE h.ref_no = pr.ref_no) AS price_variants,
             fp.price AS old_price, lp.price AS new_price, pb.max_d AS change_date
           FROM viewings v
-          JOIN per_ref pr ON (',' || v.linked_ref_no || ',') LIKE ('%,' || pr.ref_no || ',%')
-          JOIN src_latest sl ON sl.source = pr.source
+          JOIN per_ref pr ON pr.estate_id = v.estate_id
+            AND (',' || v.linked_ref_no || ',') LIKE ('%,' || pr.ref_no || ',%')
+          JOIN src_latest sl ON sl.estate_id = pr.estate_id AND sl.source = pr.source
           LEFT JOIN price_bounds pb ON pb.ref_no = pr.ref_no
           LEFT JOIN listing_price_history fp ON fp.ref_no = pr.ref_no AND fp.snapshot_date = pb.min_d
           LEFT JOIN listing_price_history lp ON lp.ref_no = pr.ref_no AND lp.snapshot_date = pb.max_d
-          WHERE v.estate_id = ?1 AND v.account_id = ?2 AND v.linked_ref_no IS NOT NULL AND COALESCE(v.deal_type,'S') = 'S'
+          WHERE v.account_id = ? AND v.estate_id IN (${eidPh})
+            AND v.linked_ref_no IS NOT NULL AND COALESCE(v.deal_type,'S') = 'S'
 
           UNION ALL
 
@@ -6114,13 +6194,23 @@ export default {
             (SELECT COUNT(DISTINCT price) FROM rental_price_history h WHERE h.ref_no = pr.ref_no) AS price_variants,
             fp.price AS old_price, lp.price AS new_price, pb.max_d AS change_date
           FROM viewings v
-          JOIN rper_ref pr ON (',' || v.linked_ref_no || ',') LIKE ('%,' || pr.ref_no || ',%')
-          JOIN rsrc_latest sl ON sl.source = pr.source
+          JOIN rper_ref pr ON pr.estate_id = v.estate_id
+            AND (',' || v.linked_ref_no || ',') LIKE ('%,' || pr.ref_no || ',%')
+          JOIN rsrc_latest sl ON sl.estate_id = pr.estate_id AND sl.source = pr.source
           LEFT JOIN rprice_bounds pb ON pb.ref_no = pr.ref_no
           LEFT JOIN rental_price_history fp ON fp.ref_no = pr.ref_no AND fp.snapshot_date = pb.min_d
           LEFT JOIN rental_price_history lp ON lp.ref_no = pr.ref_no AND lp.snapshot_date = pb.max_d
-          WHERE v.estate_id = ?1 AND v.account_id = ?2 AND v.linked_ref_no IS NOT NULL AND v.deal_type = 'R'
-        `).bind(estateId, session.account_id).all();
+          WHERE v.account_id = ? AND v.estate_id IN (${eidPh})
+            AND v.linked_ref_no IS NOT NULL AND v.deal_type = 'R'
+        `).bind(
+          // 全部用位置參數，順序一定要同上面 SQL 出現次序一樣：
+          ...estateIds,                    // src_latest
+          ...estateIds,                    // per_ref
+          ...estateIds,                    // rsrc_latest
+          ...estateIds,                    // rper_ref
+          session.account_id, ...estateIds, // 買盤分支
+          session.account_id, ...estateIds, // 租盤分支
+        ).all();
         const todayStr = hkDateStr();
         const domByViewing = new Map();    // viewing_id -> 最長 dom_days
         const changeByViewing = new Map(); // viewing_id -> 轉幅最大嗰個 ref 嘅 {old_price,new_price,change_date}

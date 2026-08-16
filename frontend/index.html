@@ -2418,22 +2418,20 @@ async function loadViewingComps() {
     //     估值）全部由 /api/viewings 計，comps endpoint 冇。攞返 enriched 版
     //     再用 id merge，令「睇過嘅盤」同「睇樓記錄」共用 renderOneViewing()，
     //     唔會兩邊 design 分叉。
-    // 呢兩輪都係 per-estate，14 個屋苑實測：viewings ~8.5s、listings ~6.5s。
-    // 排住行要成 23 秒先出到卡，所以：**淨係等 viewings 就出卡**（卡片主體
-    // 靠佢），listings 擺背景行，返到嚟先填「對應放盤」嗰格。咁用戶 8 秒
-    // 左右就見到嘢，唔使乾等 16 秒。
+    // viewings 而家一個 request 搞掂（/api/viewings/all）；listings 仲係
+    // per-estate（每個屋苑 payload 好大，冇合併），所以照舊擺背景行，
+    // 返到嚟先填「對應放盤」嗰格，唔阻住卡片出。
     const _listedEstIds = [...new Set(_compsData.filter(v => v.status !== 'sold')
       .map(v => v.estate_id).filter(Boolean))];
-    const _allEstIds = [...new Set(_compsData.map(v => v.estate_id).filter(Boolean))];
     window._matchListingsByEstate = {};
 
+    // 一個 request 拎晒全部屋苑（/api/viewings/all）。之前逐個屋苑打一次，
+    // 14 個屋苑實測 8.5 秒；而家一次過。
     const enrichedById = {};
-    await Promise.all(_allEstIds.map(async eid => {
-      try {
-        const { viewings } = await api(`/api/viewings?estate_id=${eid}`);
-        for (const ev of (viewings || [])) enrichedById[ev.id] = ev;
-      } catch (_) { /* 攞唔到就用返 comps 本身嗰份，卡片會少咗分析欄 */ }
-    }));
+    try {
+      const { viewings } = await api('/api/viewings/all');
+      for (const ev of (viewings || [])) enrichedById[ev.id] = ev;
+    } catch (_) { /* 攞唔到就用返 comps 本身嗰份，卡片會少咗分析欄 */ }
     // comps 專有嘅欄位（status/sold/range/verdict/comp_count/排序用嘅屋苑次序）
     // 要留返，所以係 enriched 打底、comps 蓋上去。
     _compsData = _compsData.map(v => ({ ...(enrichedById[v.id] || {}), ...v }));
