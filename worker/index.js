@@ -381,9 +381,9 @@ async function checkCronWatchdog(db, env) {
   const mins = Math.round(age / 60000);
   await sendAdminAlert(db, env, "🚨 PropWatch cron 好似停咗",
     "Cron watchdog（由 API 流量觸發，唔係 cron 自己）",
-    [`Drip sync 已經 ${mins} 分鐘冇跑過（最後一次：${last}）。`,
-     `正常每 2 分鐘一次。Cloudflare 嘅 cron trigger 試過無聲停咗，`,
-     `喺 worker/ 行一次 \`npx wrangler deploy\` 重新註冊就會返生。`]);
+    [`Drip sync 已經 ${mins} 分鐘冇跑過（最後一次：${last}）。正常每 2 分鐘一次。`],
+    `點修：喺 worker/ 行一次 \`npx wrangler deploy\` 重新註冊 cron trigger。\n`
+    + `Cloudflare 個 cron 試過無聲停咗（2026-08-17 00:25–04:18），redeploy 就返生。`);
 }
 
 function randomToken() {
@@ -2851,28 +2851,40 @@ function _errDetail(e) {
   const msg = e?.message || String(e);
   return e?.stack ? `${msg}\n${e.stack}` : msg;
 }
-function buildAlertHtml(taskName, lines) {
+function buildAlertHtml(taskName, lines, note) {
   const when = new Date(Date.now() + 8 * 3600 * 1000).toISOString().replace("T", " ").slice(0, 19);
+  const single = lines.length === 1;
+  const itemStyle = `white-space:pre-wrap;word-break:break-word;font-family:ui-monospace,Menlo,monospace;font-size:12px;margin:0;color:#b91c1c`;
   const items = lines.map((l) =>
-    `<li style="margin-bottom:10px"><pre style="white-space:pre-wrap;word-break:break-word;font-family:ui-monospace,Menlo,monospace;font-size:12px;margin:0;color:#b91c1c">${_escHtmlW(l)}</pre></li>`
+    `<li style="margin-bottom:10px"><pre style="${itemStyle}">${_escHtmlW(l)}</pre></li>`
   ).join("");
+  // 一項就唔使 <ul>（一粒 bullet 好怪）；note 唔入 list，唔計項數。
+  const bodyHtml = single
+    ? `<pre style="${itemStyle}">${_escHtmlW(lines[0])}</pre>`
+    : `<ul style="padding-left:18px;margin:0">${items}</ul>`;
   return `<div style="font-family:system-ui,-apple-system,sans-serif;max-width:640px">
-    <h2 style="color:#b91c1c;margin:0 0 4px">⚠️ ${_escHtmlW(taskName)} 失敗</h2>
-    <p style="color:#666;font-size:13px;margin:0 0 12px">香港時間 ${when}（UTC+8）· 共 ${lines.length} 項</p>
-    <ul style="padding-left:18px;margin:0">${items}</ul>
+    <h2 style="color:#b91c1c;margin:0 0 4px">⚠️ ${_escHtmlW(taskName)}</h2>
+    <p style="color:#666;font-size:13px;margin:0 0 12px">香港時間 ${when}（UTC+8）${single ? "" : ` · 共 ${lines.length} 項`}</p>
+    ${bodyHtml}
+    ${note ? `<p style="color:#444;font-size:13px;margin-top:14px;padding-top:10px;border-top:1px solid #e5e7eb;white-space:pre-wrap">${_escHtmlW(note)}</p>` : ""}
     <p style="color:#999;font-size:12px;margin-top:16px">呢封係 PropWatch cron task 自動出錯通知。</p>
   </div>`;
 }
 // Telegram 純文字版（Telegram 單條訊息上限 4096 字，所以要截）。
-function buildAlertText(taskName, lines) {
+// lines = 逐項失敗（會編號、會數「共 N 項」）；note = 補充說明／點修
+// （唔編號、唔計入項數）。之前冇 note，watchdog 嗰幾行解釋文字被當成
+// 「共 3 項失敗」，讀落好似一次過死咗三樣嘢。
+function buildAlertText(taskName, lines, note) {
   const when = new Date(Date.now() + 8 * 3600 * 1000).toISOString().replace("T", " ").slice(0, 19);
-  const head = `⚠️ ${taskName} 失敗\n香港時間 ${when}（UTC+8）· 共 ${lines.length} 項\n`;
+  const single = lines.length === 1;
+  const head = `⚠️ ${taskName}\n香港時間 ${when}（UTC+8）${single ? "" : ` · 共 ${lines.length} 項`}\n`;
   const body = lines
     .slice(0, 20)                                   // 最多列 20 項
-    .map((l, i) => `${i + 1}. ${String(l).slice(0, 500)}`)   // 每項最多 500 字（stack 好長）
+    .map((l, i) => `${single ? "" : `${i + 1}. `}${String(l).slice(0, 500)}`)   // 每項最多 500 字（stack 好長）
     .join("\n\n");
   const more = lines.length > 20 ? `\n\n…另外仲有 ${lines.length - 20} 項` : "";
-  return (head + "\n" + body + more).slice(0, 3900);
+  const tail = note ? `\n\n— — —\n${note}` : "";
+  return (head + "\n" + body + more + tail).slice(0, 3900);
 }
 
 // Telegram push：唔靠 Gmail，bot token 唔會過期。冇設定 secret 就靜靜跳過
@@ -2894,14 +2906,14 @@ async function sendTelegram(env, text) {
 
 // 通知 admin。① Telegram（主，獨立於 Gmail）② email 畀所有 admin 帳戶（次）。
 // 兩條 channel 各自 try/catch：通知本身 fail 唔可以連累個 task。
-async function sendAdminAlert(db, env, subject, taskName, lines) {
+async function sendAdminAlert(db, env, subject, taskName, lines, note) {
   try {
-    await sendTelegram(env, `${subject}\n\n${buildAlertText(taskName, lines)}`);
+    await sendTelegram(env, `${subject}\n\n${buildAlertText(taskName, lines, note)}`);
   } catch (err) { console.error("telegram alert failed:", err?.message); }
 
   if (!env?.GMAIL_REFRESH_TOKEN) return;
   try {
-    const html = buildAlertHtml(taskName, lines);
+    const html = buildAlertHtml(taskName, lines, note);
     const { results: admins } = await db.prepare(
       "SELECT email FROM accounts WHERE role = 'admin' AND email IS NOT NULL AND email != '' AND (is_active IS NULL OR is_active = 1)"
     ).all();
