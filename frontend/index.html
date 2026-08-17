@@ -2479,9 +2479,14 @@ async function loadViewingComps() {
 
     // listings 一定要等 viewings 行晒先開始——瀏覽器同一個 host 只得 6 條
     // 連線，兩批一齊發只會互相爭，實測反而由 16s 變 18s。排住行嘅話
-    // viewings 食晒 6 條，卡片 ~8s 就出到，之後先慢慢填「對應放盤」。
-    // 填嗰陣淨係換嗰格 innerHTML，唔重畫成塊板——唔想搞亂用戶已經碌到
-    // 嘅位置、或者佢啱啱㨂緊嘅 sub-tab／排序。
+    // viewings 食晒 6 條，卡片 ~8s 就出到，之後先慢慢補返靠 listings 嘅嘢。
+    //
+    // 成張卡靠 renderOneViewing() 重畫，唔逐格 patch——卡入面依賴 allListings
+    // 嘅嘢唔止一處（buildMatchCell 嘅「對應放盤」、priceRulerHtml 嘅「在售」
+    // band），逐格 patch 就要自己記住成張卡邊幾格靠緊 allListings，漏一格
+    // 都唔知（試過漏咗價格尺）。成張卡重用同一個 render function，先保證
+    // 同首次 render 一定一致——加新嘅 allListings 依賴都唔使記得嚟呢度加多
+    // 一行 patch。
     (async () => {
       await Promise.all(_listedEstIds.map(async eid => {
         try { const { listings } = await api(`/api/estates/${eid}/listings`); window._matchListingsByEstate[eid] = listings || []; }
@@ -2489,10 +2494,10 @@ async function loadViewingComps() {
       }));
       const saved = allListings;
       for (const v of _compsData) {
-        const cell = document.getElementById(`vmatch-${v.id}`);
-        if (!cell) continue;
+        const card = document.querySelector(`[data-vrow="${v.id}"]`);
+        if (!card) continue;
         allListings = window._matchListingsByEstate[v.estate_id] || [];
-        cell.innerHTML = buildMatchCell(v);
+        card.outerHTML = renderOneViewing(v, v.estate_id, true, true);
       }
       allListings = saved;
     })();
