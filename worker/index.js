@@ -298,24 +298,25 @@ async function sha256(text) {
   return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, "0")).join("");
 }
 
-// ── Rate limiting ────────────────────────────────────────────────────────────
-// 數字參數係「全局」security 設定：settings 表 sec_* key，code 有 default。
-// 特登唔擺入 per-account ⚙️ CONFIG_DEFS——否則攻擊者可以自己較大自己個上限。
-// 要改：直接落 D1 改 settings，例如
-//   INSERT INTO settings (key,value) VALUES ('sec_api_rpm','500')
-//   ON CONFLICT(key) DO UPDATE SET value=excluded.value;
-const SEC_DEFAULTS = {
-  sec_api_rpm: 240,   // 已登入 API：每個帳戶(或 IP)每分鐘 request 上限
-  sec_auth_rpm: 10,   // login/register：每個 IP 每分鐘試嘅次數上限
-  // 追蹤屋苑／睇樓記錄上限。特登唔擺入 CONFIG_DEFS ⚙️——否則用戶
-  // 自己較大自己個上限。
-  sec_free_max_estates: 3,
-  // 收費版都要有上限：每個訂閱屋苑每日食 8 個 drip sync 單元（3 source ×
-  // 放盤+成交，加租盤），15 個屋苑已經係 100+ 個單元，再多就一日跑唔完。
-  sec_paid_max_estates: 15,
-  // 睇樓記錄：收費版無限，免費版封頂。
-  sec_free_max_viewings: 15,
-};
+// ── 全局 security／額度參數 ──────────────────────────────────────────────────
+// settings 表 sec_* key，code 有 default。特登唔擺入 per-account ⚙️
+// CONFIG_DEFS——否則用戶可以自己較大自己個上限。**admin 先改得**
+// （/api/admin/sec-config，有 isAdminSession guard + min/max clamp）；
+// 亦照舊可以直接落 D1 改 settings。
+const SEC_DEFS = [
+  { key: "sec_api_rpm", def: 240, min: 30, max: 6000, label: "API 每分鐘上限",
+    desc: "已登入 API：每個帳戶（或 IP）每分鐘 request 上限。太低會誤殺正常使用。" },
+  { key: "sec_auth_rpm", def: 10, min: 3, max: 120, label: "登入／註冊每分鐘上限",
+    desc: "login/register/忘記密碼：每個 IP 每分鐘試嘅次數，擋暴力試密碼。" },
+  { key: "sec_free_max_estates", def: 3, min: 1, max: 50, label: "免費版：最多追蹤屋苑",
+    desc: "免費用戶可以追蹤幾多個屋苑。" },
+  { key: "sec_paid_max_estates", def: 15, min: 1, max: 100, label: "收費版：最多追蹤屋苑",
+    desc: "每個訂閱屋苑每日食 ~8 個 drip sync 單元（3 source × 放盤+成交，加租盤）。"
+        + "15 個已經係 100+ 單元／日，加大之前睇返同步完成時間。" },
+  { key: "sec_free_max_viewings", def: 15, min: 1, max: 500, label: "免費版：最多睇樓記錄",
+    desc: "免費用戶可以有幾多個睇樓記錄（收費版無限）。淨係擋新增，唔擋改／刪。" },
+];
+const SEC_DEFAULTS = Object.fromEntries(SEC_DEFS.map((d) => [d.key, d.def]));
 let _secCfgCache = { at: 0, vals: null };
 async function getSecCfg(db) {
   const now = Date.now();
@@ -7139,6 +7140,93 @@ export default {
 
       // 測試 alert 通道通唔通（Telegram + email）。留返做長期工具：
       // 改完 secret 或者想確認條路仲喺度就 call 一次，唔使等真係 fail。
+      // ── 全局額度／安全參數（admin 專用）────────────────────────────────
+      // 呢啲係 sec_* key，**唔可以**擺入 per-account ⚙️ CONFIG_DEFS
+      // （用戶會自己較大自己個上限）。所以行呢條獨立 admin-only route，
+      // 有 isAdminSession guard + min/max clamp。
+      if (path === "/api/admin/sec-config") {
+        if (!isAdminSession(session)) return json(403, { error: "admin only" });
+        if (method === "GET") {
+          const cur = await getSecCfg(db);
+          return json(200, { items: SEC_DEFS.map((d) => ({ ...d, value: cur[d.key] })) });
+        }
+        if (method === "PUT") {
+          const body = await request.json();
+          const updated = {};
+          for (const d of SEC_DEFS) {
+            if (!(d.key in body)) continue;
+            const n = Number(body[d.key]);
+            if (!Number.isFinite(n)) continue;
+            // Clamp：唔信前端傳咩。設成 0／負數會鎖死成個 API
+            //（rateLimited 個 limit 變 0 就全部 request 都 429）。
+            const v = Math.round(Math.min(d.max, Math.max(d.min, n)));
+            await setSetting(db, d.key, v);
+            updated[d.key] = v;
+          }
+          _secCfgCache = { at: 0, vals: null };   // 即刻失效，唔使等 60 秒 TTL
+          const cur = await getSecCfg(db);
+          return json(200, { ok: true, updated, items: SEC_DEFS.map((d) => ({ ...d, value: cur[d.key] })) });
+        }
+      }
+
+      // 用量統計（admin 專用）：睇下實際幾多人用緊幾多額度，先決定上限點調。
+      // 唔回密碼／token 呢類嘢；email 係 admin 後台本身已經見到嘅資料。
+      if (method === "GET" && path === "/api/admin/usage-stats") {
+        if (!isAdminSession(session)) return json(403, { error: "admin only" });
+        const sc = await getSecCfg(db);
+        const { results: accounts } = await db.prepare(`
+          SELECT a.id, a.username, a.email, a.role,
+                 COALESCE(a.tier,'free') AS tier,
+                 COALESCE(a.is_active,1) AS is_active,
+                 COALESCE(a.email_opt_in,1) AS email_opt_in,
+                 (SELECT COUNT(*) FROM account_estates ae WHERE ae.account_id = a.id) AS estates,
+                 (SELECT COUNT(*) FROM viewings v WHERE v.account_id = a.id) AS viewings,
+                 (SELECT COUNT(*) FROM friend_homes f WHERE f.account_id = a.id) AS friend_homes,
+                 (SELECT MAX(created_at) FROM sessions s WHERE s.account_id = a.id) AS last_login
+          FROM accounts a
+          ORDER BY estates DESC, viewings DESC, a.id
+        `).all();
+        // 每個帳戶受邊個上限管 + 用咗幾多 %，慳返前端自己砌。
+        for (const a of accounts) {
+          const paid = a.role === "admin" || a.tier === "paid";
+          a.max_estates = paid ? sc.sec_paid_max_estates : sc.sec_free_max_estates;
+          a.max_viewings = paid ? null : sc.sec_free_max_viewings;   // null = 無限
+          a.estates_pct = a.max_estates ? Math.round(a.estates / a.max_estates * 100) : null;
+          a.viewings_pct = a.max_viewings ? Math.round(a.viewings / a.max_viewings * 100) : null;
+          // 撞緊頂／爆咗頂（改細上限之後可能會爆）——最值得 admin 留意。
+          a.at_estate_cap = a.estates >= a.max_estates;
+          a.at_viewing_cap = a.max_viewings != null && a.viewings >= a.max_viewings;
+        }
+        // Sync 負荷：drip sync 只做「有人訂閱」嘅屋苑，所以呢個數直接決定
+        // 每日要跑幾多單元，係調 sec_paid_max_estates 嘅主要依據。
+        const load = await db.prepare(`
+          SELECT COUNT(DISTINCT ae.estate_id) AS tracked_estates,
+                 COUNT(*) AS subscriptions
+          FROM account_estates ae
+          JOIN estates e ON e.id = ae.estate_id
+          WHERE (e.is_disabled = 0 OR e.is_disabled IS NULL)
+        `).first();
+        const today = await db.prepare(
+          "SELECT COUNT(*) AS units, SUM(ok) AS ok, MIN(updated_at) AS first_at, MAX(updated_at) AS last_at FROM sync_log WHERE sync_date = ?"
+        ).bind(hkDateStr()).first().catch(() => null);
+        return json(200, {
+          limits: sc,
+          accounts,
+          totals: {
+            accounts: accounts.length,
+            paid: accounts.filter((a) => a.tier === "paid").length,
+            admins: accounts.filter((a) => a.role === "admin").length,
+            active: accounts.filter((a) => a.is_active).length,
+            email_on: accounts.filter((a) => a.email_opt_in && a.email).length,
+            estates_total: accounts.reduce((s, a) => s + a.estates, 0),
+            viewings_total: accounts.reduce((s, a) => s + a.viewings, 0),
+            tracked_estates: load?.tracked_estates ?? 0,
+            subscriptions: load?.subscriptions ?? 0,
+          },
+          syncToday: today || null,
+        });
+      }
+
       if (method === "POST" && path === "/api/admin/test-alert") {
         if (!isAdminSession(session)) return json(403, { error: "admin only" });
         const tg = { configured: !!(env.TELEGRAM_BOT_TOKEN && env.TELEGRAM_CHAT_ID), ok: false, error: null };

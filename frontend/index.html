@@ -1323,6 +1323,23 @@
       </div>
       <p style="font-size:0.78rem;color:var(--muted);margin:0.25rem 0 0.75rem">相對市價／抵買雷達／議價指數／email 用嘅數字，改完即時生效（有上下限自動修正）。用右上角揀分類，睇某個 tab／功能用嘅參數。</p>
       <div id="settings-cfg-list" style="display:flex;flex-direction:column;gap:0.7rem"></div>
+
+      <!-- 額度／安全參數：同上面「分析參數」分開——呢啲係全局（影響所有
+           用戶），改錯（例如 API rpm 較太細）會即刻影響全站，所以要獨立
+           section + 明確警告，唔可以混入 per-account 嗰堆。 -->
+      <div class="modal-sub" style="margin-top:1.4rem">🔐 額度／安全參數（全局）</div>
+      <p style="font-size:0.78rem;color:var(--muted);margin:0.25rem 0 0.75rem">
+        影響<b>所有用戶</b>嘅上限。有上下限自動修正，改完即時生效（其他 server node 最多 1 分鐘）。
+        呢啲特登唔擺入上面嘅 per-account 設定——否則用戶自己較大自己個上限。
+      </p>
+      <div id="settings-sec-list" style="display:flex;flex-direction:column;gap:0.7rem"></div>
+
+      <div class="modal-sub" style="margin-top:1.4rem;display:flex;align-items:center;justify-content:space-between;gap:0.6rem">
+        <span>📊 用量統計</span>
+        <button class="vf-submit" style="width:auto;padding:0.35rem 0.8rem;margin:0;font-size:0.8rem" onclick="loadUsageStats()">重新整理</button>
+      </div>
+      <p style="font-size:0.78rem;color:var(--muted);margin:0.25rem 0 0.75rem">睇實際用量嚟決定上限點調。⚠️ = 已經撞頂。</p>
+      <div id="settings-usage" style="font-size:0.82rem;color:var(--muted)">未載入</div>
     </div>
   </div>
 </div>
@@ -5009,6 +5026,9 @@ async function openSettingsModal() {
   renderCfgOptions();
   renderPrefsSummary();
   renderBillingSummary();
+  // 額度參數 + 用量統計係 admin 專用（route 本身有 403 guard，呢度只係
+  // 唔好白白幫非 admin 打兩個一定 403 嘅 request）。
+  if (_userRole === 'admin') { loadSecConfig(); loadUsageStats(); }
 }
 
 // Stripe 俾完錢會 redirect 返嚟 ?billing=success。個 webhook 可能仲未到，
@@ -5320,6 +5340,116 @@ async function updateCfgOption(key, value) {
     alert('儲存失敗:' + e.message);
     renderCfgOptions();
   }
+}
+
+// ── 額度／安全參數（admin 專用，全局）─────────────────────────────────────
+// 同上面 renderCfgOptions 一樣嘅寫法，但打去 /api/admin/sec-config（admin-only
+// route）。呢啲數字影響所有用戶，所以 UI 上刻意同 per-account 參數分開。
+let _secDefs = [];
+
+async function loadSecConfig() {
+  try {
+    const { items } = await api('/api/admin/sec-config');
+    _secDefs = items || [];
+  } catch (_) { _secDefs = []; }   // 唔係 admin 就攞唔到，section 本身都收埋咗
+  renderSecOptions();
+}
+
+function renderSecOptions() {
+  const list = document.getElementById('settings-sec-list');
+  if (!list) return;
+  if (!_secDefs.length) {
+    list.innerHTML = `<div style="font-size:0.8rem;color:var(--muted);padding:0.3rem 0">載入中…</div>`;
+    return;
+  }
+  list.innerHTML = _secDefs.map(d => `
+    <div>
+      <div style="display:flex;gap:0.6rem;align-items:center;justify-content:space-between">
+        <label for="sec-${escHtml(d.key)}" style="font-size:0.85rem;color:var(--text)">${escHtml(d.label)}</label>
+        <input id="sec-${escHtml(d.key)}" type="number" value="${Number(d.value)}" min="${Number(d.min)}" max="${Number(d.max)}" step="1"
+          onchange="updateSecOption('${escJsAttr(d.key)}', this.value)"
+          style="width:90px;background:var(--surface2);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:0.9rem;padding:0.4rem 0.5rem;box-sizing:border-box;font-family:inherit;text-align:right">
+      </div>
+      <div style="font-size:0.75rem;color:var(--muted);margin-top:0.15rem">${escHtml(d.desc)}（${Number(d.min)}–${Number(d.max)}，預設 ${Number(d.def)}）</div>
+    </div>`).join('');
+}
+
+async function updateSecOption(key, value) {
+  try {
+    const { items } = await api('/api/admin/sec-config', {
+      method: 'PUT', body: JSON.stringify({ [key]: Number(value) }),
+    });
+    _secDefs = items || _secDefs;
+    const input = document.getElementById('sec-' + key);
+    const d = _secDefs.find(x => x.key === key);
+    if (input && d) input.value = d.value;   // 反映 clamp 後嘅值
+    toast('已更新（全局生效）');
+    loadUsageStats();   // 上限改咗，「撞頂」標記要跟住變
+  } catch (e) {
+    alert('儲存失敗：' + e.message);
+    renderSecOptions();
+  }
+}
+
+// ── 用量統計（admin 專用）───────────────────────────────────────────────────
+async function loadUsageStats() {
+  const el = document.getElementById('settings-usage');
+  if (!el) return;
+  el.innerHTML = '載入中…';
+  let d;
+  try { d = await api('/api/admin/usage-stats'); }
+  catch (e) { el.innerHTML = `<span style="color:var(--down)">載入失敗：${escHtml(e.message)}</span>`; return; }
+
+  const t = d.totals || {};
+  const pill = (label, val, hint) =>
+    `<div style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:0.45rem 0.6rem;min-width:0">
+       <div style="font-size:0.7rem;color:var(--muted)">${escHtml(label)}</div>
+       <div style="font-size:0.95rem;font-weight:600;color:var(--text)">${escHtml(String(val))}</div>
+       ${hint ? `<div style="font-size:0.68rem;color:var(--muted)">${escHtml(hint)}</div>` : ''}
+     </div>`;
+  const s = d.syncToday;
+  const summary = `<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(96px,1fr));gap:0.4rem;margin-bottom:0.6rem">
+      ${pill('帳戶', t.accounts, `${t.paid} 收費 · ${t.admins} admin`)}
+      ${pill('追蹤中屋苑', t.tracked_estates, `${t.subscriptions} 個訂閱`)}
+      ${pill('睇樓記錄', t.viewings_total, '全部帳戶合計')}
+      ${pill('每日 email', t.email_on, '開咗通知')}
+      ${s ? pill('今日同步', `${s.ok}/${s.units}`, s.last_at ? ('完成 ' + String(s.last_at).slice(11, 16)) : '') : ''}
+    </div>`;
+
+  // 逐個帳戶：屋苑／記錄用量 + 撞頂標記。屋苑數直接決定 drip sync 負荷，
+  // 所以排序照後端嗰個（屋苑多行先）。
+  const rows = (d.accounts || []).map(a => {
+    const cap = (used, max, at) => {
+      const txt = `${used}/${max == null ? '∞' : max}`;
+      const color = at ? 'var(--down)' : (max != null && used / max >= 0.8 ? 'var(--accent)' : 'var(--text)');
+      return `<span style="color:${color};font-weight:${at ? '700' : '400'}">${escHtml(txt)}${at ? ' ⚠️' : ''}</span>`;
+    };
+    const tierBadge = a.role === 'admin'
+      ? `<span style="font-size:0.68rem;color:var(--accent2)">admin</span>`
+      : a.tier === 'paid'
+        ? `<span style="font-size:0.68rem;color:var(--accent)">收費</span>`
+        : `<span style="font-size:0.68rem;color:var(--muted)">免費</span>`;
+    return `<tr style="border-top:1px solid var(--border)">
+      <td style="padding:0.35rem 0.4rem 0.35rem 0">
+        <div style="color:var(--text)">${escHtml(a.username || '')} ${tierBadge}</div>
+        <div style="font-size:0.7rem;color:var(--muted)">${escHtml(a.email || '—')}</div>
+      </td>
+      <td style="text-align:right;padding:0.35rem 0.4rem;white-space:nowrap">${cap(a.estates, a.max_estates, a.at_estate_cap)}</td>
+      <td style="text-align:right;padding:0.35rem 0 0.35rem 0.4rem;white-space:nowrap">${cap(a.viewings, a.max_viewings, a.at_viewing_cap)}</td>
+    </tr>`;
+  }).join('');
+
+  el.innerHTML = summary + `
+    <div style="overflow-x:auto">
+      <table style="width:100%;border-collapse:collapse;font-size:0.8rem">
+        <thead><tr style="color:var(--muted);font-size:0.72rem;text-align:left">
+          <th style="padding:0 0.4rem 0.3rem 0">帳戶</th>
+          <th style="text-align:right;padding:0 0.4rem 0.3rem">屋苑</th>
+          <th style="text-align:right;padding:0 0 0.3rem 0.4rem">睇樓記錄</th>
+        </tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+    </div>`;
 }
 
 function closeSettingsModal() {
