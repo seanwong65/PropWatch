@@ -60,6 +60,14 @@
       --btn-bg: #047857;       /* 主要動作掣＝品牌色（同 --brand 同一個值） */
       --btn-hover: #065f46;
 
+      /* 次要掣（ghost）。⚠️ 唔可以用「純白面 + 淡邊」——頁面本身就係白，
+         咁樣做出嚟嘅掣完全冇視覺重量，用戶搵唔到（實機試過就係咁）。
+         所以次要掣一定要有：① 帶灰嘅實色面（同白底分得開）
+         ② 睇得清嘅邊 ③ 少少陰影托起。 */
+      --btn2-bg: #eef2f0;
+      --btn2-bg-hover: #e3ebe8;
+      --btn2-border: #b9c7c1;
+
       /* Type scale — six steps, replaces ~18 ad-hoc sizes */
       --fs-xs: 0.75rem;    /* 12px  meta / labels / table footers */
       --fs-sm: 0.8125rem;  /* 13px  secondary body / tables */
@@ -75,7 +83,16 @@
       --header-h: 56px;
     }
 
-    html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
+    html {
+      -webkit-text-size-adjust: 100%; text-size-adjust: 100%;
+      /* 成頁唔准左右揈（手機主要症狀）。兩層一齊做：
+         · overflow-x: hidden — 就算將來有邊個元素唔小心撐爆闊度，都唔會
+           變成成頁可以橫向拖（唔使等人發現咗先補）；
+         · overscroll-behavior-x: none — 斷 iOS 嘅橫向 rubber-band。
+         內層要橫拉嘅表格照拉得（見 .table-scroll，佢自己 contain 住）。 */
+      overflow-x: hidden;
+      overscroll-behavior-x: none;
+    }
 
     body {
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI",
@@ -94,6 +111,7 @@
         radial-gradient(48rem 36rem at 100% 4%, rgba(180,83,9,0.045), transparent 62%);
       background-attachment: fixed;
       background-repeat: no-repeat;
+      overflow-x: hidden;   /* 同 html 一齊鎖，Safari 兩者都要落先穩 */
     }
 
     /* Header */
@@ -119,19 +137,20 @@
     /* Header 上面嘅掣：白底做 ghost（淡邊＋白面），唔好一排實色掣搶主體內容。
        真正嘅主要動作（表單 submit）先用實色品牌綠，見 .vf-submit。 */
     .sync-btn {
-      background: #fff;
-      border: 1px solid var(--border-strong);
+      background: var(--btn2-bg);
+      border: 1px solid var(--btn2-border);
       color: var(--text);
       padding: 0.4rem 0.9rem;
       border-radius: 999px;
       font-size: 0.8rem;
+      font-weight: 600;
       line-height: 1.2;
       white-space: nowrap;
       cursor: pointer;
       transition: all 0.18s;
       box-shadow: var(--shadow-sm);
     }
-    .sync-btn:hover { background: var(--surface2); border-color: var(--brand); color: var(--brand); }
+    .sync-btn:hover { background: var(--btn2-bg-hover); border-color: var(--brand); color: var(--brand); }
     /* admin 專用掣（例如「立即同步」）用實色品牌綠同一般功能掣分開，一睇就知
        呢粒掣影響全站數據（唔係淨係自己個 account），一般 user 睇唔到。 */
     .sync-btn.admin-btn {
@@ -611,9 +630,10 @@
        var(--text)」——--text 而家係深色，落實色 emerald 底只有 2.3:1。
        改做 ghost：白面＋品牌色字，一行幾粒都唔會搶主體數據。 */
     .history-btn {
-      background: #fff;
-      border: 1px solid var(--border-strong);
+      background: var(--brand-soft);
+      border: 1px solid var(--brand);
       color: var(--brand);
+      font-weight: 600;
       border-radius: 999px;
       font-size:0.75rem;
       padding: 0.1rem 0.4rem;
@@ -621,7 +641,7 @@
       margin-top: 0.2rem;
       display: inline-block;
     }
-    .history-btn:hover { background: var(--brand-soft); border-color: var(--brand); }
+    .history-btn:hover { background: #d7f2e6; border-color: var(--brand-hover); }
 
     /* History modal */
     .modal-overlay {
@@ -871,11 +891,11 @@
     }
     .txn-date { color: var(--text); font-size: 0.75rem; }
     .hs-val-btn {
-      background: #fff; border: 1px solid var(--border-strong); color: var(--brand);
-      border-radius: 999px; padding: 2px 8px; font-size:0.75rem; cursor: pointer;
+      background: var(--brand-soft); border: 1px solid var(--brand); color: var(--brand);
+      font-weight: 600; border-radius: 999px; padding: 2px 8px; font-size:0.75rem; cursor: pointer;
       white-space: nowrap;
     }
-    .hs-val-btn:hover { background: var(--brand-soft); border-color: var(--brand); }
+    .hs-val-btn:hover { background: #d7f2e6; border-color: var(--brand-hover); }
     .load-more-btn {
       display: block;
       width: 100%;
@@ -929,9 +949,9 @@
       flex-wrap: wrap;
     }
     .filter-chip {
-      background: var(--surface);
-      border: 1px solid var(--border);
-      color: var(--muted);
+      background: var(--btn2-bg);
+      border: 1px solid var(--btn2-border);
+      color: var(--text);
       border-radius: 20px;
       padding: 0.2rem 0.65rem;
       font-size: 0.75rem;
@@ -1119,7 +1139,11 @@
     }
 
     /* Shared horizontal-scroll table utility (replaces scattered inline styles) */
-    .table-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+    /* overscroll-behavior-x: contain 係「成頁左右揈」嘅正解：呢啲表格闊
+       700px，喺手機一定要橫向拉。原本掃到盡頭之後，手勢會 chain 上去
+       page level，令成頁 rubber-band（用戶見到嘅「左右揈」）。contain
+       只斷 chaining，唔影響表格本身照拉得。 */
+    .table-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; overscroll-behavior-x: contain; }
     .data-table { min-width: 700px; white-space: nowrap; }
     /* 最新放盤表:淨係顯示約10行,之後上下+左右都可以喺個框入面拉(唔使
        成頁咁長)。max-height 由 JS 度返嚟set(睇 renderListingsTable)。 */
@@ -1156,8 +1180,11 @@
     <!-- 手動同步係 admin 專用（一般 user 靠自動 scrape，唔使／唔應該自己撳）；
          admin-btn 用藍色（--accent2）同其他掣分開，一睇就知係管理員功能 -->
     <button class="sync-btn admin-btn" id="syncBtn" onclick="syncAll()" style="display:none">↻ 立即同步</button>
-    <button class="sync-btn" onclick="openSettingsModal()" style="background:var(--surface2);border-color:var(--border);font-size:1rem;padding:0.35rem 0.6rem" title="設定">⚙️</button>
-    <button class="sync-btn" id="logout-btn" onclick="doLogout()" style="background:var(--surface2);border-color:var(--border);display:none" title="登出">登出</button>
+    <!-- 唔好喺呢度 inline 覆蓋 background／border-color：原本寫死 --surface2 +
+         --border（深色時代嘅淡值），白底之下同頁面幾乎一樣色，粒掣搵唔到。
+         交返 .sync-btn 處理（佢用 --btn2-* 有足夠視覺重量）。 -->
+    <button class="sync-btn" onclick="openSettingsModal()" style="font-size:1rem;padding:0.35rem 0.6rem" title="設定">⚙️</button>
+    <button class="sync-btn" id="logout-btn" onclick="doLogout()" style="display:none" title="登出">登出</button>
   </div>
 </header>
 
@@ -1183,7 +1210,7 @@
         style="flex:1;padding:0.65rem 0.8rem;background:var(--surface2);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:0.95rem;box-sizing:border-box;min-width:0"
         onkeydown="if(event.key==='Enter')loginSubmit()">
       <button id="login-otp-btn" onclick="requestOtp()"
-        style="padding:0.65rem 0.9rem;background:var(--surface2);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:0.85rem;cursor:pointer;white-space:nowrap">攞驗證碼</button>
+        style="padding:0.65rem 0.9rem;background:var(--btn2-bg);border:1px solid var(--btn2-border);border-radius:8px;color:var(--text);font-weight:600;font-size:0.85rem;cursor:pointer;white-space:nowrap">攞驗證碼</button>
     </div>
     <button id="login-submit-btn" onclick="loginSubmit()" style="width:100%;padding:0.75rem;background:var(--accent);border:none;border-radius:8px;color:var(--on-accent);font-size:1rem;font-weight:600;cursor:pointer">登入</button>
     <div style="text-align:center;margin-top:0.9rem;display:flex;flex-direction:column;gap:0.5rem">
@@ -1285,7 +1312,7 @@
     </label>
     <div style="display:flex;gap:0.5rem;margin-top:1rem">
       <button class="vf-submit" onclick="savePrefsFromModal()" style="flex:1;margin:0">儲存</button>
-      <button class="vf-submit" onclick="closePrefsModal()" style="flex:1;margin:0;background:var(--surface2);color:var(--text)">略過</button>
+      <button class="vf-submit" onclick="closePrefsModal()" style="flex:1;margin:0;background:var(--btn2-bg);border:1px solid var(--btn2-border);color:var(--text)">略過</button>
     </div>
   </div>
 </div>
@@ -6072,7 +6099,7 @@ function renderOneViewing(v, estateId, isMobile, showTypeFilter) {
         rateBreak,
         imgHtml ? `<div style="margin-top:0.25rem">${imgHtml}</div>` : '',
       ].filter(Boolean).join('') || '-';
-      const editBtn = `<button class="viewing-del-btn" onclick='openViewingModal(JSON.parse(decodeURIComponent("${vData}")))' title="更改" style="background:var(--surface2);margin-right:0.3rem">✏️</button>`;
+      const editBtn = `<button class="viewing-del-btn" onclick='openViewingModal(JSON.parse(decodeURIComponent("${vData}")))' title="更改" style="background:var(--btn2-bg);border:1px solid var(--btn2-border);margin-right:0.3rem">✏️</button>`;
       const delBtn = `<button class="viewing-del-btn" onclick="deleteViewing(${v.id},${estateId})" title="刪除">🗑</button>`;
 
       if (isMobile) {
