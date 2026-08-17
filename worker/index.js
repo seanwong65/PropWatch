@@ -307,9 +307,14 @@ async function sha256(text) {
 const SEC_DEFAULTS = {
   sec_api_rpm: 240,   // 已登入 API：每個帳戶(或 IP)每分鐘 request 上限
   sec_auth_rpm: 10,   // login/register：每個 IP 每分鐘試嘅次數上限
-  // 免費版可以追蹤幾多個屋苑。特登唔擺入 CONFIG_DEFS ⚙️——否則免費用戶
+  // 追蹤屋苑／睇樓記錄上限。特登唔擺入 CONFIG_DEFS ⚙️——否則用戶
   // 自己較大自己個上限。
   sec_free_max_estates: 3,
+  // 收費版都要有上限：每個訂閱屋苑每日食 8 個 drip sync 單元（3 source ×
+  // 放盤+成交，加租盤），15 個屋苑已經係 100+ 個單元，再多就一日跑唔完。
+  sec_paid_max_estates: 15,
+  // 睇樓記錄：收費版無限，免費版封頂。
+  sec_free_max_viewings: 15,
 };
 let _secCfgCache = { at: 0, vals: null };
 async function getSecCfg(db) {
@@ -4946,20 +4951,28 @@ export default {
           try { changes = await syncOneEstate(db, estate); } catch (_) { /* 部分失敗照返 estate */ }
           return json(200, { ok: true, estate, oneOff: true, changes });
         }
-        // 免費版追蹤上限。已經訂咗嘅屋苑唔算(重複 track 唔應該撞牆)——
-        // 淨係擋「新增第 N+1 個」。
-        if (!isPaidSession(session)) {
+        // 追蹤上限：免費版同收費版都有（收費版鬆好多，但唔係無限——每個屋苑
+        // 每日要食 drip sync 額度，太多就一日跑唔完）。已經訂咗嘅屋苑唔算
+        // (重複 track 唔應該撞牆)——淨係擋「新增第 N+1 個」。
+        {
           const already = await db.prepare(
             "SELECT 1 FROM account_estates WHERE account_id = ? AND estate_id = ?"
           ).bind(session.account_id, estate.id).first();
           if (!already) {
             const secCfg = await getSecCfg(db);
+            const paid = isPaidSession(session);
+            const cap = paid ? secCfg.sec_paid_max_estates : secCfg.sec_free_max_estates;
             const row = await db.prepare(
               "SELECT COUNT(*) AS c FROM account_estates WHERE account_id = ?"
             ).bind(session.account_id).first();
-            if ((row?.c || 0) >= secCfg.sec_free_max_estates) {
-              return json(402, {
-                error: `免費版最多可以追蹤 ${secCfg.sec_free_max_estates} 個屋苑，要移除其中一個先可以加新嘅。`,
+            if ((row?.c || 0) >= cap) {
+              // 收費版撞頂唔係「叫佢升級」（佢已經係收費版），所以唔畀
+              // upgrade flag，前端就唔會彈升級 modal。
+              return json(402, paid ? {
+                error: `最多可以追蹤 ${cap} 個屋苑，要移除其中一個先可以加新嘅。`,
+                feature: "estates", atCap: true,
+              } : {
+                error: `免費版最多可以追蹤 ${cap} 個屋苑，要移除其中一個先可以加新嘅。`,
                 upgrade: true, feature: "estates",
               });
             }
@@ -6326,6 +6339,20 @@ export default {
         const dealType = body.deal_type === 'R' ? 'R' : 'S';
         if (!estate_id || !view_date || !floor || !unit || !size_net || !price)
           return json(400, { error: "Missing required fields" });
+        // 睇樓記錄上限：收費版無限，免費版封頂。淨係擋「新增」——改／刪
+        // 唔受限，否則已經撞頂嘅免費用戶連改錯字都做唔到。
+        if (!isPaidSession(session)) {
+          const secCfg = await getSecCfg(db);
+          const row = await db.prepare(
+            "SELECT COUNT(*) AS c FROM viewings WHERE account_id = ?"
+          ).bind(session.account_id).first();
+          if ((row?.c || 0) >= secCfg.sec_free_max_viewings) {
+            return json(402, {
+              error: `免費版最多可以有 ${secCfg.sec_free_max_viewings} 個睇樓記錄，要刪走其中一個先可以加新嘅。`,
+              upgrade: true, feature: "viewings",
+            });
+          }
+        }
         await db.prepare("ALTER TABLE viewings ADD COLUMN bedrooms INTEGER").run().catch(() => {});
         await db.prepare("ALTER TABLE viewings ADD COLUMN ratings TEXT").run().catch(() => {});
         await db.prepare("ALTER TABLE viewings ADD COLUMN deal_type TEXT DEFAULT 'S'").run().catch(() => {});
@@ -6505,12 +6532,18 @@ export default {
       // Per-account:key 存做 cfg_<accountId>_<key>。
       if (method === "GET" && path === "/api/config") {
         const cfg = await getConfig(db, session.account_id);
+        const sc = await getSecCfg(db);
+        const paid = isPaidSession(session);
         return json(200, {
           items: CONFIG_DEFS.map((d) => ({ ...d, value: cfg[d.key] })), groups: CONFIG_GROUPS,
           role: session.role || "user",
           // 前端 refresh 完靠呢度攞返 tier（login response 個 tier 唔會過夜）
-          tier: isPaidSession(session) ? "paid" : "free",
-          freeMaxEstates: (await getSecCfg(db)).sec_free_max_estates,
+          tier: paid ? "paid" : "free",
+          freeMaxEstates: sc.sec_free_max_estates,
+          // 睇緊呢個帳戶實際受邊個上限管（前端顯示 "N / M" 用）。
+          // 上限本身係 sec_*（服務端真相），前端呢兩個純粹顯示，改極都冇用。
+          maxEstates: paid ? sc.sec_paid_max_estates : sc.sec_free_max_estates,
+          maxViewings: paid ? null : sc.sec_free_max_viewings,   // null = 無限
         });
       }
       if (method === "PUT" && path === "/api/config") {
