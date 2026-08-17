@@ -4986,15 +4986,30 @@ function renderAbSubs() {
           <div style="font-size:0.7rem;color:var(--muted)">#${s.id}${s.role === 'admin' ? ' · admin' : ''} · ${s.estates} 屋苑</div></td>
         <td style="padding:0.4rem 0.5rem">${statusChip(s)}</td>
         <td style="padding:0.4rem 0.5rem;white-space:nowrap">${escHtml(s.subscription_interval === 'year' ? '年費' : s.subscription_interval === 'month' ? '月費' : '—')}</td>
-        <td style="padding:0.4rem 0.5rem;white-space:nowrap;font-size:0.8rem">${escHtml(s.current_period_end || '—')}</td>
+        <td style="padding:0.4rem 0.5rem;white-space:nowrap;font-size:0.8rem">${s.tier !== 'paid'
+          // 降返 free 之後 current_period_end 唔會清（保留做歷史記錄），
+          // 但已經冇意義——唔顯示，否則會令人以為個帳戶仲有到期日噉。
+          ? '—'
+          : s.current_period_end
+            ? `${escHtml(s.current_period_end)}${!s.stripe_subscription_id ? `<div style="font-size:0.68rem;color:var(--muted)">人手到期</div>` : ''}`
+            : (!s.stripe_subscription_id ? `<span style="color:var(--muted)">長期</span>` : '—')}</td>
         <td style="padding:0.4rem 0.5rem;white-space:nowrap">
           <button class="history-btn" style="font-size:0.7rem;padding:0.1rem 0.4rem" onclick="abAction('sync',${s.id})">同步</button>
           ${s.stripe_subscription_id && !s.cancel_at_period_end
             ? `<button class="history-btn" style="font-size:0.7rem;padding:0.1rem 0.4rem" onclick="abAction('cancel',${s.id})">期末取消</button>` : ''}
           ${s.stripe_customer_id
             ? `<button class="history-btn" style="font-size:0.7rem;padding:0.1rem 0.4rem" onclick="abAction('refund',${s.id})">退款</button>` : ''}
-          <button class="history-btn" style="font-size:0.7rem;padding:0.1rem 0.4rem"
-            onclick="abSetTier('${escJsAttr(s.email || '')}','${s.tier === 'paid' ? 'free' : 'paid'}')">${s.tier === 'paid' ? '降做免費' : '人手開通'}</button>
+          ${s.tier === 'paid'
+            ? `<button class="history-btn" style="font-size:0.7rem;padding:0.1rem 0.4rem" onclick="abSetTier('${escJsAttr(s.email || '')}','free')">降做免費</button>`
+            // 人手開通：到期日 optional（留空＝長期）。真・Stripe 訂閱
+            // （有 stripe_subscription_id）唔畀揀日期——嗰個到期日由 Stripe
+            // webhook 管，人手改極都冇用，反而誤導。
+            : s.stripe_subscription_id
+              ? `<button class="history-btn" style="font-size:0.7rem;padding:0.1rem 0.4rem" onclick="abSetTier('${escJsAttr(s.email || '')}','paid')">人手開通</button>`
+              : `<input type="date" id="ab-until-${s.id}" title="到期日（留空＝長期）"
+                   style="width:118px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:0.72rem;padding:0.1rem 0.3rem;font-family:inherit">
+                 <button class="history-btn" style="font-size:0.7rem;padding:0.1rem 0.4rem"
+                   onclick="abSetTier('${escJsAttr(s.email || '')}','paid',${s.id})">人手開通</button>`}
         </td>
       </tr>`).join('');
   document.getElementById('ab-subs').innerHTML = `
@@ -5023,11 +5038,16 @@ async function abAction(action, accountId) {
   } catch (e) { toast('失敗：' + e.message, 'error'); }
 }
 
-async function abSetTier(email, tier) {
+// accountId 得「人手開通」（tier='paid'）先傳——攞返個到期日 input 嘅值。
+// 「降做免費」冇呢個 input（表格淨係 tier='free' 嘅行先有），所以第三個
+// 參數就係冇傳。
+async function abSetTier(email, tier, accountId) {
   if (!email) return toast('呢個帳戶冇 email，改唔到', 'error');
-  if (!confirm(`確定將 ${email} 改做 ${tier === 'paid' ? '收費版' : '免費版'}？`)) return;
+  const until = accountId != null ? (document.getElementById(`ab-until-${accountId}`)?.value || null) : null;
+  const untilTxt = until ? `，到期 ${until}` : (tier === 'paid' ? '，長期' : '');
+  if (!confirm(`確定將 ${email} 改做 ${tier === 'paid' ? '收費版' : '免費版'}${untilTxt}？`)) return;
   try {
-    await api('/api/admin/tiers', { method: 'POST', body: JSON.stringify({ email, tier }) });
+    await api('/api/admin/tiers', { method: 'POST', body: JSON.stringify({ email, tier, until }) });
     toast('已更新', 'success');
     await refreshAdminBilling();
   } catch (e) { toast('失敗：' + e.message, 'error'); }

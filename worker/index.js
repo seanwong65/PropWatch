@@ -532,10 +532,24 @@ async function authenticate(db, request) {
   if (!token) return null;
   const now = new Date().toISOString();
   const session = await db.prepare(
-    "SELECT s.*, a.username, a.expiry_date, a.role, a.tier FROM sessions s JOIN accounts a ON a.id = s.account_id WHERE s.token = ? AND s.expires_at > ?"
+    `SELECT s.*, a.username, a.expiry_date, a.role, a.tier,
+            a.current_period_end, a.stripe_subscription_id
+     FROM sessions s JOIN accounts a ON a.id = s.account_id
+     WHERE s.token = ? AND s.expires_at > ?`
   ).bind(token, now).first();
   if (!session) return null;
   if (session.expiry_date < now.slice(0, 10)) return null;
+  // 人手開通（冇 stripe_subscription_id）可以帶到期日：current_period_end
+  // 過咗就自動打回 free。真・Stripe 訂閱唔受呢度影響——嗰邊靠 webhook
+  // （subscription.deleted 等）自己降級，唔可以喺呢度用日期覆蓋佢哋嘅狀態。
+  // 揀喺 authenticate() 度做（每次帶 token 嘅 request 都會過），跟返呢個
+  // session 之前 cron watchdog 「由流量觸發嘅自我修復」同一套做法，唔使
+  // 開多一個 cron。
+  if (session.tier === "paid" && !session.stripe_subscription_id
+      && session.current_period_end && session.current_period_end < now.slice(0, 10)) {
+    await db.prepare("UPDATE accounts SET tier = 'free' WHERE id = ?").bind(session.account_id).run();
+    session.tier = "free";
+  }
   return session;
 }
 
@@ -6964,14 +6978,31 @@ export default {
           return json(200, { accounts: results });
         }
         if (method === "POST") {
-          const { email, tier } = await request.json();
+          const { email, tier, until } = await request.json();
           if (!email || !["free", "paid"].includes(tier)) {
             return json(400, { error: "email 同 tier(free/paid) 都要有" });
           }
-          const r = await db.prepare("UPDATE accounts SET tier = ? WHERE lower(email) = lower(?)")
-            .bind(tier, email).run();
-          if (!r.meta?.changes) return json(404, { error: "搵唔到呢個 email 嘅帳戶" });
-          return json(200, { ok: true, email, tier });
+          // until：人手開通嘅到期日（YYYY-MM-DD，optional，淨係 tier='paid'
+          // 先有意義；留空＝長期）。唔可以撞到真・Stripe 訂閱：嗰啲帳戶有
+          // stripe_subscription_id，佢哋嘅 current_period_end 由 webhook
+          // 管，呢度動極都唔可以碰。
+          if (until != null && !/^\d{4}-\d{2}-\d{2}$/.test(until)) {
+            return json(400, { error: "until 要係 YYYY-MM-DD" });
+          }
+          const acc = await db.prepare("SELECT id, stripe_subscription_id FROM accounts WHERE lower(email) = lower(?)")
+            .bind(email).first();
+          if (!acc) return json(404, { error: "搵唔到呢個 email 嘅帳戶" });
+          if (until && acc.stripe_subscription_id) {
+            return json(400, { error: "呢個帳戶有真・Stripe 訂閱，到期日由 Stripe 自己管，唔可以人手設。" });
+          }
+          if (tier === "paid" && !acc.stripe_subscription_id) {
+            // 人手開通（或者改到期日）：until 冇傳就當長期（清走舊到期日）。
+            await db.prepare("UPDATE accounts SET tier = 'paid', current_period_end = ? WHERE id = ?")
+              .bind(until || null, acc.id).run();
+          } else {
+            await db.prepare("UPDATE accounts SET tier = ? WHERE id = ?").bind(tier, acc.id).run();
+          }
+          return json(200, { ok: true, email, tier, until: tier === "paid" ? (until || null) : null });
         }
       }
 
