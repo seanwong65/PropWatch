@@ -1295,50 +1295,71 @@
   <div class="modal" style="max-width:460px;max-height:90vh;overflow-y:auto">
     <button class="modal-close" onclick="closeSettingsModal()">✕</button>
     <div class="modal-title">⚙️ 設定</div>
-    <div class="modal-sub" style="margin-top:0">⭐ 訂閱</div>
-    <div id="settings-billing" style="font-size:0.85rem;margin:0.35rem 0 0.25rem"></div>
-    <!-- 付款後台：admin 專用，由 applyRoleToSettings() 控制顯示 -->
-    <div id="settings-admin-billing" style="display:none;margin-top:0.5rem">
-      <div style="display:flex;gap:0.5rem;flex-wrap:wrap">
-        <button class="vf-submit" style="width:auto;padding:0.45rem 0.9rem;margin:0" onclick="openAdminBilling()">💳 付款管理後台</button>
-        <button class="vf-submit" style="width:auto;padding:0.45rem 0.9rem;margin:0" onclick="openAdminClicks()">👁 放盤點擊統計</button>
+
+    <!-- 三個 tab，重用屋苑頁嗰套 .estate-tabs／.estate-tab（同一個視覺語言，
+         唔另起爐灶）。「系統設定」同「用量統計」係 admin 專用，由
+         applyRoleToSettings() 控制個掣顯唔顯示。 -->
+    <div class="estate-tabs" id="settings-tabs" style="margin-bottom:1rem">
+      <button class="estate-tab active" id="st-btn-user" onclick="switchSettingsTab('user')">👤 用戶設定</button>
+      <button class="estate-tab" id="st-btn-system" style="display:none" onclick="switchSettingsTab('system')">🛠 系統設定</button>
+      <button class="estate-tab" id="st-btn-usage" style="display:none" onclick="switchSettingsTab('usage')">📊 用量統計</button>
+    </div>
+
+    <!-- ① 用戶設定：自己個帳戶嘅嘢（訂閱、睇樓偏好），全部用戶都見到 -->
+    <div id="st-panel-user">
+      <div class="modal-sub" style="margin-top:0">⭐ 訂閱</div>
+      <div id="settings-billing" style="font-size:0.85rem;margin:0.35rem 0 0.25rem"></div>
+      <!-- 付款後台：admin 專用，由 applyRoleToSettings() 控制顯示 -->
+      <div id="settings-admin-billing" style="display:none;margin-top:0.5rem">
+        <div style="display:flex;gap:0.5rem;flex-wrap:wrap">
+          <button class="vf-submit" style="width:auto;padding:0.45rem 0.9rem;margin:0" onclick="openAdminBilling()">💳 付款管理後台</button>
+          <button class="vf-submit" style="width:auto;padding:0.45rem 0.9rem;margin:0" onclick="openAdminClicks()">👁 放盤點擊統計</button>
+        </div>
+      </div>
+
+      <div class="modal-sub" style="margin-top:1.25rem">🎯 睇樓偏好</div>
+      <p style="font-size:0.78rem;color:var(--muted);margin:0.25rem 0 0.5rem">開「最新放盤」時自動 apply 嘅 filter（售價／房數／實呎），留空＝唔限</p>
+      <div style="display:flex;align-items:center;gap:0.6rem">
+        <div style="flex:1;min-width:0">
+          <div id="settings-prefs-summary" style="font-size:0.85rem"></div>
+          <div id="settings-email-state" style="font-size:0.78rem;margin-top:0.15rem"></div>
+        </div>
+        <button class="vf-submit" style="width:auto;padding:0.5rem 1rem;margin:0;white-space:nowrap" onclick="openPrefsModal(_userPrefs||{})">修改</button>
       </div>
     </div>
 
-    <div class="modal-sub" style="margin-top:1.25rem">🎯 睇樓偏好</div>
-    <p style="font-size:0.78rem;color:var(--muted);margin:0.25rem 0 0.5rem">開「最新放盤」時自動 apply 嘅 filter（售價／房數／實呎），留空＝唔限</p>
-    <div style="display:flex;align-items:center;gap:0.6rem">
-      <div style="flex:1;min-width:0">
-        <div id="settings-prefs-summary" style="font-size:0.85rem"></div>
-        <div id="settings-email-state" style="font-size:0.78rem;margin-top:0.15rem"></div>
+    <!-- ② 系統設定：影響成個系統嘅參數，admin 專用。
+         id 保留 settings-cfg-section——applyRoleToSettings() 一直靠佢做
+         admin gate，改名會靜靜咁令一般 user 見到成個 section。 -->
+    <div id="st-panel-system" style="display:none">
+      <div id="settings-cfg-section">
+        <div class="modal-sub" style="margin-top:0;display:flex;align-items:center;justify-content:space-between;gap:0.6rem">
+          <span>📐 分析參數（per-account）</span>
+          <select id="settings-cfg-group" onchange="_cfgGroup=this.value;renderCfgOptions()"
+            style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:0.85rem;padding:0.35rem 0.5rem;font-family:inherit"></select>
+        </div>
+        <p style="font-size:0.78rem;color:var(--muted);margin:0.25rem 0 0.75rem">相對市價／抵買雷達／議價指數／email 用嘅數字，改完即時生效（有上下限自動修正）。用右上角揀分類，睇某個 tab／功能用嘅參數。</p>
+        <div id="settings-cfg-list" style="display:flex;flex-direction:column;gap:0.7rem"></div>
+
+        <!-- 額度／安全參數同上面分析參數分開擺：呢啲係全局（影響所有用戶），
+             改錯（例如 API rpm 較太細）會即刻影響全站，所以要獨立 section
+             + 明確警告，唔可以混入 per-account 嗰堆。 -->
+        <div class="modal-sub" style="margin-top:1.4rem">🔐 額度／安全參數（全局）</div>
+        <p style="font-size:0.78rem;color:var(--muted);margin:0.25rem 0 0.75rem">
+          影響<b>所有用戶</b>嘅上限。有上下限自動修正，改完即時生效（其他 server node 最多 1 分鐘）。
+          呢啲特登唔擺入 per-account 設定——否則用戶自己較大自己個上限。
+        </p>
+        <div id="settings-sec-list" style="display:flex;flex-direction:column;gap:0.7rem"></div>
       </div>
-      <button class="vf-submit" style="width:auto;padding:0.5rem 1rem;margin:0;white-space:nowrap" onclick="openPrefsModal(_userPrefs||{})">修改</button>
     </div>
-    <!-- 分析參數：淨係 admin 睇到（一般 user 得睇樓偏好）。由 applyRoleToSettings() 控制顯示 -->
-    <div id="settings-cfg-section" style="display:none">
-      <div class="modal-sub" style="margin-top:1.25rem;display:flex;align-items:center;justify-content:space-between;gap:0.6rem">
-        <span>📐 分析參數</span>
-        <select id="settings-cfg-group" onchange="_cfgGroup=this.value;renderCfgOptions()"
-          style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:0.85rem;padding:0.35rem 0.5rem;font-family:inherit"></select>
-      </div>
-      <p style="font-size:0.78rem;color:var(--muted);margin:0.25rem 0 0.75rem">相對市價／抵買雷達／議價指數／email 用嘅數字，改完即時生效（有上下限自動修正）。用右上角揀分類，睇某個 tab／功能用嘅參數。</p>
-      <div id="settings-cfg-list" style="display:flex;flex-direction:column;gap:0.7rem"></div>
 
-      <!-- 額度／安全參數：同上面「分析參數」分開——呢啲係全局（影響所有
-           用戶），改錯（例如 API rpm 較太細）會即刻影響全站，所以要獨立
-           section + 明確警告，唔可以混入 per-account 嗰堆。 -->
-      <div class="modal-sub" style="margin-top:1.4rem">🔐 額度／安全參數（全局）</div>
-      <p style="font-size:0.78rem;color:var(--muted);margin:0.25rem 0 0.75rem">
-        影響<b>所有用戶</b>嘅上限。有上下限自動修正，改完即時生效（其他 server node 最多 1 分鐘）。
-        呢啲特登唔擺入上面嘅 per-account 設定——否則用戶自己較大自己個上限。
-      </p>
-      <div id="settings-sec-list" style="display:flex;flex-direction:column;gap:0.7rem"></div>
-
-      <div class="modal-sub" style="margin-top:1.4rem;display:flex;align-items:center;justify-content:space-between;gap:0.6rem">
+    <!-- ③ 用量統計：admin 專用 -->
+    <div id="st-panel-usage" style="display:none">
+      <div class="modal-sub" style="margin-top:0;display:flex;align-items:center;justify-content:space-between;gap:0.6rem">
         <span>📊 用量統計</span>
         <button class="vf-submit" style="width:auto;padding:0.35rem 0.8rem;margin:0;font-size:0.8rem" onclick="loadUsageStats()">重新整理</button>
       </div>
-      <p style="font-size:0.78rem;color:var(--muted);margin:0.25rem 0 0.75rem">睇實際用量嚟決定上限點調。⚠️ = 已經撞頂。</p>
+      <p style="font-size:0.78rem;color:var(--muted);margin:0.25rem 0 0.75rem">睇實際用量嚟決定上限點調（喺「🛠 系統設定」改）。⚠️ = 已經撞頂。</p>
       <div id="settings-usage" style="font-size:0.82rem;color:var(--muted)">未載入</div>
     </div>
   </div>
@@ -3307,10 +3328,22 @@ function applyTierToChrome() {
 // 分析參數 section：admin 先顯示（一般 user 隱藏）。後端 PUT /api/config
 // 都有 admin gate，所以就算有人改 DOM 都改唔到。
 function applyRoleToSettings() {
+  const isAdmin = _userRole === 'admin';
   const sec = document.getElementById('settings-cfg-section');
-  if (sec) sec.style.display = _userRole === 'admin' ? '' : 'none';
+  if (sec) sec.style.display = isAdmin ? '' : 'none';
   const bill = document.getElementById('settings-admin-billing');
-  if (bill) bill.style.display = _userRole === 'admin' ? '' : 'none';
+  if (bill) bill.style.display = isAdmin ? '' : 'none';
+  // 「系統設定」／「用量統計」兩個 tab 掣：admin 先見到。一般 user 就淨係
+  // 一個「用戶設定」tab（睇落就同以前冇 tab 一樣，唔會多咗個孤零零嘅 tab bar）。
+  for (const t of ['system', 'usage']) {
+    const btn = document.getElementById('st-btn-' + t);
+    if (btn) btn.style.display = isAdmin ? '' : 'none';
+  }
+  const tabs = document.getElementById('settings-tabs');
+  if (tabs) tabs.style.display = isAdmin ? '' : 'none';
+  // 由 admin 變返一般 user（例如登出再登入）要拉返第一個 tab，否則會停留喺
+  // 一個已經隱藏嘅 panel，成個設定睇落係空白。
+  if (!isAdmin && _settingsTab !== 'user') switchSettingsTab('user');
   // 「立即同步」都係 admin 專用：一般 user 靠自動 scrape，冇必要（亦唔應該）
   // 自己手動觸發全站 sync。
   const sync = document.getElementById('syncBtn');
@@ -5340,6 +5373,26 @@ async function updateCfgOption(key, value) {
     alert('儲存失敗:' + e.message);
     renderCfgOptions();
   }
+}
+
+// ── 設定 modal 嘅 tab ──────────────────────────────────────────────────────
+// 三個 panel 互斥。system/usage 兩個掣本身係 admin 先見到（applyRoleToSettings），
+// 但呢度都再擋一次——非 admin 就算靠 console 叫都跳唔到（後端 route 本身
+// 都有 403，呢個純粹係 UI 一致性）。
+let _settingsTab = 'user';
+
+function switchSettingsTab(tab) {
+  if (tab !== 'user' && _userRole !== 'admin') return;
+  _settingsTab = tab;
+  for (const t of ['user', 'system', 'usage']) {
+    const panel = document.getElementById('st-panel-' + t);
+    const btn = document.getElementById('st-btn-' + t);
+    if (panel) panel.style.display = t === tab ? '' : 'none';
+    if (btn) btn.classList.toggle('active', t === tab);
+  }
+  // 跳 tab 之後由頂開始睇（modal 本身係 scroll container）
+  const modal = document.querySelector('#settingsModalOverlay .modal');
+  if (modal) modal.scrollTop = 0;
 }
 
 // ── 額度／安全參數（admin 專用，全局）─────────────────────────────────────
