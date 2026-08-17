@@ -1309,13 +1309,6 @@
     <div id="st-panel-user">
       <div class="modal-sub" style="margin-top:0">⭐ 訂閱</div>
       <div id="settings-billing" style="font-size:0.85rem;margin:0.35rem 0 0.25rem"></div>
-      <!-- 付款後台：admin 專用，由 applyRoleToSettings() 控制顯示 -->
-      <div id="settings-admin-billing" style="display:none;margin-top:0.5rem">
-        <div style="display:flex;gap:0.5rem;flex-wrap:wrap">
-          <button class="vf-submit" style="width:auto;padding:0.45rem 0.9rem;margin:0" onclick="openAdminBilling()">💳 付款管理後台</button>
-          <button class="vf-submit" style="width:auto;padding:0.45rem 0.9rem;margin:0" onclick="openAdminClicks()">👁 放盤點擊統計</button>
-        </div>
-      </div>
 
       <div class="modal-sub" style="margin-top:1.25rem">🎯 睇樓偏好</div>
       <p style="font-size:0.78rem;color:var(--muted);margin:0.25rem 0 0.5rem">開「最新放盤」時自動 apply 嘅 filter（售價／房數／實呎），留空＝唔限</p>
@@ -1332,6 +1325,15 @@
          id 保留 settings-cfg-section——applyRoleToSettings() 一直靠佢做
          admin gate，改名會靜靜咁令一般 user 見到成個 section。 -->
     <div id="st-panel-system" style="display:none">
+      <!-- 付款後台／點擊統計：admin 專用嘅系統管理入口，唔係一般用戶嘅
+           「自己個帳戶」設定，所以由「用戶設定」搬咗嚟呢度。settings-billing
+           （訂閱狀態顯示）仍然擺喺「用戶設定」——嗰個係俾用戶睇自己個
+           tier，唔係管理入口。 -->
+      <div class="modal-sub" style="margin-top:0">🛠 系統管理</div>
+      <div style="display:flex;gap:0.5rem;flex-wrap:wrap;margin:0.35rem 0 1.25rem">
+        <button class="vf-submit" style="width:auto;padding:0.45rem 0.9rem;margin:0" onclick="openAdminBilling()">💳 付款管理後台</button>
+        <button class="vf-submit" style="width:auto;padding:0.45rem 0.9rem;margin:0" onclick="openAdminClicks()">👁 放盤點擊統計</button>
+      </div>
       <div id="settings-cfg-section">
         <div class="modal-sub" style="margin-top:0;display:flex;align-items:center;justify-content:space-between;gap:0.6rem">
           <span>📐 分析參數（per-account）</span>
@@ -3336,8 +3338,9 @@ function applyRoleToSettings() {
   const isAdmin = _userRole === 'admin';
   const sec = document.getElementById('settings-cfg-section');
   if (sec) sec.style.display = isAdmin ? '' : 'none';
-  const bill = document.getElementById('settings-admin-billing');
-  if (bill) bill.style.display = isAdmin ? '' : 'none';
+  // 付款管理後台／放盤點擊統計而家喺「系統設定」tab 入面，個 tab 本身
+  // 已經俾 st-btn-system 個 display 同 switchSettingsTab() 嘅 guard 擋咗
+  // 非 admin，唔使呢度再獨立 gate 一次。
   // 「系統設定」／「用量統計」兩個 tab 掣：admin 先見到。一般 user 就淨係
   // 一個「用戶設定」tab（睇落就同以前冇 tab 一樣，唔會多咗個孤零零嘅 tab bar）。
   for (const t of ['system', 'usage']) {
