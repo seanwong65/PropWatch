@@ -8,22 +8,57 @@
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
     :root {
-      /* Surface scale — clearer layering between page / cards / raised cards */
-      --bg: #0a0f1a;
-      --surface: #131b2b;
-      --surface1: #131b2b;
-      --surface2: #1c2740;
-      --border: #26344d;
-      --text: #f1f5f9;
-      --muted: #94a3b8;        /* brightened from #64748b → ~7:1 on --bg, passes WCAG AA */
-      --accent: #fbbf24;
-      --on-accent: #1a1206;    /* dark ink for text sitting on --accent (amber) */
-      --accent2: #3b82f6;
-      --up: #10b981;
-      --down: #ef4444;
-      --radius: 10px;
-      --btn-bg: #3a5c59;
-      --btn-hover: #4d7a77;
+      /* ── Light "soft glass" theme ────────────────────────────────────────
+         參考 templatemo glass-admin 嘅視覺語言（大圓角、柔和散射陰影、
+         emerald 主色、pastel tint badge、uppercase 微標籤），但**冇**照抄
+         佢成版半透明玻璃：呢個 app 係密集數據表（100+ 行 + frozen header），
+         backdrop-filter 落會 scroll 嘅容器要逐格重繪，手機直接卡；半透明底
+         亦蝕密集數字嘅對比。所以 glass 只留俾 header／sidebar／modal 遮罩
+         （唔會 scroll 內容），數據卡片一律實色白。
+         全部前景色都對白底做過對比檢查（WCAG AA ≥4.5:1）。 */
+      --bg: #ffffff;           /* requirement：純白底 */
+      --surface: #ffffff;      /* 卡片 — 實色，唔玻璃（見上面理由） */
+      --surface1: #ffffff;
+      --surface2: #f3f7f5;     /* inset／次級面，帶極輕綠灰呼應 emerald */
+      --border: #e4eae7;
+      --border-strong: #cdd8d3; /* 需要睇得清嘅分隔（frozen header 底線等） */
+      --text: #16211d;         /* 近黑帶少少綠調，同 emerald 系一致 */
+      --muted: #5c6b66;        /* 5.4:1 on white */
+      --accent: #b45309;       /* 價錢／重點數字（深琥珀，5.9:1）——沿用
+                                  原本「accent＝價錢」語義，91 處 var() 唔使動 */
+      --on-accent: #ffffff;
+      --accent2: #0369a1;      /* 連結／資訊。5.93:1 on white，而且做底配白字都係
+                                  5.93:1——同一個值兩邊都過 AA。（#0284c7 得 4.1、
+                                  #3b82f6 得 3.6，兩個都唔夠） */
+      --up: #15803d;           /* 升（4.9:1；原本 #10b981 喺白底只有 2.5:1） */
+      --down: #dc2626;         /* 跌（4.8:1） */
+
+      /* 品牌主色：emerald（參考站主色）。特登同 --accent 分開——emerald 撞
+         「升幅綠」，所以佢只做品牌／動作／active 態，唔做數據語義色。 */
+      /* #047857（唔用參考站個 #059669）：brand 兩邊都要用——做文字（tab active、
+         ghost 掣字）同做底配白字。#059669 兩邊都係 3.77:1，兩邊都跌 AA；
+         #047857 兩邊都係 5.48:1，一個值搞掂。 */
+      --brand: #047857;
+      --brand-hover: #065f46;
+      --brand-ink: #ffffff;
+      --brand-soft: #ecfdf5;   /* 淺 tint 底（active chip／selected 卡） */
+
+      /* 圓角按元素大細分級——參考站一律 20px，但落細控件會腫 */
+      --radius: 16px;          /* 卡片／面板 */
+      --radius-sm: 10px;       /* input／細掣 */
+      --radius-lg: 20px;       /* modal／大面板 */
+
+      /* 柔和散射陰影（白底靠陰影做層次，唔靠深色面） */
+      --shadow-sm: 0 1px 2px rgba(16,42,34,0.04), 0 1px 3px rgba(16,42,34,0.06);
+      --shadow: 0 2px 4px rgba(16,42,34,0.04), 0 8px 20px rgba(16,42,34,0.07);
+      --shadow-lg: 0 8px 16px rgba(16,42,34,0.06), 0 24px 48px rgba(16,42,34,0.12);
+
+      /* Glass：只俾唔 scroll 內容嘅表面用（header／sidebar／遮罩） */
+      --glass-bg: rgba(255,255,255,0.72);
+      --glass-border: rgba(16,42,34,0.08);
+
+      --btn-bg: #047857;       /* 主要動作掣＝品牌色（同 --brand 同一個值） */
+      --btn-hover: #065f46;
 
       /* Type scale — six steps, replaces ~18 ad-hoc sizes */
       --fs-xs: 0.75rem;    /* 12px  meta / labels / table footers */
@@ -50,6 +85,15 @@
       color: var(--text);
       min-height: 100dvh;
       line-height: 1.6;
+      /* 參考站個「pastel mesh」感覺：兩團極淡光暈。特登用 body 嘅
+         background-image（唔係加 .orb div + blur）——冇額外 DOM、冇
+         backdrop-filter，scroll 唔會重繪，等於零成本。
+         fixed：唔想成塊 wash 跟住長頁面拉走。 */
+      background-image:
+        radial-gradient(60rem 40rem at 12% -8%, rgba(5,150,105,0.055), transparent 60%),
+        radial-gradient(48rem 36rem at 100% 4%, rgba(180,83,9,0.045), transparent 62%);
+      background-attachment: fixed;
+      background-repeat: no-repeat;
     }
 
     /* Header */
@@ -62,31 +106,40 @@
       justify-content: space-between;
       position: sticky;
       top: 0;
-      background: rgba(10,15,26,0.92);
-      backdrop-filter: blur(8px);
+      /* Glass 用喺呢度係啱嘅：header 自己唔 scroll 內容，blur 只計一次 */
+      background: var(--glass-bg);
+      backdrop-filter: saturate(180%) blur(12px);
+      -webkit-backdrop-filter: saturate(180%) blur(12px);
       z-index: 100;
     }
     .logo { display: flex; align-items: center; gap: 0.6rem; }
     .logo-icon { font-size: 1.4rem; }
     .logo h1 { font-size: 1.1rem; font-weight: 700; letter-spacing: -0.02em; }
     .logo span { color: var(--accent); }
+    /* Header 上面嘅掣：白底做 ghost（淡邊＋白面），唔好一排實色掣搶主體內容。
+       真正嘅主要動作（表單 submit）先用實色品牌綠，見 .vf-submit。 */
     .sync-btn {
-      background: var(--btn-bg);
-      border: 1px solid var(--btn-bg);
+      background: #fff;
+      border: 1px solid var(--border-strong);
       color: var(--text);
       padding: 0.4rem 0.9rem;
-      border-radius: 6px;
+      border-radius: 999px;
       font-size: 0.8rem;
       line-height: 1.2;
       white-space: nowrap;
       cursor: pointer;
-      transition: all 0.2s;
+      transition: all 0.18s;
+      box-shadow: var(--shadow-sm);
     }
-    .sync-btn:hover { background: var(--btn-hover); border-color: var(--btn-hover); }
-    /* admin 專用掣（例如「立即同步」）用藍色同一般功能掣分開，一睇就知呢粒
-       掣影響全站數據（唔係淨係自己個 account），一般 user 睇唔到呢個顏色。 */
-    .sync-btn.admin-btn { background: var(--accent2); border-color: var(--accent2); }
-    .sync-btn.admin-btn:hover { background: #2563eb; border-color: #2563eb; }
+    .sync-btn:hover { background: var(--surface2); border-color: var(--brand); color: var(--brand); }
+    /* admin 專用掣（例如「立即同步」）用實色品牌綠同一般功能掣分開，一睇就知
+       呢粒掣影響全站數據（唔係淨係自己個 account），一般 user 睇唔到。 */
+    .sync-btn.admin-btn {
+      background: var(--brand); border-color: var(--brand); color: var(--brand-ink);
+    }
+    .sync-btn.admin-btn:hover {
+      background: var(--brand-hover); border-color: var(--brand-hover); color: var(--brand-ink);
+    }
 
     /* Layout */
     .layout {
@@ -96,12 +149,15 @@
       height: calc(100dvh - var(--header-h));
     }
 
-    /* Sidebar */
+    /* Sidebar：glass（佢自己唔 scroll，內層 .estate-list 先 scroll） */
     .sidebar {
       border-right: 1px solid var(--border);
       display: flex;
       flex-direction: column;
       overflow: hidden;
+      background: var(--glass-bg);
+      backdrop-filter: saturate(160%) blur(10px);
+      -webkit-backdrop-filter: saturate(160%) blur(10px);
     }
 
     .search-box {
@@ -140,9 +196,9 @@
       top: 50%;
       transform: translateY(-50%);
       background: var(--btn-bg);
-      color: var(--text);
+      color: var(--brand-ink);
       border: none;
-      border-radius: 6px;
+      border-radius: 999px;
       padding: 0.3rem 0.7rem;
       font-size: 0.78rem;
       font-weight: 700;
@@ -159,12 +215,12 @@
       top: calc(100% + 4px);
       left: 0;
       right: 0;
-      background: var(--surface2);
+      background: var(--surface);
       border: 1px solid var(--border);
       border-radius: var(--radius);
       overflow: hidden;
       z-index: 200;
-      box-shadow: 0 8px 24px rgba(0,0,0,0.4);
+      box-shadow: var(--shadow-lg);
     }
     .autocomplete-item {
       padding: 0.7rem 0.9rem;
@@ -187,17 +243,20 @@
       gap: 0.5rem;
     }
 
+    /* 白底之下，卡片靠「白面＋柔和陰影」同頁面分層（唔再靠深色面）。
+       --surface2 留返俾卡片**內部**嘅 inset 元素（chip／input／track）。 */
     .estate-card {
-      background: var(--surface2);
+      background: var(--surface);
       border: 1px solid var(--border);
       border-radius: var(--radius);
       padding: 0.85rem 1rem;
       cursor: pointer;
-      transition: border-color 0.15s, background 0.15s;
+      transition: border-color 0.15s, background 0.15s, box-shadow 0.15s;
       position: relative;
+      box-shadow: var(--shadow-sm);
     }
-    .estate-card:hover { border-color: var(--accent2); }
-    .estate-card.active { border-color: var(--accent); background: rgba(251,191,36,0.06); }
+    .estate-card:hover { border-color: var(--brand); box-shadow: var(--shadow); }
+    .estate-card.active { border-color: var(--brand); background: var(--brand-soft); }
     .estate-card-name { font-weight: 600; font-size: 0.9rem; }
     .estate-card-meta { color: var(--muted); font-size: 0.75rem; margin-top: 0.25rem; }
     .estate-card-delete {
@@ -241,7 +300,8 @@
       top: 50%;
       left: 0.5rem;
       transform: translateY(-50%);
-      color: var(--border);
+      /* --border 喺白底得 1.2:1，hover 出咗都睇唔到；用 muted 先揸得住 */
+      color: var(--muted);
       cursor: grab;
       font-size: 0.85rem;
       opacity: 0;
@@ -295,14 +355,15 @@
       margin-bottom: 1.5rem;
     }
     .dashboard-card {
-      background: var(--surface2);
+      background: var(--surface);
       border: 1px solid var(--border);
       border-radius: var(--radius);
       padding: 1rem;
       cursor: pointer;
-      transition: border-color 0.15s;
+      transition: border-color 0.15s, box-shadow 0.15s;
+      box-shadow: var(--shadow-sm);
     }
-    .dashboard-card:hover { border-color: var(--accent2); }
+    .dashboard-card:hover { border-color: var(--brand); box-shadow: var(--shadow); }
     .dashboard-card-name { font-weight: 600; font-size: 0.85rem; margin-bottom: 0.4rem; }
     .dashboard-card-count { font-size: 1.5rem; font-weight: 700; color: var(--accent); }
     .dashboard-card-label { font-size:0.75rem; color: var(--muted); }
@@ -313,11 +374,12 @@
       padding: 1.25rem;
     }
     .highlights-section {
-      background: var(--surface2);
-      border: 1px solid color-mix(in srgb, var(--border) 60%, transparent);
+      background: var(--surface);
+      border: 1px solid var(--border);
       border-radius: var(--radius);
       padding: 1rem;
       margin-top: 1.25rem;
+      box-shadow: var(--shadow-sm);
     }
     .highlights-title {
       font-size: 0.8rem;
@@ -405,10 +467,11 @@
       margin-bottom: 1.5rem;
     }
     .stat-card {
-      background: var(--surface2);
+      background: var(--surface);
       border: 1px solid var(--border);
       border-radius: var(--radius);
       padding: 1rem;
+      box-shadow: var(--shadow-sm);
     }
     .stat-label { color: var(--muted); font-size:0.75rem; text-transform: uppercase; letter-spacing: 0.06em; }
     .stat-value { font-size: 1.4rem; font-weight: 700; margin-top: 0.25rem; color: var(--accent); }
@@ -426,13 +489,16 @@
       display: flex; flex-direction: column; align-items: center; gap: 0.4rem;
       color: var(--muted); font-family: inherit;
     }
+    /* 快捷功能：參考站嗰種「pastel tint 圓角 icon tile」。用 --brand-soft
+       做底、大圓角（唔用 50% 正圓）——同參考站個 icon tile 一致。 */
     .qa-icon {
-      width: 46px; height: 46px; border-radius: 50%;
-      background: var(--surface2); border: 1px solid var(--border);
+      width: 46px; height: 46px; border-radius: 14px;
+      background: var(--brand-soft); border: 1px solid var(--border);
       display: flex; align-items: center; justify-content: center;
       font-size: 1.25rem; transition: all 0.15s;
+      box-shadow: var(--shadow-sm);
     }
-    .qa-btn:hover .qa-icon { border-color: var(--accent); background: var(--surface); }
+    .qa-btn:hover .qa-icon { border-color: var(--brand); box-shadow: var(--shadow); }
     .qa-btn:hover { color: var(--text); }
     .qa-label { font-size: 0.72rem; line-height: 1.25; text-align: center; }
     @media (max-width: 480px) {
@@ -451,11 +517,12 @@
 
     /* Chart */
     .chart-section {
-      background: var(--surface2);
+      background: var(--surface);
       border: 1px solid var(--border);
       border-radius: var(--radius);
       padding: 1.25rem;
       margin-bottom: 1.5rem;
+      box-shadow: var(--shadow-sm);
     }
     .section-title {
       font-size: 0.8rem;
@@ -477,10 +544,11 @@
 
     /* Listings table */
     .listings-section {
-      background: var(--surface2);
+      background: var(--surface);
       border: 1px solid var(--border);
       border-radius: var(--radius);
       overflow: hidden;
+      box-shadow: var(--shadow-sm);
     }
     .listings-header {
       padding: 1rem 1.25rem;
@@ -507,7 +575,9 @@
       vertical-align: middle;
     }
     tr:last-child td { border-bottom: none; }
-    tr:hover td { background: rgba(255,255,255,0.02); }
+    /* 白底：hover 要係「壓深少少」而唔係「打亮」（原本 rgba(255,255,255,…)
+       喺白底上面完全睇唔到） */
+    tr:hover td { background: rgba(16,42,34,0.035); }
 
     .price-cell { font-weight: 700; color: var(--accent); }
     .unit-price { color: var(--text); font-size: 0.75rem; margin-top: 0.1rem; }
@@ -518,9 +588,11 @@
       font-size:0.75rem;
       font-weight: 600;
     }
-    .floor-high { background: rgba(16,185,129,0.15); color: var(--up); }
-    .floor-mid  { background: rgba(59,130,246,0.15); color: var(--accent2); }
-    .floor-low  { background: rgba(251,191,36,0.15); color: var(--accent); }
+    /* Pastel tint badge（參考站個 badge 語言）。白底要落重少少 tint 先睇得到，
+       文字用返深色語義色保住對比。 */
+    .floor-high { background: #dcfce7; color: var(--up); }
+    .floor-mid  { background: #e0f2fe; color: var(--accent2); }
+    .floor-low  { background: #fef3c7; color: var(--accent); }
 
     .detail-link {
       color: var(--accent2);
@@ -535,24 +607,31 @@
     .ref-link { color: var(--muted); font-size:0.75rem; text-decoration: none; }
     .ref-link:hover { color: var(--accent2); }
     .price-prev { color: var(--muted); font-size:0.75rem; text-decoration: line-through; }
+    /* 表格內嘅細動作掣（同步／退款／人手開通…）。白底之下唔可以再「實色底 +
+       var(--text)」——--text 而家係深色，落實色 emerald 底只有 2.3:1。
+       改做 ghost：白面＋品牌色字，一行幾粒都唔會搶主體數據。 */
     .history-btn {
-      background: var(--btn-bg);
-      border: 1px solid var(--btn-bg);
-      color: var(--text);
-      border-radius: 4px;
+      background: #fff;
+      border: 1px solid var(--border-strong);
+      color: var(--brand);
+      border-radius: 999px;
       font-size:0.75rem;
       padding: 0.1rem 0.4rem;
       cursor: pointer;
       margin-top: 0.2rem;
       display: inline-block;
     }
-    .history-btn:hover { background: var(--btn-hover); border-color: var(--btn-hover); }
+    .history-btn:hover { background: var(--brand-soft); border-color: var(--brand); }
 
     /* History modal */
     .modal-overlay {
       position: fixed;
       inset: 0;
-      background: rgba(0,0,0,0.6);
+      /* 白底 app 用重黑遮罩會好突兀；改用淡灰遮罩＋blur（參考站個 glass 感覺
+         最啱用喺呢度——遮罩唔會 scroll 內容，blur 只計一次）。 */
+      background: rgba(16,42,34,0.28);
+      backdrop-filter: blur(3px);
+      -webkit-backdrop-filter: blur(3px);
       z-index: 500;
       display: flex;
       align-items: center;
@@ -561,12 +640,12 @@
     .modal {
       background: var(--surface);
       border: 1px solid var(--border);
-      border-radius: var(--radius);
+      border-radius: var(--radius-lg);
       padding: 1.5rem;
       min-width: 320px;
       max-width: 480px;
       width: 90%;
-      box-shadow: 0 16px 48px rgba(0,0,0,0.5);
+      box-shadow: var(--shadow-lg);
     }
     .modal-title {
       font-weight: 700;
@@ -615,7 +694,7 @@
     .notes-chip.active { background:var(--accent2);border-color:var(--accent2);color:#fff; }
     .vf-submit {
       margin-top: 1.1rem; width: 100%; background: var(--btn-bg);
-      border: none; color: var(--text); border-radius: 6px;
+      border: none; color: var(--brand-ink); border-radius: var(--radius-sm);
       padding: 0.55rem; font-size: 0.88rem; font-weight: 600; cursor: pointer;
     }
     .vf-submit:hover { background: var(--btn-hover); }
@@ -626,18 +705,19 @@
       border-radius: 10px; padding: 0.85rem 0.6rem 0.7rem;
       color: var(--text); font-family: inherit;
     }
-    .plan-card:hover { border-color: var(--accent); }
-    .plan-best { border-color: var(--accent); background: rgba(245,158,11,0.08); }
+    .plan-card:hover { border-color: var(--brand); }
+    .plan-best { border-color: var(--brand); background: var(--brand-soft); }
     .plan-badge {
       position: absolute; top: -0.55rem; left: 50%; transform: translateX(-50%);
-      background: var(--accent); color: #1a1a1a; border-radius: 999px;
+      background: var(--brand); color: var(--brand-ink); border-radius: 999px;
       font-size: 0.65rem; font-weight: 700; padding: 0.1rem 0.5rem; white-space: nowrap;
     }
     /* Viewings tab */
     .viewings-list { padding: 0.75rem 0; }
     .viewing-card {
-      background: var(--surface2); border: 1px solid var(--border);
-      border-radius: 8px; padding: 0.85rem 1rem; margin-bottom: 0.75rem;
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: var(--radius); padding: 0.85rem 1rem; margin-bottom: 0.75rem;
+      box-shadow: var(--shadow-sm);
     }
     .viewing-card-header {
       display: flex; align-items: center; justify-content: space-between;
@@ -686,7 +766,7 @@
       text-align: left;
       border-bottom: 1px solid var(--border);
     }
-    .history-table td { padding: 0.5rem; border-bottom: 1px solid rgba(31,45,66,0.5); }
+    .history-table td { padding: 0.5rem; border-bottom: 1px solid var(--border); }
     .history-table tr:last-child td { border-bottom: none; }
     .history-row-latest td { color: var(--accent); font-weight: 600; }
 
@@ -749,7 +829,7 @@
       border-right: none;
     }
     .estate-tab:hover { color: var(--text); }
-    .estate-tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+    .estate-tab.active { color: var(--brand); border-bottom-color: var(--brand); }
 
     /* Transaction table */
     .gain-pos { color: var(--up); font-size: 0.75rem; font-weight: 600; }
@@ -764,11 +844,11 @@
     .pr-lbl { position: absolute; left: 0; top: 2px; width: 26px; color: var(--muted); text-align: right; }
     .pr-track { position: absolute; left: 32px; right: 0; top: 6px; height: 2px; background: var(--surface2); }
     .pr-band { position: absolute; top: 3px; height: 8px; border-radius: 2px; }
-    .pr-band.pr-sold { background: rgba(16,185,129,0.25); border: 1px solid rgba(16,185,129,0.6); }
-    .pr-band.pr-ask { background: rgba(148,163,184,0.22); border: 1px solid rgba(148,163,184,0.5); }
+    .pr-band.pr-sold { background: rgba(21,128,61,0.18); border: 1px solid rgba(21,128,61,0.5); }
+    .pr-band.pr-ask { background: rgba(92,107,102,0.16); border: 1px solid rgba(92,107,102,0.42); }
     .pr-mid { position: absolute; top: 1px; width: 2px; height: 12px; border-radius: 1px; }
     .pr-mid.pr-sold { background: var(--up); }
-    .pr-mid.pr-ask { background: #cbd5e1; }
+    .pr-mid.pr-ask { background: var(--muted); }
     .pr-needle { position: absolute; top: 0; width: 2px; height: 32px; border-radius: 1px; z-index: 2; }
     .pr-needle.pr-hs { background: var(--accent2); }
     .pr-needle.pr-you { background: var(--accent); width: 3px; }
@@ -791,11 +871,11 @@
     }
     .txn-date { color: var(--text); font-size: 0.75rem; }
     .hs-val-btn {
-      background: var(--btn-bg); border: 1px solid var(--btn-bg); color: var(--text);
-      border-radius: 4px; padding: 2px 8px; font-size:0.75rem; cursor: pointer;
+      background: #fff; border: 1px solid var(--border-strong); color: var(--brand);
+      border-radius: 999px; padding: 2px 8px; font-size:0.75rem; cursor: pointer;
       white-space: nowrap;
     }
-    .hs-val-btn:hover { background: var(--btn-hover); border-color: var(--btn-hover); }
+    .hs-val-btn:hover { background: var(--brand-soft); border-color: var(--brand); }
     .load-more-btn {
       display: block;
       width: 100%;
@@ -899,15 +979,16 @@
       white-space: nowrap;
     }
     .deal-toggle-btn:hover { color: var(--text); }
+    /* Active 態改做「實色 pill」——原本係淡 tint 底 + 淺色字（深底時代啱），
+       白底之下淺藍字喺淡藍底只有 2:1，睇唔出邊個 active。實色 pill 亦更似
+       參考站個 segmented control。 */
     .deal-toggle-btn.buy.active {
-      background: rgba(59,130,246,0.18);
-      color: #60a5fa;
-      box-shadow: 0 0 0 1px rgba(59,130,246,0.45) inset;
+      background: var(--accent2);
+      color: #fff;
     }
     .deal-toggle-btn.rent.active {
-      background: rgba(251,191,36,0.18);
-      color: var(--accent);
-      box-shadow: 0 0 0 1px rgba(251,191,36,0.55) inset;
+      background: var(--accent);
+      color: #fff;
     }
     .filter-input {
       background: var(--surface);
@@ -978,9 +1059,9 @@
     .sidebar-home-btn, .sidebar-close-btn {
       background: var(--btn-bg);
       border: 1px solid var(--btn-bg);
-      color: var(--text);
+      color: var(--brand-ink);
       padding: 0.35rem 0.75rem;
-      border-radius: 6px;
+      border-radius: 999px;
       font-size: 0.82rem;
       cursor: pointer;
     }
@@ -1940,7 +2021,7 @@ async function showDashboard(estates) {
       <div class="highlights-section" id="highlights-section">
         <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:0.4rem;margin-bottom:0.75rem">
           <div style="display:flex;gap:0;border-bottom:2px solid var(--border)">
-            <button id="dash-tab-today" onclick="switchDashTab('today')" style="background:none;border:none;border-bottom:2px solid var(--accent);margin-bottom:-2px;color:var(--text);font-size:0.9rem;font-weight:600;padding:0.35rem 0.85rem;cursor:pointer">今日動態 <span id="highlights-date" style="font-weight:400;color:var(--muted);font-size:0.8rem"></span></button>
+            <button id="dash-tab-today" onclick="switchDashTab('today')" style="background:none;border:none;border-bottom:2px solid var(--brand);margin-bottom:-2px;color:var(--text);font-size:0.9rem;font-weight:600;padding:0.35rem 0.85rem;cursor:pointer">今日動態 <span id="highlights-date" style="font-weight:400;color:var(--muted);font-size:0.8rem"></span></button>
             <button id="dash-tab-comps" onclick="switchDashTab('comps')" style="background:none;border:none;border-bottom:2px solid transparent;margin-bottom:-2px;color:var(--muted);font-size:0.9rem;padding:0.35rem 0.85rem;cursor:pointer">睇過嘅盤</button>
             <button id="dash-tab-radar" onclick="switchDashTab('radar')" style="background:none;border:none;border-bottom:2px solid transparent;margin-bottom:-2px;color:var(--muted);font-size:0.9rem;padding:0.35rem 0.85rem;cursor:pointer">💎 抵買雷達</button>
             <button id="dash-tab-friends" onclick="switchDashTab('friends')" style="background:none;border:none;border-bottom:2px solid transparent;margin-bottom:-2px;color:var(--muted);font-size:0.9rem;padding:0.35rem 0.85rem;cursor:pointer">👥 朋友屋企</button>
@@ -2034,7 +2115,7 @@ function switchDashTab(tab) {
     const btn = document.getElementById('dash-tab-' + id);
     if (panel) panel.style.display = active ? '' : 'none';
     if (btn) {
-      btn.style.borderBottomColor = active ? 'var(--accent)' : 'transparent';
+      btn.style.borderBottomColor = active ? 'var(--brand)' : 'transparent';
       btn.style.color = active ? 'var(--text)' : 'var(--muted)';
       btn.style.fontWeight = active ? '600' : '400';
     }
@@ -2568,7 +2649,7 @@ function renderCompsPanel() {
   const tabBtn = (id, label, n) => {
     const active = _compsSubTab === id;
     return `<button onclick="setCompsSubTab('${id}')" style="background:none;border:none;border-bottom:2px solid ${
-      active ? 'var(--accent)' : 'transparent'};margin-bottom:-2px;color:${active ? 'var(--text)' : 'var(--muted)'};font-size:0.85rem;font-weight:${
+      active ? 'var(--brand)' : 'transparent'};margin-bottom:-2px;color:${active ? 'var(--text)' : 'var(--muted)'};font-size:0.85rem;font-weight:${
       active ? '600' : '400'};padding:0.3rem 0.7rem;cursor:pointer">${label} <span style="color:var(--muted);font-size:0.75rem;font-weight:400">${n}</span></button>`;
   };
   const bar = `<div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:0.4rem;margin-bottom:0.6rem">
@@ -3638,7 +3719,7 @@ async function showEstate(id, name, district) {
           <div class="estate-sub">${district ? escHtml(district) + ' · ' : ''}共 ${listings.length} 個在售單位</div>
           <div id="estate-info-bar" data-tracking="${trends.length}" data-id="${id}" data-enabled='${JSON.stringify(enabledMap)}'></div>
         </div>
-        <button class="sync-btn" style="background:var(--down);border-color:var(--down);white-space:nowrap;flex-shrink:0;margin-top:0.2rem" onclick="openViewingModal()">＋ 新增睇樓</button>
+        <button class="sync-btn" style="background:var(--brand);border-color:var(--brand);color:var(--brand-ink);white-space:nowrap;flex-shrink:0;margin-top:0.2rem" onclick="openViewingModal()">＋ 新增睇樓</button>
       </div>
 
       <!-- 買/租 toggle：只喺用戶偏好有揀「租盤」時出現，唔想幫買盤 user 加噪音。
@@ -3995,7 +4076,7 @@ function priceRulerHtml(v) {
     : `<div class="sub">成交：${v.floor_tier == null ? '未有樓層帶' : `近${days}日唔夠${minSold}宗`}</div>`;
   const askTip = `${v.bedrooms}房 ${v.floor_tier||''} 在售盤`;
   const askLine = hasAsk
-    ? `<div style="margin-top:0.3rem;color:#cbd5e1;white-space:nowrap">在售 $${askP10.toLocaleString()}–$${askP90.toLocaleString()}
+    ? `<div style="margin-top:0.3rem;color:var(--muted);white-space:nowrap">在售 $${askP10.toLocaleString()}–$${askP90.toLocaleString()}
         · 中位 <b>$${askMed.toLocaleString()}</b> · <span class="pr-lnk" onclick="openSimilarListings(${v.id})"
         title="${escHtml(askConf.weak ? askConf.tip : askTip)}" style="${askConf.weak ? `color:${askConf.color};font-weight:600` : ''}">${sim.length}個${askConf.mark}</span></div>`
     : `<div class="sub" style="margin-top:0.3rem">在售：${(v.floor_tier == null || v.bedrooms == null) ? '未有房數/樓層帶' : '冇同類在售盤'}</div>`;
@@ -7047,8 +7128,12 @@ function drawChart(trends, overlay, soldTrend) {
 
   // metric: price(實呎價,帶成交線 + 全組合 overlay) | count(放盤數量,純在售)
   const isPrice = estateChartMetric !== "count";
-  const mainColor = isPrice ? "#f59e0b" : "#3b82f6";
-  const fillRgb = isPrice ? "251,191,36" : "59,130,246";
+  // Canvas 唔食 CSS var，所以呢啲色要同 :root 手動對齊：
+  // 叫價線＝--accent（價錢色，深琥珀）／數量線＝--accent2。兩個都揀過白底
+  // 夠對比嘅深色版本，唔可以用原本嗰對淺色（#f59e0b 白底 2.2:1、
+  // #3b82f6 3.6:1，線會睇唔清）。
+  const mainColor = isPrice ? "#b45309" : "#0369a1";
+  const fillRgb = isPrice ? "180,83,9" : "3,105,161";
   const fmtY = v => isPrice ? "$" + Math.round(v).toLocaleString() : String(Math.round(v));
 
   const labels = trends.map(t => t.snapshot_date.slice(5));
@@ -7076,7 +7161,7 @@ function drawChart(trends, overlay, soldTrend) {
   ctx.clearRect(0, 0, W, H);
 
   // Grid lines
-  ctx.strokeStyle = "rgba(31,45,66,0.8)";
+  ctx.strokeStyle = "rgba(16,42,34,0.10)";   // 白底：grid 要淡
   ctx.lineWidth = 1;
   for (let i = 0; i <= 4; i++) {
     const y = pad.top + (h / 4) * i;
@@ -7086,14 +7171,14 @@ function drawChart(trends, overlay, soldTrend) {
     ctx.stroke();
 
     const val = maxV - ((maxV - minV) / 4) * i;
-    ctx.fillStyle = "#64748b";
+    ctx.fillStyle = "#5c6b66";   // = --muted
     ctx.font = "10px -apple-system, sans-serif";
     ctx.textAlign = "right";
     ctx.fillText(fmtY(val), pad.left - 6, y + 4);
   }
 
   // X labels
-  ctx.fillStyle = "#64748b";
+  ctx.fillStyle = "#5c6b66";   // = --muted
   ctx.textAlign = "center";
   const step = Math.ceil(labels.length / 10);
   labels.forEach((l, i) => {
@@ -7105,7 +7190,7 @@ function drawChart(trends, overlay, soldTrend) {
 
   // Gradient fill
   const grad = ctx.createLinearGradient(0, pad.top, 0, pad.top + h);
-  grad.addColorStop(0, `rgba(${fillRgb},0.25)`);
+  grad.addColorStop(0, `rgba(${fillRgb},0.16)`);   // 白底：0.25 太濁，收細
   grad.addColorStop(1, `rgba(${fillRgb},0)`);
 
   ctx.beginPath();
@@ -7145,7 +7230,7 @@ function drawChart(trends, overlay, soldTrend) {
   const soldShown = soldData && soldData.filter(v => v != null).length >= 2;
   if (soldShown) {
     ctx.beginPath();
-    ctx.strokeStyle = "#10b981";
+    ctx.strokeStyle = "#15803d";   // = --up（白底夠對比）
     ctx.lineWidth = 2;
     ctx.lineJoin = "round";
     let started = false;
@@ -7165,7 +7250,7 @@ function drawChart(trends, overlay, soldTrend) {
   if (overlayShown) {
     ctx.beginPath();
     ctx.setLineDash([5, 4]);
-    ctx.strokeStyle = "#3b82f6";
+    ctx.strokeStyle = "#0369a1";   // = --accent2
     ctx.lineWidth = 1.5;
     let started = false;
     overlay.forEach((v, i) => {
