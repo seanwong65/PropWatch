@@ -185,6 +185,19 @@ const HS_HEADERS = {
 function hkDateStr(offsetDays = 0) {
   return new Date(Date.now() + 8 * 3600000 + offsetDays * 86400000).toISOString().slice(0, 10);
 }
+// 香港時間嘅鐘數（0–23）
+function hkHour() {
+  return new Date(Date.now() + 8 * 3600000).getUTCHours();
+}
+
+// ── 每日抓數據嘅時窗 ────────────────────────────────────────────────────────
+// 由 00:00 改做 10:00 開始：凌晨嗰陣啲代理網（中原／利嘉閣／香港置業）好多
+// 時做緊 maintenance，抓返嚟係空白或者殘缺，反而製造假「下架」。10:00 佢哋
+// 一定醒晒。
+// 實測（2026-08-18，98 個單元）：新 batch 邏輯 19 分鐘跑完，所以 10:00 開工
+// 10:20 左右就有齊數據，11:00 寄「今日動態」email 綽綽有餘。
+const SYNC_START_HOUR = 10;
+const syncWindowOpen = () => hkHour() >= SYNC_START_HOUR;
 
 // In-memory cache (per Worker instance lifetime)
 let hsBlockListCache = null;
@@ -3997,6 +4010,8 @@ async function syncOneEstate(db, estate) {
 // 亦唔好縮到每分鐘：慢單元可以行足 DRIP_TIMEOUT_MS（45s），兩個 invocation
 // 會 overlap 揀到同一個 pending[0]，白撞 portal。詳見 wrangler.toml 註解。
 const DRIP_CRON = "*/2 * * * *";
+// ⚠️ 同 wrangler.toml 個 crons 要完全一致，否則 scheduled() 分流唔到。
+const EMAIL_CRON = "0 3 * * *";   // 11:00 HKT
 // 要大過各個 scraper 自己嘅內部 deadline（利嘉閣 30s）+ 最後一頁嘅 10s，
 // 否則會喺人家 graceful bail（carry forward 上次嘅盤）之前就 abort，
 // 令「部分成功」變成「完全失敗」。一次只做一個 scrape 所以食得起。
@@ -4118,8 +4133,10 @@ async function runSyncUnit(db, today, u) {
 // 揀一個今日未搞定嘅單元做。全部搞定就 { idle: true }，唔會多打 portal。
 // 淨係做「一個」——留返俾 /api/admin/sync-next 咁樣嘅細粒度手動測試；
 // 真正 cron 用 syncBatch（一個 invocation 做多個，快好多）。
-async function syncNextUnit(db) {
+async function syncNextUnit(db, { force = false } = {}) {
   await ensureSyncLog(db);
+  // 未到 10:00 就唔開工（見 SYNC_START_HOUR）。admin 手動觸發可以 force。
+  if (!force && !syncWindowOpen()) return { idle: true, beforeWindow: true };
   const today = hkDateStr();
   const pending = await buildPendingUnits(db, today);
   if (!pending.length) return { idle: true };
@@ -4133,13 +4150,60 @@ async function syncNextUnit(db) {
 // 喺一個 invocation 入面決定「仲夾唔夾多一個先」，唔可以真係逐個數（fetch
 // 冇 hook 得到），所以用呢個表估到盡。利嘉閣放盤/租盤要揭最多 15 頁、每頁
 // 重試多一次 = 30；其他 source/kind 用返實測經驗值（都係一位數）。
+// 呢啲係「規劃用」嘅估算（夠唔夠位再做多一個），唔係硬上限——真正嘅硬閘
+// 係下面 countedFetch 數到嘅**實數**。
+//
+// ⚠️ 原本呢度寫住 ricacorp: 30（15 頁 × 2 retry 嘅絕對最壞值），實測發現
+// 高估咗差唔多 9 倍，直接害死個 cycle time：30 + 30 > 45，所以一個
+// invocation 淨係塞得落一個利嘉閣單元。當 centanet/hkp 嘅單元做晒之後，
+// 剩返嘅全部係利嘉閣 → 每 2 分鐘先做一個。2026-08-18 實測：最後 13 個
+// 利嘉閣單元食咗 24 分鐘（佔全日 64 分鐘嘅 40%），但真正做嘢時間得幾秒。
+//
+// 實測（2026-08-18，利嘉閣每頁 10 個盤）：
+//   listings 14 個單元嘅盤數 0,1,2,2,2,2,4,23,28,41,63,64,71,80
+//     → 實際 1–9 頁，平均 3.4；rent_listings 平均 1.6 頁
+// 所以改用 p90 附近嘅值（唔用平均——低估會令實數閘經常要煞停，
+// 唔用最壞值——高估就係而家呢個病）。retry 淨係喺失敗先行，唔預埋。
 const UNIT_SUBREQ_COST = {
-  ricacorp: { listings: 30, rent_listings: 30, txn: 6 },
+  ricacorp: { listings: 10, rent_listings: 5, txn: 6 },
   centanet: { listings: 4, rent_listings: 4, rent_txn: 4, txn: 3 },
   hkp:      { listings: 4, rent_listings: 4, rent_txn: 4, txn: 3 },
 };
 function unitSubreqCost(u) {
   return UNIT_SUBREQ_COST[u.source.id]?.[u.kind] ?? 8;
+}
+
+// 每個單元最壞會行幾耐（跟返各 scraper 自己個內部 deadline + 少少收尾）。
+// 用嚟喺「開唔開下一個單元」嗰陣睇夠唔夠時間行完，唔係開咗先算。
+//   利嘉閣 listings/rent_listings 內部 deadline 30s（見 scrapeRicacorpListings）
+//   ricacorp txn 25s；centanet/hkp 都係細嘢，實測幾秒
+// ⚠️ 呢個 guard 唔可以少：之前 subreq 估算 30 順帶擋住「兩個大利嘉閣單元
+// 撞埋同一次 invocation」（30+30 > 45）。估算改細之後嗰層保護冇咗，
+// 兩個各 30s 就會衝到 60s 俾 Cloudflare 硬斬。
+const UNIT_WORST_MS = {
+  ricacorp: { listings: 32000, rent_listings: 32000, txn: 27000 },
+  centanet: { listings: 12000, rent_listings: 12000, rent_txn: 12000, txn: 12000 },
+  hkp:      { listings: 12000, rent_listings: 12000, rent_txn: 12000, txn: 12000 },
+};
+function unitWorstMs(u) {
+  return UNIT_WORST_MS[u.source.id]?.[u.kind] ?? 15000;
+}
+
+// Cloudflare 唔會話你知用咗幾多 subrequest，所以自己包住 fetch 嚟數。
+// 估算只係用嚟「規劃」，呢個實數先係防爆 50 上限嘅最後防線——就算某個
+// 屋苑大到爆晒估算，數到夠就即刻收手。
+//
+// ⚠️ 已知不準之處：Worker 嘅 isolate 可以同時服務緊 API request，嗰邊嘅
+// fetch 都會被數埋（真正嘅 subrequest 上限係 per-invocation，唔係
+// per-isolate）。即係個數可能偏高 → 提早收手。方向係安全嗰邊（寧可少做
+// 一個單元，好過爆上限成個 invocation 死），而且 sync 行喺 HKT 00:00–01:00
+// 幾乎冇 API 流量，所以照用。包住個 fetch 本身只係加一，行為冇變，
+// 唔會影響到並行嗰邊。
+function withFetchCounter(fn) {
+  const orig = globalThis.fetch;
+  const state = { n: 0 };
+  globalThis.fetch = (...args) => { state.n++; return orig.apply(globalThis, args); };
+  return fn(state).finally(() => { globalThis.fetch = orig; });
 }
 
 // Cloudflare Free/Bundled 版每個 invocation 淨係俾 50 個 subrequest；一個
@@ -4159,7 +4223,12 @@ function unitSubreqCost(u) {
 // worst-case（budget 啱啱用晒先開始一個 45s 嘅利嘉閣單元），都仲有得靠
 // 「invocation 俾斬咗都唔會壞數據／唔算 retry」呢個已驗證嘅特性頂住。
 const DRIP_BATCH_TIME_BUDGET_MS = 53000;
+// 規劃閘：估算加落去唔可以超過呢個數。
 const DRIP_BATCH_SUBREQ_BUDGET = 45;
+// 安全閘：countedFetch 數到嘅**實數**去到呢度就唔再開新單元。留 4 個
+// buffer 俾個單元自己內部收尾（saveXxx 用 D1 唔算 subrequest，但個 scrape
+// 可能仲有一兩個 fetch 喺飛緊）。估算失準都好，呢度兜得住。
+const DRIP_BATCH_SUBREQ_HARD_CAP = 46;
 
 // 一個 invocation 入面盡量做多幾個單元（跑到就快跑埋，跑唔切下次 cron 再嚟）。
 // Pending list 淨係喺 invocation 開頭攞一次（唔逐個單元重新 query DB），
@@ -4167,29 +4236,40 @@ const DRIP_BATCH_SUBREQ_BUDGET = 45;
 // 硬斬，已經寫低嘅唔會唔見——實測驗證過：一個 invocation 俾斬咗都好，之前
 // 逐個成功寫落嘅單元完全冇事，得最後嗰個 in-flight 嘅會冇寫到，下次揀返佢
 // 做過，attempts 都冇加，唔算「重試」）。
-async function syncBatch(db) {
+async function syncBatch(db, { force = false } = {}) {
   await ensureSyncLog(db);
+  // 未到 10:00 就唔開工（見 SYNC_START_HOUR）。admin 手動觸發可以 force。
+  if (!force && !syncWindowOpen()) {
+    return { idle: true, beforeWindow: true, processed: 0, ok: 0, failedOut: [], remaining: 0 };
+  }
   const today = hkDateStr();
   const pending = await buildPendingUnits(db, today);
   if (!pending.length) return { idle: true, processed: 0, ok: 0, failedOut: [], remaining: 0 };
 
   const startedAt = Date.now();
-  let subreqEst = 0;
   const results = [];
-  let i = 0;
-  for (; i < pending.length; i++) {
-    const u = pending[i];
-    const cost = unitSubreqCost(u);
-    if (i > 0) {
-      // 第一個單元一定做（就算佢自己已經頂晒個 budget，都好過乜都唔做）；
-      // 之後每個先睇夾唔夾得落先做。
-      if (Date.now() - startedAt > DRIP_BATCH_TIME_BUDGET_MS) break;
-      if (subreqEst + cost > DRIP_BATCH_SUBREQ_BUDGET) break;
+  let stopReason = "queue-empty";
+  // 兩重閘：估算負責「規劃」（仲夾唔夾得落多一個），實數負責「安全」
+  // （真係數到夠就即刻收手，唔理估算點講）。
+  await withFetchCounter(async (fc) => {
+    for (let i = 0; i < pending.length; i++) {
+      const u = pending[i];
+      if (i > 0) {
+        // 第一個單元一定做（就算佢自己已經頂晒個 budget，都好過乜都唔做）；
+        // 之後每個先睇夾唔夾得落先做。
+        // 唔止睇「而家夠唔夠鐘」，要睇「開咗佢之後仲趕唔趕得切喺 budget 內
+        // 收工」——否則一個 30s 嘅利嘉閣單元喺第 30 秒開始，就會衝到 60s。
+        if (Date.now() - startedAt + unitWorstMs(u) > DRIP_BATCH_TIME_BUDGET_MS) { stopReason = "time"; break; }
+        // 實數硬閘行先：估算再樂觀都好，數到接近 50 就唔可以再開新單元。
+        if (fc.n >= DRIP_BATCH_SUBREQ_HARD_CAP) { stopReason = "subreq-actual"; break; }
+        if (fc.n + unitSubreqCost(u) > DRIP_BATCH_SUBREQ_BUDGET) { stopReason = "subreq-planned"; break; }
+      }
+      results.push(await runSyncUnit(db, today, u));
     }
-    const r = await runSyncUnit(db, today, u);
-    results.push(r);
-    subreqEst += cost;
-  }
+    // 俾下面 return 攞返實數（同 stopReason 一齊出，方便睇邊個閘先中）
+    results.subreqActual = fc.n;
+  });
+
   const failedOut = results.filter((r) => !r.ok && r.attempts >= SYNC_MAX_ATTEMPTS);
   const okCount = results.filter((r) => r.ok).length;
   const resolvedCount = results.filter((r) => r.ok || r.attempts >= SYNC_MAX_ATTEMPTS).length;
@@ -4197,6 +4277,7 @@ async function syncBatch(db) {
   return {
     idle: false, processed: results.length, ok: okCount, failedOut, results,
     remaining, elapsedMs: Date.now() - startedAt,
+    subreqActual: results.subreqActual, stopReason,
   };
 }
 
@@ -4497,11 +4578,14 @@ async function sendDailyEmail(db, env, onlyAccountId = null, overrideEmail = nul
 
 export default {
   async scheduled(event, env, ctx) {
-    // "0 1 * * *" = 09:00 HKT → email only (own fresh subrequest budget).
+    // "0 3 * * *" = 11:00 HKT → email only (own fresh subrequest budget).
+    // 一定要夠鐘喺 SYNC_START_HOUR(10:00) 之後：實測 98 個單元 19 分鐘跑完，
+    // 10:20 左右有齊數據，11:00 寄信有足夠 buffer。之前係 09:00，但抓數據
+    // 搬咗去 10:00 之後，09:00 寄信就會變成「報住琴日嘅嘢」。
     // The 00:00/00:10/00:20 HKT sync slots each sync one slice of estates.
     // ensureMultiAccount:sync/email query 靠 account_estates,cron 可能喺
     // 冇任何 fetch request 之前行,所以呢度都要 ensure(冪等,好快)。
-    if (event.cron === "0 1 * * *") {
+    if (event.cron === EMAIL_CRON) {
       ctx.waitUntil((async () => {
         // 逐帳戶寄信 fail(res.sent 有 error)通知 admin;top-level 爆(DB/token 等)都通知。
         try {
@@ -5021,6 +5105,22 @@ export default {
             `WITH src_latest AS (
                SELECT source, MAX(snapshot_date) AS d FROM listings WHERE estate_id = ?1 GROUP BY source
              ),
+             -- 「下架」只可以攞**成功完成**嘅 sync 做證據（sync_log.ok = 1）。
+             -- 用 MAX(snapshot_date) 唔得：今日 sync 一開始寫低部分數據，
+             -- 個 source 個 latest 就即刻跳去今日，跟住所有仲未 scrape 到嘅
+             -- 盤 last_seen < d 就被標「下架」——用戶 10:00–10:20 sync 途中
+             -- 睇就會見到一堆假下架。
+             src_ok AS (
+               SELECT DISTINCT source, sync_date AS d FROM sync_log
+               WHERE estate_id = ?1 AND kind = 'listings' AND ok = 1
+             ),
+             -- 上一次成功 sync：要連續兩次成功 sync 都唔見先當下架，同
+             -- 「今日動態」嗰邊嘅兩次判斷一致（一次 scrape 甩漏唔會即報）。
+             src_prev_ok AS (
+               SELECT source, MAX(d) AS d FROM src_ok o
+               WHERE d < (SELECT MAX(x.d) FROM src_ok x WHERE x.source = o.source)
+               GROUP BY source
+             ),
              per_listing AS (
                SELECT listing_id,
                  MIN(snapshot_date) AS first_seen,
@@ -5030,7 +5130,10 @@ export default {
              )
              SELECT l.*,
                pl.first_seen,
-               CASE WHEN pl.last_seen < sl.d THEN pl.last_seen ELSE NULL END AS removed_date,
+               -- sp.d IS NULL（未夠兩次成功 sync，或者舊數據冇 sync_log）
+               -- 就一律當「仲喺度」——寧可遲報，唔好假報。
+               CASE WHEN sp.d IS NOT NULL AND pl.last_seen < sp.d
+                    THEN pl.last_seen ELSE NULL END AS removed_date,
                prev.price AS prev_price,
                prev.price_per_ft AS prev_price_per_ft,
                (SELECT COUNT(DISTINCT h.price) FROM listing_price_history h
@@ -5039,6 +5142,7 @@ export default {
              FROM listings l
              JOIN per_listing pl ON pl.listing_id = l.listing_id
              JOIN src_latest sl ON sl.source = l.source
+             LEFT JOIN src_prev_ok sp ON sp.source = l.source
              LEFT JOIN listing_manual_removed mr
                ON mr.ref_no = l.ref_no AND mr.account_id = ?3
              LEFT JOIN listing_price_history prev
@@ -5082,18 +5186,32 @@ export default {
              SELECT source, MAX(snapshot_date) AS d FROM rental_listings
              WHERE estate_id = ?1 GROUP BY source
            ),
+           -- 同買盤嗰邊一樣：「下架」只認成功完成嘅 sync（sync_log.ok = 1），
+           -- 而且要連續兩次成功 sync 都唔見。租盤 source 幾日先輪一次，
+           -- 所以呢個保護更加重要。
+           src_ok AS (
+             SELECT DISTINCT source, sync_date AS d FROM sync_log
+             WHERE estate_id = ?1 AND kind = 'rent_listings' AND ok = 1
+           ),
+           src_prev_ok AS (
+             SELECT source, MAX(d) AS d FROM src_ok o
+             WHERE d < (SELECT MAX(x.d) FROM src_ok x WHERE x.source = o.source)
+             GROUP BY source
+           ),
            per_listing AS (
              SELECT listing_id, MIN(snapshot_date) AS first_seen, MAX(snapshot_date) AS last_seen
              FROM rental_listings WHERE estate_id = ?1 GROUP BY listing_id
            )
            SELECT l.*, pl.first_seen,
-             CASE WHEN pl.last_seen < sl.d THEN pl.last_seen ELSE NULL END AS removed_date,
+             CASE WHEN sp.d IS NOT NULL AND pl.last_seen < sp.d
+                  THEN pl.last_seen ELSE NULL END AS removed_date,
              prev.price AS prev_price,
              (SELECT COUNT(DISTINCT h.price) FROM rental_price_history h
                WHERE h.ref_no = l.ref_no AND h.snapshot_date >= ?2) AS price_variants
            FROM rental_listings l
            JOIN per_listing pl ON pl.listing_id = l.listing_id
            JOIN src_latest sl ON sl.source = l.source
+           LEFT JOIN src_prev_ok sp ON sp.source = l.source
            LEFT JOIN rental_price_history prev
              ON prev.ref_no = l.ref_no
              AND prev.snapshot_date = (
@@ -6828,7 +6946,7 @@ export default {
         const n = Math.min(Number(url.searchParams.get("n") || 1), 10);
         const runs = [];
         for (let i = 0; i < n; i++) {
-          const r = await syncNextUnit(db);
+          const r = await syncNextUnit(db, { force: true });
           runs.push(r);
           if (r.idle) break;
         }
@@ -6839,7 +6957,8 @@ export default {
       // 手動觸發一次，唔使等下個 cron slot——量 performance 用。
       if (method === "POST" && path === "/api/admin/sync-batch") {
         if (!isAdminSession(session)) return json(403, { error: "admin only" });
-        const r = await syncBatch(db);
+        // admin 手動觸發：繞過 10:00 時窗，方便即時測試
+        const r = await syncBatch(db, { force: true });
         return json(200, r);
       }
 
