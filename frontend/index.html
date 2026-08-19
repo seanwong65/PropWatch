@@ -1,5 +1,6 @@
 <!DOCTYPE html>
-<html lang="zh-HK">
+<!-- data-theme="light" | "dark"（拎走個 attribute ＝ 深色，:root 本身就係深色版）-->
+<html lang="zh-HK" data-theme="light">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
@@ -85,6 +86,99 @@
 
       /* Header height — single source of truth for viewport math */
       --header-h: 56px;
+
+      /* ── 下面呢批本來散喺 CSS／canvas 度寫死。深色改版嗰陣佢哋留咗白底
+         version（例如 badge 底係 #dcfce7 淺綠、圖表線係 #b45309 深琥珀），
+         喺深底之下對比爆錶咁差。而家一律 token 化，兩個主題各自定義。 */
+      --row-hover: rgba(255,255,255,0.05);
+      --td-border: rgba(255,255,255,0.07);
+      --overlay: rgba(0,0,0,0.5);           /* modal 遮罩 */
+      --overlay-strong: rgba(0,0,0,0.6);    /* sidebar 遮罩／縮圖刪除掣 */
+      --badge-high-bg: rgba(52,211,153,0.18);
+      --badge-mid-bg:  rgba(96,165,250,0.18);
+      --badge-low-bg:  rgba(251,191,36,0.18);
+      --btn-soft-hover: rgba(52,211,153,0.18);
+      /* Canvas 讀唔到 CSS var，所以 drawChart() 會用 getComputedStyle 攞返
+         呢幾個（見 cssVar()）——唔好再喺 JS 度寫死色。 */
+      --chart-price: #fbbf24;   /* 叫價線＝--accent */
+      --chart-count: #60a5fa;   /* 放盤數量線＝--accent2 */
+      --chart-sold:  #34d399;   /* 成交線＝--up */
+      --chart-overlay: #a78bfa; /* 全組合虛線 */
+      --chart-grid: rgba(255,255,255,0.10);
+      /* 背景光暈（body::before）。深底 5% 完全睇唔到，要推到 12~20%。 */
+      --glow-1: rgba(16,185,129,0.20);
+      --glow-2: rgba(56,189,248,0.15);
+      --glow-3: rgba(168,85,247,0.13);
+      --glow-4: rgba(16,185,129,0.12);
+    }
+
+    /* ══ Light glass theme ════════════════════════════════════════════
+       同樣係對住 reference 嘅淺色模式 inspect 返嚟做：佢底色係
+       rgb(245,245,240) **米白**（唔係純白）、玻璃面 rgba(255,255,255,.6)、
+       配深色邊。呢點好關鍵——純白底之下白玻璃疊白底＝零質感，呢個正正
+       係上一版白底要放棄玻璃嘅原因。米白底 + 更白嘅玻璃就有反差。
+       前景色全部對「玻璃卡片實效底 #fdfdfb」量過，全部 ≥4.5:1 過 AA。 */
+    :root[data-theme="light"] {
+      --bg: #f5f5f0;
+      --surface: #fdfdfb;      /* ＝ bg 疊 60% 白之後嘅實效色 */
+      --surface1: #fdfdfb;
+      --surface2: #f0f0ea;
+      --border: rgba(16,42,34,0.10);
+      --border-strong: rgba(16,42,34,0.20);
+      --text: #16211d;         /* 16.5:1 */
+      --muted: #5c6b66;        /* 5.5:1 */
+      --accent: #b45309;       /* 價錢（深琥珀）4.9:1 */
+      --on-accent: #fff7ed;
+      --accent2: #0369a1;      /* 連結／資訊 5.8:1 */
+      --up: #15803d;           /* 4.9:1 */
+      --down: #dc2626;         /* 4.7:1 */
+
+      /* 淺底之下品牌色要深一級：#34d399 喺白面得 1.8:1。#047857 做字
+         5.4:1，做底配白字 5.5:1，兩邊都夠。 */
+      --brand: #047857;
+      --brand-hover: #065f46;
+      --brand-ink: #ffffff;
+      --brand-soft: rgba(4,120,87,0.10);
+
+      /* 玻璃：跟 reference 淺色版 60% 白，浮起／inset 各上落一級 */
+      --glass-bg: rgba(255,255,255,0.60);
+      --glass-bg-raised: rgba(255,255,255,0.78);
+      --glass-bg-inset: rgba(255,255,255,0.45);
+      --glass-border: rgba(16,42,34,0.10);
+
+      /* 淺底陰影唔可以用深色嗰套（0.35~0.5 黑會好污）；改返 4~10% */
+      --shadow-sm: 0 1px 2px rgba(16,42,34,0.05);
+      --shadow: 0 4px 12px rgba(16,42,34,0.07);
+      --shadow-lg: 0 12px 32px rgba(16,42,34,0.12);
+      --glass-inner: inset 0 1px 0 rgba(255,255,255,0.75);
+
+      --btn-bg: #047857;
+      --btn-hover: #065f46;
+      --btn2-bg: rgba(255,255,255,0.72);
+      --btn2-bg-hover: rgba(255,255,255,0.95);
+      --btn2-border: rgba(16,42,34,0.14);
+
+      --row-hover: rgba(16,42,34,0.035);
+      --td-border: rgba(16,42,34,0.08);
+      --overlay: rgba(16,42,34,0.28);
+      --overlay-strong: rgba(16,42,34,0.55);
+      /* Pastel tint badge（reference 個 badge 語言），文字用深語義色保對比 */
+      --badge-high-bg: #dcfce7;   /* 配 --up  4.6:1 */
+      --badge-mid-bg:  #e0f2fe;   /* 配 --accent2 5.2:1 */
+      --badge-low-bg:  #fef3c7;   /* 配 --accent 4.5:1 */
+      --btn-soft-hover: #d7f2e6;
+
+      --chart-price: #b45309;
+      --chart-count: #0369a1;
+      --chart-sold:  #15803d;
+      --chart-overlay: #6d28d9;
+      --chart-grid: rgba(16,42,34,0.10);
+
+      /* 淺底光暈 5~8% 已經夠，深色嗰套 20% 落喺米白會變螢光 */
+      --glow-1: rgba(16,185,129,0.10);
+      --glow-2: rgba(56,189,248,0.08);
+      --glow-3: rgba(168,85,247,0.07);
+      --glow-4: rgba(16,185,129,0.07);
     }
 
     html {
@@ -125,10 +219,10 @@
       pointer-events: none;
       background-color: var(--bg);
       background-image:
-        radial-gradient(50rem 38rem at 5% 0%,    rgba(16,185,129,0.20), transparent 60%),
-        radial-gradient(42rem 34rem at 100% 22%, rgba(56,189,248,0.15), transparent 62%),
-        radial-gradient(46rem 38rem at 15% 72%,  rgba(168,85,247,0.13), transparent 62%),
-        radial-gradient(40rem 32rem at 95% 96%,  rgba(16,185,129,0.12), transparent 62%);
+        radial-gradient(50rem 38rem at 5% 0%,    var(--glow-1), transparent 60%),
+        radial-gradient(42rem 34rem at 100% 22%, var(--glow-2), transparent 62%),
+        radial-gradient(46rem 38rem at 15% 72%,  var(--glow-3), transparent 62%),
+        radial-gradient(40rem 32rem at 95% 96%,  var(--glow-4), transparent 62%);
     }
 
     /* Header */
@@ -476,7 +570,7 @@
     .hl-c4 { width: 20%; }
     .hl-c5 { width: 14%; }
     .hl-c6 { width: 10%; text-align: right; }
-    .hl-link { color: #3b82f6; font-size: 0.78rem; white-space: nowrap; text-decoration: none; }
+    .hl-link { color: var(--accent2); font-size: 0.78rem; white-space: nowrap; text-decoration: none; }
     .hl-link:hover { text-decoration: underline; }
     .highlights-estate { color: var(--muted); font-size: 0.75rem; }
     .dashboard-chart-header {
@@ -632,13 +726,11 @@
     }
     td {
       padding: 0.7rem 1rem;
-      border-bottom: 1px solid rgba(31,45,66,0.5);
+      border-bottom: 1px solid var(--td-border);
       vertical-align: middle;
     }
     tr:last-child td { border-bottom: none; }
-    /* 白底：hover 要係「壓深少少」而唔係「打亮」（原本 rgba(255,255,255,…)
-       喺白底上面完全睇唔到） */
-    tr:hover td { background: rgba(16,42,34,0.035); }
+    tr:hover td { background: var(--row-hover); }
 
     .price-cell { font-weight: 700; color: var(--accent); }
     .unit-price { color: var(--text); font-size: 0.75rem; margin-top: 0.1rem; }
@@ -649,11 +741,9 @@
       font-size:0.75rem;
       font-weight: 600;
     }
-    /* Pastel tint badge（參考站個 badge 語言）。白底要落重少少 tint 先睇得到，
-       文字用返深色語義色保住對比。 */
-    .floor-high { background: #dcfce7; color: var(--up); }
-    .floor-mid  { background: #e0f2fe; color: var(--accent2); }
-    .floor-low  { background: #fef3c7; color: var(--accent); }
+    .floor-high { background: var(--badge-high-bg); color: var(--up); }
+    .floor-mid  { background: var(--badge-mid-bg);  color: var(--accent2); }
+    .floor-low  { background: var(--badge-low-bg);  color: var(--accent); }
 
     .detail-link {
       color: var(--accent2);
@@ -683,15 +773,15 @@
       margin-top: 0.2rem;
       display: inline-block;
     }
-    .history-btn:hover { background: #d7f2e6; border-color: var(--brand-hover); }
+    .history-btn:hover { background: var(--btn-soft-hover); border-color: var(--brand-hover); }
 
     /* History modal */
     .modal-overlay {
       position: fixed;
       inset: 0;
-      /* 白底 app 用重黑遮罩會好突兀；改用淡灰遮罩＋blur（參考站個 glass 感覺
-         最啱用喺呢度——遮罩唔會 scroll 內容，blur 只計一次）。 */
-      background: rgba(16,42,34,0.28);
+      /* 遮罩＋blur（參考站個 glass 感覺最啱用喺呢度——遮罩唔會 scroll
+         內容，blur 只計一次）。深／淺各自嘅濃度見 --overlay。 */
+      background: var(--overlay);
       backdrop-filter: blur(6px);
       -webkit-backdrop-filter: blur(6px);
       z-index: 500;
@@ -751,7 +841,7 @@
     }
     .vf-img-thumb img { width: 100%; height: 100%; object-fit: cover; }
     .vf-img-rm {
-      position: absolute; top: 1px; right: 2px; background: rgba(0,0,0,0.6);
+      position: absolute; top: 1px; right: 2px; background: var(--overlay-strong);
       border: none; color: #fff; font-size:0.75rem; cursor: pointer;
       border-radius: 2px; padding: 0 3px; line-height: 14px;
     }
@@ -867,7 +957,7 @@
       padding: 0.75rem 1.1rem;
       font-size: 0.85rem;
       z-index: 1000;
-      box-shadow: 0 4px 20px rgba(0,0,0,0.4);
+      box-shadow: var(--shadow-lg);
       animation: fadeIn 0.2s ease;
     }
     .toast.success { border-color: var(--up); }
@@ -942,7 +1032,7 @@
       font-weight: 600; border-radius: 999px; padding: 2px 8px; font-size:0.75rem; cursor: pointer;
       white-space: nowrap;
     }
-    .hs-val-btn:hover { background: #d7f2e6; border-color: var(--brand-hover); }
+    .hs-val-btn:hover { background: var(--btn-soft-hover); border-color: var(--brand-hover); }
     .load-more-btn {
       display: block;
       width: 100%;
@@ -1143,7 +1233,7 @@
       display: none;
       position: fixed;
       inset: 0;
-      background: rgba(0,0,0,0.55);
+      background: var(--overlay-strong);
       z-index: 199;
     }
     .sidebar-overlay.open { display: block; }
@@ -7201,18 +7291,33 @@ function sourceEnabledFE(est, id) {
 }
 
 // ── Chart ──────────────────────────────────────────────────────
+// Canvas 唔識 var(--x)，要自己攞。每次 draw 都重讀，咁換主題（<html
+// data-theme>）之後重畫就自動跟到，唔使另外同步一份色表。
+function cssVar(name) {
+  return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+}
+// 漸變 fill 要 "r,g,b" 形式先砌得到 rgba()，所以 hex → rgb。
+function hexRgb(hex) {
+  const h = hex.replace("#", "");
+  const n = h.length === 3 ? h.split("").map(c => c + c).join("") : h;
+  return [0, 2, 4].map(i => parseInt(n.slice(i, i + 2), 16)).join(",");
+}
 function drawChart(trends, overlay, soldTrend) {
   const canvas = document.getElementById("trendChart");
   if (!canvas || !trends || trends.length < 2) return;
 
   // metric: price(實呎價,帶成交線 + 全組合 overlay) | count(放盤數量,純在售)
   const isPrice = estateChartMetric !== "count";
-  // Canvas 唔食 CSS var，所以呢啲色要同 :root 手動對齊：
-  // 叫價線＝--accent（價錢色，深琥珀）／數量線＝--accent2。兩個都揀過白底
-  // 夠對比嘅深色版本，唔可以用原本嗰對淺色（#f59e0b 白底 2.2:1、
-  // #3b82f6 3.6:1，線會睇唔清）。
-  const mainColor = isPrice ? "#b45309" : "#0369a1";
-  const fillRgb = isPrice ? "180,83,9" : "3,105,161";
+  // Canvas 唔食 CSS var，所以喺 draw 時 getComputedStyle 攞返（見 cssVar）。
+  // 以前呢度係寫死色，深色改版嗰陣冇跟到——深底畫住白底版嘅深琥珀線，
+  // 對比 2:1 都冇。而家跟主題行，唔准再喺呢度寫死 hex。
+  const C = {
+    price: cssVar("--chart-price"), count: cssVar("--chart-count"),
+    sold: cssVar("--chart-sold"), overlay: cssVar("--chart-overlay"),
+    grid: cssVar("--chart-grid"), muted: cssVar("--muted"),
+  };
+  const mainColor = isPrice ? C.price : C.count;
+  const fillRgb = hexRgb(mainColor);
   const fmtY = v => isPrice ? "$" + Math.round(v).toLocaleString() : String(Math.round(v));
 
   const labels = trends.map(t => t.snapshot_date.slice(5));
@@ -7240,7 +7345,7 @@ function drawChart(trends, overlay, soldTrend) {
   ctx.clearRect(0, 0, W, H);
 
   // Grid lines
-  ctx.strokeStyle = "rgba(16,42,34,0.10)";   // 白底：grid 要淡
+  ctx.strokeStyle = C.grid;
   ctx.lineWidth = 1;
   for (let i = 0; i <= 4; i++) {
     const y = pad.top + (h / 4) * i;
@@ -7250,14 +7355,14 @@ function drawChart(trends, overlay, soldTrend) {
     ctx.stroke();
 
     const val = maxV - ((maxV - minV) / 4) * i;
-    ctx.fillStyle = "#5c6b66";   // = --muted
+    ctx.fillStyle = C.muted;
     ctx.font = "10px -apple-system, sans-serif";
     ctx.textAlign = "right";
     ctx.fillText(fmtY(val), pad.left - 6, y + 4);
   }
 
   // X labels
-  ctx.fillStyle = "#5c6b66";   // = --muted
+  ctx.fillStyle = C.muted;
   ctx.textAlign = "center";
   const step = Math.ceil(labels.length / 10);
   labels.forEach((l, i) => {
@@ -7269,7 +7374,7 @@ function drawChart(trends, overlay, soldTrend) {
 
   // Gradient fill
   const grad = ctx.createLinearGradient(0, pad.top, 0, pad.top + h);
-  grad.addColorStop(0, `rgba(${fillRgb},0.16)`);   // 白底：0.25 太濁，收細
+  grad.addColorStop(0, `rgba(${fillRgb},0.16)`);   // 0.25 太濁，收細
   grad.addColorStop(1, `rgba(${fillRgb},0)`);
 
   ctx.beginPath();
@@ -7309,7 +7414,7 @@ function drawChart(trends, overlay, soldTrend) {
   const soldShown = soldData && soldData.filter(v => v != null).length >= 2;
   if (soldShown) {
     ctx.beginPath();
-    ctx.strokeStyle = "#15803d";   // = --up（白底夠對比）
+    ctx.strokeStyle = C.sold;
     ctx.lineWidth = 2;
     ctx.lineJoin = "round";
     let started = false;
@@ -7329,7 +7434,7 @@ function drawChart(trends, overlay, soldTrend) {
   if (overlayShown) {
     ctx.beginPath();
     ctx.setLineDash([5, 4]);
-    ctx.strokeStyle = "#0369a1";   // = --accent2
+    ctx.strokeStyle = C.overlay;
     ctx.lineWidth = 1.5;
     let started = false;
     overlay.forEach((v, i) => {
@@ -7349,9 +7454,9 @@ function drawChart(trends, overlay, soldTrend) {
     ctx.textAlign = "left";
     let lx2 = pad.left + 4;
     const legend = (color, text) => { ctx.fillStyle = color; ctx.fillText(text, lx2, 12); lx2 += ctx.measureText(text).width + 12; };
-    legend("#f59e0b", "── 叫價");
-    if (soldShown) legend("#10b981", "── 成交");
-    if (overlayShown) legend("#3b82f6", "╌╌ 全組合");
+    legend(C.price, "── 叫價");
+    if (soldShown) legend(C.sold, "── 成交");
+    if (overlayShown) legend(C.overlay, "╌╌ 全組合");
   }
 }
 
