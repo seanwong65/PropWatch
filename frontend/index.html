@@ -2340,7 +2340,7 @@ async function loadBargainRadar() {
       if (l.cut_pct != null) badges.push(badge(`🔻減價 ${Math.abs(l.cut_pct)}%`, 'var(--accent)'));
       if (l.days_on_market != null && l.days_on_market >= staleDom) badges.push(badge(`⏳擺賣${l.days_on_market}日`, 'var(--muted)'));
       if (l.loss_zone) badges.push(badge('💔蝕讓區', 'var(--up)'));
-      const srcName = l.source === 'ricacorp' ? '利嘉閣' : l.source === 'hkp' ? '香港置業' : '中原';
+      const srcName = sourceLabel(l.source);
       const link = l.detail_url ? `<a href="${safeUrl(l.detail_url)}" target="_blank" style="color:var(--accent2);font-size:0.75rem;text-decoration:none">${srcName} ↗</a>` : `<span style="color:var(--muted);font-size:0.75rem">${srcName}</span>`;
       return `<tr class="hl-tr">
         <td style="padding:0.4rem 0.5rem 0.4rem 0">${escHtml(l.estate_name)}<br><span style="color:var(--muted);font-size:0.75rem">${escHtml(l.building_name||'')} ${escHtml(l.floor||'')} ${escHtml(l.unit||'')} · ${l.size_net||'?'}呎${l.bedrooms != null ? ' · ' + l.bedrooms + '房' : ''}</span></td>
@@ -4317,7 +4317,7 @@ function similarListings(v) {
 let _slRows = [];
 let _slRef = {};   // 參考單位 { block, unit } —— 用嚟分 tier
 let _slSoldMap = new Map();   // "座|室" -> {price, reg_date} —— 已成交嘅盤標低
-const _slSrcName = s => s === 'ricacorp' ? '利嘉閣' : s === 'hkp' ? '香港置業' : '中原';
+const _slSrcName = s => sourceLabel(s);
 // 座：抽數字（"7座"→"7"）；室：淨低字母
 const _feNormBlk = s => { const r = String(s || '').replace(/[座\s]/g, '').toUpperCase(); const m = r.match(/\d+/); return m ? m[0] : r; };
 const _feNormUnit = s => String(s || '').replace(/[室號\s]/g, '').toUpperCase();
@@ -6560,11 +6560,7 @@ function renderTransactionsTable(estateId, offset, hasMore) {
     const hsQueryCell = canQuery
       ? `<button class="hs-val-btn" id="${rowId}-btn" onclick="${onclickFetch}">查估值</button>`
       : '-';
-    const srcBadge = t.source === 'ricacorp'
-      ? `<span style="font-size:0.68rem;color:var(--accent);background:rgba(251,191,36,0.12);border-radius:4px;padding:1px 5px;margin-left:5px">利嘉閣</span>`
-      : t.source === 'hkp'
-      ? `<span style="font-size:0.68rem;color:var(--accent2);background:rgba(96,165,250,0.12);border-radius:4px;padding:1px 5px;margin-left:5px">香港置業</span>`
-      : `<span style="font-size:0.68rem;color:var(--muted);margin-left:5px">中原</span>`;
+    const srcBadge = txnSrcBadge(t.source);
     return `<tr>
       <td class="txn-date">${t.reg_date || '-'}${t.instrument_date && t.instrument_date !== t.reg_date ? `<div class="unit-price">簽約 ${t.instrument_date.slice(5)}</div>` : ''}</td>
       <td>${escHtml(t.building||'')} ${escHtml(t.floor||'')} ${escHtml(t.unit||'')}${srcBadge}</td>
@@ -7279,10 +7275,27 @@ const SOURCES = [
   { id: "centanet", label: "中原",     defaultOn: true },
   { id: "ricacorp", label: "利嘉閣",   defaultOn: false },
   { id: "hkp",      label: "香港置業", defaultOn: false },
+  { id: "midland",  label: "美聯",     defaultOn: false },
 ];
 function sourceLabel(s) {
   const src = SOURCES.find(x => x.id === s);
   return src ? src.label : (s || "中原");
+}
+// 成交表嘅 source badge。中原係主 source（大多數行），所以佢淨係一個灰字；
+// 其餘 source 用 tint badge 突顯「呢宗係補返嚟」。以前呢度逐個 source 砌
+// 三元運算，加美聯就會漏 —— 而家一張表話事。
+// [文字色, 底色] —— 底色寫死 rgba 而唔用 color-mix：兩個主題都靠低 alpha
+// tint 疊落卡片面，深淺兩個主題都做到，亦唔使靠新 CSS function。
+const TXN_SRC_TINT = {
+  ricacorp: ["var(--accent)",  "rgba(251,191,36,0.12)"],
+  hkp:      ["var(--accent2)", "rgba(96,165,250,0.12)"],
+  midland:  ["var(--up)",      "rgba(52,211,153,0.14)"],
+};
+function txnSrcBadge(id) {
+  const label = escHtml(sourceLabel(id));
+  const tint = TXN_SRC_TINT[id];
+  if (!tint) return `<span style="font-size:0.68rem;color:var(--muted);margin-left:5px">${label}</span>`;
+  return `<span style="font-size:0.68rem;color:${tint[0]};background:${tint[1]};border-radius:4px;padding:1px 5px;margin-left:5px">${label}</span>`;
 }
 // centanet is on unless explicitly 0; others must be truthy.
 function sourceEnabledFE(est, id) {

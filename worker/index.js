@@ -1466,6 +1466,116 @@ async function saveHkpTransactions(db, estateId, txns) {
   await dropShadowTxns(db, estateId);
 }
 
+// ── 美聯 (Midland Realty) ──────────────────────────────────────────────────
+// ⚠️ 美聯同香港置業係同一間公司（HKP 係美聯集團旗下），**共用同一個後台**。
+// 實測證據（昇悅居）：
+//   · 成交：兩邊 byte-identical —— 連 transaction id 都一樣
+//     （NO2026081826081801520058 / I20260700115 …），日期價錢座樓室全同。
+//   · 放盤：**零重疊** —— 美聯 38 個買盤 / 25 個租盤，HKP 23 / 22，
+//     serial_no 前綴唔同（M… vs H…），係兩盤各自嘅代理盤源。
+// 所以：放盤先係美聯真正帶嚟嘅新數據；成交嗰邊佢同 HKP 大部分時間會撞晒，
+// 靠 transactions 個 combo UNIQUE 索引 + INSERT OR IGNORE 擋住唔會 double
+// count（同 centanet ↔ 利嘉閣 果套一樣）。照樣宣告 txn 能力係為咗「HKP 被
+// 熄咗嗰陣美聯頂得住」，唔係為咗攞多啲成交。
+//
+// API 結構同 HKP 一模一樣（同一個後台），所以 parser 直接共用
+// parseHkpProperty / parseHkpTransaction，只係 source 標籤改做 midland。
+// 唯一分別：HKP 係 search/v1，美聯係 search/v2；成交要俾 tx_date 窗口。
+const MIDLAND_UA = HKP_UA;
+
+// Token 同 HKP 一樣係「任何一頁都攞得到嘅匿名 JWT」，只不過美聯個站係
+// Next.js，token 擺喺 __NEXT_DATA__ 個 runtimeConfig.BUILD_TOKEN 度。
+async function midlandGetToken() {
+  const res = await fetch("https://www.midland.com.hk/zh-hk/list/buy/", {
+    headers: { "User-Agent": MIDLAND_UA, "Accept-Language": "zh-HK,zh;q=0.9" },
+    signal: AbortSignal.timeout(15000),
+  });
+  const html = await res.text();
+  return html.match(/"BUILD_TOKEN":"([^"]+)"/)?.[1] || null;
+}
+
+async function midlandApi(pathQuery, token) {
+  const res = await fetch(`https://data.midland.com.hk${pathQuery}`, {
+    headers: { "User-Agent": MIDLAND_UA, "Authorization": `Bearer ${token}`, "Accept": "application/json" },
+    signal: AbortSignal.timeout(15000),
+  });
+  if (!res.ok) return null;
+  return res.json();
+}
+
+async function midlandEstId(estateName, token) {
+  const ac = await midlandApi(
+    `/search/v2/autocomplete/estates?text=${encodeURIComponent(estateName)}`, token);
+  return ac?.[0]?.result?.[0]?.search?.id || null;
+}
+
+// txType: "S" = 買盤, "L" = 租盤（同 HKP 一樣，"R" 唔通）。
+// 租盤照樣要行 isRent parser：tx_type=L 個 price_hkd 係 0，真月租喺 rent_hkd。
+export async function scrapeMidlandListings(estateName, txType = "S") {
+  const token = await midlandGetToken();
+  if (!token) return [];
+  const estId = await midlandEstId(estateName, token);
+  if (!estId) return [];
+
+  const listings = [];
+  const seen = new Set();
+  const limit = 50;
+  for (let page = 1; page <= 20; page++) {
+    const data = await midlandApi(
+      `/search/v2/properties?lang=zh-hk&est_ids=${estId}&tx_type=${txType}&limit=${limit}&page=${page}`, token);
+    const results = data?.result || [];
+    if (!results.length) break;
+    for (const p of results) {
+      if (!p.serial_no || seen.has(p.serial_no)) continue;
+      seen.add(p.serial_no);
+      // 美聯個 listing response 冇 post_date / first_pub_date（HKP 有），
+      // 所以 publish_date 會係 null —— 前端會 fallback 去「我哋首次見到嗰日」，
+      // 同其他冇上盤日期嘅 source 一樣處理。
+      listings.push({ ...parseHkpProperty(p, txType === "L"), source: "midland" });
+    }
+    if (listings.length >= (data.count || 0) || results.length < limit) break;
+  }
+  return listings;
+}
+
+// 存放盤同 HKP 完全一樣（同一個 shape），直接借用。
+const saveMidlandListings = saveHkpListings;
+
+// 成交：/search/v2/transactions。tx_date 係必要嘅窗口參數（唔俾就連租務
+// 成交一齊回），"3year" 同利嘉閣／HKP 個 ~3 年 cutoff 對齊。
+export async function scrapeMidlandTransactions(estateName, txType = "S") {
+  const token = await midlandGetToken();
+  if (!token) return [];
+  const estId = await midlandEstId(estateName, token);
+  if (!estId) return [];
+
+  const txns = [];
+  const seen = new Set();
+  const limit = 50;
+  const deadline = Date.now() + 25000; // 同 HKP：成交係補充性質，設總預算防拖死 sync
+  for (let page = 1; page <= 10; page++) {
+    if (Date.now() > deadline) break;
+    const data = await midlandApi(
+      `/search/v2/transactions?lang=zh-hk&est_ids=${estId}&tx_type=${txType}&tx_date=3year&limit=${limit}&page=${page}`, token);
+    const results = data?.result || [];
+    if (!results.length) break;
+    for (const t of results) {
+      const rec = { ...parseHkpTransaction(t), source: "midland" };
+      if (!rec.price || !rec.reg_date) continue;
+      const key = rec.transaction_id || `${rec.building}|${rec.floor}|${rec.unit}|${rec.reg_date}|${rec.price}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      txns.push(rec);
+    }
+    if (results.length < limit) break;
+  }
+  return txns;
+}
+
+// 存成交亦同 HKP 一樣（saveHkpTransactions 唔會覆寫 t.source，用返 rec 入面
+// 嗰個），所以直接借用。
+const saveMidlandTransactions = saveHkpTransactions;
+
 // ── Listing sources registry ───────────────────────────────────────────────
 // One place that describes every listing source. Add a source here (+ its
 // scrape/save fns) and it auto-applies to daily sync, manual sync, the per-
@@ -1511,6 +1621,17 @@ const SOURCES = [
     },
     rentTxn: async (db, estate) =>
       saveRentalTxns(db, estate.id, await scrapeHkpTransactions(estate.name, "L"), "hkp") },
+  { id: "midland", label: "美聯", enabledCol: "midland_enabled",
+    scrape: (estate) => scrapeMidlandListings(estate.name),
+    save: saveMidlandListings,
+    txn: async (db, estate) =>
+      saveMidlandTransactions(db, estate.id, await scrapeMidlandTransactions(estate.name)),
+    rent: async (estate) => {
+      const rows = await scrapeMidlandListings(estate.name, "L");
+      return rows.map((l) => ({ ...l, listing_id: l.ref_no, sale_price: null }));
+    },
+    rentTxn: async (db, estate) =>
+      saveRentalTxns(db, estate.id, await scrapeMidlandTransactions(estate.name, "L"), "midland") },
 ];
 // centanet defaults on (enabled unless explicitly 0); others must be truthy.
 const sourceEnabled = (estate, s) => s.id === "centanet" ? estate[s.enabledCol] !== 0 : !!estate[s.enabledCol];
@@ -3523,7 +3644,8 @@ function buildEmailHtml(highlights, bargains = [], unsubUrl = null) {
   const priceCell = (s) => `<div style="color:#fbbf24;font-weight:700;font-size:15px">${s}</div>`;
   const card = (border, bg, inner) => `<div style="margin-bottom:20px;border:1px solid ${border};border-radius:8px;padding:14px;background:${bg}">${inner}</div>`;
   const tbl = (rows) => `<table style="width:100%;border-collapse:collapse">${rows}</table>`;
-  const srcName = (source) => source === 'ricacorp' ? '利嘉閣' : source === 'hkp' ? '香港置業' : '中原';
+  // 行 SOURCES registry，唔好再喺呢度數 source（加美聯嗰陣呢行就漏咗）
+  const srcName = (source) => SOURCES.find((x) => x.id === source)?.label || '中原';
   const srcLink = (url, source) => url
     ? `<a href="${url}" style="color:#60a5fa;font-size:12px">${srcName(source)} ↗</a>`
     : `<span style="color:#94a3b8;font-size:12px">${srcName(source)}</span>`;
@@ -3967,23 +4089,19 @@ async function syncOneEstate(db, estate) {
   } else {
     warnings.push("中原 成交：跳過（屋苑時間預算用完）");
   }
-  // Supplement Centanet transactions with 利嘉閣 land-registry deals (non-fatal).
-  if (estate.ricacorp_enabled && timeLeft() > 0) {
+  // 再補其餘 source 嘅成交（土地註冊處記錄，dedup 靠 transactions 個 combo
+  // 唯一索引，只入新嘅）（non-fatal）。以前呢度係逐個 source 抄一段
+  // hardcode，加一個 source 就要記得返嚟抄多次——加美聯嗰陣就係咁發現。
+  // 而家行返 SOURCES registry：邊個 source 有 txn 能力、有冇被熄，全部
+  // 由 registry 話事，同 drip sync 用同一份真相。
+  for (const s of SOURCES) {
+    if (s.id === "centanet") continue;          // 上面已經行咗（primary）
+    if (!s.txn || !sourceEnabled(estate, s)) continue;
+    if (timeLeft() <= 0) { warnings.push(`${s.label} 成交：跳過（屋苑時間預算用完）`); continue; }
     try {
-      const ricaTxns = await withTimeout(
-        Promise.resolve(scrapeRicacorpTransactions(estate.name)),
-        Math.min(SOURCE_TIMEOUT_MS, timeLeft()), "利嘉閣 成交 scrape");
-      await saveRicacorpTransactions(db, estate.id, ricaTxns);
-    } catch (e) { warnings.push(`利嘉閣 成交：${_errDetail(e)}`); }
-  }
-  // 再補香港置業成交（土地註冊處，dedup 靠 combo 索引，只入新嘅）（non-fatal）。
-  if (estate.hkp_enabled && timeLeft() > 0) {
-    try {
-      const hkpTxns = await withTimeout(
-        Promise.resolve(scrapeHkpTransactions(estate.name)),
-        Math.min(SOURCE_TIMEOUT_MS, timeLeft()), "香港置業 成交 scrape");
-      await saveHkpTransactions(db, estate.id, hkpTxns);
-    } catch (e) { warnings.push(`香港置業 成交：${_errDetail(e)}`); }
+      await withTimeout(Promise.resolve(s.txn(db, estate)),
+        Math.min(SOURCE_TIMEOUT_MS, timeLeft()), `${s.label} 成交 scrape`);
+    } catch (e) { warnings.push(`${s.label} 成交：${_errDetail(e)}`); }
   }
   const changes = await detectChanges(db, estate.id, estate.name, listings);
   changes.newTransactions = newTxns;
@@ -4051,8 +4169,9 @@ async function buildPendingUnits(db, today) {
   const seen = new Map(log.map((r) => [`${r.estate_id}|${r.source}|${r.kind}`, r]));
 
   // 租盤唔需要咁即時，所以每日只抓一個 source（買盤照舊每日全部 source）。
-  // 用「日數 mod source 數」自動輪，唔 hardcode 邊個 source——將來加第四個
-  // source 就自動變成每 4 日一轉，唔使改呢度。
+  // 用「日數 mod source 數」自動輪，唔 hardcode 邊個 source——加咗美聯之後
+  // 自動由每 3 日一轉變成每 4 日一轉，呢度一行都唔使改（設計時就係咁預）。
+  // 副作用要知：同一個 source 嘅租盤數據而家 4 日先 refresh 一次（本來 3 日）。
   const rentSources = SOURCES.filter((s) => s.rent || s.rentTxn);
   const rentSourceToday = rentSources.length
     ? rentSources[Math.floor(Date.parse(`${today}T00:00:00Z`) / 86400000) % rentSources.length]
@@ -4170,6 +4289,10 @@ const UNIT_SUBREQ_COST = {
   ricacorp: { listings: 10, rent_listings: 5, txn: 6 },
   centanet: { listings: 4, rent_listings: 4, rent_txn: 4, txn: 3 },
   hkp:      { listings: 4, rent_listings: 4, rent_txn: 4, txn: 3 },
+  // 美聯同 HKP 同一個後台、同一種分頁（token 1 + autocomplete 1 + 每頁 50），
+  // 所以成本表照抄 HKP。成交 3 年得 200 幾宗＝ 5 頁，加 token/autocomplete
+  // 就係 7；放盤一頁完。
+  midland:  { listings: 4, rent_listings: 4, rent_txn: 7, txn: 7 },
 };
 function unitSubreqCost(u) {
   return UNIT_SUBREQ_COST[u.source.id]?.[u.kind] ?? 8;
@@ -4186,6 +4309,8 @@ const UNIT_WORST_MS = {
   ricacorp: { listings: 32000, rent_listings: 32000, txn: 27000 },
   centanet: { listings: 12000, rent_listings: 12000, rent_txn: 12000, txn: 12000 },
   hkp:      { listings: 12000, rent_listings: 12000, rent_txn: 12000, txn: 12000 },
+  // 成交嗰兩個內部 deadline 25s（見 scrapeMidlandTransactions），加收尾 = 27s
+  midland:  { listings: 12000, rent_listings: 12000, rent_txn: 27000, txn: 27000 },
 };
 function unitWorstMs(u) {
   return UNIT_WORST_MS[u.source.id]?.[u.kind] ?? 15000;
@@ -4612,6 +4737,10 @@ export default {
       ctx.waitUntil((async () => {
         try {
           await ensureMultiAccount(env.DB);
+          // 新 source 嘅 <id>_enabled 欄位喺呢度都要 ensure：以前淨係喺 fetch
+          // handler 行，cron 可以喺「deploy 完之後仲未有任何 API request」嗰個
+          // 窗口就 run —— 嗰陣新 source 讀返 undefined，會靜靜哋成日唔 sync。
+          await ensureSourceColumns(env.DB);
           // Heartbeat：每次 drip cron 行到就打卡。俾下面個 watchdog 判斷
           // 「cron 係咪死咗」——實測過 cron trigger 會無聲無息停（2026-08-17
           // 00:25 停到 04:18，redeploy 先返生），停咗嘅話任何靠 cron 自己發
@@ -5696,17 +5825,25 @@ export default {
           const m = ricaByKey.get(txnKey(t.building, t.floor, t.unit, t.reg_date));
           if (m) { t.instrument_date = m.instrument_date; ricaByKey.delete(txnKey(m.building, m.floor, m.unit, m.reg_date)); }
         }
-        // 再補香港置業成交（DB）：HKP 用「簽約日」，中原/利嘉閣用「登記日」，
-        // 同一宗會差幾日到兩星期，所以唔可以靠日期夾——用「同座+樓+室+成交價」
-        // 去重（同單位同價幾乎肯定係同一宗）。hkp-only 喺第一頁 append。
+        // 再補「美聯系」成交（DB）：香港置業同美聯用「簽約日」，中原/利嘉閣用
+        // 「登記日」，同一宗會差幾日到兩星期，所以唔可以靠日期夾——用
+        // 「同座+樓+室+成交價」去重（同單位同價幾乎肯定係同一宗）。
+        // 兩個 source 一齊查、一齊去重：美聯同 HKP 本身就係同一個後台
+        // （連 transaction id 都一樣），所以佢哋之間亦要互相去重，唔可以
+        // 各自 append 一次——priceKey 會順手做埋。剩返嘅喺第一頁 append。
         const { results: hkpTxns } = await db.prepare(
-          "SELECT building, floor, unit, price, size_net, price_per_ft, reg_date, prev_price, gain_pct, held_days FROM transactions WHERE estate_id=? AND source='hkp'"
+          "SELECT building, floor, unit, price, size_net, price_per_ft, reg_date, prev_price, gain_pct, held_days, source FROM transactions WHERE estate_id=? AND source IN ('hkp','midland') ORDER BY reg_date DESC"
         ).bind(estateId).all();
         const priceKey = (b, f, u, p) => `${_blockKey(b)}|${String(f || "").replace(/\D/g, "")}|${_normUnit(u)}|${p}`;
         const seenPriceKeys = new Set();
         for (const t of txns) seenPriceKeys.add(priceKey(t.building, t.floor, t.unit, t.price));
         for (const r of ricaByKey.values()) seenPriceKeys.add(priceKey(r.building, r.floor, r.unit, r.price));
-        const hkpNew = hkpTxns.filter(r => !seenPriceKeys.has(priceKey(r.building, r.floor, r.unit, r.price)));
+        const hkpNew = hkpTxns.filter(r => {
+          const k = priceKey(r.building, r.floor, r.unit, r.price);
+          if (seenPriceKeys.has(k)) return false;
+          seenPriceKeys.add(k);
+          return true;
+        });
         if (offset === 0) {
           for (const r of ricaByKey.values()) {
             txns.push({
@@ -5720,7 +5857,7 @@ export default {
               building: r.building, floor: r.floor, unit: r.unit,
               price: r.price, size_net: r.size_net, price_per_ft_net: r.price_per_ft,
               reg_date: r.reg_date, prev_price: r.prev_price, gain_pct: r.gain_pct, held_days: r.held_days,
-              source: "hkp",
+              source: r.source,
             });
           }
           txns.sort((a, b) => (b.reg_date || "").localeCompare(a.reg_date || ""));

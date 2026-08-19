@@ -37,15 +37,27 @@ Tests live in `worker/tests/unit.test.js` and cover pure utilities
 
 ## Listing sources
 
-Three portals, described once in a `SOURCES` registry (worker) and a matching
+Four portals, described once in a `SOURCES` registry (worker) and a matching
 one (frontend) — add a source in both and it auto-applies to sync, the enable
 toggle, filters, badges and the schema column:
 
 | id | 名 | notes |
 |---|---|---|
-| `centanet` | 中原 | listings **+ transactions + valuations** (only source with txns) |
-| `ricacorp` | 利嘉閣 | listings only; no reliable publish date → DOM falls back to `first_seen` |
-| `hkp` | 香港置業 | listings only; publish date from `post_date` |
+| `centanet` | 中原 | listings **+ transactions + valuations** (only source with valuations) |
+| `ricacorp` | 利嘉閣 | listings + land-reg txns; no reliable publish date → DOM falls back to `first_seen` |
+| `hkp` | 香港置業 | listings + land-reg txns + rentals; publish date from `post_date` |
+| `midland` | 美聯 | listings + land-reg txns + rentals; **no** publish date field → falls back to `first_seen` |
+
+⚠️ **美聯同香港置業係同一間公司、同一個後台**（HKP 係美聯集團旗下），API 連
+欄位名都一樣（所以兩者共用 `parseHkpProperty` / `parseHkpTransaction`，只係
+HKP 行 `search/v1`、美聯行 `search/v2`）。實測分別：
+
+- **成交：完全一樣** —— 連 transaction id 都相同。首次 sync 14 個屋苑，美聯
+  抓返 ~400 宗淨係入到 **3 宗**，其餘全部俾 `transactions` 個 combo UNIQUE
+  索引擋走。即係美聯成交幾乎唔會帶新數據，佢嘅價值係「HKP 熄咗嗰陣頂得住」。
+- **放盤：零重疊** —— `serial_no` 前綴唔同（`M…` vs `H…`），係兩盤各自嘅代理
+  盤源。實測美聯常常多過 HKP（黃埔花園 77 vs 1、碧海藍天 39 vs 17）。
+  呢度先係加美聯嘅真正收益。
 
 - Listings that are the same unit (座+樓層+單位+實呎) across sources with prices
   within 5% are merged into one row; >5% stay separate (likely different flats).
@@ -101,7 +113,7 @@ See `CLAUDE.md` for the enforced conventions. Quick facts:
 | Table | Purpose |
 |---|---|
 | `estates` | Tracked estates (per-source `*_enabled` flags, auto-added by `ensureSourceColumns`) |
-| `listings` | Daily snapshots from all 3 sources (`source`, `publish_date`, net area/`$/呎`) |
+| `listings` | Daily snapshots from all 4 sources (`source`, `publish_date`, net area/`$/呎`) |
 | `listing_price_history` | Price per `ref_no` per day (all sources) |
 | `price_snapshots` | Daily aggregate stats per estate (centanet-based) |
 | `transactions` | Sale transactions (Centanet); car parks & non-market deals filtered out |
