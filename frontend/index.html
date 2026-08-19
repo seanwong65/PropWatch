@@ -4258,8 +4258,8 @@ function priceRulerHtml(v) {
     return `<span style="color:var(--muted);font-size:0.75rem">${midLabel} ${vs > 0 ? '+' : ''}${vs.toFixed(1)}%</span>`;
   };
   const askVs = (hasAsk && ownPsf) ? (ownPsf - askMed) / askMed * 100 : null;
-  const askBadge = badgeFor(askVs, '貴叫價', '低叫價', '約叫價');
-  const soldBadge = hasSold ? badgeFor(v.vs_med_pct, '貴市價', '低市價', '約市價') : '';
+  const askBadge = badgeFor(askVs, '貴叫價中位數', '低叫價中位數', '約叫價中位數');
+  const soldBadge = hasSold ? badgeFor(v.vs_med_pct, '貴市價中位數', '低市價中位數', '約市價中位數') : '';
   const verdictLine = (askBadge || soldBadge)
     ? `<div style="margin-top:0.3rem">${askBadge}${askBadge && soldBadge ? ' · ' : ''}${soldBadge}</div>` : '';
   const weakNote = (soldConf.weak || askConf.weak)
