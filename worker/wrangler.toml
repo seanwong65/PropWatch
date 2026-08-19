@@ -16,9 +16,10 @@ database_id = "b4330ef2-78c4-48be-ae88-b1d94614faad"
 #                   受兩個 budget 夾：時間 53s、subrequest 實數 46（見
 #                   index.js DRIP_BATCH_*）。今日全部搞掂就 idle，唔會白撞 portal。
 #
-#                   開工時間：HK 10:00（index.js SYNC_START_HOUR）。之前係
+#                   開工時間：HK 06:00（index.js SYNC_START_HOUR）。之前係
 #                   00:00，但凌晨啲代理網成日做 maintenance，抓返嚟殘缺，
-#                   反而製造假「下架」。
+#                   反而製造假「下架」。06:00 已經避開 maintenance window，
+#                   又留夠時間趕得切 09:00 個 email。
 #
 #                   實測 98 個單元（2026-08-18）：
 #                     舊（subreq 估算寫死 30）→ 64 分鐘，尾段 13 次 × 1 個
@@ -27,8 +28,8 @@ database_id = "b4330ef2-78c4-48be-ae88-b1d94614faad"
 #                   ⚠️ 唔好縮到 "* * * * *"（每分鐘）：一個 invocation 可以行
 #                   足 53 秒，兩個會 overlap 撞同一個 pending 單元（數據唔會壞
 #                   ——sync_log 同 saveXxx 都 idempotent——但白撞 portal）。
-#   "0 3 * * *"   = 11:00 HKT → "今日動態" email (separate invocation)
-#                   要喺抓數據(10:00 開工，實測 ~19 分鐘)之後先寄。
+#   "0 1 * * *"   = 09:00 HKT → "今日動態" email (separate invocation)
+#                   要喺抓數據(06:00 開工，實測 ~19 分鐘)之後先寄。
 #
 # ⚠️ Workers Free 上限係每個 account 5 個 cron trigger，但個限制係計 expression
 # 數目而唔係執行次數："*/2 * * * *" 只佔 1 個名額，一日卻跑 720 次。之前用 4 個
@@ -38,4 +39,4 @@ database_id = "b4330ef2-78c4-48be-ae88-b1d94614faad"
 # ⚠️ 改呢條 expression 一定要同時改 index.js 個 DRIP_CRON 常數——
 # scheduled() 靠 `event.cron === DRIP_CRON` 分流，唔一致 drip sync 會完全唔行。
 [triggers]
-crons = ["*/2 * * * *", "0 3 * * *"]
+crons = ["*/2 * * * *", "0 1 * * *"]

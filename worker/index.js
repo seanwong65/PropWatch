@@ -191,12 +191,14 @@ function hkHour() {
 }
 
 // ── 每日抓數據嘅時窗 ────────────────────────────────────────────────────────
-// 由 00:00 改做 10:00 開始：凌晨嗰陣啲代理網（中原／利嘉閣／香港置業）好多
-// 時做緊 maintenance，抓返嚟係空白或者殘缺，反而製造假「下架」。10:00 佢哋
-// 一定醒晒。
-// 實測（2026-08-18，98 個單元）：新 batch 邏輯 19 分鐘跑完，所以 10:00 開工
-// 10:20 左右就有齊數據，11:00 寄「今日動態」email 綽綽有餘。
-const SYNC_START_HOUR = 10;
+// 由 00:00 改做 06:00 開始：凌晨嗰陣啲代理網（中原／利嘉閣／香港置業）好多
+// 時做緊 maintenance，抓返嚟係空白或者殘缺，反而製造假「下架」。06:00 佢哋
+// 應該醒晒（未至於好似 00:00 咁密食 maintenance window），但又留夠 buffer
+// 俾 09:00 個 email——原本諗過 10:00，但咁就要將 email 一齊搬去 11:00，
+// 用戶想 email keep 住 09:00，所以揀 06:00：實測 98 個單元新 batch 邏輯
+// 19 分鐘跑完，06:00 開工 06:20 左右有齊數據，09:00 寄信有 2 個幾鐘 buffer
+// （就算 112 個單元嘅日子都夠）。
+const SYNC_START_HOUR = 6;
 const syncWindowOpen = () => hkHour() >= SYNC_START_HOUR;
 
 // In-memory cache (per Worker instance lifetime)
@@ -4011,7 +4013,7 @@ async function syncOneEstate(db, estate) {
 // 會 overlap 揀到同一個 pending[0]，白撞 portal。詳見 wrangler.toml 註解。
 const DRIP_CRON = "*/2 * * * *";
 // ⚠️ 同 wrangler.toml 個 crons 要完全一致，否則 scheduled() 分流唔到。
-const EMAIL_CRON = "0 3 * * *";   // 11:00 HKT
+const EMAIL_CRON = "0 1 * * *";   // 09:00 HKT
 // 要大過各個 scraper 自己嘅內部 deadline（利嘉閣 30s）+ 最後一頁嘅 10s，
 // 否則會喺人家 graceful bail（carry forward 上次嘅盤）之前就 abort，
 // 令「部分成功」變成「完全失敗」。一次只做一個 scrape 所以食得起。
@@ -4578,11 +4580,10 @@ async function sendDailyEmail(db, env, onlyAccountId = null, overrideEmail = nul
 
 export default {
   async scheduled(event, env, ctx) {
-    // "0 3 * * *" = 11:00 HKT → email only (own fresh subrequest budget).
-    // 一定要夠鐘喺 SYNC_START_HOUR(10:00) 之後：實測 98 個單元 19 分鐘跑完，
-    // 10:20 左右有齊數據，11:00 寄信有足夠 buffer。之前係 09:00，但抓數據
-    // 搬咗去 10:00 之後，09:00 寄信就會變成「報住琴日嘅嘢」。
-    // The 00:00/00:10/00:20 HKT sync slots each sync one slice of estates.
+    // "0 1 * * *" = 09:00 HKT → email only (own fresh subrequest budget).
+    // 一定要夠鐘喺 SYNC_START_HOUR(06:00) 之後：實測 98 個單元 19 分鐘跑完，
+    // 06:20 左右有齊數據，09:00 寄信有 2 個幾鐘 buffer（112 個單元嗰啲日子
+    // 都綽綽有餘）。反過嚟講，SYNC_START_HOUR 唔可以調到夠鐘唔切 09:00。
     // ensureMultiAccount:sync/email query 靠 account_estates,cron 可能喺
     // 冇任何 fetch request 之前行,所以呢度都要 ensure(冪等,好快)。
     if (event.cron === EMAIL_CRON) {
