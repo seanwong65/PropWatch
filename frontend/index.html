@@ -8,65 +8,69 @@
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
     :root {
-      /* ── Light "soft glass" theme ────────────────────────────────────────
-         參考 templatemo glass-admin 嘅視覺語言（大圓角、柔和散射陰影、
-         emerald 主色、pastel tint badge、uppercase 微標籤），但**冇**照抄
-         佢成版半透明玻璃：呢個 app 係密集數據表（100+ 行 + frozen header），
-         backdrop-filter 落會 scroll 嘅容器要逐格重繪，手機直接卡；半透明底
-         亦蝕密集數字嘅對比。所以 glass 只留俾 header／sidebar／modal 遮罩
-         （唔會 scroll 內容），數據卡片一律實色白。
-         全部前景色都對白底做過對比檢查（WCAG AA ≥4.5:1）。 */
-      --bg: #ffffff;           /* requirement：純白底 */
-      --surface: #ffffff;      /* 卡片 — 實色，唔玻璃（見上面理由） */
-      --surface1: #ffffff;
-      --surface2: #f3f7f5;     /* inset／次級面，帶極輕綠灰呼應 emerald */
-      --border: #e4eae7;
-      --border-strong: #cdd8d3; /* 需要睇得清嘅分隔（frozen header 底線等） */
-      --text: #16211d;         /* 近黑帶少少綠調，同 emerald 系一致 */
-      --muted: #5c6b66;        /* 5.4:1 on white */
-      --accent: #b45309;       /* 價錢／重點數字（深琥珀，5.9:1）——沿用
-                                  原本「accent＝價錢」語義，91 處 var() 唔使動 */
-      --on-accent: #ffffff;
-      --accent2: #0369a1;      /* 連結／資訊。5.93:1 on white，而且做底配白字都係
-                                  5.93:1——同一個值兩邊都過 AA。（#0284c7 得 4.1、
-                                  #3b82f6 得 3.6，兩個都唔夠） */
-      --up: #15803d;           /* 升（4.9:1；原本 #10b981 喺白底只有 2.5:1） */
-      --down: #dc2626;         /* 跌（4.8:1） */
+      /* ── Dark glass theme（參考 templatemo glass-admin 嘅 night mode）──────
+         對住 reference 實際 inspect 返嚟嘅值做：
+           佢背景 rgb(10,15,13)、玻璃面 rgba(255,255,255,.05)、blur(20px)、
+           邊 rgba(255,255,255,.1)、圓角 20px。
+         我哋玻璃**收斂啲**：面由 5% 推到 9%（卡片）／13%（浮起），因為呢個
+         app 係密集數據表，5% 太透會蝕數字對比。質感仲喺，但睇得清。
+         reference 自己個 .data-table 都係 backdrop-filter:none —— 玻璃落喺
+         「載住表格嗰個卡片」，唔落喺會 scroll 嘅表格本身。我哋跟返同一套。
+         全部前景色都對「玻璃卡片實效底 #202523」同「頁底 #0a0f0d」兩邊
+         量過對比（見下面括號數字，全部 ≥4.5:1 過 WCAG AA）。 */
+      --bg: #0a0f0d;           /* 近黑帶綠調，同 reference 一致 */
+      /* 玻璃面：唔係實色，係半透明 + backdrop-filter（見 .glass-surface）。
+         --surface 呢啲舊 token 保留住俾未轉嘅地方用，值改成同玻璃實效色
+         相近，咁就算某處仲用緊實色都唔會突兀。 */
+      --surface: #202523;      /* ＝ bg 疊 9% 白之後嘅實效色 */
+      --surface1: #202523;
+      --surface2: #161b19;     /* inset（input／chip／track）＝ 疊 5% 白 */
+      --border: rgba(255,255,255,0.12);
+      --border-strong: rgba(255,255,255,0.22);  /* frozen header 底線等 */
+      --text: #f1f5f4;         /* 14.2:1 卡片 / 17.6:1 頁底 */
+      --muted: #9aa8a3;        /* 6.3:1 / 7.8:1 */
+      --accent: #fbbf24;       /* 價錢／重點數字（琥珀）9.3:1 / 11.6:1 */
+      --on-accent: #1a1206;
+      --accent2: #60a5fa;      /* 連結／資訊 6.1:1 / 7.6:1 */
+      --up: #34d399;           /* 升 8.1:1 / 10.1:1 */
+      --down: #f87171;         /* 跌 5.6:1 / 7.0:1（#ef4444 只有 4.1，唔夠）*/
 
-      /* 品牌主色：emerald（參考站主色）。特登同 --accent 分開——emerald 撞
-         「升幅綠」，所以佢只做品牌／動作／active 態，唔做數據語義色。 */
-      /* #047857（唔用參考站個 #059669）：brand 兩邊都要用——做文字（tab active、
-         ghost 掣字）同做底配白字。#059669 兩邊都係 3.77:1，兩邊都跌 AA；
-         #047857 兩邊都係 5.48:1，一個值搞掂。 */
-      --brand: #047857;
-      --brand-hover: #065f46;
-      --brand-ink: #ffffff;
-      --brand-soft: #ecfdf5;   /* 淺 tint 底（active chip／selected 卡） */
+      /* 品牌主色：emerald。深底之下要用淺一級——#059669 喺卡片得 4.1:1，
+         唔夠 AA；#34d399 有 8.1:1。做底配深字亦夠。 */
+      --brand: #34d399;
+      --brand-hover: #6ee7b7;
+      --brand-ink: #052e23;    /* 品牌色做底時嘅字色（深綠，唔用純黑）*/
+      --brand-soft: rgba(52,211,153,0.14);   /* active chip／selected 卡 tint */
 
-      /* 圓角按元素大細分級——參考站一律 20px，但落細控件會腫 */
+      /* ── Glass ─────────────────────────────────────────────────────────
+         三級：卡片／浮起（modal、hover）／inset（input、chip）。 */
+      --glass-bg: rgba(255,255,255,0.09);
+      --glass-bg-raised: rgba(255,255,255,0.13);
+      --glass-bg-inset: rgba(255,255,255,0.05);
+      --glass-border: rgba(255,255,255,0.12);
+      --glass-blur: blur(20px);
+      --glass-blur-sm: blur(10px);
+
+      /* 圓角：reference 一律 20px，但落細控件會腫，所以分級 */
       --radius: 16px;          /* 卡片／面板 */
       --radius-sm: 10px;       /* input／細掣 */
       --radius-lg: 20px;       /* modal／大面板 */
 
-      /* 柔和散射陰影（白底靠陰影做層次，唔靠深色面） */
-      --shadow-sm: 0 1px 2px rgba(16,42,34,0.04), 0 1px 3px rgba(16,42,34,0.06);
-      --shadow: 0 2px 4px rgba(16,42,34,0.04), 0 8px 20px rgba(16,42,34,0.07);
-      --shadow-lg: 0 8px 16px rgba(16,42,34,0.06), 0 24px 48px rgba(16,42,34,0.12);
+      /* 深色之下陰影要更深先睇到（淺色嗰套 4-7% 喺深底完全冇效果），
+         另外加一條頂部內光邊做玻璃厚度感（reference 都係咁）。 */
+      --shadow-sm: 0 1px 2px rgba(0,0,0,0.3);
+      --shadow: 0 4px 12px rgba(0,0,0,0.35);
+      --shadow-lg: 0 12px 32px rgba(0,0,0,0.5);
+      --glass-inner: inset 0 1px 0 rgba(255,255,255,0.10);
 
-      /* Glass：只俾唔 scroll 內容嘅表面用（header／sidebar／遮罩） */
-      --glass-bg: rgba(255,255,255,0.72);
-      --glass-border: rgba(16,42,34,0.08);
+      --btn-bg: #34d399;       /* 主要動作掣＝品牌色 */
+      --btn-hover: #6ee7b7;
 
-      --btn-bg: #047857;       /* 主要動作掣＝品牌色（同 --brand 同一個值） */
-      --btn-hover: #065f46;
-
-      /* 次要掣（ghost）。⚠️ 唔可以用「純白面 + 淡邊」——頁面本身就係白，
-         咁樣做出嚟嘅掣完全冇視覺重量，用戶搵唔到（實機試過就係咁）。
-         所以次要掣一定要有：① 帶灰嘅實色面（同白底分得開）
-         ② 睇得清嘅邊 ③ 少少陰影托起。 */
-      --btn2-bg: #eef2f0;
-      --btn2-bg-hover: #e3ebe8;
-      --btn2-border: #b9c7c1;
+      /* 次要掣（ghost）。深色版同淺色版一樣要有足夠視覺重量——玻璃面
+         唔可以太透，否則同背景溶埋一齊搵唔到（淺色版實機中過呢個伏）。 */
+      --btn2-bg: rgba(255,255,255,0.10);
+      --btn2-bg-hover: rgba(255,255,255,0.16);
+      --btn2-border: rgba(255,255,255,0.20);
 
       /* Type scale — six steps, replaces ~18 ad-hoc sizes */
       --fs-xs: 0.75rem;    /* 12px  meta / labels / table footers */
@@ -102,16 +106,29 @@
       color: var(--text);
       min-height: 100dvh;
       line-height: 1.6;
-      /* 參考站個「pastel mesh」感覺：兩團極淡光暈。特登用 body 嘅
-         background-image（唔係加 .orb div + blur）——冇額外 DOM、冇
-         backdrop-filter，scroll 唔會重繪，等於零成本。
-         fixed：唔想成塊 wash 跟住長頁面拉走。 */
-      background-image:
-        radial-gradient(60rem 40rem at 12% -8%, rgba(5,150,105,0.055), transparent 60%),
-        radial-gradient(48rem 36rem at 100% 4%, rgba(180,83,9,0.045), transparent 62%);
-      background-attachment: fixed;
-      background-repeat: no-repeat;
+      /* 光暈唔擺喺 body 嘅 background-image：試過 background-attachment:fixed，
+         同 backdrop-filter 夾埋會出 repaint artifact（scroll 完上半版永久
+         變死黑，實機重現到）。改用一個 position:fixed 嘅 ::before 圖層，
+         佢自己一層 compositing，scroll 唔會重畫，亦冇 fixed-attachment 嗰個
+         病。玻璃要有嘢喺後面先折射得出質感，所以呢層唔可以慳。 */
       overflow-x: hidden;   /* 同 html 一齊鎖，Safari 兩者都要落先穩 */
+    }
+
+    /* 背景光暈層（見 body 註解）。z-index:-1 沉喺所有內容之下；
+       pointer-events:none 唔會食到點擊。深色版光暈要比淺色版明顯好多——
+       淺色嗰陣 5% 已經夠，深底 5% 完全睇唔到，所以推到 12~20%。 */
+    body::before {
+      content: "";
+      position: fixed;
+      inset: 0;
+      z-index: -1;
+      pointer-events: none;
+      background-color: var(--bg);
+      background-image:
+        radial-gradient(50rem 38rem at 5% 0%,    rgba(16,185,129,0.20), transparent 60%),
+        radial-gradient(42rem 34rem at 100% 22%, rgba(56,189,248,0.15), transparent 62%),
+        radial-gradient(46rem 38rem at 15% 72%,  rgba(168,85,247,0.13), transparent 62%),
+        radial-gradient(40rem 32rem at 95% 96%,  rgba(16,185,129,0.12), transparent 62%);
     }
 
     /* Header */
@@ -126,8 +143,9 @@
       top: 0;
       /* Glass 用喺呢度係啱嘅：header 自己唔 scroll 內容，blur 只計一次 */
       background: var(--glass-bg);
-      backdrop-filter: saturate(180%) blur(12px);
-      -webkit-backdrop-filter: saturate(180%) blur(12px);
+      backdrop-filter: saturate(140%) var(--glass-blur);
+      -webkit-backdrop-filter: saturate(140%) var(--glass-blur);
+      box-shadow: var(--glass-inner);
       z-index: 100;
     }
     .logo { display: flex; align-items: center; gap: 0.6rem; }
@@ -234,7 +252,10 @@
       top: calc(100% + 4px);
       left: 0;
       right: 0;
-      background: var(--surface);
+      background: var(--glass-bg);
+      backdrop-filter: var(--glass-blur);
+      -webkit-backdrop-filter: var(--glass-blur);
+      box-shadow: var(--glass-inner), var(--shadow);
       border: 1px solid var(--border);
       border-radius: var(--radius);
       overflow: hidden;
@@ -265,7 +286,10 @@
     /* 白底之下，卡片靠「白面＋柔和陰影」同頁面分層（唔再靠深色面）。
        --surface2 留返俾卡片**內部**嘅 inset 元素（chip／input／track）。 */
     .estate-card {
-      background: var(--surface);
+      background: var(--glass-bg);
+      backdrop-filter: var(--glass-blur);
+      -webkit-backdrop-filter: var(--glass-blur);
+      box-shadow: var(--glass-inner), var(--shadow);
       border: 1px solid var(--border);
       border-radius: var(--radius);
       padding: 0.85rem 1rem;
@@ -374,7 +398,10 @@
       margin-bottom: 1.5rem;
     }
     .dashboard-card {
-      background: var(--surface);
+      background: var(--glass-bg);
+      backdrop-filter: var(--glass-blur);
+      -webkit-backdrop-filter: var(--glass-blur);
+      box-shadow: var(--glass-inner), var(--shadow);
       border: 1px solid var(--border);
       border-radius: var(--radius);
       padding: 1rem;
@@ -393,7 +420,10 @@
       padding: 1.25rem;
     }
     .highlights-section {
-      background: var(--surface);
+      background: var(--glass-bg);
+      backdrop-filter: var(--glass-blur);
+      -webkit-backdrop-filter: var(--glass-blur);
+      box-shadow: var(--glass-inner), var(--shadow);
       border: 1px solid var(--border);
       border-radius: var(--radius);
       padding: 1rem;
@@ -456,7 +486,10 @@
       margin-bottom: 1rem;
     }
     .estate-select {
-      background: var(--surface);
+      background: var(--glass-bg);
+      backdrop-filter: var(--glass-blur);
+      -webkit-backdrop-filter: var(--glass-blur);
+      box-shadow: var(--glass-inner), var(--shadow);
       border: 1px solid var(--border);
       color: var(--text);
       border-radius: 6px;
@@ -486,7 +519,10 @@
       margin-bottom: 1.5rem;
     }
     .stat-card {
-      background: var(--surface);
+      background: var(--glass-bg);
+      backdrop-filter: var(--glass-blur);
+      -webkit-backdrop-filter: var(--glass-blur);
+      box-shadow: var(--glass-inner), var(--shadow);
       border: 1px solid var(--border);
       border-radius: var(--radius);
       padding: 1rem;
@@ -536,7 +572,10 @@
 
     /* Chart */
     .chart-section {
-      background: var(--surface);
+      background: var(--glass-bg);
+      backdrop-filter: var(--glass-blur);
+      -webkit-backdrop-filter: var(--glass-blur);
+      box-shadow: var(--glass-inner), var(--shadow);
       border: 1px solid var(--border);
       border-radius: var(--radius);
       padding: 1.25rem;
@@ -562,6 +601,9 @@
     }
 
     /* Listings table */
+    /* 載住會 scroll 嘅數據表：跟 reference 做法，卡片本身唔落 backdrop-filter
+       （佢個 .data-table 都係 none）。用玻璃嘅「實效色」做實色底，視覺上同
+       隔籬啲玻璃卡片一致，但 scroll 唔使逐格重繪。 */
     .listings-section {
       background: var(--surface);
       border: 1px solid var(--border);
@@ -650,15 +692,18 @@
       /* 白底 app 用重黑遮罩會好突兀；改用淡灰遮罩＋blur（參考站個 glass 感覺
          最啱用喺呢度——遮罩唔會 scroll 內容，blur 只計一次）。 */
       background: rgba(16,42,34,0.28);
-      backdrop-filter: blur(3px);
-      -webkit-backdrop-filter: blur(3px);
+      backdrop-filter: blur(6px);
+      -webkit-backdrop-filter: blur(6px);
       z-index: 500;
       display: flex;
       align-items: center;
       justify-content: center;
     }
     .modal {
-      background: var(--surface);
+      background: var(--glass-bg);
+      backdrop-filter: var(--glass-blur);
+      -webkit-backdrop-filter: var(--glass-blur);
+      box-shadow: var(--glass-inner), var(--shadow);
       border: 1px solid var(--border);
       border-radius: var(--radius-lg);
       padding: 1.5rem;
@@ -735,9 +780,11 @@
     /* Viewings tab */
     .viewings-list { padding: 0.75rem 0; }
     .viewing-card {
-      background: var(--surface); border: 1px solid var(--border);
+      background: var(--glass-bg); border: 1px solid var(--border);
+      backdrop-filter: var(--glass-blur);
+      -webkit-backdrop-filter: var(--glass-blur);
       border-radius: var(--radius); padding: 0.85rem 1rem; margin-bottom: 0.75rem;
-      box-shadow: var(--shadow-sm);
+      box-shadow: var(--glass-inner), var(--shadow-sm);
     }
     .viewing-card-header {
       display: flex; align-items: center; justify-content: space-between;
@@ -1112,7 +1159,10 @@
         transform: translateX(-100%);
         transition: transform 0.25s ease;
         z-index: 200;
-        background: var(--surface);
+        background: var(--glass-bg);
+        backdrop-filter: var(--glass-blur);
+        -webkit-backdrop-filter: var(--glass-blur);
+        box-shadow: var(--glass-inner), var(--shadow);
       }
       .sidebar.open { transform: translateX(0); }
       .hamburger { display: flex; }
@@ -1189,11 +1239,13 @@
 </header>
 
 <!-- Login Screen -->
-<div id="login-screen" style="display:none;position:fixed;inset:0;background:var(--bg);z-index:9999;align-items:center;justify-content:center">
-  <div style="background:var(--surface1);border:1px solid var(--border);border-radius:16px;padding:2rem;width:100%;max-width:340px;box-shadow:0 8px 32px rgba(0,0,0,0.4)">
+<!-- 登入頁：唔好落實色底，否則會蓋住 body::before 個光暈層，成塊變死黑。
+     透明就直接透出後面嘅光暈，登入卡先有嘢可以折射。 -->
+<div id="login-screen" style="display:none;position:fixed;inset:0;z-index:9999;align-items:center;justify-content:center;padding:1.25rem">
+  <div style="background:var(--glass-bg);backdrop-filter:var(--glass-blur);-webkit-backdrop-filter:var(--glass-blur);border:1px solid var(--glass-border);border-radius:var(--radius-lg);padding:2rem;width:100%;max-width:340px;box-shadow:var(--glass-inner),var(--shadow-lg)">
     <div style="text-align:center;margin-bottom:1.5rem">
       <div style="font-size:2rem">🏙️</div>
-      <div style="font-size:1.4rem;font-weight:700;color:var(--accent)">PropWatch</div>
+      <div style="font-size:1.4rem;font-weight:700;color:var(--brand)">PropWatch</div>
     </div>
     <div id="login-error" style="color:#e57373;font-size:0.85rem;margin-bottom:0.75rem;display:none"></div>
     <input id="login-email" type="email" placeholder="電郵" autocomplete="email"
@@ -1212,7 +1264,7 @@
       <button id="login-otp-btn" onclick="requestOtp()"
         style="padding:0.65rem 0.9rem;background:var(--btn2-bg);border:1px solid var(--btn2-border);border-radius:8px;color:var(--text);font-weight:600;font-size:0.85rem;cursor:pointer;white-space:nowrap">攞驗證碼</button>
     </div>
-    <button id="login-submit-btn" onclick="loginSubmit()" style="width:100%;padding:0.75rem;background:var(--accent);border:none;border-radius:8px;color:var(--on-accent);font-size:1rem;font-weight:600;cursor:pointer">登入</button>
+    <button id="login-submit-btn" onclick="loginSubmit()" style="width:100%;padding:0.75rem;background:var(--brand);border:none;border-radius:var(--radius-sm);color:var(--brand-ink);font-size:1rem;font-weight:600;cursor:pointer">登入</button>
     <div style="text-align:center;margin-top:0.9rem;display:flex;flex-direction:column;gap:0.5rem">
       <span id="login-mode-toggle" onclick="onAuthToggle()" style="color:var(--muted);font-size:0.82rem;cursor:pointer;border-bottom:1px dotted var(--muted);align-self:center">未有帳戶？註冊</span>
       <span id="login-forgot-toggle" onclick="setLoginMode('forgot')" style="color:var(--muted);font-size:0.82rem;cursor:pointer;border-bottom:1px dotted var(--muted);align-self:center">忘記密碼？</span>
