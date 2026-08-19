@@ -3654,7 +3654,7 @@ async function loadEstates() {
         <button class="estate-card-star ${e.is_favourite ? 'starred' : ''}"
                 onclick="toggleFavourite(event,${e.id})" title="標記最愛">★</button>
         <button class="estate-card-delete" onclick="deleteEstate(event,${e.id})">✕</button>
-        <div class="estate-card-name">${e.is_favourite ? '★ ' : ''}${escHtml(e.name)}</div>
+        <div class="estate-card-name">${escHtml(e.name)}</div>
         <div class="estate-card-meta">
           ${e.district ? escHtml(e.district) + '．' : ''}${e.today_count ?? 0}個盤．最近3個月${e.txn_3m_count ?? 0}宗成交
         </div>
