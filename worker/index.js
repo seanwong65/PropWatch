@@ -4483,19 +4483,42 @@ async function sendSyncSummary(db, env) {
   ).bind(date).all();
 
   const hhmm = (v) => (v ? String(v).slice(11, 16) : "?");
-  const mins = (() => {
-    const a = Date.parse(String(s?.first_at || "").replace(" ", "T") + "Z");
-    const b = Date.parse(String(s?.last_at || "").replace(" ", "T") + "Z");
-    return Number.isFinite(a) && Number.isFinite(b) ? Math.round((b - a) / 60000) : null;
-  })();
-  const dur = mins == null ? "?" : `${Math.floor(mins / 60)} 小時 ${mins % 60} 分`;
-  const label = { centanet: "中原", ricacorp: "利嘉閣", hkp: "香港置業" };
+  // 「用咗幾耐」唔可以淨係 last − first。個 sync 有兩個會令首尾跨度發大嘅
+  // 原因，兩個都唔係「跑得慢」：
+  //   ① SYNC_START_HOUR 時窗 —— 06:00 之前唔准跑。如果有人喺凌晨用
+  //      admin 嘅 force 手動跑過一兩個單元，第一行就會 stamp 咗喺凌晨，
+  //      跟住等到 06:00 先做落去，首尾跨度即刻變幾個鐘。
+  //   ② cron 試過無聲無息停幾個鐘（見 cron_last_drip watchdog）。
+  // 之前呢度報首尾跨度，實測 8 月 20 號報「3 小時」但真正做嘢得 30 分鐘，
+  // 令人以為個 task 慢咗 9 倍。所以而家拆開兩個數。
+  const { results: stamps } = await db.prepare(
+    "SELECT updated_at FROM sync_log WHERE sync_date = ? ORDER BY updated_at"
+  ).bind(date).all();
+  const IDLE_GAP_MS = 5 * 60000;   // drip cron 每 2 分鐘一次，隔超過 5 分鐘就當閒置
+  let activeMs = 0, idleMs = 0, maxIdleMs = 0;
+  for (let i = 1; i < stamps.length; i++) {
+    const a = Date.parse(String(stamps[i - 1].updated_at).replace(" ", "T") + "Z");
+    const b = Date.parse(String(stamps[i].updated_at).replace(" ", "T") + "Z");
+    if (!Number.isFinite(a) || !Number.isFinite(b)) continue;
+    const g = b - a;
+    if (g > IDLE_GAP_MS) { idleMs += g; maxIdleMs = Math.max(maxIdleMs, g); }
+    else activeMs += g;
+  }
+  const hhmmDur = (ms) => {
+    const m = Math.round(ms / 60000);
+    return m >= 60 ? `${Math.floor(m / 60)} 小時 ${m % 60} 分` : `${m} 分鐘`;
+  };
+  const dur = hhmmDur(activeMs);
+  const label = Object.fromEntries(SOURCES.map((x) => [x.id, x.label]));
   const kindLabel = { listings: "放盤", txn: "成交", rent_listings: "租盤", rent_txn: "租務成交" };
 
   const lines = [
     `✅ PropWatch 今日同步完成（${date}）`,
     ``,
-    `⏱ ${hhmm(s?.first_at)} → ${hhmm(s?.last_at)}（${dur}）`,
+    `⏱ ${hhmm(s?.first_at)} → ${hhmm(s?.last_at)}（實際做嘢 ${dur}）`,
+    ...(idleMs > 10 * 60000
+      ? [`   ↳ 中間閒置 ${hhmmDur(idleMs)}（等 ${SYNC_START_HOUR}:00 時窗／cron 停過），唔計入上面`]
+      : []),
     `📦 單元 ${s?.units ?? 0} 個：成功 ${s?.ok ?? 0}．失敗 ${s?.failed ?? 0}`,
     ``,
     `放盤（今日 snapshot）`,
