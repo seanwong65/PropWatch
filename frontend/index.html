@@ -7773,17 +7773,16 @@ function renderMortgage() {
     // 就算首期夠、人工夠，都封死喺金管局基本上限 70%——冧晒按保。用返
     // 同一份月入／現金計，睇下 70% 封頂之下買唔買得起同一層樓、定係要縮。
     const r = affordability({ income, cash, years, rate, firstTime: ftb, agentPct, legalFee, maxLtv: HKMA_BASE_LTV });
-    const rentBox = r
-      ? `<div style="background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius-sm);padding:0.6rem 0.85rem;margin-top:0.6rem">
-           <div style="font-size:0.78rem;color:var(--muted)">如果打算出租（按揭保險淨批自住，收租盤封死 7 成）</div>
-           <div style="font-size:1.15rem;font-weight:700;color:var(--text);margin-top:0.1rem">${_mcWan(r.price)}<span style="font-size:0.75rem;font-weight:400;color:var(--muted)">　（7 成貸款 ${_mcWan(r.loan)}，首期 ${_mcWan(r.down)}）</span></div>
-         </div>`
-      : `<div style="font-size:0.76rem;color:var(--muted);margin-top:0.5rem">如果打算出租（封 7 成）：依家個組合 7 成都上唔到會。</div>`;
+    const rentLine = r
+      ? `<div style="font-size:0.78rem;color:var(--muted)">如果打算出租（按揭保險淨批自住，封死 7 成）　<b style="color:var(--text);font-size:0.85rem">${_mcWan(r.price)}</b><span style="font-size:0.72rem"> （7 成貸款 ${_mcWan(r.loan)}，首期 ${_mcWan(r.down)}）</span></div>`
+      : `<div style="font-size:0.78rem;color:var(--muted)">如果打算出租（封 7 成）：依家個組合 7 成都上唔到會</div>`;
     out.innerHTML = `
       <div style="background:var(--brand-soft);border:1px solid var(--brand);border-radius:var(--radius-sm);padding:0.7rem 0.85rem;margin-bottom:0.6rem">
         <div style="font-size:0.78rem;color:var(--muted)">你大約買得起</div>
         <div style="font-size:1.5rem;font-weight:700;color:var(--brand)">${_mcWan(a.price)}</div>
         <div style="font-size:0.75rem;color:var(--muted);margin-top:0.2rem">${bindTxt}</div>
+        <div style="border-top:1px solid var(--brand);opacity:0.35;margin:0.55rem 0"></div>
+        ${rentLine}
       </div>
       ${_mcRow("按揭成數", (a.ltv * 100).toFixed(0) + "%（貸款 " + _mcWan(a.loan) + "）")}
       ${_mcRow("每月供款", _mcMoney(a.monthly), { color: "var(--accent)" })}
@@ -7795,8 +7794,7 @@ function renderMortgage() {
       ${_mcRow("上會要準備嘅現金", _mcWan(a.cashNeeded), { strong: true, top: true })}
       <button class="vf-submit" style="width:100%;margin-top:0.9rem" onclick="useMcAsBudget(${Math.round(a.price / 10000)})">
         ✓ 用 ${_mcWan(a.price)} 做我嘅買盤預算
-      </button>
-      ${rentBox}`;
+      </button>`;
     return;
   }
 
