@@ -1545,6 +1545,12 @@
         <input class="vf-input" type="text" inputmode="decimal" id="mc-legal" value="15,000" oninput="_mcFmtInput(this)"></div>
     </div>
 
+    <!-- 裝修費預留：淨係擺喺呢度俾用戶主動填，唔畀 placeholder 建議數字
+         （唔似代理佣金／律師費咁有業內慣例，各人裝修預算差好遠，估錯
+         誤導人)。留空＝當 0，唔會扣手頭現金。 -->
+    <label class="vf-label">裝修費預留（$）</label>
+    <input class="vf-input" type="text" inputmode="decimal" id="mc-reno" placeholder="未打算裝修可留空" oninput="_mcFmtInput(this)">
+
     <label class="vf-label">係咪首次置業？</label>
     <div id="mc-ftb" style="display:flex;gap:0.4rem;flex-wrap:wrap">
       <button type="button" class="filter-chip active" data-ftb="1" onclick="setMcFtb(this)">係（名下冇香港住宅）</button>
@@ -7536,6 +7542,8 @@ function loanFromPayment(payment, annualRatePct, years) {
 // $15,000，差好遠，所以唔好扮準，畀用戶入返律師行報嘅價。
 const MC_AGENT_PCT_DEFAULT = 1;
 const MC_LEGAL_FEE_DEFAULT = 15000;
+// 裝修費預留冇市場慣例（各人裝修預算差好遠），預設 0——留空即係「未計」，
+// 唔好幫用戶估一個數出嚟誤導佢。
 // DSR（供款與入息比率）上限 50%，2024-10-16 起劃一（唔再分自住/收租、
 // 首置/非首置）。壓力測試（+2% 加息測試）已經喺 2025-02-28 取消。
 const DSR_CAP = 0.50;
@@ -7563,9 +7571,10 @@ function bonusMonthlyIncome(baseSalary, bonusYear1, bonusYear2) {
 // 三種特殊情況先俾自住盤出租，一般收租盤申請時已經要如實聲明用途），
 // 一敍做就冇按保，封晒喺金管局基本上限 70%。傳呢個入嚟就強制用 70%，
 // 唔理 firstTime／樓價分級，亦唔使計 mip（≤70% 本身就係 0）。
-function mortgageBreakdown({ price, ltv, loan: wantLoanIn, years, rate, firstTime, agentPct, legalFee, maxLtv }) {
+function mortgageBreakdown({ price, ltv, loan: wantLoanIn, years, rate, firstTime, agentPct, legalFee, renoFee, maxLtv }) {
   const aPct = (agentPct != null ? agentPct : MC_AGENT_PCT_DEFAULT) / 100;
   const legal = legalFee != null ? legalFee : MC_LEGAL_FEE_DEFAULT;
+  const reno = renoFee || 0;
   const wantLoan = wantLoanIn != null ? wantLoanIn : price * ltv;
   const capLoan = maxLtv != null ? price * maxLtv : maxLoanFor(price, firstTime);
   const loan = Math.min(wantLoan, capLoan);
@@ -7580,11 +7589,12 @@ function mortgageBreakdown({ price, ltv, loan: wantLoanIn, years, rate, firstTim
   return {
     price, loan, down, capped, capLoan,
     ltv: price > 0 ? loan / price : 0,
-    duty, agent, legal, mip,
+    duty, agent, legal, reno, mip,
     monthly: Math.round(pay),
     // 按保保費銀行通常可以「加入貸款額」分期還，但預設當現金支出——
-    // 報大個現金需求好過報細，用戶唔會因為呢個數而畀唔到訂。
-    cashNeeded: Math.round(down + duty + agent + legal + mip.amount),
+    // 報大個現金需求好過報細，用戶唔會因為呢個數而畀唔到訂。裝修費本身
+    // 就係「使費」，用戶主動預留就即刻計入去，唔洗做行業慣例。
+    cashNeeded: Math.round(down + duty + agent + legal + reno + mip.amount),
     incomeNeeded: Math.round(Math.round(pay) / DSR_CAP),
   };
 }
@@ -7595,10 +7605,11 @@ function mortgageBreakdown({ price, ltv, loan: wantLoanIn, years, rate, firstTim
 // maxLtv：出租盤場景用，見 mortgageBreakdown 頂嗰段註解——傳咗就即刻封
 // 死喺嗰個成數（一般 0.70），冧晒按揭保險嗰套「解費率」邏輯，因為出租盤
 // 根本冚唔到保險，唔使諗邊個檔。
-function affordability({ income, cash, years, rate, firstTime, agentPct, legalFee, maxLtv }) {
+function affordability({ income, cash, years, rate, firstTime, agentPct, legalFee, renoFee, maxLtv }) {
   const budget = income * DSR_CAP;
   const aPct = (agentPct != null ? agentPct : MC_AGENT_PCT_DEFAULT) / 100;
   const legal = legalFee != null ? legalFee : MC_LEGAL_FEE_DEFAULT;
+  const reno = renoFee || 0;
   const noInsurance = maxLtv != null && maxLtv <= HKMA_BASE_LTV + 1e-9;
 
   // 一個樓價要借幾多＝樓價減「手頭現金用晒喺首期之後仲剩幾多」。
@@ -7614,7 +7625,9 @@ function affordability({ income, cash, years, rate, firstTime, agentPct, legalFe
   // 逐個可能嘅 r 解一次，再驗返個 loan 真係落返 r 嗰個檔先當有效解。
   // 出租盤冇保險可解（一定係 r=0），一條直線方程搞掂，唔使查 MIP 表。
   const loanFor = (price) => {
-    const fixed = stampDuty(price) + Math.round(price * aPct) + legal;
+    // 裝修費預留同律師費一樣係「用手頭現金找數」嘅雜費——你有幾多現金
+    // 落首期，係手頭現金扣走裝修費之後嗰筆，唔係樓價嘅一部分。
+    const fixed = stampDuty(price) + Math.round(price * aPct) + legal + reno;
     const need = price - cash + fixed;          // 未計按保之前要借幾多
     if (need <= 0) return 0;                    // 現金夠晒，唔使做按揭
     if (noInsurance) return need;
@@ -7646,7 +7659,7 @@ function affordability({ income, cash, years, rate, firstTime, agentPct, legalFe
     if (fits(mid)) lo = mid; else hi = mid;
   }
   const price = Math.floor(lo / 10000) * 10000;   // 收到「萬」位，唔好出零頭
-  return { price, ...mortgageBreakdown({ price, loan: loanFor(price), years, rate, firstTime, agentPct, legalFee, maxLtv }),
+  return { price, ...mortgageBreakdown({ price, loan: loanFor(price), years, rate, firstTime, agentPct, legalFee, renoFee, maxLtv }),
            // 邊樣夾住咗？講返俾用戶知先有用（唔夠現金 vs 唔夠人工 vs 成數上限）
            bind: (() => {
              const p2 = price * 1.02, l2 = loanFor(p2);
@@ -7759,6 +7772,7 @@ function renderMortgage() {
   const ftb = _mcFtb;
   const agentPct = _mcNum("mc-agent");
   const legalFee = _mcNum("mc-legal");
+  const renoFee = _mcNum("mc-reno");
 
   if (_mcMode === "afford") {
     const baseIncome = _mcNum("mc-income");
@@ -7772,7 +7786,7 @@ function renderMortgage() {
     if (bonusPrev) bonusPrev.textContent = bonusMonthly > 0 ? `　依家計到月入加 ${_mcMoney(bonusMonthly)}。` : "";
     const income = baseIncome + bonusMonthly;
     if (!income || !cash) { out.innerHTML = `<div style="color:var(--muted);font-size:0.82rem">填咗月入同現金就即刻計俾你睇。</div>`; return; }
-    const a = affordability({ income, cash, years, rate, firstTime: ftb, agentPct, legalFee });
+    const a = affordability({ income, cash, years, rate, firstTime: ftb, agentPct, legalFee, renoFee });
     if (!a) {
       out.innerHTML = `<div style="color:var(--down);font-size:0.82rem">依家呢個組合連 $50萬 嘅樓都上唔到會——試下加年期、減利率，或者儲多啲首期。</div>`;
       return;
@@ -7785,7 +7799,7 @@ function renderMortgage() {
     // 出租盤：按揭保險淨係批自住（超 7 成一定要自住），所以如果打算收租，
     // 就算首期夠、人工夠，都封死喺金管局基本上限 70%——冧晒按保。用返
     // 同一份月入／現金計，睇下 70% 封頂之下買唔買得起同一層樓、定係要縮。
-    const r = affordability({ income, cash, years, rate, firstTime: ftb, agentPct, legalFee, maxLtv: HKMA_BASE_LTV });
+    const r = affordability({ income, cash, years, rate, firstTime: ftb, agentPct, legalFee, renoFee, maxLtv: HKMA_BASE_LTV });
     // 出租嗰行跟主數字同一級 font（1.5rem/700），但換第二種色（--accent2，
     // 呢個 app 用嚟做「連結／資訊」嗰隻藍）——同主色分得開，但唔會搶咗
     // 主數字嘅視覺重點。標籤自己一行，唔好同個大數字擠埋。
@@ -7814,6 +7828,7 @@ function renderMortgage() {
       ${a.mip.amount ? _mcRow(`按揭保險（${a.mip.rate}%）`, _mcMoney(a.mip.amount)) : ""}
       ${_mcRow(`代理佣金（${agentPct}%）`, _mcMoney(a.agent))}
       ${_mcRow("律師費", _mcMoney(a.legal))}
+      ${a.reno ? _mcRow("裝修費預留", _mcMoney(a.reno)) : ""}
       ${_mcRow("上會要準備嘅現金", _mcWan(a.cashNeeded), { strong: true, top: true })}
       <div style="display:flex;gap:0.5rem;margin-top:0.9rem">
         <button class="vf-submit" style="flex:1;margin:0" onclick="useMcAsBudget(${Math.round(a.price / 10000)})">
@@ -7827,7 +7842,7 @@ function renderMortgage() {
   const price = _mcNum("mc-price") * 10000;
   const ltv = Math.min(90, Math.max(1, _mcNum("mc-ltv") || 70)) / 100;
   if (!price) { out.innerHTML = `<div style="color:var(--muted);font-size:0.82rem">填咗樓價就即刻計俾你睇。</div>`; return; }
-  const b = mortgageBreakdown({ price, ltv, years, rate, firstTime: ftb, agentPct, legalFee });
+  const b = mortgageBreakdown({ price, ltv, years, rate, firstTime: ftb, agentPct, legalFee, renoFee });
   const notes = [];
   if (b.capped) notes.push(`借唔到 ${(ltv * 100).toFixed(0)}%——呢個樓價最多做到 <b>${(b.capLoan / price * 100).toFixed(0)}%</b>（${_mcWan(b.capLoan)}），已經幫你按上限計。`);
   if (b.mip.why) notes.push(b.mip.why);
@@ -7844,6 +7859,7 @@ function renderMortgage() {
     ${b.mip.amount ? _mcRow(`按揭保險（${b.mip.rate}%）`, _mcMoney(b.mip.amount)) : ""}
     ${_mcRow(`代理佣金（${agentPct}%）`, _mcMoney(b.agent))}
     ${_mcRow("律師費", _mcMoney(b.legal))}
+    ${b.reno ? _mcRow("裝修費預留", _mcMoney(b.reno)) : ""}
     ${_mcRow("上會要準備嘅現金", _mcWan(b.cashNeeded), { strong: true, top: true })}`;
 }
 
