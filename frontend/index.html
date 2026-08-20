@@ -1488,9 +1488,9 @@
     <div id="mc-pane-afford">
       <div class="vf-row2">
         <div><label class="vf-label">家庭月入（$）</label>
-          <input class="vf-input" type="number" id="mc-income" placeholder="例：60000（唔連花紅）" oninput="renderMortgage()"></div>
+          <input class="vf-input" type="text" inputmode="decimal" id="mc-income" placeholder="例：60,000（唔連花紅）" oninput="_mcFmtInput(this)"></div>
         <div><label class="vf-label">手頭現金（萬）</label>
-          <input class="vf-input" type="number" id="mc-cash" placeholder="例：200" oninput="renderMortgage()"></div>
+          <input class="vf-input" type="text" inputmode="decimal" id="mc-cash" placeholder="例：200" oninput="_mcFmtInput(this)"></div>
       </div>
       <!-- 花紅係月入嘅 sub-item：分開兩年輸入，因為銀行係計「兩年平均」
            唔係淨計去年，一年冇花紅（例如轉工）都仲計得到一個合理數。 -->
@@ -1501,8 +1501,8 @@
       <div id="mc-bonus-box" style="display:none;margin-top:0.4rem">
         <label class="vf-label" style="margin-top:0">最近兩年每年花紅（$）</label>
         <div class="vf-row2" style="margin-top:0">
-          <input class="vf-input" type="number" id="mc-bonus-y1" placeholder="去年" oninput="renderMortgage()">
-          <input class="vf-input" type="number" id="mc-bonus-y2" placeholder="前年" oninput="renderMortgage()">
+          <input class="vf-input" type="text" inputmode="decimal" id="mc-bonus-y1" placeholder="去年" oninput="_mcFmtInput(this)">
+          <input class="vf-input" type="text" inputmode="decimal" id="mc-bonus-y2" placeholder="前年" oninput="_mcFmtInput(this)">
         </div>
         <p style="font-size:0.72rem;color:var(--muted);margin:0.35rem 0 0;line-height:1.45">
           銀行一般用「兩年平均 ÷ 12」計入月入，封頂喺底薪 3 倍——呢個唔係
@@ -1515,7 +1515,7 @@
     <div id="mc-pane-cost" style="display:none">
       <div class="vf-row2">
         <div><label class="vf-label">樓價（萬）</label>
-          <input class="vf-input" type="number" id="mc-price" placeholder="例：800" oninput="renderMortgage()"></div>
+          <input class="vf-input" type="text" inputmode="decimal" id="mc-price" placeholder="例：800" oninput="_mcFmtInput(this)"></div>
         <div><label class="vf-label">按揭成數（%）</label>
           <input class="vf-input" type="number" id="mc-ltv" value="70" min="10" max="90" oninput="renderMortgage()"></div>
       </div>
@@ -1532,7 +1532,7 @@
       <div><label class="vf-label">代理佣金（%）</label>
         <input class="vf-input" type="number" id="mc-agent" value="1" step="0.1" oninput="renderMortgage()"></div>
       <div><label class="vf-label">律師費（$）</label>
-        <input class="vf-input" type="number" id="mc-legal" value="15000" step="1000" oninput="renderMortgage()"></div>
+        <input class="vf-input" type="text" inputmode="decimal" id="mc-legal" value="15,000" oninput="_mcFmtInput(this)"></div>
     </div>
 
     <label class="vf-label">係咪首次置業？</label>
@@ -7707,7 +7707,28 @@ function toggleMcBonus() {
   renderMortgage();
 }
 
-const _mcNum = (id) => { const v = parseFloat(document.getElementById(id)?.value); return isFinite(v) ? v : 0; };
+// 金額輸入格改用 type="text" 做千位逗號（type="number" 唔准入 ","，
+// 瀏覽器會直接拒絕呢粒字）。讀值嗰陣要剝走逗號先 parse。
+const _mcNum = (id) => { const v = parseFloat((document.getElementById(id)?.value || "").replace(/,/g, "")); return isFinite(v) ? v : 0; };
+// 邊打邊插逗號。用「由頭數到 caret 果度有幾多個數字」嚟定位，重畫完之後
+// 揾返第 N 個數字嘅位置放返 caret——純粹用字元 index 會因為逗號數量變咗
+// 而錯位（打緊中間果段，後面新增/減少逗號會累加位移）。
+function _mcFmtInput(el) {
+  const digitsBefore = el.value.slice(0, el.selectionStart ?? el.value.length).replace(/[^\d]/g, "").length;
+  const raw = el.value.replace(/[^\d.]/g, "");
+  const dot = raw.indexOf(".");
+  const intPart = dot === -1 ? raw : raw.slice(0, dot);
+  const decPart = dot === -1 ? "" : raw.slice(dot);         // 含個 "."
+  const grouped = intPart.replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+  el.value = grouped + decPart;
+  let pos = 0, digits = 0;
+  while (pos < el.value.length && digits < digitsBefore) {
+    if (/\d/.test(el.value[pos])) digits++;
+    pos++;
+  }
+  el.setSelectionRange(pos, pos);
+  renderMortgage();
+}
 const _mcMoney = (n) => "$" + Math.round(n).toLocaleString();
 // 大銀碼用「萬」睇得舒服啲（成個 app 都係咁講數）
 const _mcWan = (n) => "$" + (n / 10000).toLocaleString(undefined, { maximumFractionDigits: 1 }) + "萬";
