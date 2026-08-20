@@ -33,6 +33,7 @@
       --accent: #fbbf24;       /* 價錢／重點數字（琥珀）9.3:1 / 11.6:1 */
       --on-accent: #1a1206;
       --accent2: #60a5fa;      /* 連結／資訊 6.1:1 / 7.6:1 */
+      --on-accent2: #0a1f33;   /* --accent2 做底時嘅字色，6.6:1（白字得 2.5:1，唔夠） */
       --up: #34d399;           /* 升 8.1:1 / 10.1:1 */
       --down: #f87171;         /* 跌 5.6:1 / 7.0:1（#ef4444 只有 4.1，唔夠）*/
 
@@ -130,6 +131,7 @@
       --accent: #b45309;       /* 價錢（深琥珀）4.9:1 */
       --on-accent: #fff7ed;
       --accent2: #0369a1;      /* 連結／資訊 5.8:1 */
+      --on-accent2: #ffffff;   /* --accent2 做底時嘅字色，5.9:1 */
       --up: #15803d;           /* 4.9:1 */
       --down: #dc2626;         /* 4.7:1 */
 
@@ -7781,7 +7783,9 @@ function renderMortgage() {
          <div style="font-size:1.5rem;font-weight:700;color:var(--accent2)">${_mcWan(r.price)}</div>
          <div style="font-size:0.75rem;color:var(--muted);margin-top:0.2rem">7 成貸款 ${_mcWan(r.loan)}，首期 ${_mcWan(r.down)}</div>`
       : `<div style="font-size:0.78rem;color:var(--muted)">如果打算出租（封 7 成）：依家個組合 7 成都上唔到會</div>`;
-    const rentBtn = r ? `<button class="vf-submit" style="flex:1;margin:0;background:var(--btn2-bg);border:1px solid var(--btn2-border);color:var(--text)" onclick="useMcAsBudget(${Math.round(r.price / 10000)})">
+    // 用 --accent2 做底（跟返上面「$596萬」個數字同一隻色），唔用 ghost
+    // 灰色——咁樣掣同數字連埋一齊睇，一眼就知邊個掣配邊個數。
+    const rentBtn = r ? `<button class="vf-submit" style="flex:1;margin:0;background:var(--accent2);color:var(--on-accent2)" onclick="useMcAsBudget(${Math.round(r.price / 10000)})">
         用 ${_mcWan(r.price)} 做我嘅買盤預算（出租）
       </button>` : "";
     out.innerHTML = `
