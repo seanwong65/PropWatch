@@ -52,9 +52,16 @@ toggle, filters, badges and the schema column:
 欄位名都一樣（所以兩者共用 `parseHkpProperty` / `parseHkpTransaction`，只係
 HKP 行 `search/v1`、美聯行 `search/v2`）。實測分別：
 
-- **成交：完全一樣** —— 連 transaction id 都相同。首次 sync 14 個屋苑，美聯
-  抓返 ~400 宗淨係入到 **3 宗**，其餘全部俾 `transactions` 個 combo UNIQUE
-  索引擋走。即係美聯成交幾乎唔會帶新數據，佢嘅價值係「HKP 熄咗嗰陣頂得住」。
+- **成交：完全一樣** —— 連 transaction id 都相同。所以兩個之中只可以有一個
+  做 master，**master = 香港置業**，美聯個 `txn`／`rentTxn` 已經喺 registry
+  剪走（2026-08-21）。實測（1,622 宗 hkp 成交）：**2026 年成交美聯獨有 0 宗**，
+  美聯獨有嗰 9 宗全部係 2023–2025 嘅舊成交，佔 0.55%。
+  點解 master 揀香港置業：已有 1,622 宗標咗 hkp，而 combo UNIQUE 索引係
+  先入為主，就算轉美聯做 master 嗰批都**永遠改唔到名**，個成交表會變成
+  一半「香港置業」一半「美聯」——同一份數據兩個名，仲亂。
+  代價：香港置業爆咗嗰陣成交冇後備。要頂返上去就係喺 SOURCES 加返
+  `txn`／`rentTxn` 兩行（`scrapeMidlandTransactions` 冇刪，仲喺度）。
+  收益：每日慳 14 個成交單元。
 - **放盤：零重疊** —— `serial_no` 前綴唔同（`M…` vs `H…`），係兩盤各自嘅代理
   盤源。實測美聯常常多過 HKP（黃埔花園 77 vs 1、碧海藍天 39 vs 17）。
   呢度先係加美聯嘅真正收益。

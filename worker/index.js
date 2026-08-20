@@ -1621,17 +1621,28 @@ const SOURCES = [
     },
     rentTxn: async (db, estate) =>
       saveRentalTxns(db, estate.id, await scrapeHkpTransactions(estate.name, "L"), "hkp") },
+  // 美聯**特登冇 txn／rentTxn**——唔係做唔到，係做極都攞唔到新嘢。
+  // 佢同香港置業共用同一個後台，成交記錄連 transaction id 都一樣，所以
+  // 兩個之中一定要揀一個做 master，而 master 揀咗香港置業（見下面理由）。
+  // 實測（截至 2026-08-21，1,622 宗 hkp 成交）：
+  //   · **2026 年成交，美聯獨有 = 0 宗** —— 近期數據兩邊完全一致；
+  //   · 美聯獨有嘅 9 宗全部係 2023–2025 嘅舊成交，佔 0.55%。
+  // 點解 master 揀香港置業唔揀美聯：
+  //   ① 已經有 1,622 宗標咗 hkp。因為 transactions 個 combo UNIQUE 索引係
+  //      先入為主，就算轉咗美聯做 master，嗰 1,622 宗都**永遠改唔到名**
+  //      （美聯抓返同一批會被索引擋走），結果個成交表會一半「香港置業」
+  //      一半「美聯」，同一份數據兩個名，睇落似兩個 source 各有一半。
+  //   ② hkp 喺呢個 registry 排前，本來就係先跑先入嗰個。
+  // 代價講清楚：香港置業熄咗／爆咗嗰陣，成交冇咗個後備。要頂返上去就係
+  // 喺呢度加返 txn / rentTxn 兩行（scrapeMidlandTransactions 仲喺度，冇刪）。
+  // 收益：每日慳返 14 個成交單元（＋輪到美聯嗰日多 14 個租務成交單元）。
   { id: "midland", label: "美聯", enabledCol: "midland_enabled",
     scrape: (estate) => scrapeMidlandListings(estate.name),
     save: saveMidlandListings,
-    txn: async (db, estate) =>
-      saveMidlandTransactions(db, estate.id, await scrapeMidlandTransactions(estate.name)),
     rent: async (estate) => {
       const rows = await scrapeMidlandListings(estate.name, "L");
       return rows.map((l) => ({ ...l, listing_id: l.ref_no, sale_price: null }));
-    },
-    rentTxn: async (db, estate) =>
-      saveRentalTxns(db, estate.id, await scrapeMidlandTransactions(estate.name, "L"), "midland") },
+    } },
 ];
 // centanet defaults on (enabled unless explicitly 0); others must be truthy.
 const sourceEnabled = (estate, s) => s.id === "centanet" ? estate[s.enabledCol] !== 0 : !!estate[s.enabledCol];
@@ -4198,7 +4209,8 @@ async function buildPendingUnits(db, today) {
       for (const s of SOURCES) {
         if (!sourceEnabled(e, s)) continue;
         if (isRent && s.id !== rentSourceToday?.id) continue;   // 今日只輪到一個
-        if (kind === "rent_listings" && !s.rent) continue;      // 冇能力就跳過
+        if (kind === "txn" && !s.txn) continue;                 // 冇能力就跳過
+        if (kind === "rent_listings" && !s.rent) continue;
         if (kind === "rent_txn" && !s.rentTxn) continue;
         const st = seen.get(`${e.id}|${s.id}|${kind}`);
         if (st && (st.ok || st.attempts >= SYNC_MAX_ATTEMPTS)) continue;
@@ -4290,9 +4302,8 @@ const UNIT_SUBREQ_COST = {
   centanet: { listings: 4, rent_listings: 4, rent_txn: 4, txn: 3 },
   hkp:      { listings: 4, rent_listings: 4, rent_txn: 4, txn: 3 },
   // 美聯同 HKP 同一個後台、同一種分頁（token 1 + autocomplete 1 + 每頁 50），
-  // 所以成本表照抄 HKP。成交 3 年得 200 幾宗＝ 5 頁，加 token/autocomplete
-  // 就係 7；放盤一頁完。
-  midland:  { listings: 4, rent_listings: 4, rent_txn: 7, txn: 7 },
+  // 所以成本表照抄 HKP。冇 txn／rent_txn 係因為佢冇宣告嗰兩個能力（見 SOURCES）。
+  midland:  { listings: 4, rent_listings: 4 },
 };
 function unitSubreqCost(u) {
   return UNIT_SUBREQ_COST[u.source.id]?.[u.kind] ?? 8;
@@ -4309,8 +4320,7 @@ const UNIT_WORST_MS = {
   ricacorp: { listings: 32000, rent_listings: 32000, txn: 27000 },
   centanet: { listings: 12000, rent_listings: 12000, rent_txn: 12000, txn: 12000 },
   hkp:      { listings: 12000, rent_listings: 12000, rent_txn: 12000, txn: 12000 },
-  // 成交嗰兩個內部 deadline 25s（見 scrapeMidlandTransactions），加收尾 = 27s
-  midland:  { listings: 12000, rent_listings: 12000, rent_txn: 27000, txn: 27000 },
+  midland:  { listings: 12000, rent_listings: 12000 },
 };
 function unitWorstMs(u) {
   return UNIT_WORST_MS[u.source.id]?.[u.kind] ?? 15000;
