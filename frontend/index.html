@@ -1488,9 +1488,26 @@
     <div id="mc-pane-afford">
       <div class="vf-row2">
         <div><label class="vf-label">家庭月入（$）</label>
-          <input class="vf-input" type="number" id="mc-income" placeholder="例：60000" oninput="renderMortgage()"></div>
+          <input class="vf-input" type="number" id="mc-income" placeholder="例：60000（唔連花紅）" oninput="renderMortgage()"></div>
         <div><label class="vf-label">手頭現金（萬）</label>
           <input class="vf-input" type="number" id="mc-cash" placeholder="例：200" oninput="renderMortgage()"></div>
+      </div>
+      <!-- 花紅係月入嘅 sub-item：分開兩年輸入，因為銀行係計「兩年平均」
+           唔係淨計去年，一年冇花紅（例如轉工）都仲計得到一個合理數。 -->
+      <button type="button" onclick="toggleMcBonus()" id="mc-bonus-toggle"
+        style="background:none;border:none;color:var(--accent2);font-size:0.78rem;padding:0.4rem 0 0;cursor:pointer;text-align:left">
+        ＋ 有花紅？計埋佢
+      </button>
+      <div id="mc-bonus-box" style="display:none;margin-top:0.4rem">
+        <label class="vf-label" style="margin-top:0">最近兩年每年花紅（$）</label>
+        <div class="vf-row2" style="margin-top:0">
+          <input class="vf-input" type="number" id="mc-bonus-y1" placeholder="去年" oninput="renderMortgage()">
+          <input class="vf-input" type="number" id="mc-bonus-y2" placeholder="前年" oninput="renderMortgage()">
+        </div>
+        <p style="font-size:0.72rem;color:var(--muted);margin:0.35rem 0 0;line-height:1.45">
+          銀行一般用「兩年平均 ÷ 12」計入月入，封頂喺底薪 3 倍——呢個唔係
+          官方規定，各行做法唔一樣，呢度只做估算。<span id="mc-bonus-preview"></span>
+        </p>
       </div>
     </div>
 
@@ -1530,8 +1547,9 @@
       印花稅按稅務局 2026-02-26 起嘅稅階計；按揭成數同保費按按證保險現行規定
       （保費表 2024 年 10 月版，取「浮息＋一次過付清」）。SSD／BSD／NRSD 已經
       喺 2024-02-28 撤銷，壓力測試亦喺 2025-02-28 取消，所以呢度唔會再計。
-      律師費同代理佣金冇官方公價，上面兩格可以改成你收到嘅報價。
-      實際批核以銀行為準。
+      律師費同代理佣金冇官方公價，上面兩格可以改成你收到嘅報價。花紅計法
+      （兩年平均封頂底薪 3 倍）同「出租封 7 成」都係市場慣例，唔係監管
+      規定，各行做法唔一樣。實際批核以銀行為準。
     </p>
   </div>
 </div>
@@ -7512,17 +7530,39 @@ const MC_LEGAL_FEE_DEFAULT = 15000;
 // 首置/非首置）。壓力測試（+2% 加息測試）已經喺 2025-02-28 取消。
 const DSR_CAP = 0.50;
 
+// 花紅計入月入：呢個唔係官方規定（金管局冇訂實點計花紅，係銀行自己決
+// 定），係市場慣例，各行做法都唔一樣。跟返最常見嘅做法：
+//   月入貢獻 = 最近兩年花紅平均 ÷ 12，但封頂喺「底薪嘅 3 倍」。
+// 封頂嘅原意：如果淨係一年有花紅（例如轉工前一年冇），除 24 個月會計得
+// 太少見唔到真實水平；但花紅／佣金大到成幾廿萬，銀行都唔會照單全收，
+// 3 倍封頂係業界常見嘅風控線。
+// 來源：市場慣例（星之谷／HK01），唔係監管要求，所以呢度只做估算，
+// 實際銀行點計以佢哋審批為準。
+const BONUS_LTM_CAP_X_SALARY = 3;
+function bonusMonthlyIncome(baseSalary, bonusYear1, bonusYear2) {
+  const b1 = bonusYear1 || 0, b2 = bonusYear2 || 0;
+  const avgMonthly = (b1 + b2) / 24;
+  const cap = (baseSalary || 0) * BONUS_LTM_CAP_X_SALARY / 12;
+  return Math.min(avgMonthly, cap);
+}
+
 // 由樓價計：一次過出晒「月供 / 首期 / 印花稅 / 按保 / 雜費 / 總現金」。
 // ltv 同 loan 揀一個俾：ltv = 「我想做幾成」，loan = 「我實際要借咁多」
 // （倒推嗰邊用，因為嗰度個貸款額係由「樓價減埋手頭現金」倒出嚟）。
-function mortgageBreakdown({ price, ltv, loan: wantLoanIn, years, rate, firstTime, agentPct, legalFee }) {
+// maxLtv：出租盤用——按揭保險淨係批自住（見立法會 2025-07-09 答覆，得
+// 三種特殊情況先俾自住盤出租，一般收租盤申請時已經要如實聲明用途），
+// 一敍做就冇按保，封晒喺金管局基本上限 70%。傳呢個入嚟就強制用 70%，
+// 唔理 firstTime／樓價分級，亦唔使計 mip（≤70% 本身就係 0）。
+function mortgageBreakdown({ price, ltv, loan: wantLoanIn, years, rate, firstTime, agentPct, legalFee, maxLtv }) {
   const aPct = (agentPct != null ? agentPct : MC_AGENT_PCT_DEFAULT) / 100;
   const legal = legalFee != null ? legalFee : MC_LEGAL_FEE_DEFAULT;
   const wantLoan = wantLoanIn != null ? wantLoanIn : price * ltv;
-  const capLoan = maxLoanFor(price, firstTime);
+  const capLoan = maxLtv != null ? price * maxLtv : maxLoanFor(price, firstTime);
   const loan = Math.min(wantLoan, capLoan);
   const capped = wantLoan - loan > 1;           // 想借嘅多過批得到
-  const mip = mipPremium(price, loan, years, firstTime);
+  const mip = maxLtv != null && maxLtv <= HKMA_BASE_LTV + 1e-9
+    ? { rate: 0, amount: 0, ok: true }
+    : mipPremium(price, loan, years, firstTime);
   const down = price - loan;
   const duty = stampDuty(price);
   const agent = Math.round(price * aPct);
@@ -7542,10 +7582,14 @@ function mortgageBreakdown({ price, ltv, loan: wantLoanIn, years, rate, firstTim
 // 由「月入 + 手頭現金」倒推買得起幾錢樓。
 // 用二分法而唔用公式：按揭成數上限、印花稅、按保費率三樣都係分段函數，
 // 夾埋冇 closed form，二分法穩陣好多（單調遞增，60 次已經準到蚊都飛唔甩）。
-function affordability({ income, cash, years, rate, firstTime, agentPct, legalFee }) {
+// maxLtv：出租盤場景用，見 mortgageBreakdown 頂嗰段註解——傳咗就即刻封
+// 死喺嗰個成數（一般 0.70），冧晒按揭保險嗰套「解費率」邏輯，因為出租盤
+// 根本冚唔到保險，唔使諗邊個檔。
+function affordability({ income, cash, years, rate, firstTime, agentPct, legalFee, maxLtv }) {
   const budget = income * DSR_CAP;
   const aPct = (agentPct != null ? agentPct : MC_AGENT_PCT_DEFAULT) / 100;
   const legal = legalFee != null ? legalFee : MC_LEGAL_FEE_DEFAULT;
+  const noInsurance = maxLtv != null && maxLtv <= HKMA_BASE_LTV + 1e-9;
 
   // 一個樓價要借幾多＝樓價減「手頭現金用晒喺首期之後仲剩幾多」。
   // ⚠️ 呢度千其唔可以當「一律做盡九成」——手頭現金多過首期嘅人（例如
@@ -7558,10 +7602,12 @@ function affordability({ income, cash, years, rate, firstTime, agentPct, legalFe
   // 費率同真正個貸款額對唔上，出嚟嘅「要準備嘅現金」會爆過手頭現金。
   // 改為直接解方程：假設費率係 r，loan = (樓價 − 現金 + 雜費) / (1 − r)，
   // 逐個可能嘅 r 解一次，再驗返個 loan 真係落返 r 嗰個檔先當有效解。
+  // 出租盤冇保險可解（一定係 r=0），一條直線方程搞掂，唔使查 MIP 表。
   const loanFor = (price) => {
     const fixed = stampDuty(price) + Math.round(price * aPct) + legal;
     const need = price - cash + fixed;          // 未計按保之前要借幾多
     if (need <= 0) return 0;                    // 現金夠晒，唔使做按揭
+    if (noInsurance) return need;
     const tbl = MIP_PREMIUM[mipTableFor(price, firstTime)];
     const ti = MIP_TENORS.findIndex((t) => years <= t);
     const tix = ti < 0 ? MIP_TENORS.length - 1 : ti;
@@ -7575,11 +7621,12 @@ function affordability({ income, cash, years, rate, firstTime, agentPct, legalFe
     }
     return best != null ? best : Infinity;      // 冇自洽解 → 下面 fits() 會拒絕
   };
+  const capFor = (price) => (maxLtv != null ? price * maxLtv : maxLoanFor(price, firstTime));
   const fits = (price) => {
     const loan = loanFor(price);
-    if (loan > maxLoanFor(price, firstTime) + 1) return false;      // 成數過唔到
-    if (!mipPremium(price, loan, years, firstTime).ok) return false; // 按保唔接
-    return monthlyPayment(loan, rate, years) <= budget;             // 供唔起
+    if (loan > capFor(price) + 1) return false;                                    // 成數過唔到
+    if (!noInsurance && !mipPremium(price, loan, years, firstTime).ok) return false; // 按保唔接
+    return monthlyPayment(loan, rate, years) <= budget;                            // 供唔起
   };
   if (!(income > 0) || !(cash > 0) || !fits(500000)) return null;
   let lo = 500000, hi = 500000;
@@ -7589,12 +7636,12 @@ function affordability({ income, cash, years, rate, firstTime, agentPct, legalFe
     if (fits(mid)) lo = mid; else hi = mid;
   }
   const price = Math.floor(lo / 10000) * 10000;   // 收到「萬」位，唔好出零頭
-  return { price, ...mortgageBreakdown({ price, loan: loanFor(price), years, rate, firstTime, agentPct, legalFee }),
+  return { price, ...mortgageBreakdown({ price, loan: loanFor(price), years, rate, firstTime, agentPct, legalFee, maxLtv }),
            // 邊樣夾住咗？講返俾用戶知先有用（唔夠現金 vs 唔夠人工 vs 成數上限）
            bind: (() => {
              const p2 = price * 1.02, l2 = loanFor(p2);
              if (monthlyPayment(l2, rate, years) > budget) return "income";
-             if (l2 > maxLoanFor(p2, firstTime) + 1) return "ltv";
+             if (l2 > capFor(p2) + 1) return "ltv";
              return "cash";
            })() };
 }
@@ -7651,6 +7698,14 @@ function setMcFtb(btn) {
   document.querySelectorAll("#mc-ftb .filter-chip").forEach(b => b.classList.toggle("active", b === btn));
   renderMortgage();
 }
+function toggleMcBonus() {
+  const box = document.getElementById("mc-bonus-box");
+  const open = box.style.display === "none";
+  box.style.display = open ? "" : "none";
+  document.getElementById("mc-bonus-toggle").textContent = open ? "－ 唔計花紅" : "＋ 有花紅？計埋佢";
+  // 收埋個 box 唔代表數字要丟——用戶可能撳漏手，淨係唔計入去。
+  renderMortgage();
+}
 
 const _mcNum = (id) => { const v = parseFloat(document.getElementById(id)?.value); return isFinite(v) ? v : 0; };
 const _mcMoney = (n) => "$" + Math.round(n).toLocaleString();
@@ -7672,8 +7727,16 @@ function renderMortgage() {
   const legalFee = _mcNum("mc-legal");
 
   if (_mcMode === "afford") {
-    const income = _mcNum("mc-income");
+    const baseIncome = _mcNum("mc-income");
     const cash = _mcNum("mc-cash") * 10000;
+    // 花紅淨係喺個 box 開住（用戶主動撳咗「計埋佢」）先計入去——收埋咗
+    // 就算入面留低咗數字都唔算，避免用戶漏手撳收埋之後仲當計咗。
+    const bonusOpen = document.getElementById("mc-bonus-box").style.display !== "none";
+    const bonusMonthly = bonusOpen
+      ? bonusMonthlyIncome(baseIncome, _mcNum("mc-bonus-y1"), _mcNum("mc-bonus-y2")) : 0;
+    const bonusPrev = document.getElementById("mc-bonus-preview");
+    if (bonusPrev) bonusPrev.textContent = bonusMonthly > 0 ? `　依家計到月入加 ${_mcMoney(bonusMonthly)}。` : "";
+    const income = baseIncome + bonusMonthly;
     if (!income || !cash) { out.innerHTML = `<div style="color:var(--muted);font-size:0.82rem">填咗月入同現金就即刻計俾你睇。</div>`; return; }
     const a = affordability({ income, cash, years, rate, firstTime: ftb, agentPct, legalFee });
     if (!a) {
@@ -7685,6 +7748,16 @@ function renderMortgage() {
       : a.bind === "ltv"
       ? "夾住你嘅係<b>按揭成數上限</b>（呢個樓價最多借到咁多）——首期再多都要夠人工先借得多。"
       : "夾住你嘅係<b>手頭現金</b>（首期＋印花稅＋雜費）——儲多啲現金就買得高啲。";
+    // 出租盤：按揭保險淨係批自住（超 7 成一定要自住），所以如果打算收租，
+    // 就算首期夠、人工夠，都封死喺金管局基本上限 70%——冧晒按保。用返
+    // 同一份月入／現金計，睇下 70% 封頂之下買唔買得起同一層樓、定係要縮。
+    const r = affordability({ income, cash, years, rate, firstTime: ftb, agentPct, legalFee, maxLtv: HKMA_BASE_LTV });
+    const rentBox = r
+      ? `<div style="background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius-sm);padding:0.6rem 0.85rem;margin-top:0.6rem">
+           <div style="font-size:0.78rem;color:var(--muted)">如果打算出租（按揭保險淨批自住，收租盤封死 7 成）</div>
+           <div style="font-size:1.15rem;font-weight:700;color:var(--text);margin-top:0.1rem">${_mcWan(r.price)}<span style="font-size:0.75rem;font-weight:400;color:var(--muted)">　（7 成貸款 ${_mcWan(r.loan)}，首期 ${_mcWan(r.down)}）</span></div>
+         </div>`
+      : `<div style="font-size:0.76rem;color:var(--muted);margin-top:0.5rem">如果打算出租（封 7 成）：依家個組合 7 成都上唔到會。</div>`;
     out.innerHTML = `
       <div style="background:var(--brand-soft);border:1px solid var(--brand);border-radius:var(--radius-sm);padding:0.7rem 0.85rem;margin-bottom:0.6rem">
         <div style="font-size:0.78rem;color:var(--muted)">你大約買得起</div>
@@ -7701,7 +7774,8 @@ function renderMortgage() {
       ${_mcRow("上會要準備嘅現金", _mcWan(a.cashNeeded), { strong: true, top: true })}
       <button class="vf-submit" style="width:100%;margin-top:0.9rem" onclick="useMcAsBudget(${Math.round(a.price / 10000)})">
         ✓ 用 ${_mcWan(a.price)} 做我嘅買盤預算
-      </button>`;
+      </button>
+      ${rentBox}`;
     return;
   }
 
