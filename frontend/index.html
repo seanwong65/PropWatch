@@ -1414,6 +1414,10 @@
       </div>
       <!-- 好多人係「知自己月入幾多」但唔知換到幾錢樓（首期／印花稅／按保
            要一齊計先出到數）。所以喺填預算嗰格隔籬就問，唔使佢自己去搵。 -->
+      <!-- 兩態：未問過（或未撳「唔使我知」）顯示成個 prompt box；撳咗之後
+           唔會完全消失——縮成一行長駐嘅連結，隨時撳得返（見 syncPrefCalcHint）。
+           以前撳一次之後成個入口都冇埋，想再計就要走去 dashboard 揾快捷掣，
+           喺度計緊預算嗰陣反而摸唔到。 -->
       <div id="pref-calc-hint" style="margin-top:0.5rem;padding:0.55rem 0.7rem;border:1px dashed var(--border-strong);border-radius:var(--radius-sm);background:var(--brand-soft)">
         <div style="font-size:0.78rem;color:var(--text);margin-bottom:0.45rem">你知道點計預算未？洗唔洗用按揭計算機試下計？</div>
         <div style="display:flex;gap:0.4rem;flex-wrap:wrap">
@@ -1423,6 +1427,10 @@
                   onclick="dismissPrefCalcHint()">唔使，我知</button>
         </div>
       </div>
+      <button type="button" id="pref-calc-hint-slim" onclick="openMortgageFromPrefs()"
+        style="display:none;background:none;border:none;color:var(--accent2);font-size:0.78rem;padding:0.4rem 0 0;cursor:pointer;text-align:left">
+        🧮 用按揭計算機計吓預算
+      </button>
     </div>
     <div id="pref-rent-budget" style="display:none">
       <label class="vf-label" style="margin-top:0.9rem">租盤預算（$/月）</label>
@@ -7653,19 +7661,22 @@ let _mcMode = "afford";       // afford = 由入息倒推；cost = 由樓價計
 let _mcFtb = true;
 let _mcBackToPrefs = false;   // 由偏好 popup 入嚟？計完要返得返去
 
-// 「唔使，我知」＝收埋個提示，唔好再阻住。記落 localStorage，下次開偏好
-// popup 都唔會再彈——問過一次就夠，唔好變成 nag。
+// 「唔使，我知」＝收埋個大 prompt box，唔好再成個彈出嚟煩。但個入口唔可以
+// 完全消失——縮成一行長駐嘅連結（見 syncPrefCalcHint），因為呢度正正係
+// 用戶度緊「買盤預算」嗰刻，就算已經知道點計，都可能想順手撳返去核對
+// 個數。記落 localStorage，下次開返偏好 popup 都記得咗個狀態。
 function dismissPrefCalcHint() {
-  const el = document.getElementById("pref-calc-hint");
-  if (el) el.style.display = "none";
   try { localStorage.setItem("pw_calc_hint_off", "1"); } catch (_) {}
+  syncPrefCalcHint();
 }
 function syncPrefCalcHint() {
-  const el = document.getElementById("pref-calc-hint");
-  if (!el) return;
+  const full = document.getElementById("pref-calc-hint");
+  const slim = document.getElementById("pref-calc-hint-slim");
+  if (!full || !slim) return;
   let off = false;
   try { off = localStorage.getItem("pw_calc_hint_off") === "1"; } catch (_) {}
-  el.style.display = off ? "none" : "";
+  full.style.display = off ? "none" : "";
+  slim.style.display = off ? "" : "none";
 }
 
 function openMortgageModal() {
