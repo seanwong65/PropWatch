@@ -7513,10 +7513,12 @@ const MC_LEGAL_FEE_DEFAULT = 15000;
 const DSR_CAP = 0.50;
 
 // 由樓價計：一次過出晒「月供 / 首期 / 印花稅 / 按保 / 雜費 / 總現金」。
-function mortgageBreakdown({ price, ltv, years, rate, firstTime, agentPct, legalFee }) {
+// ltv 同 loan 揀一個俾：ltv = 「我想做幾成」，loan = 「我實際要借咁多」
+// （倒推嗰邊用，因為嗰度個貸款額係由「樓價減埋手頭現金」倒出嚟）。
+function mortgageBreakdown({ price, ltv, loan: wantLoanIn, years, rate, firstTime, agentPct, legalFee }) {
   const aPct = (agentPct != null ? agentPct : MC_AGENT_PCT_DEFAULT) / 100;
   const legal = legalFee != null ? legalFee : MC_LEGAL_FEE_DEFAULT;
-  const wantLoan = price * ltv;
+  const wantLoan = wantLoanIn != null ? wantLoanIn : price * ltv;
   const capLoan = maxLoanFor(price, firstTime);
   const loan = Math.min(wantLoan, capLoan);
   const capped = wantLoan - loan > 1;           // 想借嘅多過批得到
@@ -7542,9 +7544,42 @@ function mortgageBreakdown({ price, ltv, years, rate, firstTime, agentPct, legal
 // 夾埋冇 closed form，二分法穩陣好多（單調遞增，60 次已經準到蚊都飛唔甩）。
 function affordability({ income, cash, years, rate, firstTime, agentPct, legalFee }) {
   const budget = income * DSR_CAP;
+  const aPct = (agentPct != null ? agentPct : MC_AGENT_PCT_DEFAULT) / 100;
+  const legal = legalFee != null ? legalFee : MC_LEGAL_FEE_DEFAULT;
+
+  // 一個樓價要借幾多＝樓價減「手頭現金用晒喺首期之後仲剩幾多」。
+  // ⚠️ 呢度千其唔可以當「一律做盡九成」——手頭現金多過首期嘅人（例如
+  //    有 $500萬 現金），逼佢借盡就會白白嘥咗啲現金，倒推出嚟嘅樓價會
+  //    細成一大截（實例：$500萬現金 + 月入 $5萬，借盡九成計出 $618萬，
+  //    但其實用晒啲現金買到 $1,000萬）。所以係「用晒現金，爭幾多借幾多」。
+  // 按保保費本身係貸款額嘅百分比，而個費率又睇貸款額落喺邊個成數檔——
+  // 互相依賴。⚠️ 呢度**唔可以用迭代逼近**：費率係階梯函數，會喺兩個檔
+  // 之間左右跳唔收斂（實測 89.99% ⇄ 91.94% 跳足六轉），而且最後嗰轉用嘅
+  // 費率同真正個貸款額對唔上，出嚟嘅「要準備嘅現金」會爆過手頭現金。
+  // 改為直接解方程：假設費率係 r，loan = (樓價 − 現金 + 雜費) / (1 − r)，
+  // 逐個可能嘅 r 解一次，再驗返個 loan 真係落返 r 嗰個檔先當有效解。
+  const loanFor = (price) => {
+    const fixed = stampDuty(price) + Math.round(price * aPct) + legal;
+    const need = price - cash + fixed;          // 未計按保之前要借幾多
+    if (need <= 0) return 0;                    // 現金夠晒，唔使做按揭
+    const tbl = MIP_PREMIUM[mipTableFor(price, firstTime)];
+    const ti = MIP_TENORS.findIndex((t) => years <= t);
+    const tix = ti < 0 ? MIP_TENORS.length - 1 : ti;
+    const cands = [0, ...Object.keys(tbl).map((k) => tbl[k][tix])];
+    let best = null;
+    for (const r of cands) {
+      const loan = need / (1 - r / 100);
+      const p = mipPremium(price, loan, years, firstTime);
+      if (!p.ok || Math.abs(p.rate - r) > 1e-9) continue;   // 個 loan 唔落返 r 嗰個檔
+      if (best == null || loan < best) best = loan;
+    }
+    return best != null ? best : Infinity;      // 冇自洽解 → 下面 fits() 會拒絕
+  };
   const fits = (price) => {
-    const b = mortgageBreakdown({ price, ltv: 0.9, years, rate, firstTime, agentPct, legalFee });
-    return b.cashNeeded <= cash && b.monthly <= budget;
+    const loan = loanFor(price);
+    if (loan > maxLoanFor(price, firstTime) + 1) return false;      // 成數過唔到
+    if (!mipPremium(price, loan, years, firstTime).ok) return false; // 按保唔接
+    return monthlyPayment(loan, rate, years) <= budget;             // 供唔起
   };
   if (!(income > 0) || !(cash > 0) || !fits(500000)) return null;
   let lo = 500000, hi = 500000;
@@ -7554,11 +7589,13 @@ function affordability({ income, cash, years, rate, firstTime, agentPct, legalFe
     if (fits(mid)) lo = mid; else hi = mid;
   }
   const price = Math.floor(lo / 10000) * 10000;   // 收到「萬」位，唔好出零頭
-  return { price, ...mortgageBreakdown({ price, ltv: 0.9, years, rate, firstTime, agentPct, legalFee }),
-           // 邊樣夾住咗？講返俾用戶知先有用（唔夠現金 vs 唔夠人工）
+  return { price, ...mortgageBreakdown({ price, loan: loanFor(price), years, rate, firstTime, agentPct, legalFee }),
+           // 邊樣夾住咗？講返俾用戶知先有用（唔夠現金 vs 唔夠人工 vs 成數上限）
            bind: (() => {
-             const b = mortgageBreakdown({ price: price * 1.02, ltv: 0.9, years, rate, firstTime, agentPct, legalFee });
-             return b.monthly > budget ? "income" : "cash";
+             const p2 = price * 1.02, l2 = loanFor(p2);
+             if (monthlyPayment(l2, rate, years) > budget) return "income";
+             if (l2 > maxLoanFor(p2, firstTime) + 1) return "ltv";
+             return "cash";
            })() };
 }
 
@@ -7645,6 +7682,8 @@ function renderMortgage() {
     }
     const bindTxt = a.bind === "income"
       ? "夾住你嘅係<b>月入</b>（供款唔可以超過月入一半）——加年期或者等減息會鬆啲。"
+      : a.bind === "ltv"
+      ? "夾住你嘅係<b>按揭成數上限</b>（呢個樓價最多借到咁多）——首期再多都要夠人工先借得多。"
       : "夾住你嘅係<b>手頭現金</b>（首期＋印花稅＋雜費）——儲多啲現金就買得高啲。";
     out.innerHTML = `
       <div style="background:var(--brand-soft);border:1px solid var(--brand);border-radius:var(--radius-sm);padding:0.7rem 0.85rem;margin-bottom:0.6rem">
