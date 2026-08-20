@@ -64,6 +64,45 @@ HKP 行 `search/v1`、美聯行 `search/v2`）。實測分別：
 - Days-on-market uses the **earlier** of the portal's publish date and our
   `first_seen`, so a "refreshed" fake-fresh date can't hide a stale listing.
 
+## 按揭計算機
+
+前端 pure function（`stampDuty` / `maxLoanFor` / `mipPremium` /
+`monthlyPayment` / `mortgageBreakdown` / `affordability`），client-side 計，
+唔經 worker——逐個字打都要即時出數，冇必要行 round trip。
+
+三個 table 係「官方數字」，改政策淨係改佢哋（每個都寫住出處同生效日）：
+
+| Table | 係咩 | 出處 |
+|---|---|---|
+| `AVD_BANDS` | 從價印花稅稅階（含邊際寬免 band） | [稅務局](https://www.ird.gov.hk/chi/faq/avd.htm)，2026-02-26 起 |
+| `MIP_LTV`（`maxLoanFor`） | 最高按揭成數 + 貸款額上限 | [按證保險](https://www.hkmc.com.hk/chi/our_business/mortgage_insurance_programme.html) |
+| `MIP_PREMIUM` | 按揭保險保費率（表1–表4） | [按證保險保費一覽表 2024-10](https://www.hkmc.com.hk/files/product_file/3/1398/Premium%20Rate%20Sheet_Chi_clean_16102024.pdf) |
+
+現行制度重點（做嗰陣查證返嚟，全部影響計法）：
+- **SSD／BSD／NRSD 已經喺 2024-02-28 撤銷** —— 住宅買賣淨係剩 AVD 一項，
+  所以印花稅唔再分首置／非首置。
+- **壓力測試（+2% 加息）喺 2025-02-28 取消**，DSR 上限 50%（2024-10-16 起劃一）。
+- 金管局基本按揭成數 **70%**；要高過就要買按揭保險，按證再按樓價封頂。
+- 按保 **90%** 嗰級要「名下冇任何香港住宅 + 全部申請人固定受薪」。
+- **$1,715萬以上做唔到按保**（$1,715萬–$3,000萬 嗰級淨係適用於 2024-10-16
+  前簽臨約嘅個案），所以新買入嘅貴價樓最多做 70%。
+
+`MIP_PREMIUM` 只收錄最常見嗰個組合：**浮息 + 一次過付清 + 新買樓**。
+官方仲有定息版、每年支付版，同埋畀「有未供完按揭」嘅申請人用嘅 60%-起表。
+
+律師費同代理佣金**冇官方公價**，所以做成可改輸入而唔係寫死：實測 28Hse
+用 $600萬→$32,500、$800萬→$37,500（跟樓價滑），但一般轉手樓報價低到
+$8,000–$15,000，差太遠，扮準反而誤導。
+
+驗證方法（改完數字要重做）：攞同一組 input 去對中原同 28Hse 兩個計算機。
+實測 $800萬／30年／3.5%／9成／首置，**每一行都同 28Hse 一模一樣**
+（月供 $32,331、印花稅 $240,000、按保 $180,000 @2.5%、佣金 $80,000）；
+中原個 default（$600萬 / 7成 / 30年 / 3.25%）月供 $18,279、入息要求
+$36,558、印花稅 $135,000 亦完全一致。
+
+入口有兩個：偏好 popup 填「買盤預算」嗰格下面（註冊流程嗰個問題），
+同快捷面板嘅 🧮。計完可以一鍵寫返個樓價落 `pref-price-max`。
+
 ## Sync & email (cron)
 
 Cron is blocked from self-fetch (error 1042) and no Queues on this plan, so the
