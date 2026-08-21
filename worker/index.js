@@ -551,6 +551,39 @@ const isPaidSession = (session) => isAdminSession(session) || (session?.tier || 
 const paywall = (feature) =>
   json(402, { error: "呢個係收費版功能", upgrade: true, feature: feature || null });
 
+// 轉 tier 之後同步「追蹤緊嘅屋苑」上限。
+//
+// 降級（paid → free）**唔會刪任何訂閱**——超額嗰啲標記做「已暫停」
+// （paused_at），連 added_at、排序、is_favourite 全部原封不動留住，
+// 返嚟俾錢就一鍵復原。點揀邊幾個留低？跟返 /api/estates 個排序
+// （最愛行先，跟住用戶自己拖嘅 sort_order），即係用戶心目中最重要
+// 嗰幾個，唔係隨機斬。estate_id 做最後 tie-break 令結果 deterministic
+// （同一個帳戶跑幾多次都揀返同一批）。
+//
+// 升級（free → paid）：全部解除暫停，即刻返晒嚟。
+//
+// ⚠️ 呢個一定要喺**所有**改 tier 嘅路徑都 call，唔可以淨係喺 Stripe
+// webhook 度做——admin 人手改 tier、人手開通到期自動打回 free，
+// 兩條路一樣會令帳戶超額。
+async function applyTierEstateLimit(db, accountId, paid) {
+  if (paid) {
+    await db.prepare(
+      "UPDATE account_estates SET paused_at = NULL WHERE account_id = ? AND paused_at IS NOT NULL"
+    ).bind(accountId).run();
+    return;
+  }
+  const cap = (await getSecCfg(db)).sec_free_max_estates;
+  await db.prepare(
+    `UPDATE account_estates SET paused_at = date('now','+8 hours')
+     WHERE account_id = ?1 AND paused_at IS NULL
+       AND estate_id NOT IN (
+         SELECT estate_id FROM account_estates
+         WHERE account_id = ?1 AND paused_at IS NULL
+         ORDER BY is_favourite DESC, sort_order ASC, estate_id ASC
+         LIMIT ?2)`
+  ).bind(accountId, cap).run();
+}
+
 async function authenticate(db, request) {
   const auth = request.headers.get("Authorization") || "";
   const token = auth.startsWith("Bearer ") ? auth.slice(7) : null;
@@ -573,6 +606,7 @@ async function authenticate(db, request) {
   if (session.tier === "paid" && !session.stripe_subscription_id
       && session.current_period_end && session.current_period_end < now.slice(0, 10)) {
     await db.prepare("UPDATE accounts SET tier = 'free' WHERE id = ?").bind(session.account_id).run();
+    await applyTierEstateLimit(db, session.account_id, false);
     session.tier = "free";
   }
   return session;
@@ -603,6 +637,9 @@ async function ensureMultiAccount(db) {
       added_at TEXT NOT NULL DEFAULT (date('now','+8 hours')),
       PRIMARY KEY (account_id, estate_id)
     )`).run();
+    // 降級之後超出免費版上限嘅訂閱：唔刪，標記做「已暫停」。
+    // NULL = 生效中；有日期 = 暫停咗（唔 sync、唔計入上限，但資料全留住）。
+    try { await db.prepare("ALTER TABLE account_estates ADD COLUMN paused_at TEXT").run(); } catch (_) {}
     try { await db.prepare("ALTER TABLE viewings ADD COLUMN account_id INTEGER").run(); } catch (_) {}
     try { await db.prepare("ALTER TABLE system_parameters ADD COLUMN account_id INTEGER").run(); } catch (_) {}
     // 每日 email 逐帳戶寄去自己嘅 email（註冊時經 OTP 驗證）
@@ -2112,6 +2149,7 @@ async function applySubscription(db, accountId, sub) {
     item?.price?.recurring?.interval ?? null,
     accountId
   ).run();
+  await applyTierEstateLimit(db, accountId, tier === "paid");
   return tier;
 }
 
@@ -2182,6 +2220,7 @@ async function handleStripeEvent(db, env, event) {
         tier = await applySubscription(db, acc.id, sub);
       } else {
         await db.prepare("UPDATE accounts SET tier='paid' WHERE id=?").bind(acc.id).run();
+        await applyTierEstateLimit(db, acc.id, true);
       }
       await note({
         accountId: acc.id, email: acc.email, amount: obj.amount_total,
@@ -2196,11 +2235,16 @@ async function handleStripeEvent(db, env, event) {
     case "customer.subscription.deleted": {
       const acc = await accountForStripe(db, { customerId: obj.customer }, env);
       if (!acc) { await note({ status: "orphan", summary: `搵唔到帳戶 (customer ${obj.customer})` }); return; }
-      const tier = event.type === "customer.subscription.deleted"
-        ? (await db.prepare(
-            `UPDATE accounts SET tier='free', subscription_status='canceled',
-               cancel_at_period_end=0 WHERE id=?`).bind(acc.id).run(), "free")
-        : await applySubscription(db, acc.id, obj);
+      let tier;
+      if (event.type === "customer.subscription.deleted") {
+        await db.prepare(
+          `UPDATE accounts SET tier='free', subscription_status='canceled',
+             cancel_at_period_end=0 WHERE id=?`).bind(acc.id).run();
+        await applyTierEstateLimit(db, acc.id, false);
+        tier = "free";
+      } else {
+        tier = await applySubscription(db, acc.id, obj);   // 入面已經 call 咗
+      }
       await note({
         accountId: acc.id, email: acc.email,
         summary: `${event.type.split(".").pop()} → ${obj.status || "canceled"}／tier ${tier}`,
@@ -2841,7 +2885,8 @@ async function computeBargainRadar(db, { belowPct = null, limit = 30, accountId 
   const minBelowPct = belowPct ?? cfg.bargain_below_pct;
   const { results: favRows } = await db.prepare(
     `SELECT e.id FROM account_estates ae JOIN estates e ON e.id = ae.estate_id
-     WHERE ae.account_id = ? AND ae.is_favourite = 1 AND e.is_disabled = 0`
+     WHERE ae.account_id = ? AND ae.is_favourite = 1 AND e.is_disabled = 0
+       AND ae.paused_at IS NULL`
   ).bind(aid).all();
   const favIds = favRows.map((r) => r.id);
   if (!favIds.length) return { estates: [], listings: [], cfg };
@@ -4201,7 +4246,8 @@ async function buildPendingUnits(db, today) {
   const { results: estates } = await db.prepare(
     `SELECT * FROM estates e
      WHERE (e.is_disabled = 0 OR e.is_disabled IS NULL)
-       AND EXISTS (SELECT 1 FROM account_estates ae WHERE ae.estate_id = e.id)
+       AND EXISTS (SELECT 1 FROM account_estates ae
+                   WHERE ae.estate_id = e.id AND ae.paused_at IS NULL)
      ORDER BY e.id`
   ).all();
   const { results: log } = await db.prepare(
@@ -4224,7 +4270,7 @@ async function buildPendingUnits(db, today) {
   const rentEstateIds = new Set((await db.prepare(
     `SELECT DISTINCT ae.estate_id AS id FROM account_estates ae
      JOIN settings st ON st.key = 'pref_' || ae.account_id
-     WHERE EXISTS (
+     WHERE ae.paused_at IS NULL AND EXISTS (
        SELECT 1 FROM json_each(COALESCE(json_extract(st.value, '$.deal_types'), '[]'))
        WHERE value = 'R')`
   ).all()).results.map((r) => r.id));
@@ -5181,6 +5227,7 @@ export default {
             // side bar 數字就會比實際細一截。同 /api/estates/:id/listings
             // 個 removed_date 判斷用返同一套 per-source 邏輯，令兩處數字對得返。
             `SELECT e.*, ae.is_favourite, ae.sort_order, ae.added_at,
+               (ae.paused_at IS NOT NULL) AS paused, ae.paused_at,
                (SELECT COUNT(*) FROM listings l
                 WHERE l.estate_id = e.id
                   AND l.snapshot_date = (SELECT MAX(snapshot_date) FROM listings WHERE estate_id = e.id AND source = l.source)
@@ -5194,7 +5241,8 @@ export default {
              FROM account_estates ae
              JOIN estates e ON e.id = ae.estate_id
              WHERE ae.account_id = ? AND (e.is_disabled = 0 OR e.is_disabled IS NULL)
-             ORDER BY ae.is_favourite DESC, ae.sort_order ASC`
+             -- 暫停咗嘅一律排最後，唔好夾喺生效中嗰批中間
+             ORDER BY (ae.paused_at IS NOT NULL) ASC, ae.is_favourite DESC, ae.sort_order ASC`
           )
           .bind(session.account_id)
           .all();
@@ -5254,17 +5302,29 @@ export default {
             const secCfg = await getSecCfg(db);
             const paid = isPaidSession(session);
             const cap = paid ? secCfg.sec_paid_max_estates : secCfg.sec_free_max_estates;
+            // 淨計「生效中」——暫停咗嘅唔食額度（佢哋本來就係降級時被擠走
+            // 嗰啲，唔可以連累用戶連新嘅都加唔到）。
             const row = await db.prepare(
-              "SELECT COUNT(*) AS c FROM account_estates WHERE account_id = ?"
+              "SELECT COUNT(*) AS c FROM account_estates WHERE account_id = ? AND paused_at IS NULL"
             ).bind(session.account_id).first();
-            if ((row?.c || 0) >= cap) {
+            const active = row?.c || 0;
+            if (active >= cap) {
+              const pausedRow = await db.prepare(
+                "SELECT COUNT(*) AS c FROM account_estates WHERE account_id = ? AND paused_at IS NOT NULL"
+              ).bind(session.account_id).first();
+              const paused = pausedRow?.c || 0;
               // 收費版撞頂唔係「叫佢升級」（佢已經係收費版），所以唔畀
               // upgrade flag，前端就唔會彈升級 modal。
               return json(402, paid ? {
                 error: `最多可以追蹤 ${cap} 個屋苑，要移除其中一個先可以加新嘅。`,
                 feature: "estates", atCap: true,
               } : {
-                error: `免費版最多可以追蹤 ${cap} 個屋苑，要移除其中一個先可以加新嘅。`,
+                error: paused
+                  // 降級之後嘅超額狀態：一定要講返佢知嗰啲屋苑仲喺度、
+                  // 只係暫停咗，唔好淨係話「最多 N 個」——佢明明見到自己
+                  // 有十幾個，淨講上限會以為系統壞咗。
+                  ? `免費版最多可以同時追蹤 ${cap} 個屋苑（你仲有 ${paused} 個暫停咗，冇刪走）。要移除其中一個生效中嘅先可以加新嘅，或者升級返收費版一次過恢復全部。`
+                  : `免費版最多可以追蹤 ${cap} 個屋苑，要移除其中一個先可以加新嘅。`,
                 upgrade: true, feature: "estates",
               });
             }
@@ -6306,6 +6366,41 @@ export default {
         return json(200, { ok: true });
       }
 
+      // 恢復一個暫停咗嘅訂閱（降級時被擠走嗰啲）。冇呢個 endpoint 嘅話，
+      // 免費用戶刪走一個生效中嘅屋苑之後就會卡死：得 2 個生效、一堆暫停，
+      // 但個免費 slot 用唔返出嚟。有咗就變成「自己揀邊 3 個生效」。
+      if (method === "POST" && path.match(/^\/api\/estates\/\d+\/resume$/)) {
+        const estateId = path.split("/")[3];
+        const secCfg = await getSecCfg(db);
+        const paid = isPaidSession(session);
+        const cap = paid ? secCfg.sec_paid_max_estates : secCfg.sec_free_max_estates;
+        const row = await db.prepare(
+          "SELECT COUNT(*) AS c FROM account_estates WHERE account_id = ? AND paused_at IS NULL"
+        ).bind(session.account_id).first();
+        if ((row?.c || 0) >= cap) {
+          return json(402, {
+            error: `已經有 ${cap} 個生效中嘅屋苑，要暫停／移除其中一個先恢復得到呢個。`,
+            upgrade: !paid, feature: "estates", atCap: true,
+          });
+        }
+        const r = await db.prepare(
+          "UPDATE account_estates SET paused_at = NULL WHERE account_id = ? AND estate_id = ? AND paused_at IS NOT NULL"
+        ).bind(session.account_id, estateId).run();
+        if (!r.meta?.changes) return json(404, { error: "搵唔到呢個暫停咗嘅屋苑" });
+        return json(200, { ok: true });
+      }
+
+      // 手動暫停一個生效中嘅訂閱——想換走邊個唔使刪（刪咗 added_at 就冇咗，
+      // 之後再加返會由今日重新計「追蹤天數」，歷史對唔返）。
+      if (method === "POST" && path.match(/^\/api\/estates\/\d+\/pause$/)) {
+        const estateId = path.split("/")[3];
+        const r = await db.prepare(
+          "UPDATE account_estates SET paused_at = date('now','+8 hours') WHERE account_id = ? AND estate_id = ? AND paused_at IS NULL"
+        ).bind(session.account_id, estateId).run();
+        if (!r.meta?.changes) return json(404, { error: "搵唔到呢個生效中嘅屋苑" });
+        return json(200, { ok: true });
+      }
+
       // 「刪除屋苑」=刪呢個 account 嘅訂閱。estate row 留低(可能有第二個
       // account 訂閱緊);冇任何訂閱嘅 estate,sync 嗰邊自然唔會再 sync。
       if (method === "DELETE" && path.match(/^\/api\/estates\/\d+$/)) {
@@ -6333,7 +6428,8 @@ export default {
         const { results: estates } = await db.prepare(
           `SELECT * FROM estates e
            WHERE (e.is_disabled = 0 OR e.is_disabled IS NULL)
-             AND EXISTS (SELECT 1 FROM account_estates ae WHERE ae.estate_id = e.id)
+             AND EXISTS (SELECT 1 FROM account_estates ae
+                         WHERE ae.estate_id = e.id AND ae.paused_at IS NULL)
            ORDER BY e.id`).all();
         const results = await Promise.all(estates.map(async (estate) => {
           try { return await syncOneEstate(db, estate); }
@@ -7322,6 +7418,7 @@ export default {
           } else {
             await db.prepare("UPDATE accounts SET tier = ? WHERE id = ?").bind(tier, acc.id).run();
           }
+          await applyTierEstateLimit(db, acc.id, tier === "paid");
           return json(200, { ok: true, email, tier, until: tier === "paid" ? (until || null) : null });
         }
       }

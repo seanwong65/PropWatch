@@ -398,6 +398,23 @@
     .estate-card.active { border-color: var(--brand); background: var(--brand-soft); }
     .estate-card-name { font-weight: 600; font-size: 0.9rem; }
     .estate-card-meta { color: var(--muted); font-size: 0.75rem; margin-top: 0.25rem; }
+    /* 暫停咗嘅訂閱（降級時被擠走）：睇得到但明顯係「唔郁緊」，
+       所以淡色 + 唔要 hover/cursor 嘅可撳感覺。 */
+    .estate-card-paused { opacity: 0.55; cursor: default; }
+    .estate-card-paused:hover { border-color: var(--border); box-shadow: none; }
+    .paused-badge { color: var(--muted); font-weight: 600; }
+    .paused-resume {
+      margin-left: 0.5rem; background: var(--btn2-bg); border: 1px solid var(--btn2-border);
+      color: var(--text); border-radius: 999px; padding: 0.05rem 0.5rem;
+      font-size: 0.72rem; cursor: pointer; font-family: inherit;
+    }
+    .paused-resume:hover { background: var(--btn2-bg-hover); }
+    .paused-note {
+      margin: 0 0 0.5rem; padding: 0.5rem 0.6rem; font-size: 0.74rem; line-height: 1.5;
+      color: var(--muted); background: var(--surface2);
+      border: 1px dashed var(--border-strong); border-radius: var(--radius-sm);
+    }
+    .paused-note a { color: var(--accent2); }
     .estate-card-delete {
       position: absolute;
       top: 0.6rem;
@@ -3746,7 +3763,19 @@ async function loadEstates() {
       return;
     }
     if (!activeEstateId) showDashboard(estates);
-    list.innerHTML = estates.map(e => `
+    list.innerHTML = estates.map(e => e.paused ? `
+      <!-- 暫停咗（降級時被擠走）：淡色顯示，唔畀撳入去（入去都係舊數據，
+           已經停咗 sync），改為擺個「恢復」掣。特登唔隱藏——要俾用戶見到
+           啲屋苑仲喺度、冇被刪，先唔會以為系統食咗佢啲嘢。 -->
+      <div class="estate-card estate-card-paused" data-id="${e.id}">
+        <button class="estate-card-delete" onclick="deleteEstate(event,${e.id})">✕</button>
+        <div class="estate-card-name">${escHtml(e.name)}</div>
+        <div class="estate-card-meta">
+          <span class="paused-badge">⏸ 已暫停</span>
+          <button class="paused-resume" onclick="resumeEstate(event,${e.id})">恢復</button>
+        </div>
+      </div>
+    ` : `
       <div class="estate-card ${e.id === activeEstateId ? 'active' : ''}"
            data-id="${e.id}"
            draggable="true"
@@ -3761,6 +3790,15 @@ async function loadEstates() {
         </div>
       </div>
     `).join('');
+    // 有暫停咗嘅就喺列表頂解釋一次，唔好淨係得個 badge 冇下文
+    const nPaused = estates.filter(e => e.paused).length;
+    if (nPaused) {
+      list.insertAdjacentHTML('afterbegin', `
+        <div class="paused-note">
+          有 ${nPaused} 個屋苑因為轉咗免費版而暫停咗（資料冇刪）。
+          <a href="#" onclick="event.preventDefault();showUpgrade('追蹤更多屋苑')">升級</a> 一次過恢復全部，或者逐個撳「恢復」（要先移除生效中嗰啲）。
+        </div>`);
+    }
     initDragSort();
   } catch (err) {
     list.innerHTML = `<div class="sidebar-empty">載入失敗：${err.message}</div>`;
@@ -3813,6 +3851,17 @@ function initDragSort() {
   });
 }
 
+
+// 恢復一個暫停咗嘅屋苑。撞到上限就會俾 402——api() 收到有 upgrade flag
+// 就自己彈升級 modal，所以呢度唔使再處理。
+async function resumeEstate(e, id) {
+  e.stopPropagation();
+  try {
+    await api(`/api/estates/${id}/resume`, { method: "POST" });
+    toast("已恢復追蹤，聽日開始會再收到更新", "success");
+    loadEstates();
+  } catch (_) { /* 402/404 已經喺 api() 度出咗 message */ }
+}
 
 async function deleteEstate(e, id) {
   e.stopPropagation();
