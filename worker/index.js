@@ -493,7 +493,16 @@ async function stripeVerifySignature(payload, sigHeader, secret, tolerance = 300
 
 const hkDate = (ts) => ts ? new Date(ts * 1000).toISOString().slice(0, 10) : null;
 
+// Isolate 級快取：呢類 ensure* function 全部 idempotent，Cloudflare
+// Workers 一個 isolate 會服務好多個 request（直到 redeploy／evict），
+// 跑第一次之後 schema 實際上唔會再變，所以淨係第一個 request 真係要行。
+// ⚠️ 唔可以攞嚟做「一次性資料遷移」（例如 ensureMultiAccount 尾嗰段
+// backfill）—— 嗰啲要留返 DB 自己嘅 flag 判斷（multi_account_migrated），
+// 唔可以淨靠呢個 in-memory flag（isolate 可能喺遷移完成之前就俾人再攞
+// 嚟服務第二個 request）。
+let _authTablesReady = false;
 async function ensureAuthTables(db) {
+  if (_authTablesReady) return;
   await db.prepare(`CREATE TABLE IF NOT EXISTS accounts (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     username TEXT UNIQUE NOT NULL,
@@ -524,6 +533,7 @@ async function ensureAuthTables(db) {
     await db.prepare("INSERT INTO accounts (username, password_hash, expiry_date) VALUES ('seanwong', ?, '2099-12-31')")
       .bind(hash).run();
   }
+  _authTablesReady = true;
 }
 
 // 角色權限：admin 先可以改「分析參數」(⚙️ CONFIG_DEFS)。一般 user(註冊嘅)
@@ -577,25 +587,59 @@ async function authenticate(db, request) {
 // cfg_<key> 變 cfg_<aid>_<key>。一次性遷移(settings flag 守住):現有嘅
 // 偏好/睇樓/備注/設定全部 map 去 seanwong,added_at 用 estates.first_seen
 // (保留返佢而家見到嘅全部歷史)。
+// DDL 呢部分同 ensureAuthTables 一樣可以成個 memoize（純 CREATE/ALTER，
+// 一個 isolate 生命週期入面唔會再變）。但下面「admin email 自動升級」嗰句
+// UPDATE 特登**唔**入呢個 flag——佢係活嘅業務邏輯（指定 email 遲啲先
+// 註冊都要即刻升到做 admin），唔係一次性 schema setup，一定要逐個
+// request 照跑，唔可以因為第一個 request 跑完就當「處理咗」。
+let _multiAccountDDLReady = false;
 async function ensureMultiAccount(db) {
-  await db.prepare(`CREATE TABLE IF NOT EXISTS account_estates (
-    account_id INTEGER NOT NULL,
-    estate_id INTEGER NOT NULL,
-    is_favourite INTEGER NOT NULL DEFAULT 0,
-    sort_order INTEGER NOT NULL DEFAULT 0,
-    added_at TEXT NOT NULL DEFAULT (date('now','+8 hours')),
-    PRIMARY KEY (account_id, estate_id)
-  )`).run();
-  try { await db.prepare("ALTER TABLE viewings ADD COLUMN account_id INTEGER").run(); } catch (_) {}
-  try { await db.prepare("ALTER TABLE system_parameters ADD COLUMN account_id INTEGER").run(); } catch (_) {}
-  // 每日 email 逐帳戶寄去自己嘅 email（註冊時經 OTP 驗證）
-  try { await db.prepare("ALTER TABLE accounts ADD COLUMN email TEXT").run(); } catch (_) {}
+  if (!_multiAccountDDLReady) {
+    await db.prepare(`CREATE TABLE IF NOT EXISTS account_estates (
+      account_id INTEGER NOT NULL,
+      estate_id INTEGER NOT NULL,
+      is_favourite INTEGER NOT NULL DEFAULT 0,
+      sort_order INTEGER NOT NULL DEFAULT 0,
+      added_at TEXT NOT NULL DEFAULT (date('now','+8 hours')),
+      PRIMARY KEY (account_id, estate_id)
+    )`).run();
+    try { await db.prepare("ALTER TABLE viewings ADD COLUMN account_id INTEGER").run(); } catch (_) {}
+    try { await db.prepare("ALTER TABLE system_parameters ADD COLUMN account_id INTEGER").run(); } catch (_) {}
+    // 每日 email 逐帳戶寄去自己嘅 email（註冊時經 OTP 驗證）
+    try { await db.prepare("ALTER TABLE accounts ADD COLUMN email TEXT").run(); } catch (_) {}
+    try { await db.prepare("ALTER TABLE accounts ADD COLUMN role TEXT NOT NULL DEFAULT 'user'").run(); } catch (_) {}
+    // 收費分層：free(預設) / paid。新註冊一律 free;要升級由 admin 經
+    // /api/admin/set-tier 改(將來接 payment 就喺付款成功 callback 度改)。
+    try { await db.prepare("ALTER TABLE accounts ADD COLUMN tier TEXT NOT NULL DEFAULT 'free'").run(); } catch (_) {}
+    await db.prepare(`CREATE TABLE IF NOT EXISTS email_otps (
+      email TEXT PRIMARY KEY,
+      code TEXT NOT NULL,
+      expires_at TEXT NOT NULL,
+      attempts INTEGER NOT NULL DEFAULT 0
+    )`).run();
+    // 朋友屋企：per-account 記錄朋友住邊個單位，攞成交/估值/市價參考
+    await db.prepare(`CREATE TABLE IF NOT EXISTS friend_homes (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      account_id INTEGER NOT NULL,
+      friend_name TEXT NOT NULL,
+      estate_id INTEGER NOT NULL,
+      block TEXT NOT NULL,
+      floor TEXT NOT NULL,
+      unit TEXT NOT NULL,
+      size_net INTEGER,
+      bedrooms INTEGER,
+      created_at TEXT DEFAULT (datetime('now'))
+    )`).run();
+    // 過往成交/估值抓一次就存落 DB，之後 load 唔使再外抓（見 enrichFriendHome）。
+    // past_txns NULL = 未抓過（顯示「抓取中」）；'[]' = 抓過但冇記錄。
+    for (const col of ["past_txns TEXT", "est_url TEXT", "hs_price INTEGER", "hs_area REAL", "hs_date TEXT", "enriched_at TEXT"]) {
+      try { await db.prepare(`ALTER TABLE friend_homes ADD COLUMN ${col}`).run(); } catch (_) {}
+    }
+    await db.prepare("CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT)").run();
+    _multiAccountDDLReady = true;
+  }
   // 角色：user(預設) / admin。unconditional promote — 令指定 email 遲啲先註冊
   // 都會自動升做 admin(冇 demote，重跑無害;accounts 表得幾行，成本可忽略)。
-  try { await db.prepare("ALTER TABLE accounts ADD COLUMN role TEXT NOT NULL DEFAULT 'user'").run(); } catch (_) {}
-  // 收費分層：free(預設) / paid。新註冊一律 free;要升級由 admin 經
-  // /api/admin/set-tier 改(將來接 payment 就喺付款成功 callback 度改)。
-  try { await db.prepare("ALTER TABLE accounts ADD COLUMN tier TEXT NOT NULL DEFAULT 'free'").run(); } catch (_) {}
   {
     const adminEmails = [...ADMIN_EMAILS];
     const placeholders = adminEmails.map(() => "?").join(",");
@@ -603,31 +647,6 @@ async function ensureMultiAccount(db) {
       `UPDATE accounts SET role='admin' WHERE role != 'admin' AND (username='seanwong' OR lower(email) IN (${placeholders}))`
     ).bind(...adminEmails).run();
   }
-  await db.prepare(`CREATE TABLE IF NOT EXISTS email_otps (
-    email TEXT PRIMARY KEY,
-    code TEXT NOT NULL,
-    expires_at TEXT NOT NULL,
-    attempts INTEGER NOT NULL DEFAULT 0
-  )`).run();
-  // 朋友屋企：per-account 記錄朋友住邊個單位，攞成交/估值/市價參考
-  await db.prepare(`CREATE TABLE IF NOT EXISTS friend_homes (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    account_id INTEGER NOT NULL,
-    friend_name TEXT NOT NULL,
-    estate_id INTEGER NOT NULL,
-    block TEXT NOT NULL,
-    floor TEXT NOT NULL,
-    unit TEXT NOT NULL,
-    size_net INTEGER,
-    bedrooms INTEGER,
-    created_at TEXT DEFAULT (datetime('now'))
-  )`).run();
-  // 過往成交/估值抓一次就存落 DB，之後 load 唔使再外抓（見 enrichFriendHome）。
-  // past_txns NULL = 未抓過（顯示「抓取中」）；'[]' = 抓過但冇記錄。
-  for (const col of ["past_txns TEXT", "est_url TEXT", "hs_price INTEGER", "hs_area REAL", "hs_date TEXT", "enriched_at TEXT"]) {
-    try { await db.prepare(`ALTER TABLE friend_homes ADD COLUMN ${col}`).run(); } catch (_) {}
-  }
-  await db.prepare("CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT)").run();
   const done = await db.prepare("SELECT 1 FROM settings WHERE key = 'multi_account_migrated'").first();
   if (done) return;
   const sean = await db.prepare("SELECT id FROM accounts WHERE username = 'seanwong'").first();
@@ -1700,10 +1719,13 @@ async function syncEstateListings(db, estate, timeLeft) {
 }
 
 // Auto-create the enable column for every source (new sources get one for free).
+let _sourceColumnsReady = false;
 async function ensureSourceColumns(db) {
+  if (_sourceColumnsReady) return;
   for (const s of SOURCES) {
     try { await db.prepare(`ALTER TABLE estates ADD COLUMN ${s.enabledCol} INTEGER NOT NULL DEFAULT 1`).run(); } catch (_) {}
   }
+  _sourceColumnsReady = true;
 }
 
 // 成交入庫去重（入庫層修正,唔靠 query 時再去重）。同一宗真實買賣
@@ -2013,7 +2035,14 @@ async function ensureListingClicks(db) {
 // tier 仍然係「有冇得用收費功能」嘅唯一真相（isPaidSession 淨係睇佢），
 // webhook 收到訂閱狀態變化就寫返 tier。咁樣 admin 手動改 tier（送人用／
 // 補償）同 Stripe 自動流程可以並存，唔使成個系統跟住 Stripe 狀態行。
+// 純 DDL（欄位／表／index），冇任何活嘅業務邏輯，成個 function 安全
+// 全部 memoize（同 ensureAuthTables／ensureSourceColumns 同一套道理）。
+// 呢個之前係 /api/billing 感覺特別慢嘅主因：冇任何 gate，每次打開
+// 「設定」入嗰下都真係去 D1 行晒呢 10 條 ALTER/CREATE，其中 6 條
+// ALTER 喺欄位已經存在之後每次都注定失敗（靠 catch 收）。
+let _billingReady = false;
 async function ensureBilling(db) {
+  if (_billingReady) return;
   for (const col of [
     "stripe_customer_id TEXT",
     "stripe_subscription_id TEXT",
@@ -2058,6 +2087,7 @@ async function ensureBilling(db) {
     created_at TEXT NOT NULL DEFAULT (datetime('now', '+8 hours'))
   )`).run();
   await db.prepare("CREATE INDEX IF NOT EXISTS idx_payev_created ON payment_events(created_at)").run();
+  _billingReady = true;
 }
 
 // 訂閱狀態 → 有冇得用收費功能。
