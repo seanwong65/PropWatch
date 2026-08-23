@@ -110,6 +110,33 @@ $36,558、印花稅 $135,000 亦完全一致。
 入口有兩個：偏好 popup 填「買盤預算」嗰格下面（註冊流程嗰個問題），
 同快捷面板嘅 🧮。計完可以一鍵寫返個樓價落 `pref-price-max`。
 
+## 訂閱狀態同對數
+
+`accounts.tier`（free/paid）係唯一真相，全部 gate 行 `isPaidSession()`。降級
+**唔會刪任何嘢**：超出免費版上限嘅屋苑訂閱標記做 `account_estates.paused_at`
+（保留最愛嗰幾個），升級返就一次過解除。暫停咗嘅唔 sync、唔計入上限。
+⚠️ estates 跨帳戶共用，sync 係 per-estate，所以淨係當冇任何其他帳戶仲生效
+訂緊，先真係慳到 sync 額度。
+
+改 tier 有 **5 條路徑**，全部要 call `applyTierEstateLimit()`：
+`applySubscription`（subscription.created/updated）、`subscription.deleted`、
+`checkout.session.completed` 冇-subscription 分支、`authenticate()` 人手開通
+到期、admin `/api/admin/tiers`。
+
+**續期唔使我哋做嘢**——Stripe subscription 自動循環扣數，我哋淨係聽 webhook
+更新 DB。冇任何 code 會主動去 Stripe 收錢。
+
+**對數（reconcileSubscriptions）**：所有降級都靠 webhook，webhook 一漏個帳戶
+就永遠停喺 paid。所以每日喺 **email cron 度搭順風車**行一次對數（唔開新 cron
+trigger——Free plan 得 5 個 expression，已經用咗 2 個）。慳 subrequest 嘅關鍵：
+用 `GET /v1/subscriptions?status=all&limit=100` **一次過**攞晒再喺 JS match，
+唔係逐個帳戶 call（無論幾多訂閱者都係 1–2 個 subrequest）。
+順序一定要「先對數、後寄信」，否則啱啱降咗級嘅人仲會收到當日封收費版 email。
+`past_due`/`unpaid`/`incomplete`（`PAYMENT_TROUBLE_STATUSES`）嗰批會 **skip 埋
+當日 email**——張卡碌唔到嘅人最唔需要收到「今日動態」。
+手動版：`POST /api/admin/billing/reconcile`（全帳戶）／`/api/admin/billing/sync`
+（單一帳戶）。
+
 ## Sync & email (cron)
 
 Cron is blocked from self-fetch (error 1042) and no Queues on this plan, so the

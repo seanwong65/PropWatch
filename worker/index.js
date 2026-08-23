@@ -2132,6 +2132,70 @@ async function ensureBilling(db) {
 // 只會激嬲一個「張卡啱啱到期」嘅好客。真係收唔到錢 Stripe 會轉 canceled/unpaid。
 const PAID_SUB_STATUSES = new Set(["active", "trialing", "past_due"]);
 
+// 「收緊唔到錢」嘅狀態。同 PAID_SUB_STATUSES 有意重疊——past_due 兩邊都
+// 有：功能上照畀用（Stripe 仲喺度重試，趕人走只會激嬲好客），但每日
+// email 就唔寄（見 EMAIL_CRON）。一個張卡碌唔到嘅人，最唔需要收到嘅
+// 就係「今日動態」——應該係收到「你張卡出事」，唔係扮冇嘢發生過。
+const PAYMENT_TROUBLE_STATUSES = new Set(["past_due", "unpaid", "incomplete"]);
+
+// 同 Stripe 對數。⚠️ 我哋全部降級都靠 webhook 觸發，webhook 一漏（endpoint
+// 掛咗、簽名驗唔過、Stripe 重試完放棄），個帳戶就會永遠停喺 paid 免費用
+// 落去，而且冇任何嘢會叫得醒我哋。呢個就係補返嗰個窿。
+//
+// 慳 subrequest 嘅做法：**唔係**逐個帳戶 call 一次 Stripe（N 個帳戶 = N 個
+// subrequest，同 email cron 爭嗰 50 個額度），而係用 list endpoint 一次過
+// 攞晒（limit=100），喺 JS 度自己 match。即係無論幾多個訂閱者都係 1–2 個
+// subrequest。呢點好重要，因為呢個 function 係寄住 email cron 個額度嚟行。
+async function reconcileSubscriptions(db, env) {
+  const out = { checked: 0, fixed: [], trouble: new Set(), error: null };
+  if (!env?.STRIPE_SECRET_KEY) return out;   // 未接 Stripe 就當冇嘢要對
+  // 只需要對「Stripe 管緊」嗰批。人手開通（冇 stripe_subscription_id）唔關
+  // Stripe 事，佢哋靠 authenticate() 嘅 current_period_end 過期自動打回 free。
+  const { results: accs } = await db.prepare(
+    `SELECT id, email, tier, subscription_status, stripe_subscription_id, stripe_customer_id
+     FROM accounts
+     WHERE (is_active IS NULL OR is_active = 1) AND stripe_subscription_id IS NOT NULL`
+  ).all();
+  if (!accs.length) return out;
+
+  let subs = [];
+  try {
+    // status=all 先會連 canceled/unpaid 都返——淨係攞 active 就永遠見唔到
+    // 「應該降級但冇降到」嗰啲，即係完全達唔到對數嘅目的。
+    let starting_after;
+    for (let page = 0; page < 3; page++) {          // 上限 300 個訂閱，夠用有突
+      const r = await stripeRequest(env, "GET", "subscriptions",
+        { status: "all", limit: 100, ...(starting_after ? { starting_after } : {}) });
+      subs.push(...(r.data || []));
+      if (!r.has_more || !r.data?.length) break;
+      starting_after = r.data[r.data.length - 1].id;
+    }
+  } catch (e) {
+    out.error = _errDetail(e);
+    return out;                                      // 對唔到數就唔好亂改 tier
+  }
+  const byId = new Map(subs.map((x) => [x.id, x]));
+
+  for (const acc of accs) {
+    out.checked++;
+    const sub = byId.get(acc.stripe_subscription_id);
+    // Stripe 度搵唔返個訂閱（刪咗客／換咗 Stripe 帳戶）：當佢冇咗，
+    // 但唔喺呢度硬改，留返俾人手 /api/admin/billing/sync 處理，
+    // 免得一個 Stripe API 怪 response 就掃晒全部人落 free。
+    if (!sub) continue;
+    const shouldBePaid = PAID_SUB_STATUSES.has(sub.status);
+    const drifted = (acc.subscription_status || null) !== sub.status
+      || (acc.tier === "paid") !== shouldBePaid;
+    if (drifted) {
+      // applySubscription 會順手做埋 applyTierEstateLimit（暫停／恢復屋苑）
+      const tier = await applySubscription(db, acc.id, sub);
+      out.fixed.push(`${acc.email || acc.id}：${acc.subscription_status || "?"}/${acc.tier} → ${sub.status}/${tier}`);
+    }
+    if (PAYMENT_TROUBLE_STATUSES.has(sub.status)) out.trouble.add(acc.id);
+  }
+  return out;
+}
+
 async function applySubscription(db, accountId, sub) {
   const status = sub?.status || null;
   const tier = PAID_SUB_STATUSES.has(status) ? "paid" : "free";
@@ -4706,7 +4770,8 @@ async function getUnsubToken(db, accountId) {
   return tok;
 }
 
-async function sendDailyEmail(db, env, onlyAccountId = null, overrideEmail = null) {
+// skipAccountIds：對數之後發現扣數出咗事嗰批（Set of account id），唔寄。
+async function sendDailyEmail(db, env, onlyAccountId = null, overrideEmail = null, skipAccountIds = null) {
   if (!env?.GMAIL_REFRESH_TOKEN) return { error: "no GMAIL credentials" };
   // 逐個有 email 嘅帳戶寄——各自用自己嘅訂閱/設定/雷達視角。
   // 冇訂閱任何屋苑嘅帳戶跳過（新用戶未加屋苑，冇嘢好通知）。
@@ -4724,6 +4789,12 @@ async function sendDailyEmail(db, env, onlyAccountId = null, overrideEmail = nul
   `).bind(onlyAccountId, onlyAccountId).all();
   const out = [];
   for (const acc of accounts) {
+    // 扣數出緊事就唔好照寄「今日動態」（見 PAYMENT_TROUBLE_STATUSES）。
+    // 手動 trigger 單一帳戶（onlyAccountId）唔受呢個限制——測試緊就要寄得出。
+    if (!onlyAccountId && skipAccountIds?.has(acc.id)) {
+      out.push({ account: acc.username, skipped: "扣數出咗事，今日唔寄" });
+      continue;
+    }
     try {
       const highlights = await getTodayHighlights(db, acc.id);
       // 跟用戶睇樓偏好篩 email 內容（揀咗 ≤800萬 就唔會出 1000萬嘅盤，
@@ -4825,13 +4896,26 @@ export default {
         // 逐帳戶寄信 fail(res.sent 有 error)通知 admin;top-level 爆(DB/token 等)都通知。
         try {
           await ensureMultiAccount(env.DB);
-          const res = await sendDailyEmail(env.DB, env);
+          // 寄信之前先同 Stripe 對數。特登搭順風車坐喺呢個 cron 度，唔開多
+          // 個 trigger——Cloudflare Free plan 得 5 個 cron expression，而家已經
+          // 用咗 2 個（drip sync + email），要留返位。順序唔可以倒轉：對完數
+          // 先寄，咁啱啱降咗級嘅人就唔會仲收到當日封收費版 email。
+          const recon = await reconcileSubscriptions(env.DB, env);
+          const res = await sendDailyEmail(env.DB, env, null, null, recon.trouble);
           const failed = (res?.sent || []).filter((r) => r.error);
+          const skipped = (res?.sent || []).filter((r) => r.skipped);
+          const alerts = [];
+          if (recon.error) alerts.push(`⚠️ Stripe 對數失敗（tier 未改過）：${recon.error}`);
+          if (recon.fixed.length) alerts.push(`🔧 webhook 漏咗，對數補返 ${recon.fixed.length} 個：\n  ${recon.fixed.join("\n  ")}`);
+          if (skipped.length) alerts.push(`💳 扣數出咗事，今日冇寄 email：${skipped.map((r) => r.account).join("、")}`);
           if (res?.error) {
-            await sendAdminAlert(env.DB, env, "🚨 PropWatch 每日 email 冇寄到", "每日 email task", [res.error]);
+            await sendAdminAlert(env.DB, env, "🚨 PropWatch 每日 email 冇寄到", "每日 email task", [res.error, ...alerts]);
           } else if (failed.length) {
             await sendAdminAlert(env.DB, env, `⚠️ PropWatch 每日 email 有 ${failed.length} 個帳戶寄失敗`,
-              "每日 email task", failed.map((f) => `${f.account}: ${f.error}`));
+              "每日 email task", [...failed.map((f) => `${f.account}: ${f.error}`), ...alerts]);
+          } else if (alerts.length) {
+            // 信照寄得晒，但對數有嘢要你知（補咗數／有人扣唔到錢）
+            await sendAdminAlert(env.DB, env, "💳 PropWatch 訂閱對數有發現", "每日 email task", alerts);
           }
         } catch (e) {
           await sendAdminAlert(env.DB, env, "🚨 PropWatch 每日 email task 整個失敗",
@@ -7547,6 +7631,17 @@ export default {
           } catch (e) {
             return json(502, { error: `Stripe 出錯：${e.message}` });
           }
+        }
+
+        // 全帳戶同 Stripe 對數（cron 每日喺 email task 度自動行一次，呢個
+        // 係手動版：Stripe 出過事、或者想即刻確認全部人狀態啱唔啱嗰陣用）。
+        if (path === "/api/admin/billing/reconcile" && method === "POST") {
+          const r = await reconcileSubscriptions(db, env);
+          return json(200, {
+            ok: !r.error, error: r.error,
+            checked: r.checked, fixed: r.fixed,
+            trouble: [...r.trouble],
+          });
         }
 
         // 由 Stripe 拉返最新狀態 —— webhook 漏咗／出過事嗰陣用呢個補數
