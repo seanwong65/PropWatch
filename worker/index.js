@@ -2254,7 +2254,10 @@ async function accountForStripe(db, { customerId, accountId, email }, env = null
   return null;
 }
 
-async function handleStripeEvent(db, env, event) {
+// ctx：用嚟喺背景發 alert。呢個 function 係 await 住先回 200 俾 Stripe，
+// 所以任何「通知」類嘅慢動作（Telegram + email）都唔可以擋喺 response
+// 前面——Stripe 等唔切會當失敗然後重試，變成同一件事通知幾次。
+async function handleStripeEvent(db, env, event, ctx) {
   const obj = event.data?.object || {};
   const note = async (fields) => {
     await db.prepare(
@@ -2328,6 +2331,25 @@ async function handleStripeEvent(db, env, event) {
         status: failed ? "failed" : "ok",
         summary: failed ? "扣數失敗（Stripe 會自動重試）" : "收到款項",
       });
+      // 扣數失敗即刻出 Telegram，唔好等第二朝對數先知——由收數失敗到
+      // Stripe 放棄（轉 unpaid／canceled）之間有幾日 dunning 窗口，早一日
+      // 知就多一日可以叫個客換卡，唔使等到自動降級先補救。
+      // 成功扣數唔通知：續期係常態，每月／每年響一次係噪音。
+      if (failed) {
+        const amt = obj.amount_due != null
+          ? `HK$${(obj.amount_due / 100).toLocaleString("en-US", { maximumFractionDigits: 0 })}` : "?";
+        const who = acc?.email || obj.customer_email || `customer ${obj.customer || "?"}`;
+        const nextTry = obj.next_payment_attempt
+          ? new Date(obj.next_payment_attempt * 1000).toISOString().slice(0, 10) : null;
+        const alert = sendAdminAlert(db, env, "💳 PropWatch 扣數失敗", "Stripe invoice.payment_failed", [
+          `帳戶：${who}`,
+          `金額：${amt}`,
+          `第 ${obj.attempt_count ?? "?"} 次嘗試`,
+          nextTry ? `Stripe 下次重試：${nextTry}` : "Stripe 唔會再重試（下一步會轉 unpaid／canceled）",
+          "呢個帳戶今日開始唔會再收到每日 email，直到扣數成功。",
+        ]).catch((e) => console.error("payment_failed alert:", e?.message));
+        if (ctx?.waitUntil) ctx.waitUntil(alert); else await alert;
+      }
       return;
     }
 
@@ -4288,6 +4310,48 @@ const EMAIL_CRON = "0 1 * * *";   // 09:00 HKT
 const DRIP_TIMEOUT_MS = 45000;
 const SYNC_MAX_ATTEMPTS = 3;
 
+// ── D1 閃斷（transient）處理 ────────────────────────────────────────────
+// D1 偶爾會喺 query 中途斷線（`D1_ERROR: Network connection lost`）。呢啲唔係
+// SQL 錯（真係寫錯 query 會回 "no such column" 嗰類），係 Cloudflare 嗰邊嘅
+// 一次性網絡問題，下次 cron（2 分鐘後）自己就會過。
+//
+// 但 drip cron 一日 firing 720 次，就算 transient rate 好低都會定期彈 🚨 出嚟。
+// 實測 2026-08-23 09:51 就中過一次：嗰陣全日 126 個單元喺 06:33 已經做晒，
+// 個錯係喺「睇下仲有冇嘢做」嘅空轉檢查度發生，即係乜都冇影響到，但照樣
+// 嘈醒咗人。收多幾次假警報就會開始無視，到真出事嗰次反而會漏。
+//
+// 所以分三層，唔係靜靜吞咗：
+//   ① 即場重試（D1_RETRY_ATTEMPTS 次，細 backoff）——大部分閃斷呢度就過骨；
+//   ② 重試都唔得 → 連續失敗計數（settings: drip_d1_streak）。連續中
+//      D1_ALERT_STREAK 次先出 🚨——一次半次係雜訊，連續中就係真係有事；
+//   ③ 就算單次閃斷唔出 alert，都會計入當日次數，喺每日 sync summary 度
+//      報返（「今日 D1 閃斷 N 次，已自動重試」），所以永遠唔會完全唔知情。
+const D1_RETRY_ATTEMPTS = 3;      // 總共試幾多次（包括第一次）
+const D1_RETRY_BASE_MS = 250;     // 250ms → 500ms 遞增
+const D1_ALERT_STREAK = 3;        // 連續幾多次 cron 都掛先出 🚨
+
+const isTransientD1 = (e) => /network connection lost|storage operation|d1_error.*(network|connection)|internal error/i
+  .test(String(e?.message || e));
+
+// 淨係包**唔會改嘢**嘅 D1 操作（純 read）。寫入唔可以盲重試——寫咗一半
+// 斷線嘅話重試會做多次，要靠各自嘅 idempotency（UNIQUE / INSERT OR IGNORE）
+// 唔係靠呢度。
+async function d1Retry(fn, label = "D1") {
+  let last;
+  for (let i = 0; i < D1_RETRY_ATTEMPTS; i++) {
+    try { return await fn(); }
+    catch (e) {
+      last = e;
+      if (!isTransientD1(e)) throw e;            // 真 SQL 錯即刻拋，唔好重試
+      if (i < D1_RETRY_ATTEMPTS - 1) {
+        await new Promise((r) => setTimeout(r, D1_RETRY_BASE_MS * (i + 1)));
+      }
+    }
+  }
+  console.error(`${label}: D1 重試 ${D1_RETRY_ATTEMPTS} 次都唔得`, last?.message);
+  throw last;
+}
+
 async function ensureSyncLog(db) {
   await db.prepare(`CREATE TABLE IF NOT EXISTS sync_log (
     estate_id INTEGER NOT NULL,
@@ -4307,16 +4371,16 @@ async function ensureSyncLog(db) {
 // admin 手動測試用）同 syncBatch（一個 invocation 做多個，真正 cron 用）共用，
 // 兩者都要用返同一套「邊個 pending」邏輯，唔可以有兩份漂移。
 async function buildPendingUnits(db, today) {
-  const { results: estates } = await db.prepare(
+  const { results: estates } = await d1Retry(() => db.prepare(
     `SELECT * FROM estates e
      WHERE (e.is_disabled = 0 OR e.is_disabled IS NULL)
        AND EXISTS (SELECT 1 FROM account_estates ae
                    WHERE ae.estate_id = e.id AND ae.paused_at IS NULL)
      ORDER BY e.id`
-  ).all();
-  const { results: log } = await db.prepare(
+  ).all(), "buildPendingUnits/estates");
+  const { results: log } = await d1Retry(() => db.prepare(
     "SELECT estate_id, source, kind, ok, attempts FROM sync_log WHERE sync_date = ?"
-  ).bind(today).all();
+  ).bind(today).all(), "buildPendingUnits/sync_log");
   const seen = new Map(log.map((r) => [`${r.estate_id}|${r.source}|${r.kind}`, r]));
 
   // 租盤唔需要咁即時，所以每日只抓一個 source（買盤照舊每日全部 source）。
@@ -4331,13 +4395,13 @@ async function buildPendingUnits(db, today) {
   // 用 JSON1 精確 match deal_types 有冇 "R"，唔用 LIKE '%"R"%'——後者會夾中
   // JSON 任何位置嘅 "R"（例如將來某個欄位嘅值係 "R"）。冇 deal_types 嘅
   // 既有帳戶會回 0，即係默認唔抓租盤，符合「既有帳戶默認買盤」。
-  const rentEstateIds = new Set((await db.prepare(
+  const rentEstateIds = new Set((await d1Retry(() => db.prepare(
     `SELECT DISTINCT ae.estate_id AS id FROM account_estates ae
      JOIN settings st ON st.key = 'pref_' || ae.account_id
      WHERE ae.paused_at IS NULL AND EXISTS (
        SELECT 1 FROM json_each(COALESCE(json_extract(st.value, '$.deal_types'), '[]'))
        WHERE value = 'R')`
-  ).all()).results.map((r) => r.id));
+  ).all(), "buildPendingUnits/rentEstates")).results.map((r) => r.id));
 
   // 放盤排前（主數據：側邊欄數量／放盤趨勢／已下架判斷都靠佢），成交在後；
   // 買盤排喺租盤之前（租盤唔急）。
@@ -4662,6 +4726,10 @@ async function sendSyncSummary(db, env) {
   const label = Object.fromEntries(SOURCES.map((x) => [x.id, x.label]));
   const kindLabel = { listings: "放盤", txn: "成交", rent_listings: "租盤", rent_txn: "租務成交" };
 
+  // D1 閃斷次數：單次閃斷唔會出 alert（見 isTransientD1），但一定要喺
+  // 呢度報返，否則就變成「靜靜哋出緊事但冇人知」。
+  const d1Blips = Number(await getSetting(db, `drip_d1_blips_${date}`) || 0);
+
   const lines = [
     `✅ PropWatch 今日同步完成（${date}）`,
     ``,
@@ -4670,6 +4738,7 @@ async function sendSyncSummary(db, env) {
       ? [`   ↳ 中間閒置 ${hhmmDur(idleMs)}（等 ${SYNC_START_HOUR}:00 時窗／cron 停過），唔計入上面`]
       : []),
     `📦 單元 ${s?.units ?? 0} 個：成功 ${s?.ok ?? 0}．失敗 ${s?.failed ?? 0}`,
+    ...(d1Blips ? [`🔌 D1 閃斷 ${d1Blips} 次（已自動重試，冇影響到上面啲數）`] : []),
     ``,
     `放盤（今日 snapshot）`,
     ...bySrc.map((r) => `  ${label[r.source] || r.source}　${r.n} 個 / ${r.estates} 屋苑`),
@@ -4940,6 +5009,10 @@ export default {
           // 嘅 alert 都一定唔會出，所以要有個唔靠 cron 嘅偵測。
           await setSetting(env.DB, "cron_last_drip", new Date().toISOString());
           const r = await syncBatch(env.DB);
+          // 行到呢度代表冇 D1 閃斷（或者重試之後過咗骨）→ 清 streak
+          if (Number(await getSetting(env.DB, "drip_d1_streak") || 0) > 0) {
+            await setSetting(env.DB, "drip_d1_streak", 0);
+          }
           if (!r.idle && r.failedOut.length) {
             await sendAdminAlert(env.DB, env,
               `⚠️ PropWatch 同步失敗：${r.failedOut.length} 個單元`,
@@ -4950,8 +5023,30 @@ export default {
           // idle（早 return），所以一日只會發一次。
           if (!r.idle && r.remaining === 0) await sendSyncSummary(env.DB, env);
         } catch (e) {
-          await sendAdminAlert(env.DB, env, `🚨 PropWatch drip sync 整個失敗`,
-            `Drip sync（cron ${event.cron}，top-level）`, [_errDetail(e)]);
+          // D1 閃斷同「真係炒咗」要分開處理，否則一日 720 次 firing 會令
+          // 一次性網絡問題變成定期假警報（見 isTransientD1 上面嗰段）。
+          if (isTransientD1(e)) {
+            const streak = Number(await getSetting(env.DB, "drip_d1_streak") || 0) + 1;
+            await setSetting(env.DB, "drip_d1_streak", streak);
+            // 當日總次數：就算單次唔出 alert，都會喺每日 summary 度報返，
+            // 所以唔會出現「靜靜哋成日出緊事但冇人知」。
+            const dayKey = `drip_d1_blips_${hkDateStr()}`;
+            await setSetting(env.DB, dayKey, Number(await getSetting(env.DB, dayKey) || 0) + 1);
+            // 連續中 D1_ALERT_STREAK 次先響——一次半次係雜訊，連續中就係
+            // 真係有事（D1 出緊事／個 DB 有問題），嗰陣一定要嘈醒你。
+            if (streak >= D1_ALERT_STREAK) {
+              await sendAdminAlert(env.DB, env, "🚨 PropWatch D1 連續斷線",
+                `Drip sync（cron ${event.cron}）`, [
+                  `連續 ${streak} 次 cron 都因為 D1 斷線做唔到嘢（每次已經自動重試 ${D1_RETRY_ATTEMPTS} 次）。`,
+                  "呢個唔再係一次性閃斷——D1 可能出緊事，去 Cloudflare status 睇下。",
+                  _errDetail(e),
+                ]);
+              await setSetting(env.DB, "drip_d1_streak", 0);   // 響完重新計，唔好每 2 分鐘嘈一次
+            }
+          } else {
+            await sendAdminAlert(env.DB, env, `🚨 PropWatch drip sync 整個失敗`,
+              `Drip sync（cron ${event.cron}，top-level）`, [_errDetail(e)]);
+          }
         }
       })());
     }
@@ -5027,7 +5122,7 @@ export default {
         }
 
         try {
-          await handleStripeEvent(db, env, event);
+          await handleStripeEvent(db, env, event, ctx);
         } catch (e) {
           // 記低但照回 200：翻唔到嘅嘢畀 Stripe 重試都係一樣結果，
           // 而且 event 已經入咗 log，admin 後台睇得到。
