@@ -76,6 +76,6 @@ CSP 已鎖 `connect-src`（只准 call 自己 worker）同 `img-src`（self + da
 
 ## 其他
 
-- 技術細節/架構睇 `NOTES.md`；舊坑睇 `NOTES-ARCHIVE.md`。
+- 技術細節/架構睇 `docs/NOTES.md`；舊坑睇 `docs/NOTES-ARCHIVE.md`。
 - Deploy：worker 喺 `worker/` 行 `npx wrangler deploy`；
   frontend 喺 root 行 `TMPDIR=/tmp npx wrangler pages deploy frontend --project-name=propwatch --branch=main --commit-dirty=true`。

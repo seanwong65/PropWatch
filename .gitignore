@@ -4,3 +4,14 @@ node_modules/
 
 # local Claude Code settings (per-machine, not shared)
 .claude/settings.local.json
+
+# 舊版本 zip 備份。唔入 git 有兩個原因：
+#   ① 2026-06-15 嗰個 121MB，超過 GitHub 單檔 100MB 上限，一 push 就會被拒；
+#   ② git 本身已經係完整版本歷史，zip 純粹係「git 之前」嗰段時間嘅保險。
+# 佢哋照留喺 folder 入面，跟住成個 folder 搬機。
+backups/
+
+# Claude Code 嘅記憶檔。跟 folder 走，但唔入 git——入面有其他 project
+# （InvestWatch / iPointWeb）嘅筆記同個人偏好，唔應該推上 PropWatch 個
+# GitHub repo。搬機時跟住 folder copy 就得。
+memory/

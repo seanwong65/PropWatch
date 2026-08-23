@@ -1,0 +1,11 @@
+# 呢個 folder 坐喺 XAMPP 嘅 htdocs（Apache document root）之下，即係預設會
+# 經 HTTP 出得街。呢度淨係開發用嘅原始碼，冇任何嘢應該俾瀏覽器攞到——
+# 尤其 .git/ 一旦serve 得到，人哋 clone 返成個 repo 連完整歷史。
+# 所以整個目錄一律拒絕。（PropWatch 真正部署喺 Cloudflare，唔靠 XAMPP。）
+<IfModule mod_authz_core.c>
+    Require all denied
+</IfModule>
+<IfModule !mod_authz_core.c>
+    Order allow,deny
+    Deny from all
+</IfModule>
