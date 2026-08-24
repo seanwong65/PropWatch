@@ -1396,15 +1396,6 @@
     .ld-pain-quote { font-weight: 700; margin-bottom: 0.45rem; }
     .ld-pain p { font-size: 0.85rem; color: var(--muted); line-height: 1.7; margin: 0; }
     .ld-pain p b { color: var(--text); }
-    .ld-features { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 0.9rem; }
-    .ld-feat {
-      background: var(--glass-bg); backdrop-filter: var(--glass-blur); -webkit-backdrop-filter: var(--glass-blur);
-      border: 1px solid var(--glass-border); border-radius: var(--radius);
-      box-shadow: var(--glass-inner), var(--shadow-sm); padding: 1.1rem 1.2rem;
-    }
-    .ld-feat-icon { font-size: 1.4rem; margin-bottom: 0.4rem; }
-    .ld-feat-name { font-weight: 700; margin-bottom: 0.3rem; }
-    .ld-feat p { font-size: 0.84rem; color: var(--muted); line-height: 1.65; margin: 0; }
     .ld-table-scroll { overflow-x: auto; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); }
     .ld-table { width: 100%; border-collapse: collapse; font-size: 0.86rem; min-width: 560px; }
     .ld-table th { background: var(--surface2); color: var(--muted); font-size: 0.78rem; padding: 0.6rem 0.9rem; text-align: left; }
@@ -1426,6 +1417,29 @@
     .ld-price-name { font-weight: 700; font-size: 1rem; }
     .ld-price-amount { font-size: 1.6rem; font-weight: 800; color: var(--brand); margin: 0.3rem 0 0.75rem; }
     .ld-price ul { margin: 0; padding-left: 1.2rem; font-size: 0.85rem; color: var(--muted); line-height: 1.9; }
+    .ld-carousel {
+      position: relative; margin: 2rem 0 2.5rem; border-radius: var(--radius-lg);
+      overflow: hidden; box-shadow: var(--shadow); background: var(--surface2);
+      aspect-ratio: 1712 / 1152;
+    }
+    .ld-slide {
+      position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover;
+      opacity: 0; transition: opacity 0.7s ease;
+    }
+    .ld-slide.active { opacity: 1; }
+    .ld-car-btn {
+      position: absolute; top: 50%; transform: translateY(-50%);
+      background: rgba(0,0,0,0.4); color: #fff; border: none;
+      width: 2.1rem; height: 2.1rem; border-radius: 50%; font-size: 1.3rem;
+      line-height: 1; cursor: pointer; display: flex; align-items: center; justify-content: center;
+    }
+    .ld-car-btn:hover { background: rgba(0,0,0,0.6); }
+    .ld-car-prev { left: 0.7rem; } .ld-car-next { right: 0.7rem; }
+    .ld-car-dots { position: absolute; bottom: 0.9rem; left: 50%; transform: translateX(-50%); display: flex; gap: 0.4rem; }
+    .ld-car-dot { width: 0.5rem; height: 0.5rem; border-radius: 999px; background: rgba(255,255,255,0.55); border: none; padding: 0; cursor: pointer; transition: width 0.2s, background 0.2s; }
+    .ld-car-dot.active { background: #fff; width: 1.3rem; }
+    .ld-strip { display: flex; flex-wrap: wrap; justify-content: center; gap: 0.6rem 1.4rem; margin: 1.2rem 0 0; font-size: 0.85rem; color: var(--muted); }
+    .ld-strip span b { color: var(--text); }
     .ld-final { text-align: center; padding: 3.2rem 0 1rem; }
     .ld-foot { text-align: center; font-size: 0.75rem; color: var(--muted); line-height: 1.8; padding-top: 2.5rem; }
   </style>
@@ -1447,9 +1461,7 @@
     <div class="ld-hero">
       <div class="ld-eyebrow">香港樓市追蹤</div>
       <h1 class="ld-h1">個盤放咗 <em>187 日</em>、減咗 <em>3 次價</em>——<br>經紀唔會話你知，HouseRadar 會。</h1>
-      <p class="ld-sub">每日自動追蹤中原、利嘉閣、香港置業、美聯四大網嘅放盤，
-      幫你記住每個盤嘅歷史：幾時上、減幾多、幾時消失、係成交定下架。
-      買樓係人生最大嘅交易，唔應該係人哋話你知幾多就知幾多。</p>
+      <p class="ld-sub">四大地產網每日自動追蹤，記低每個盤嘅歷史——幾時上、減幾多、幾時落。</p>
       <div class="ld-cta-row">
         <button class="ld-cta" onclick="openAuth('register')">免費開始追蹤</button>
         <button class="ld-cta-ghost" onclick="document.getElementById('ld-pains').scrollIntoView({behavior:'smooth'})">睇下有咩唔同 ↓</button>
@@ -1457,55 +1469,53 @@
       <div class="ld-trust">免費追蹤 3 個屋苑・唔使信用卡・唔會攞你電話</div>
     </div>
 
+    <div class="ld-carousel" id="ld-carousel" role="region" aria-label="功能截圖">
+      <img class="ld-slide active" src="images/hero-1-overview.jpg" alt="HouseRadar：已放盤 187 日、減價歷史、抵買判斷一覽">
+      <img class="ld-slide" src="images/hero-2-radar.jpg" alt="抵買雷達：叫價同同苑成交中位數對比，一眼睇清貴定平">
+      <img class="ld-slide" src="images/hero-3-history.jpg" alt="真實放盤日數同完整減價歷史，唔怕刷新扮新盤">
+      <button class="ld-car-btn ld-car-prev" onclick="ldCarouselNav(-1)" aria-label="上一張">‹</button>
+      <button class="ld-car-btn ld-car-next" onclick="ldCarouselNav(1)" aria-label="下一張">›</button>
+      <div class="ld-car-dots">
+        <button class="ld-car-dot active" onclick="ldCarouselTo(0)" aria-label="第 1 張"></button>
+        <button class="ld-car-dot" onclick="ldCarouselTo(1)" aria-label="第 2 張"></button>
+        <button class="ld-car-dot" onclick="ldCarouselTo(2)" aria-label="第 3 張"></button>
+      </div>
+    </div>
+
     <h2 class="ld-h2" id="ld-pains">經紀唔會話你知嘅三件事</h2>
-    <div class="ld-h2sub">唔係經紀衰——佢哋嘅工作係促成交易，你嘅利益要自己攞料先守得住</div>
     <div class="ld-pains">
       <div class="ld-pain">
         <div class="ld-pain-quote">「呢個盤啱啱先放出嚟！」</div>
-        <p>地產網嘅「上盤日期」係可以刷新嘅——落一落再上，就變返「新盤」。
-        HouseRadar 用<b>自己首次見到嗰日</b>計日數，刷極都係咁舊。</p>
+        <p>刷新扮新盤？我哋用<b>首次見到嗰日</b>計，呃唔到。</p>
       </div>
       <div class="ld-pain">
         <div class="ld-pain-quote">「業主好硬淨，冇得傾。」</div>
-        <p>但佢兩個月內減咗三次價。地產網淨係俾你睇現價；
-        HouseRadar <b>每次改價都記低</b>，議價前你已經知道業主急唔急。</p>
+        <p>兩個月減三次價，<b>每次都記低</b>俾你睇晒。</p>
       </div>
       <div class="ld-pain">
         <div class="ld-pain-quote">「呢個價已經好抵！」</div>
-        <p>抵唔抵唔使靠把口——HouseRadar 自動攞<b>同屋苑近期成交中位數</b>做基準，
-        叫價貴幾多、平幾多，個 badge 直接話你知。</p>
+        <p><b>自動對比成交中位數</b>，貴定平即刻知。</p>
       </div>
     </div>
 
-    <h2 class="ld-h2">記住成個市場嘅記性</h2>
-    <div class="ld-h2sub">地產網每日重新開始；HouseRadar 每日累積</div>
-    <div class="ld-features">
-      <div class="ld-feat"><div class="ld-feat-icon">🕰️</div><div class="ld-feat-name">放盤日數真相</div>
-        <p>個盤真正放咗幾耐，用我哋首次見到嗰日同網站日期兩者較早嗰個計——「翻新」都呃唔到。</p></div>
-      <div class="ld-feat"><div class="ld-feat-icon">📉</div><div class="ld-feat-name">改價歷史</div>
-        <p>每一次減價、加價都有時間有銀碼。「歷史」一撳就見到成條軌跡。</p></div>
-      <div class="ld-feat"><div class="ld-feat-icon">🚫</div><div class="ld-feat-name">下架有交代</div>
-        <p>盤消失咗，地產網就當冇存在過。我哋標記「已下架」，仲會自動配對土地註冊處成交——睇下係賣咗定收返。</p></div>
-      <div class="ld-feat"><div class="ld-feat-icon">🔭</div><div class="ld-feat-name">四網合一</div>
-        <p>中原、利嘉閣、香港置業、美聯每日抓齊，同一個單位喺幾個網重複放，自動合併做一行。</p></div>
-      <div class="ld-feat"><div class="ld-feat-icon">💎</div><div class="ld-feat-name">抵買雷達</div>
-        <p>成個屋苑邊個盤叫價低過近期成交中位數最多、擺得耐、啱啱減完價——自動篩晒出嚟。</p></div>
-      <div class="ld-feat"><div class="ld-feat-icon">📝</div><div class="ld-feat-name">睇樓記錄＋評分</div>
-        <p>睇完樓逐項打分（景觀、間隔、採光⋯⋯自己定），影相記低。睇得多都唔會撈亂。</p></div>
-    </div>
-
     <h2 class="ld-h2">同地產網站有咩分別？</h2>
-    <div class="ld-h2sub">佢哋係幫你搵盤嘅——搵完之後嘅嘢，就係我哋做嘅</div>
+    <div class="ld-h2sub">佢哋幫你搵盤；搵完之後嘅嘢，我哋做</div>
     <div class="ld-table-scroll"><table class="ld-table">
       <tr><th></th><th>地產代理網站</th><th>HouseRadar</th></tr>
-      <tr><td>立場</td><td>經紀平台，目標係促成交易</td><td>買家自己嘅工具，冇任何盤要sell你</td></tr>
-      <tr><td>放盤日數</td><td>「上盤日期」可以刷新扮新盤</td><td>首次見到嗰日起計，刷新冇用</td></tr>
-      <tr><td>改價歷史</td><td>只顯示現價</td><td>每次改價都記低，議價有據</td></tr>
-      <tr><td>盤消失咗</td><td>直接消失，冇下文</td><td>標記已下架，自動配對成交</td></tr>
-      <tr><td>跨網比較</td><td>各睇各嘅，自己逐個網查</td><td>四網合一，同一單位自動合併</td></tr>
-      <tr><td>貴定平</td><td>自己揭成交記錄逐宗對</td><td>自動對比同苑成交中位數＋恒生估值</td></tr>
-      <tr><td>你嘅電話</td><td>留低等經紀跟進</td><td>唔會攞，亦冇經紀喺度</td></tr>
+      <tr><td>立場</td><td>促成交易</td><td>買家自己嘅工具</td></tr>
+      <tr><td>放盤日數</td><td>可刷新扮新盤</td><td>首見日起計，刷新冇用</td></tr>
+      <tr><td>改價歷史</td><td>得返而家個價</td><td>每次都記低</td></tr>
+      <tr><td>盤消失咗</td><td>冇下文</td><td>標記＋自動配對成交</td></tr>
+      <tr><td>跨網比較</td><td>逐個網自己睇</td><td>四網自動合併</td></tr>
+      <tr><td>貴定平</td><td>自己揭成交</td><td>自動對比成交中位數</td></tr>
+      <tr><td>你嘅電話</td><td>留低等經紀跟進</td><td>唔會攞，亦冇經紀</td></tr>
     </table></div>
+
+    <div class="ld-strip">
+      <span>📝 <b>睇樓記錄</b> 逐項評分＋相片</span>
+      <span>🔭 <b>四網合一</b> 中原／利嘉閣／香港置業／美聯</span>
+      <span>💎 <b>抵買雷達</b> 自動篩出低過中位數嘅盤</span>
+    </div>
 
     <div class="ld-calc">
       <h2 class="ld-h2" style="margin-top:0">未諗住買住？至少知下自己買得起幾錢</h2>
@@ -1556,6 +1566,27 @@
 /* 有 token（登入咗）即刻收埋 landing，唔等 body 尾個大 script——
    避免登入用戶每次開 app 都閃一下 marketing 頁 */
 try { if (localStorage.getItem("propwatch_token")) document.getElementById("landing-screen").style.display = "none"; } catch (_) {}
+
+// Carousel：3 張靜態截圖，5 秒自動轉。撳箭嘴／dot 會即刻切換並重新計
+// 落去嘅 5 秒（唔跟返原本個 timer），咁樣用戶手動撳完唔會 0.5 秒後
+// 又自己跳走。掛喺呢個 script（唔係 body 尾個大 script）係因為呢頁淨係
+// 未登入先會見到，同登入後嘅 app 邏輯無關，唔使等大 script 全部 parse 完。
+let _ldCarIdx = 0, _ldCarTimer = null;
+function ldCarouselShow(i) {
+  const slides = document.querySelectorAll("#ld-carousel .ld-slide");
+  const dots = document.querySelectorAll("#ld-carousel .ld-car-dot");
+  if (!slides.length) return;
+  _ldCarIdx = (i + slides.length) % slides.length;
+  slides.forEach((s, idx) => s.classList.toggle("active", idx === _ldCarIdx));
+  dots.forEach((d, idx) => d.classList.toggle("active", idx === _ldCarIdx));
+}
+function ldCarouselRestart() {
+  clearInterval(_ldCarTimer);
+  _ldCarTimer = setInterval(() => ldCarouselShow(_ldCarIdx + 1), 5000);
+}
+function ldCarouselNav(delta) { ldCarouselShow(_ldCarIdx + delta); ldCarouselRestart(); }
+function ldCarouselTo(i) { ldCarouselShow(i); ldCarouselRestart(); }
+ldCarouselRestart();
 </script>
 
 <header>
