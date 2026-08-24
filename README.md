@@ -1,4 +1,4 @@
-# PropWatch
+# HouseRadar
 
 香港樓市追蹤系統。每日自動抓四個地產網嘅放盤／租盤／成交，儲落 Cloudflare
 D1，計出「呢個盤相對同苑近期成交平定貴」，再每朝 09:00 email 一份今日動態。
@@ -47,7 +47,7 @@ HTTP 出得街。`.git/` 一旦 serve 得到，人哋可以 clone 走成個 repo
 所以 `.htaccess` 將整個目錄 `Require all denied`（實測 `.git/config` 同
 `CLAUDE.md` 都回 403）。
 
-PropWatch **真正部署喺 Cloudflare**，同 XAMPP 完全無關——XAMPP 喺呢度純粹
+HouseRadar **真正部署喺 Cloudflare**，同 XAMPP 完全無關——XAMPP 喺呢度純粹
 係「啱好有個 folder 擺住」。
 
 ## Secrets 喺邊

@@ -1,4 +1,4 @@
-# PropWatch — Project Notes
+# HouseRadar — Project Notes
 
 Live reference only. History and superseded designs live in
 [`NOTES-ARCHIVE.md`](./NOTES-ARCHIVE.md) (pitfall lessons kept there — read it

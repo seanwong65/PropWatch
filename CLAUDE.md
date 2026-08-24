@@ -1,4 +1,4 @@
-# PropWatch — Claude Code 項目規則
+# HouseRadar — Claude Code 項目規則
 
 ## 安全 Convention（強制 — 所有新功能一律跟從）
 

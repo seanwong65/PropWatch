@@ -1,4 +1,4 @@
-# PropWatch — Archive (history & superseded designs)
+# HouseRadar — Archive (history & superseded designs)
 
 Narrative history moved out of `NOTES.md`. **Nothing is deleted** — the pitfall
 lessons below stay so we don't re-step on them. Where a design was later
