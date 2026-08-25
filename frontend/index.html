@@ -1408,6 +1408,20 @@
       border: 1px solid var(--glass-border); border-radius: var(--radius-lg);
       box-shadow: var(--glass-inner), var(--shadow); padding: 1.6rem; text-align: center; margin-top: 3rem;
     }
+    /* 功能實拍：文字喺上、截圖喺下，**一律全闊**。
+       ⚠️ 本來想做「文字同截圖左右並排」，實測唔得：呢啲截圖係闊身表格
+       （原圖 1798px），desktop 1280px 之下並排只分到 347px，縮到 0.19 倍，
+       表格啲字細到睇唔到——影響嘅正正係「俾人睇清楚個系統做到咩」呢個
+       目的。全闊（最闊 880px）先讀得到。 */
+    .ld-shot-row { margin: 2.2rem 0; }
+    .ld-shot-text { margin-bottom: 0.8rem; }
+    .ld-shot-name { font-weight: 700; font-size: 1.05rem; margin-bottom: 0.35rem; }
+    .ld-shot-text p { font-size: 0.88rem; color: var(--muted); line-height: 1.75; margin: 0; }
+    .ld-shot-text p b { color: var(--text); }
+    .ld-shot-img {
+      width: 100%; border-radius: var(--radius); border: 1px solid var(--border);
+      box-shadow: var(--shadow); display: block;
+    }
     .ld-carousel {
       /* 而家坐喺 ld-wrap 最頂（sticky topbar 下面），ld-wrap 本身冇 top
          padding（本來靠 ld-hero 自己嘅 padding-top:3.5rem 頂住），所以要
@@ -1504,6 +1518,41 @@
       <tr><td>貴定平</td><td><b class="ld-tick">✓</b> 自動對比成交中位數</td><td>自己揭成交</td></tr>
       <tr><td>你嘅電話</td><td><b class="ld-tick">✓</b> 唔會攞，亦冇經紀</td><td>留低等經紀跟進</td></tr>
     </table></div>
+
+    <h2 class="ld-h2">實際見到啲咩</h2>
+    <div class="ld-h2sub">以下係系統畫面（示範數據）</div>
+
+    <div class="ld-shot-row">
+      <div class="ld-shot-text">
+        <div class="ld-shot-name">🕰️ 放盤列表：日數、減價、下架一次過睇</div>
+        <p>每個盤跟住<b>真實放盤日數</b>、減過幾多次價。同一單位喺幾個網重複放會<b>自動合併做一行</b>，慳返你逐個網對。盤落咗架會標記，仲會自動配對返成交價。</p>
+      </div>
+      <img class="ld-shot-img" src="images/feat-listings.jpg" alt="放盤列表：顯示放盤日數、減價次數、多個來源合併、下架配對成交" loading="lazy">
+    </div>
+
+    <div class="ld-shot-row">
+      <div class="ld-shot-text">
+        <div class="ld-shot-name">💎 抵買雷達：邊個盤真係平</div>
+        <p>自動攞<b>同屋苑近期成交中位數</b>做基準，篩出叫價低最多嗰批，仲會標埋「擺賣幾耐」「啱啱減價」——議價前你已經知道邊個業主最急。</p>
+      </div>
+      <img class="ld-shot-img" src="images/feat-radar.jpg" alt="抵買雷達：叫價對比同屋苑成交中位數，標示減價同擺賣日數" loading="lazy">
+    </div>
+
+    <div class="ld-shot-row">
+      <div class="ld-shot-text">
+        <div class="ld-shot-name">📉 售價歷史：每次改價都留低證據</div>
+        <p>由我哋<b>首次見到嗰日</b>開始記，每次減價幾多、幾時減，一條時間線列曬。經紀話「業主好硬淨」嗰陣，你手上有數。</p>
+      </div>
+      <img class="ld-shot-img" src="images/feat-history.jpg" alt="售價歷史：逐次改價記錄同總減幅" loading="lazy">
+    </div>
+
+    <div class="ld-shot-row">
+      <div class="ld-shot-text">
+        <div class="ld-shot-name">📝 睇樓記錄：睇十間都唔會撈亂</div>
+        <p>逐項自訂評分（景觀、間隔、採光⋯⋯），影相、寫備註。仲會同時話你知呢個單位<b>相對叫價同成交中位數</b>係貴定平。</p>
+      </div>
+      <img class="ld-shot-img" src="images/feat-viewing.jpg" alt="睇樓記錄：自訂項目評分、備註，同埋相對叫價／成交中位數嘅貴平判斷" loading="lazy">
+    </div>
 
     <div class="ld-calc">
       <h2 class="ld-h2" style="margin-top:0">未諗住買住？至少知下自己買得起幾錢</h2>
