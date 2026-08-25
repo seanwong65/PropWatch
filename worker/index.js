@@ -2151,11 +2151,11 @@ async function reconcileSubscriptions(db, env) {
   if (!env?.STRIPE_SECRET_KEY) return out;   // 未接 Stripe 就當冇嘢要對
   // 只需要對「Stripe 管緊」嗰批。人手開通（冇 stripe_subscription_id）唔關
   // Stripe 事，佢哋靠 authenticate() 嘅 current_period_end 過期自動打回 free。
-  const { results: accs } = await db.prepare(
+  const { results: accs } = await d1Retry(() => db.prepare(
     `SELECT id, email, tier, subscription_status, stripe_subscription_id, stripe_customer_id
      FROM accounts
      WHERE (is_active IS NULL OR is_active = 1) AND stripe_subscription_id IS NOT NULL`
-  ).all();
+  ).all(), "reconcileSubscriptions/accs");
   if (!accs.length) return out;
 
   let subs = [];
@@ -4969,7 +4969,12 @@ export default {
           // 個 trigger——Cloudflare Free plan 得 5 個 cron expression，而家已經
           // 用咗 2 個（drip sync + email），要留返位。順序唔可以倒轉：對完數
           // 先寄，咁啱啱降咗級嘅人就唔會仲收到當日封收費版 email。
-          const recon = await reconcileSubscriptions(env.DB, env);
+          let recon = { checked: 0, fixed: [], trouble: new Set(), error: null };
+          try {
+            recon = await reconcileSubscriptions(env.DB, env);
+          } catch (e) {
+            recon.error = _errDetail(e);   // 對數炒咗都要照寄信，聽日再補對數
+          }
           const res = await sendDailyEmail(env.DB, env, null, null, recon.trouble);
           const failed = (res?.sent || []).filter((r) => r.error);
           const skipped = (res?.sent || []).filter((r) => r.skipped);
