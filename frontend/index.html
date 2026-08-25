@@ -1366,7 +1366,7 @@
       color: var(--text); padding: 0.35rem 1rem; font-size: 0.85rem; cursor: pointer; font-family: inherit;
       background: var(--btn2-bg);
     }
-    .ld-hero { text-align: center; padding: 3.5rem 0 2.5rem; }
+    .ld-hero { text-align: center; padding: 0.5rem 0 2.5rem; }
     .ld-eyebrow { font-size: 0.8rem; letter-spacing: 0.12em; color: var(--muted); text-transform: uppercase; margin-bottom: 0.9rem; }
     .ld-h1 { font-size: clamp(1.6rem, 4.5vw, 2.4rem); line-height: 1.35; font-weight: 800; margin: 0 0 1rem; }
     .ld-h1 em { font-style: normal; color: var(--brand); }
@@ -1418,7 +1418,10 @@
     .ld-price-amount { font-size: 1.6rem; font-weight: 800; color: var(--brand); margin: 0.3rem 0 0.75rem; }
     .ld-price ul { margin: 0; padding-left: 1.2rem; font-size: 0.85rem; color: var(--muted); line-height: 1.9; }
     .ld-carousel {
-      position: relative; margin: 2rem 0 2.5rem; border-radius: var(--radius-lg);
+      /* 而家坐喺 ld-wrap 最頂（sticky topbar 下面），ld-wrap 本身冇 top
+         padding（本來靠 ld-hero 自己嘅 padding-top:3.5rem 頂住），所以要
+         自己留返段距離，唔好貼住 topbar。 */
+      position: relative; margin: 1.6rem 0 2.5rem; border-radius: var(--radius-lg);
       overflow: hidden; box-shadow: var(--shadow); background: var(--surface2);
       aspect-ratio: 1712 / 1152;
     }
@@ -1458,17 +1461,6 @@
   </div>
   <div class="ld-wrap">
 
-    <div class="ld-hero">
-      <div class="ld-eyebrow">香港樓市追蹤</div>
-      <h1 class="ld-h1">個盤放咗 <em>187 日</em>、減咗 <em>3 次價</em>——<br>經紀唔會話你知，HouseRadar 會。</h1>
-      <p class="ld-sub">四大地產網每日自動追蹤，記低每個盤嘅歷史——幾時上、減幾多、幾時落。</p>
-      <div class="ld-cta-row">
-        <button class="ld-cta" onclick="openAuth('register')">免費開始追蹤</button>
-        <button class="ld-cta-ghost" onclick="document.getElementById('ld-pains').scrollIntoView({behavior:'smooth'})">睇下有咩唔同 ↓</button>
-      </div>
-      <div class="ld-trust">免費追蹤 3 個屋苑・唔使信用卡・唔會攞你電話</div>
-    </div>
-
     <div class="ld-carousel" id="ld-carousel" role="region" aria-label="功能截圖">
       <img class="ld-slide active" src="images/hero-1-overview.jpg" alt="HouseRadar：已放盤 187 日、減價歷史、抵買判斷一覽">
       <img class="ld-slide" src="images/hero-2-radar.jpg" alt="抵買雷達：叫價同同苑成交中位數對比，一眼睇清貴定平">
@@ -1480,6 +1472,17 @@
         <button class="ld-car-dot" onclick="ldCarouselTo(1)" aria-label="第 2 張"></button>
         <button class="ld-car-dot" onclick="ldCarouselTo(2)" aria-label="第 3 張"></button>
       </div>
+    </div>
+
+    <div class="ld-hero">
+      <div class="ld-eyebrow">香港樓市追蹤</div>
+      <h1 class="ld-h1">個盤放咗 <em>187 日</em>、減咗 <em>3 次價</em>——<br>經紀唔會話你知，HouseRadar 會。</h1>
+      <p class="ld-sub">四大地產網每日自動追蹤，記低每個盤嘅歷史——幾時上、減幾多、幾時落。</p>
+      <div class="ld-cta-row">
+        <button class="ld-cta" onclick="openAuth('register')">免費開始追蹤</button>
+        <button class="ld-cta-ghost" onclick="document.getElementById('ld-pains').scrollIntoView({behavior:'smooth'})">睇下有咩唔同 ↓</button>
+      </div>
+      <div class="ld-trust">免費追蹤 3 個屋苑・唔使信用卡・唔會攞你電話</div>
     </div>
 
     <h2 class="ld-h2" id="ld-pains">經紀唔會話你知嘅三件事</h2>
@@ -1524,11 +1527,11 @@
     </div>
 
     <h2 class="ld-h2">免費開始，啱用先升級</h2>
-    <div class="ld-h2sub">收費版一日一蚊都唔使，養住個每日自動同步</div>
+    <div class="ld-h2sub">用落先知想唔想解鎖更多——收費詳情登入之後先見到</div>
     <div class="ld-price-grid">
       <div class="ld-price">
         <div class="ld-price-name">免費版</div>
-        <div class="ld-price-amount">$0</div>
+        <div class="ld-price-amount">而家就用得</div>
         <ul>
           <li>追蹤 3 個屋苑</li>
           <li>今日放盤快照（四網合一）</li>
@@ -1538,7 +1541,7 @@
       </div>
       <div class="ld-price best">
         <div class="ld-price-name">收費版</div>
-        <div class="ld-price-amount">$30/月 <span style="font-size:0.8rem;font-weight:400;color:var(--muted)">或 $300/年（=$25/月）</span></div>
+        <div class="ld-price-amount">用開先解鎖</div>
         <ul>
           <li>追蹤 15 個屋苑</li>
           <li>放盤日數・改價歷史・下架追蹤</li>
