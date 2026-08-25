@@ -4292,8 +4292,6 @@ async function showEstate(id, name, district) {
   activeEstateId = id;
   _viewingEstateId = id;
   _viewingEstateName = name;
-  const enabledMap = {};
-  SOURCES.forEach(s => { enabledMap[s.id] = sourceEnabledFE(_est, s.id) ? 1 : 0; });
   document.querySelectorAll(".estate-card").forEach(c => {
     c.classList.toggle("active", Number(c.getAttribute("data-id")) === id);
   });
@@ -4359,7 +4357,7 @@ async function showEstate(id, name, district) {
         <div>
           <div class="estate-title">${escHtml(name)}</div>
           <div class="estate-sub">${district ? escHtml(district) + ' · ' : ''}共 ${listings.length} 個在售單位</div>
-          <div id="estate-info-bar" data-tracking="${trends.length}" data-id="${id}" data-enabled='${JSON.stringify(enabledMap)}'></div>
+          <div id="estate-info-bar" data-tracking="${trends.length}" data-id="${id}"></div>
         </div>
         <button class="sync-btn" style="background:var(--brand);border-color:var(--brand);color:var(--brand-ink);white-space:nowrap;flex-shrink:0;margin-top:0.2rem" onclick="openViewingModal()">＋ 新增睇樓</button>
       </div>
@@ -4440,7 +4438,6 @@ async function showEstate(id, name, district) {
             <div class="section-title" style="margin:0">最新放盤</div>
             <div style="display:flex;align-items:center;gap:0.6rem">
               <button class="history-btn" id="groupModeBtn" onclick="toggleGroupSelectMode()" style="font-size:0.75rem">群組模式</button>
-              <div id="sourceToggles"></div>
             </div>
           </div>
           <div id="groupSelectBar"></div>
@@ -4490,7 +4487,6 @@ async function showEstate(id, name, district) {
         priceChanged: "all", source: "all", dom: "all", hideRemoved: true,
       };
       renderFilterBar();
-      renderSourceToggles();
       renderListingsTable();
     }
     // 租盤 filter bar 都要跟返睇樓偏好 auto-apply（買盤嗰邊 `filters` 已經咁做），
@@ -7240,36 +7236,6 @@ function renderFilterBar() {
       <span class="filter-count" id="filterCount"></span>
     </div>
   `;
-  renderSourceToggles();
-}
-
-function estateEnabledMap() {
-  const bar = document.getElementById('estate-info-bar');
-  try { return JSON.parse(bar?.dataset.enabled || '{}'); } catch (_) { return {}; }
-}
-
-function renderSourceToggles() {
-  const el = document.getElementById('sourceToggles');
-  if (!el) return;
-  const enabled = estateEnabledMap();
-  const btnStyle = (active) => `background:${active ? 'rgba(251,191,36,0.12)' : 'var(--surface2)'};border:1px solid ${active ? 'var(--accent)' : 'var(--border)'};border-radius:var(--radius);padding:0.25rem 0.65rem;font-size:0.75rem;cursor:pointer;color:${active ? 'var(--accent)' : 'var(--muted)'};font-weight:${active ? '600' : '400'}`;
-  el.innerHTML = `<div style="display:flex;gap:0.4rem">
-    ${SOURCES.map(s => `<button style="${btnStyle(!!enabled[s.id])}" onclick="toggleSource('${s.id}')">${s.label}</button>`).join('')}
-  </div>`;
-}
-
-async function toggleSource(src) {
-  const bar = document.getElementById('estate-info-bar');
-  if (!bar) return;
-  const id = bar.dataset.id;
-  const label = sourceLabel(src);
-  const enabled = estateEnabledMap();
-  const newVal = enabled[src] ? 0 : 1;
-  await api(`/api/estates/${id}`, { method: 'PATCH', body: JSON.stringify({ [`${src}_enabled`]: newVal }) });
-  enabled[src] = newVal;
-  bar.dataset.enabled = JSON.stringify(enabled);
-  toast(newVal ? `已啟用${label}資料（下次同步生效）` : `已停用${label}資料`, newVal ? 'success' : 'info');
-  renderSourceToggles();
 }
 
 function setFilter(key, val) {
@@ -7769,11 +7735,6 @@ function txnSrcBadge(id) {
   const tint = TXN_SRC_TINT[id];
   if (!tint) return `<span style="font-size:0.68rem;color:var(--muted);margin-left:5px">${label}</span>`;
   return `<span style="font-size:0.68rem;color:${tint[0]};background:${tint[1]};border-radius:4px;padding:1px 5px;margin-left:5px">${label}</span>`;
-}
-// centanet is on unless explicitly 0; others must be truthy.
-function sourceEnabledFE(est, id) {
-  const v = est ? est[id + "_enabled"] : undefined;
-  return id === "centanet" ? v !== 0 : !!v;
 }
 
 // ── 按揭計算機 ─────────────────────────────────────────────────
