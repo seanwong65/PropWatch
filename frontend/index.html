@@ -1399,9 +1399,10 @@
     .ld-table-scroll { overflow-x: auto; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); }
     .ld-table { width: 100%; border-collapse: collapse; font-size: 0.86rem; min-width: 560px; }
     .ld-table th { background: var(--surface2); color: var(--muted); font-size: 0.78rem; padding: 0.6rem 0.9rem; text-align: left; }
-    .ld-table th:nth-child(3), .ld-table td:nth-child(3) { background: var(--brand-soft); }
+    .ld-table th:nth-child(2), .ld-table td:nth-child(2) { background: var(--brand-soft); }
     .ld-table td { padding: 0.65rem 0.9rem; border-top: 1px solid var(--td-border); vertical-align: top; line-height: 1.6; }
     .ld-table td:first-child { color: var(--muted); white-space: nowrap; }
+    .ld-tick { color: var(--up); }
     .ld-calc {
       background: var(--glass-bg); backdrop-filter: var(--glass-blur); -webkit-backdrop-filter: var(--glass-blur);
       border: 1px solid var(--glass-border); border-radius: var(--radius-lg);
@@ -1494,14 +1495,14 @@
     <h2 class="ld-h2">同地產網站有咩分別？</h2>
     <div class="ld-h2sub">佢哋幫你搵盤；搵完之後嘅嘢，我哋做</div>
     <div class="ld-table-scroll"><table class="ld-table">
-      <tr><th></th><th>地產代理網站</th><th>HouseRadar</th></tr>
-      <tr><td>立場</td><td>促成交易</td><td>買家自己嘅工具</td></tr>
-      <tr><td>放盤日數</td><td>可刷新扮新盤</td><td>首見日起計，刷新冇用</td></tr>
-      <tr><td>改價歷史</td><td>得返而家個價</td><td>每次都記低</td></tr>
-      <tr><td>盤消失咗</td><td>冇下文</td><td>標記＋自動配對成交</td></tr>
-      <tr><td>跨網比較</td><td>逐個網自己睇</td><td>四網自動合併</td></tr>
-      <tr><td>貴定平</td><td>自己揭成交</td><td>自動對比成交中位數</td></tr>
-      <tr><td>你嘅電話</td><td>留低等經紀跟進</td><td>唔會攞，亦冇經紀</td></tr>
+      <tr><th></th><th>HouseRadar</th><th>地產代理網站</th></tr>
+      <tr><td>立場</td><td><b class="ld-tick">✓</b> 買家自己嘅工具</td><td>促成交易</td></tr>
+      <tr><td>放盤日數</td><td><b class="ld-tick">✓</b> 首見日起計，刷新冇用</td><td>可刷新扮新盤</td></tr>
+      <tr><td>改價歷史</td><td><b class="ld-tick">✓</b> 每次都記低</td><td>得返而家個價</td></tr>
+      <tr><td>盤消失咗</td><td><b class="ld-tick">✓</b> 標記＋自動配對成交</td><td>冇下文</td></tr>
+      <tr><td>跨網比較</td><td><b class="ld-tick">✓</b> 四網自動合併</td><td>逐個網自己睇</td></tr>
+      <tr><td>貴定平</td><td><b class="ld-tick">✓</b> 自動對比成交中位數</td><td>自己揭成交</td></tr>
+      <tr><td>你嘅電話</td><td><b class="ld-tick">✓</b> 唔會攞，亦冇經紀</td><td>留低等經紀跟進</td></tr>
     </table></div>
 
     <div class="ld-calc">
