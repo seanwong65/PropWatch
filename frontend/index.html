@@ -1880,6 +1880,79 @@ ldCarouselRestart();
   </div>
 </div>
 
+<!-- 進階搜尋：跨晒所有已追蹤屋苑搵盤（中原主頁「進階」嘅 HouseRadar 版）。
+     搜自己 DB 嘅最新 snapshot，唔打 portal。 -->
+<div class="modal-overlay" id="advSearchOverlay" style="display:none;z-index:600" onclick="if(event.target===this)closeAdvSearch()">
+  <div class="modal" style="max-width:640px;max-height:92vh;overflow-y:auto">
+    <button class="modal-close" onclick="closeAdvSearch()">✕</button>
+    <div class="modal-title">⚙ 進階搜尋</div>
+    <p style="font-size:0.8rem;color:var(--muted);margin:0.25rem 0 0.9rem">喺你追蹤緊嘅屋苑入面跨屋苑搵盤——連放盤日數、減價呢啲地產網唔會俾你篩嘅都篩到。</p>
+
+    <div style="display:flex;gap:0.4rem;flex-wrap:wrap">
+      <button type="button" class="filter-chip active" data-adv-deal="S" onclick="advSetDeal('S')">🏠 買盤</button>
+      <button type="button" class="filter-chip" data-adv-deal="R" onclick="advSetDeal('R')">🔑 租盤</button>
+    </div>
+
+    <div class="vf-row2">
+      <div><label class="vf-label" id="adv-price-label">售價（萬）</label>
+        <div style="display:flex;align-items:center;gap:0.4rem">
+          <input class="vf-input" type="number" id="adv-price-min" placeholder="最低" style="margin:0">
+          <span style="color:var(--muted)">–</span>
+          <input class="vf-input" type="number" id="adv-price-max" placeholder="最高" style="margin:0">
+        </div></div>
+      <div><label class="vf-label">實呎</label>
+        <div style="display:flex;align-items:center;gap:0.4rem">
+          <input class="vf-input" type="number" id="adv-size-min" placeholder="最低" style="margin:0">
+          <span style="color:var(--muted)">–</span>
+          <input class="vf-input" type="number" id="adv-size-max" placeholder="最高" style="margin:0">
+        </div></div>
+    </div>
+
+    <div class="vf-row2">
+      <div><label class="vf-label" id="adv-psf-label">實呎價（$）</label>
+        <div style="display:flex;align-items:center;gap:0.4rem">
+          <input class="vf-input" type="number" id="adv-psf-min" placeholder="最低" style="margin:0">
+          <span style="color:var(--muted)">–</span>
+          <input class="vf-input" type="number" id="adv-psf-max" placeholder="最高" style="margin:0">
+        </div></div>
+      <div><label class="vf-label">區域</label>
+        <select class="vf-select" id="adv-district"><option value="">全部</option></select></div>
+    </div>
+
+    <label class="vf-label" style="margin-top:0.9rem">房數</label>
+    <div id="adv-beds" style="display:flex;gap:0.4rem;flex-wrap:wrap">
+      <button type="button" class="filter-chip active" data-beds="" onclick="advSetBeds(this)">唔限</button>
+      <button type="button" class="filter-chip" data-beds="1" onclick="advSetBeds(this)">1房</button>
+      <button type="button" class="filter-chip" data-beds="2" onclick="advSetBeds(this)">2房</button>
+      <button type="button" class="filter-chip" data-beds="3" onclick="advSetBeds(this)">3房</button>
+      <button type="button" class="filter-chip" data-beds="4+" onclick="advSetBeds(this)">4+房</button>
+    </div>
+
+    <label class="vf-label" style="margin-top:0.9rem">HouseRadar 獨有篩選 <span style="color:var(--accent);font-size:0.7rem">收費版</span></label>
+    <div class="vf-row2">
+      <div><label style="display:flex;align-items:center;gap:0.4rem;font-size:0.85rem;color:var(--text);cursor:pointer">
+        <input type="checkbox" id="adv-price-drop" style="accent-color:var(--accent)"> 只顯示減過價嘅盤</label></div>
+      <div style="display:flex;align-items:center;gap:0.45rem;font-size:0.85rem;color:var(--text)">
+        放盤 <input class="vf-input" type="number" id="adv-dom-min" placeholder="0" style="margin:0;width:70px"> 日以上</div>
+    </div>
+
+    <div class="vf-row2" style="margin-top:0.9rem">
+      <div><label class="vf-label" style="margin-top:0">排序</label>
+        <select class="vf-select" id="adv-sort">
+          <option value="psf_asc">實呎價（平→貴）</option>
+          <option value="price_asc">價錢（低→高）</option>
+          <option value="price_desc">價錢（高→低）</option>
+          <option value="dom_desc">放得最耐行先</option>
+          <option value="cut_desc">減得最深行先</option>
+        </select></div>
+      <div style="display:flex;align-items:flex-end">
+        <button class="vf-submit" style="margin:0;width:100%" onclick="runAdvSearch()">搜尋</button></div>
+    </div>
+
+    <div id="adv-results" style="margin-top:1rem"></div>
+  </div>
+</div>
+
 <!-- 備注選項編輯 popup（由睇樓表格「備注」區嘅「編輯選項」掣開） -->
 <div class="modal-overlay" id="notesOptModalOverlay" style="display:none;z-index:600" onclick="if(event.target===this)closeNotesOptEditor()">
   <div class="modal" style="max-width:400px;max-height:90vh;overflow-y:auto">
@@ -2158,6 +2231,9 @@ ldCarouselRestart();
         <button class="search-btn" id="searchBtn" onclick="handleSearchBtn()">搜尋</button>
         <div class="autocomplete hidden" id="autocomplete"></div>
       </div>
+      <button onclick="openAdvSearch()"
+        style="background:none;border:none;color:var(--accent2);font-size:0.78rem;padding:0.35rem 0 0;cursor:pointer;text-align:left;font-family:inherit">
+        ⚙ 進階搜尋（跨屋苑搵盤）</button>
     </div>
     <div class="estate-list" id="estateList">
       <div class="sidebar-empty">載入中…</div>
@@ -4229,6 +4305,77 @@ async function handleSearchBtn() {
   if (items.length === 1) items[0].click();
 }
 
+// ── 進階搜尋 ───────────────────────────────────────────────────
+let _advDeal = "S";
+function openAdvSearch() {
+  // 區域 dropdown 由已追蹤屋苑動態砌——唔好 hardcode 香港十八區，
+  // 用戶得三五個屋苑，得返兩三個區揀先啱用
+  const sel = document.getElementById("adv-district");
+  const cur = sel.value;
+  const districts = [...new Set(Object.values(estatesById || {})
+    .filter((e) => !e.paused && e.district).map((e) => e.district))].sort();
+  sel.innerHTML = '<option value="">全部</option>' +
+    districts.map((d) => `<option value="${escHtml(d)}">${escHtml(d)}</option>`).join("");
+  if ([...sel.options].some((o) => o.value === cur)) sel.value = cur;
+  document.getElementById("advSearchOverlay").style.display = "flex";
+}
+function closeAdvSearch() { document.getElementById("advSearchOverlay").style.display = "none"; }
+function advSetDeal(d) {
+  _advDeal = d;
+  document.querySelectorAll("[data-adv-deal]").forEach((b) => b.classList.toggle("active", b.dataset.advDeal === d));
+  document.getElementById("adv-price-label").textContent = d === "R" ? "月租（$）" : "售價（萬）";
+  document.getElementById("adv-psf-label").textContent = d === "R" ? "實呎租（$）" : "實呎價（$）";
+}
+function advSetBeds(btn) {
+  document.querySelectorAll("#adv-beds .filter-chip").forEach((b) => b.classList.remove("active"));
+  btn.classList.add("active");
+}
+async function runAdvSearch() {
+  const out = document.getElementById("adv-results");
+  out.innerHTML = '<div class="loading">搜尋緊…</div>';
+  const num = (id) => { const v = parseFloat(document.getElementById(id).value); return isFinite(v) && v > 0 ? v : null; };
+  const isRent = _advDeal === "R";
+  const body = {
+    deal: _advDeal,
+    // 售盤輸入係「萬」，後端要絕對值；租盤直接 $/月
+    price_min: num("adv-price-min") ? num("adv-price-min") * (isRent ? 1 : 10000) : null,
+    price_max: num("adv-price-max") ? num("adv-price-max") * (isRent ? 1 : 10000) : null,
+    size_min: num("adv-size-min"), size_max: num("adv-size-max"),
+    psf_min: num("adv-psf-min"), psf_max: num("adv-psf-max"),
+    beds: document.querySelector("#adv-beds .filter-chip.active")?.dataset.beds || "",
+    district: document.getElementById("adv-district").value || null,
+    dom_min: num("adv-dom-min"),
+    price_drop: document.getElementById("adv-price-drop").checked,
+    sort: document.getElementById("adv-sort").value,
+  };
+  try {
+    const d = await api("/api/adv-search", { method: "POST", body: JSON.stringify(body) });
+    if (!d.results.length) {
+      out.innerHTML = '<div style="color:var(--muted);font-size:0.85rem;text-align:center;padding:1.2rem">冇符合條件嘅盤——試下放寬啲條件</div>';
+      return;
+    }
+    const fmt$ = (n) => isRent ? "$" + Math.round(n).toLocaleString() : "$" + (n / 1e4).toFixed(0) + "萬";
+    out.innerHTML = `
+      <div style="font-size:0.78rem;color:var(--muted);margin-bottom:0.4rem">符合 ${d.total} 個盤${d.total > d.results.length ? `（顯示頭 ${d.results.length} 個）` : ""}——撳一行去返嗰個屋苑</div>
+      <div style="overflow-x:auto"><table style="font-size:0.8rem">
+        <tr><th>屋苑 / 單位</th><th style="text-align:right">${isRent ? "月租" : "售價"}</th><th style="text-align:right">呎${isRent ? "租" : "價"}</th><th>狀態</th></tr>
+        ${d.results.map((r) => `
+          <tr style="cursor:pointer" onclick="closeAdvSearch();showEstate(${r.estate_id})">
+            <td>${escHtml(r.estate_name)}<br><span style="color:var(--muted);font-size:0.73rem">${escHtml(r.building_name || "")} ${escHtml(r.floor || "")} ${escHtml(r.unit || "")} · ${r.bedrooms ?? "-"}房 · ${r.size_net ? Math.round(r.size_net) + "呎" : "-"}</span></td>
+            <td style="text-align:right;white-space:nowrap;font-weight:700;color:var(--accent)">${fmt$(r.price)}</td>
+            <td style="text-align:right;white-space:nowrap">${r.price_per_ft ? "$" + Math.round(r.price_per_ft).toLocaleString() : "-"}</td>
+            <td style="white-space:nowrap">
+              ${r.dom != null ? `<span style="color:var(--muted);font-size:0.72rem">放 ${r.dom} 日</span>` : ""}
+              ${r.cut_pct ? `<br><span style="color:var(--up);font-size:0.72rem">🔻減咗 ${r.cut_pct}%</span>` : ""}
+            </td>
+          </tr>`).join("")}
+      </table></div>`;
+  } catch (err) {
+    if (!err.paywall) out.innerHTML = `<div style="color:var(--down);font-size:0.85rem">搜尋失敗：${escHtml(err.message)}</div>`;
+    else out.innerHTML = "";
+  }
+}
+
 async function doSearch(keyword) {
   try {
     const { results } = await api("/api/search", {
@@ -4250,11 +4397,9 @@ async function doSearch(keyword) {
       div.dataset.name = r.bigEstateName || r.name || "";
       div.dataset.district = r.districtName || r.district || "";
       div.dataset.isBigest = r.isBigest ? "1" : "0";
-      // source==='midland' = 中原搵唔到、由美聯系補返嘅屋苑——標清楚出處，
-      // 等用戶知道呢個唔係中原冇心情，係真係中原未有呢個盤源
       div.innerHTML = `
         <div class="autocomplete-name">${escHtml(r.bigEstateName || r.name)}</div>
-        <div class="autocomplete-meta">${escHtml(r.districtName || r.district || '')}${r.source === 'midland' ? ' <span style="color:var(--up)">美聯搵到（中原未有）</span>' : ' ' + (r.bigestcode || r.bigCode || '')}</div>
+        <div class="autocomplete-meta">${escHtml(r.districtName || r.district || '')}</div>
       `;
       div.addEventListener("click", () => {
         trackEstate(div.dataset.name, div.dataset.code, div.dataset.district, div.dataset.isBigest === "1");

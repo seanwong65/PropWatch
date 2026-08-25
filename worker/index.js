@@ -5493,6 +5493,84 @@ export default {
         return json(200, { results });
       }
 
+      // 進階搜尋：跨晒所有已追蹤屋苑搜放盤（中原主頁「進階」嘅 HouseRadar 版，
+      // 仲多咗人哋冇嘅時間軸篩選——放盤日數／有冇減過價）。
+      // 搜嘅係自己 DB 嘅最新 snapshot，唔打任何 portal——快、零 subrequest。
+      if (method === "POST" && path === "/api/adv-search") {
+        const b = await request.json().catch(() => ({}));
+        const deal = b.deal === "R" ? "R" : "S";
+        // 時間軸類 filter（放盤日數／減價）係收費分界線嗰邊嘅嘢——
+        // 同「今日 snapshot 免費、歷史收費」個口徑一致
+        const wantsTimeline = Number(b.dom_min) > 0 || !!b.price_drop;
+        if (wantsTimeline && !isPaidSession(session)) return paywall("進階搜尋（放盤日數／減價篩選）");
+
+        const isRent = deal === "R";
+        const tbl = isRent ? "rental_listings" : "listings";
+        const hist = isRent ? "rental_price_history" : "listing_price_history";
+        const conds = [];
+        const binds = [session.account_id];
+        const num = (x) => { const v = Number(x); return Number.isFinite(v) && v > 0 ? v : null; };
+        const pMin = num(b.price_min), pMax = num(b.price_max);
+        const sMin = num(b.size_min), sMax = num(b.size_max);
+        const fMin = num(b.psf_min), fMax = num(b.psf_max);
+        if (pMin) { conds.push("l.price >= ?"); binds.push(pMin); }
+        if (pMax) { conds.push("l.price <= ?"); binds.push(pMax); }
+        if (sMin) { conds.push("l.size_net >= ?"); binds.push(sMin); }
+        if (sMax) { conds.push("l.size_net <= ?"); binds.push(sMax); }
+        if (fMin) { conds.push("l.price_per_ft >= ?"); binds.push(fMin); }
+        if (fMax) { conds.push("l.price_per_ft <= ?"); binds.push(fMax); }
+        if (b.beds === "4+") conds.push("l.bedrooms >= 4");
+        else if (["1","2","3"].includes(String(b.beds))) { conds.push("l.bedrooms = ?"); binds.push(Number(b.beds)); }
+        if (b.district) { conds.push("e.district = ?"); binds.push(String(b.district)); }
+        if (Array.isArray(b.estate_ids) && b.estate_ids.length) {
+          conds.push(`e.id IN (${b.estate_ids.map(() => "?").join(",")})`);
+          binds.push(...b.estate_ids.map(Number));
+        }
+        // per-source 最新 snapshot（同 /api/estates today_count 同一套口徑：
+        // 唔可以要求全部 source 同一日，HKP 成日遲一日）。下架咗嘅盤最新
+        // snapshot 自然冇佢，唔會出現。
+        const { results } = await db.prepare(`
+          SELECT l.estate_id, l.ref_no, l.building_name, l.floor, l.unit, l.bedrooms,
+                 l.size_net, l.price, l.price_per_ft, l.detail_url, l.source, l.publish_date,
+                 e.name AS estate_name, e.district,
+                 (SELECT MIN(h.snapshot_date) FROM ${hist} h WHERE h.ref_no = l.ref_no) AS first_seen,
+                 (SELECT h.price FROM ${hist} h WHERE h.ref_no = l.ref_no ORDER BY h.snapshot_date ASC LIMIT 1) AS first_price
+          FROM ${tbl} l
+          JOIN estates e ON e.id = l.estate_id
+          JOIN account_estates ae ON ae.estate_id = e.id AND ae.account_id = ? AND ae.paused_at IS NULL
+          WHERE l.snapshot_date = (SELECT MAX(snapshot_date) FROM ${tbl} WHERE estate_id = l.estate_id AND source = l.source)
+            AND l.price IS NOT NULL
+            ${conds.length ? "AND " + conds.join(" AND ") : ""}
+          LIMIT 1500
+        `).bind(...binds).all();
+        // cap 1500：今日 snapshot 全庫（15 個屋苑 × 4 source）先 ~1000 行，
+        // 1500 實際上係「攞晒」——之前 cap 500 會令 total 報細數，唔誠實
+
+        // 放盤日數：跟成個 app 同一套「假新盤都呃唔到」邏輯——網站 publish_date
+        // 同我哋首見日兩者取早
+        const today = Date.parse(hkDateStr());
+        const rows = [];
+        for (const r of results) {
+          const dates = [r.first_seen, r.publish_date].filter(Boolean).map((d) => Date.parse(d)).filter(Number.isFinite);
+          r.dom = dates.length ? Math.max(0, Math.round((today - Math.min(...dates)) / 86400000)) : null;
+          r.cut_pct = (r.first_price && r.price && r.price < r.first_price)
+            ? Math.round((r.first_price - r.price) / r.first_price * 1000) / 10 : null;
+          if (Number(b.dom_min) > 0 && !(r.dom >= Number(b.dom_min))) continue;
+          if (b.price_drop && r.cut_pct == null) continue;
+          rows.push(r);
+        }
+        const sort = String(b.sort || "psf_asc");
+        const key = {
+          psf_asc:  (a, z) => (a.price_per_ft ?? 9e9) - (z.price_per_ft ?? 9e9),
+          price_asc:  (a, z) => a.price - z.price,
+          price_desc: (a, z) => z.price - a.price,
+          dom_desc:  (a, z) => (z.dom ?? -1) - (a.dom ?? -1),
+          cut_desc:  (a, z) => (z.cut_pct ?? -1) - (a.cut_pct ?? -1),
+        }[sort] || ((a, z) => (a.price_per_ft ?? 9e9) - (z.price_per_ft ?? 9e9));
+        rows.sort(key);
+        return json(200, { deal, total: rows.length, results: rows.slice(0, 120) });
+      }
+
       if (method === "POST" && path === "/api/track") {
         // subscribe:false = one-off（朋友屋企用）：開 estate row + 即場抓一次
         // 齊料數據（各源放盤+成交），但唔加訂閱——sidebar 唔會見到，daily sync
