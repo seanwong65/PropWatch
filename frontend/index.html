@@ -1407,16 +1407,6 @@
       border: 1px solid var(--glass-border); border-radius: var(--radius-lg);
       box-shadow: var(--glass-inner), var(--shadow); padding: 1.6rem; text-align: center; margin-top: 3rem;
     }
-    .ld-price-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 0.9rem; }
-    .ld-price {
-      background: var(--glass-bg); backdrop-filter: var(--glass-blur); -webkit-backdrop-filter: var(--glass-blur);
-      border: 1px solid var(--glass-border); border-radius: var(--radius);
-      box-shadow: var(--glass-inner), var(--shadow-sm); padding: 1.3rem 1.4rem;
-    }
-    .ld-price.best { border-color: var(--brand); }
-    .ld-price-name { font-weight: 700; font-size: 1rem; }
-    .ld-price-amount { font-size: 1.6rem; font-weight: 800; color: var(--brand); margin: 0.3rem 0 0.75rem; }
-    .ld-price ul { margin: 0; padding-left: 1.2rem; font-size: 0.85rem; color: var(--muted); line-height: 1.9; }
     .ld-carousel {
       /* 而家坐喺 ld-wrap 最頂（sticky topbar 下面），ld-wrap 本身冇 top
          padding（本來靠 ld-hero 自己嘅 padding-top:3.5rem 頂住），所以要
@@ -1514,42 +1504,18 @@
       <tr><td>你嘅電話</td><td>留低等經紀跟進</td><td>唔會攞，亦冇經紀</td></tr>
     </table></div>
 
-    <div class="ld-strip">
-      <span>📝 <b>睇樓記錄</b> 逐項評分＋相片</span>
-      <span>🔭 <b>四網合一</b> 中原／利嘉閣／香港置業／美聯</span>
-      <span>💎 <b>抵買雷達</b> 自動篩出低過中位數嘅盤</span>
-    </div>
-
     <div class="ld-calc">
       <h2 class="ld-h2" style="margin-top:0">未諗住買住？至少知下自己買得起幾錢</h2>
       <div class="ld-h2sub">2026 印花稅新稅階＋按揭保險費率＋供款入息比率，一次過計晒——唔使登入</div>
       <button class="ld-cta" onclick="openMortgageModal()">🧮 開按揭計算機</button>
     </div>
 
-    <h2 class="ld-h2">免費開始，啱用先升級</h2>
-    <div class="ld-h2sub">用落先知想唔想解鎖更多——收費詳情登入之後先見到</div>
-    <div class="ld-price-grid">
-      <div class="ld-price">
-        <div class="ld-price-name">免費版</div>
-        <div class="ld-price-amount">而家就用得</div>
-        <ul>
-          <li>追蹤 3 個屋苑</li>
-          <li>今日放盤快照（四網合一）</li>
-          <li>按揭計算機</li>
-          <li>睇樓記錄＋評分</li>
-        </ul>
-      </div>
-      <div class="ld-price best">
-        <div class="ld-price-name">收費版</div>
-        <div class="ld-price-amount">用開先解鎖</div>
-        <ul>
-          <li>追蹤 15 個屋苑</li>
-          <li>放盤日數・改價歷史・下架追蹤</li>
-          <li>呎價趨勢圖＋抵買雷達</li>
-          <li>恒生估值對比</li>
-          <li>每朝 9 點 email 今日動態</li>
-        </ul>
-      </div>
+    <h2 class="ld-h2">免費開始</h2>
+    <div class="ld-strip">
+      <span>🏠 <b>追蹤 3 個屋苑</b></span>
+      <span>📊 <b>今日放盤快照</b> 四網合一</span>
+      <span>🧮 <b>按揭計算機</b></span>
+      <span>📝 <b>睇樓記錄</b>＋評分</span>
     </div>
 
     <div class="ld-final">
