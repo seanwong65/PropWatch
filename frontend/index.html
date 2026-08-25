@@ -1413,11 +1413,23 @@
        但底色跟返成頁主題 token（用戶話唔要 dark background），同其他
        landing 卡片（.ld-pain／.ld-price／.ld-calc）用返同一套 glass 樣式，
        唔會自己一套顏色語言。
-       全闊單欄（唔再 2 欄細細張）：4 張截圖係密集數據表格，闊啲先讀得到
-       —— 呢個同 .ld-shot-img 嗰陣嘅結論一樣（2 欄之下截圖細到睇唔到字）。
+       之前一律全闊單欄，原因係「2 欄」嗰陣個 grid 仲困喺 .ld-wrap 個
+       max-width:880px 入面，一欄得返 ~420px，密集數據表格細到睇唔到字。
+       而家做法唔同：呢個 section 專登「breakout」跳出 880px 嘅欄寬（其他
+       landing 內容——標題、段落、比較表——維持 880px 唔郁，淨係呢排卡
+       闊到 90vw／封頂 1600px），咁樣 2 欄先夠位（每欄 ~780px，同之前
+       全闊單欄嗰陣差唔多闊），大螢幕（1920 及以上）睇落唔會兩邊大幅
+       留白。1600px 封頂係防止喺 4K／超闊螢幕度卡片誇張咁大。
        圖片唔 crop（object-fit 都唔使指定，跟返原生闊度顯示），因為裁走
        一截就等於裁走緊要資訊。 */
-    .ld-feat-grid { display: flex; flex-direction: column; gap: 1.4rem; margin: 2.2rem 0; }
+    .ld-feat-breakout {
+      position: relative; left: 50%; transform: translateX(-50%);
+      width: 90vw; max-width: 1600px; margin: 2.2rem 0;
+    }
+    .ld-feat-grid { display: flex; flex-direction: column; gap: 1.4rem; }
+    @media (min-width: 860px) {
+      .ld-feat-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1.6rem; }
+    }
     .ld-feat-card {
       background: var(--glass-bg); backdrop-filter: var(--glass-blur); -webkit-backdrop-filter: var(--glass-blur);
       border: 1px solid var(--glass-border); border-radius: var(--radius);
@@ -1529,7 +1541,7 @@
     <h2 class="ld-h2">實際見到啲咩</h2>
     <div class="ld-h2sub">以下係系統畫面（示範數據）</div>
 
-    <div class="ld-feat-grid">
+    <div class="ld-feat-breakout"><div class="ld-feat-grid">
       <div class="ld-feat-card">
         <div class="ld-feat-card-shot"><img src="images/feat-listings.jpg" alt="放盤列表：顯示放盤日數、減價次數、多個來源合併、下架配對成交" loading="lazy"></div>
         <div class="ld-feat-card-body">
@@ -1558,7 +1570,7 @@
           <p>逐項自訂評分，影相、寫備註。仲會同時話你知呢個單位<b>相對叫價同成交中位數</b>係貴定平。</p>
         </div>
       </div>
-    </div>
+    </div></div>
 
     <div class="ld-calc">
       <h2 class="ld-h2" style="margin-top:0">未諗住買住？至少知下自己買得起幾錢</h2>
@@ -1633,7 +1645,11 @@ ldCarouselRestart();
 <!-- Login Screen -->
 <!-- 登入頁：唔好落實色底，否則會蓋住 body::before 個光暈層，成塊變死黑。
      透明就直接透出後面嘅光暈，登入卡先有嘢可以折射。 -->
-<div id="login-screen" style="display:none;position:fixed;inset:0;z-index:9999;align-items:center;justify-content:center;padding:1.25rem">
+<!-- 背景輕微 blur：同其他 modal（.modal-overlay）用返同一套 var(--overlay)
+     token，淨係 blur 度數細啲（4px vs 6px）——呢個彈出嚟嗰陣後面仲有
+     landing 嘅產品截圖，blur 太重會睇唔出「後面仲有嘢」，太輕又達唔到
+     用戶要嘅「輕微」效果。 -->
+<div id="login-screen" style="display:none;position:fixed;inset:0;z-index:9999;align-items:center;justify-content:center;padding:1.25rem;background:var(--overlay);backdrop-filter:blur(4px);-webkit-backdrop-filter:blur(4px)">
   <div style="background:var(--glass-bg);backdrop-filter:var(--glass-blur);-webkit-backdrop-filter:var(--glass-blur);border:1px solid var(--glass-border);border-radius:var(--radius-lg);padding:2rem;width:100%;max-width:340px;box-shadow:var(--glass-inner),var(--shadow-lg)">
     <button onclick="closeAuth()" aria-label="返回"
       style="float:right;background:none;border:none;color:var(--muted);font-size:1.1rem;cursor:pointer;margin:-0.5rem -0.5rem 0 0">✕</button>
