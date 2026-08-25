@@ -4250,9 +4250,11 @@ async function doSearch(keyword) {
       div.dataset.name = r.bigEstateName || r.name || "";
       div.dataset.district = r.districtName || r.district || "";
       div.dataset.isBigest = r.isBigest ? "1" : "0";
+      // source==='midland' = 中原搵唔到、由美聯系補返嘅屋苑——標清楚出處，
+      // 等用戶知道呢個唔係中原冇心情，係真係中原未有呢個盤源
       div.innerHTML = `
         <div class="autocomplete-name">${escHtml(r.bigEstateName || r.name)}</div>
-        <div class="autocomplete-meta">${escHtml(r.districtName || r.district || '')} ${r.bigestcode || r.bigCode || ''}</div>
+        <div class="autocomplete-meta">${escHtml(r.districtName || r.district || '')}${r.source === 'midland' ? ' <span style="color:var(--up)">美聯搵到（中原未有）</span>' : ' ' + (r.bigestcode || r.bigCode || '')}</div>
       `;
       div.addEventListener("click", () => {
         trackEstate(div.dataset.name, div.dataset.code, div.dataset.district, div.dataset.isBigest === "1");

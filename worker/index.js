@@ -784,6 +784,52 @@ async function fetchCentanet(estateName) {
 }
 
 // 搜尋屋苑名稱，返回獨特屋苑列表（支援大型屋苑群同單一屋苑）
+// 搜屋苑：中原 + 美聯兩邊一齊問，唔好中原冇就當冇。
+// 點解係呢兩個：中原係成個系統嘅 estate 身份基礎（bigestcode）；美聯同
+// 香港置業係同一個後台（est id 都一樣，實測過 E12857 兩邊相同），問美聯
+// 一個已經代表埋香港置業。利嘉閣冇公開 autocomplete API（佢個搜尋係
+// server-render），而且佢嘅 scrape 本身用屋苑名砌 URL——個名啱就抓到，
+// 唔需要靠佢嚟「發現」屋苑。
+//
+// 合併規則：同名（normalize 空白之後）以中原行先——中原有正統 bigestcode，
+// 成個系統以佢做身份；美聯獨有嗰啲先加落尾，bigestcode 用合成 key
+// EXT-M-<美聯estId>（estates.bigestcode 只係 UNIQUE 字串，唔要求真係中原
+// code；中原嗰邊 scrape 用 estate.name 搜，唔用 code，所以合成 key 唔會
+// 整跛任何 source——中原真係冇呢個屋苑就自然 0 個盤，第日佢上架咗仲會
+// 自動有返）。唯一 degrade：恒生估值嗰條路（resolveBuildingCode）要用
+// 真・中原 code 開 centadata 頁，合成 key 開唔到 → 冇估值，其他功能照常。
+async function searchEstatesAllSources(keyword) {
+  const norm = (x) => String(x || "").replace(/[\s　]/g, "");
+  const [cent, mid] = await Promise.allSettled([
+    searchEstateName(keyword),
+    (async () => {
+      const tok = await midlandGetToken();
+      if (!tok) return [];
+      const ac = await midlandApi(
+        `/search/v2/autocomplete/estates?text=${encodeURIComponent(keyword)}`, tok);
+      return (ac?.[0]?.result || [])
+        .filter((r) => r?.search?.id && (r?.name?.["zh-hk"] || r?.name?.en))
+        .map((r) => ({
+          bigEstateName: r.name["zh-hk"] || r.name.en,
+          bigestcode: `EXT-M-${r.search.id}`,
+          isBigest: false,
+          districtName: r.district?.name?.["zh-hk"] || "",
+          source: "midland",
+        }));
+    })(),
+  ]);
+  const centEstates = cent.status === "fulfilled" ? (cent.value.estates || []) : [];
+  const midEstates = mid.status === "fulfilled" ? mid.value : [];
+  // 兩邊都真係炒晒先算 fail——一邊死一邊生就照出結果
+  if (cent.status === "rejected" && mid.status === "rejected") throw cent.reason;
+  const seen = new Set(centEstates.map((e) => norm(e.bigEstateName)));
+  const merged = [...centEstates];
+  for (const e of midEstates) {
+    if (!seen.has(norm(e.bigEstateName))) { seen.add(norm(e.bigEstateName)); merged.push(e); }
+  }
+  return merged;
+}
+
 async function searchEstateName(keyword) {
   const body = {
     postType: "Sale",
@@ -1541,13 +1587,20 @@ const MIDLAND_UA = HKP_UA;
 
 // Token 同 HKP 一樣係「任何一頁都攞得到嘅匿名 JWT」，只不過美聯個站係
 // Next.js，token 擺喺 __NEXT_DATA__ 個 runtimeConfig.BUILD_TOKEN 度。
+// Isolate 級 cache 30 分鐘：個 token 本身係長命 JWT（iat 睇過係以年計），
+// 30 分鐘純粹係保守——搜尋 autocomplete 每次擊鍵都可能 call，唔 cache
+// 每次都拉 500KB HTML 抽一次，又慢又嘥 subrequest。
+let _midTokenCache = { tok: null, at: 0 };
 async function midlandGetToken() {
+  if (_midTokenCache.tok && Date.now() - _midTokenCache.at < 30 * 60000) return _midTokenCache.tok;
   const res = await fetch("https://www.midland.com.hk/zh-hk/list/buy/", {
     headers: { "User-Agent": MIDLAND_UA, "Accept-Language": "zh-HK,zh;q=0.9" },
     signal: AbortSignal.timeout(15000),
   });
   const html = await res.text();
-  return html.match(/"BUILD_TOKEN":"([^"]+)"/)?.[1] || null;
+  const tok = html.match(/"BUILD_TOKEN":"([^"]+)"/)?.[1] || null;
+  if (tok) _midTokenCache = { tok, at: Date.now() };
+  return tok;
 }
 
 async function midlandApi(pathQuery, token) {
@@ -5436,8 +5489,8 @@ export default {
       if (method === "POST" && path === "/api/search") {
         const { keyword } = await request.json();
         if (!keyword?.trim()) return json(400, { error: "請輸入屋苑名稱" });
-        const data = await searchEstateName(keyword.trim());
-        return json(200, { results: data.estates || [] });
+        const results = await searchEstatesAllSources(keyword.trim());
+        return json(200, { results });
       }
 
       if (method === "POST" && path === "/api/track") {
