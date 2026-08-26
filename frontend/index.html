@@ -2842,6 +2842,7 @@ let dashboardEstates = [];
 let estateChartMetric = "price"; // "price"(實呎價,預設) | "count"(放盤數量)
 let estateChartBeds = "all";     // "all"|"1"|"2"|"3"|"4+" —— 走勢圖房數 filter
 let _estateChartId = null;       // 現時 chart 屬邊個屋苑（切 beds re-fetch 用）
+let _marketTempLoadedFor = null; // 市場溫度而家已經係「樓盤分析」tab 先攞——依個記低已經幫邊個屋苑攞過，避免撳返轉頭又打多次 API
 let _estateTrends = [];          // 在售趨勢（切 metric 時重畫用）
 let _estateSoldTrend = [];       // 成交趨勢（trailing median 實呎價）
 let _estateOverlay = null;       // 全組合 overlay（呎價指數，只喺 price + 全部房 顯示）
@@ -4611,11 +4612,13 @@ async function showEstate(id, name, district) {
   main.innerHTML = '<div class="loading"><div class="spinner"></div> 載入中…</div>';
 
   try {
-    // 免費版冇趨勢圖 —— 唔好 call /trends（會 402 彈升級 modal，開屋苑就彈好煩）。
-    // trends 空 array = 上面個 chart section 照走 lockPanel 分支。
-    const [{ listings }, { trends }, overridesRes] = await Promise.all([
+    // 圖表／市場溫度搬咗去獨立「樓盤分析」tab（見下面 tab-analysis），
+    // 唔再喺呢度 block 住 Promise.all —— 趨勢查詢要 aggregate 90 日數據，
+    // 用戶反映呢一格成日 load 得慢，仲要企喺「最新放盤」上面，等佢等到
+    // 連睇盤都被拖累。而家最新放盤淨係等 listings／group-overrides 呢兩個
+    // 輕嘢，趨勢圖／市場溫度留返俾用戶真係撳「樓盤分析」先攞（switchTab）。
+    const [{ listings }, overridesRes] = await Promise.all([
       api(`/api/estates/${id}/listings`),
-      isPaid() ? api(`/api/estates/${id}/trends`) : Promise.resolve({ trends: [] }),
       api(`/api/estates/${id}/group-overrides`).catch(() => ({ overrides: [] })),
     ]);
     groupOverrides = {};
@@ -4661,13 +4664,18 @@ async function showEstate(id, name, district) {
     // 但如果用戶偏好「只要租盤」，就默認開租盤（唔使佢每次自己撳）。
     _estateDeal = (wantsDeal('R') && !wantsDeal('S')) ? 'R' : 'S';
     _rentalListings = []; _rentMed = null;
+    // 切咗屋苑，之前個「樓盤分析」tab 嘅圖表／市場溫度已經唔啱用——清旗標，
+    // 等用戶真係撳嗰個 tab 先為新屋苑攞返（switchTab 靠呢兩個旗標判斷
+    // 「未攞過先攞」，唔清就會誤以為舊屋苑嗰份仲啱用）。
+    _estateChartId = null;
+    _marketTempLoadedFor = null;
 
     main.innerHTML = `
       <div class="estate-header" style="display:flex;align-items:flex-start;justify-content:space-between">
         <div>
           <div class="estate-title">${escHtml(name)}</div>
           <div class="estate-sub">${district ? escHtml(district) + ' · ' : ''}共 ${listings.length} 個在售單位</div>
-          <div id="estate-info-bar" data-tracking="${trends.length}" data-id="${id}"></div>
+          <div id="estate-info-bar"></div>
         </div>
         <button class="sync-btn" style="background:var(--brand);border-color:var(--brand);color:var(--brand-ink);white-space:nowrap;flex-shrink:0;margin-top:0.2rem" onclick="openViewingModal()">＋ 新增睇樓</button>
       </div>
@@ -4682,36 +4690,11 @@ async function showEstate(id, name, district) {
         <button class="deal-toggle-btn rent ${_estateDeal === 'R' ? 'active' : ''}" onclick="setEstateDeal('R',${id})">🔑 租盤</button>
       </div>` : ''}
 
-      <div class="chart-section" style="margin-top:1rem;display:flex;gap:1rem;flex-wrap:wrap;align-items:flex-start">
-        <div style="flex:1 1 65%;min-width:280px">
-          ${!isPaid() ? lockPanel('呎價走勢圖', '叫價／成交走勢 + 全組合大市對照線，睇你追緊嘅屋苑跑贏定跑輸大市') : `
-          <div style="display:flex;align-items:center;justify-content:space-between;gap:0.6rem;flex-wrap:wrap;margin-bottom:0.5rem">
-            <div class="section-title" id="estate-chart-title" style="margin:0">${estateChartMetric === 'count' ? (_estateDeal === 'R' ? '租盤數量趨勢' : '放盤數量趨勢') : (_estateDeal === 'R' ? '實用呎租趨勢' : '實用呎價趨勢')}</div>
-            <div style="display:flex;align-items:center;gap:0.75rem;flex-wrap:wrap">
-              <div id="estate-chart-beds" style="display:flex;gap:0.3rem">
-                ${['all','1','2','3','4+'].map(b => `<button class="filter-chip ${estateChartBeds===b?'active':''}" data-beds="${b}" onclick="setEstateChartBeds('${b}')">${b==='all'?'全部':b+'房'}</button>`).join('')}
-              </div>
-              <div id="estate-chart-toggle" style="display:flex;gap:0.3rem;margin-left:auto">
-                <button class="filter-chip ${estateChartMetric === 'price' ? 'active' : ''}" data-metric="price" onclick="setEstateChartMetric('price')">實呎價</button>
-                <button class="filter-chip ${estateChartMetric === 'count' ? 'active' : ''}" data-metric="count" onclick="setEstateChartMetric('count')">放盤數量</button>
-              </div>
-            </div>
-          </div>
-          <div id="chart-wrap">${trends.length < 2
-            ? '<div class="no-data">需要至少 2 天數據才能顯示趨勢圖<br><small>每日 09:00 自動更新</small></div>'
-            : '<div class="chart-wrap"><canvas id="trendChart"></canvas></div>'
-          }</div>`}
-        </div>
-        <div class="stat-card" id="market-temp-card" style="flex:1 1 30%;min-width:200px;display:${_estateDeal === 'R' ? 'none' : ''}">
-          <div class="stat-label" title="去貨月數＝在售盤數 ÷ 近30日成交宗數，即係幾多個月先賣晒現有在售盤。>12個月＝極淡．買家話事；6–12個月＝偏淡．買家有利；3–6個月＝均衡；<3個月＝偏熱．賣家有利。">市場溫度</div>
-          <div style="margin-top:0.35rem;font-size:0.8rem;color:var(--muted)">載入中…</div>
-        </div>
-      </div>
-
       <div class="estate-tabs">
         <button class="estate-tab active" id="tab-btn-listings" onclick="switchTab('listings',${id})">${_estateDeal === 'R' ? '租盤' : '最新放盤'}(${_estateDeal === 'R' ? '…' : listings.length})</button>
         <button class="estate-tab" onclick="switchTab('transactions',${id})">成交記錄</button>
         <button class="estate-tab" id="tab-btn-viewings" onclick="switchTab('viewings',${id})">睇樓記錄</button>
+        <button class="estate-tab" onclick="switchTab('analysis',${id})">樓盤分析</button>
         <button class="history-btn" id="batch-hs-btn" style="display:none;margin-left:auto;font-size:0.82rem;padding:0.35rem 0.85rem" onclick="isPaid() ? batchFetchHSVal() : showUpgrade('批量查估值')">批量查估值</button>
       </div>
 
@@ -4746,7 +4729,7 @@ async function showEstate(id, name, district) {
         <div class="listings-section" id="listingsSection">
           <div class="sticky-bar">
             <div class="listings-header">
-              <div class="section-title" style="margin:0">最新放盤</div>
+              <div class="section-title" style="margin:0">${escHtml(name)} - 最新放盤</div>
               <div style="display:flex;align-items:center;gap:0.6rem">
                 <button class="history-btn" id="listingViewBtn" onclick="toggleListingView()" style="font-size:0.75rem">🖼 卡片</button>
                 <button class="history-btn" id="groupModeBtn" onclick="toggleGroupSelectMode()" style="font-size:0.75rem">群組模式</button>
@@ -4775,14 +4758,39 @@ async function showEstate(id, name, district) {
           <div class="loading"><div class="spinner"></div> 載入睇樓記錄…</div>
         </div>
       </div>
-    `;
 
-    // 走勢圖：載入在售 + 成交趨勢（按 beds），畫在售線 + 成交線 + 全組合。
-    // 每次開屋苑重設房數做「全部」；trends.length 已喺上面 render 決定顯唔顯示。
-    // 開頁即係租盤模式（用戶淨要租盤）嗰陣，唔可以淨睇買盤 trends.length 決定
-    // 攞唔攞——買盤有數唔代表租盤有數，反之亦然，一定要自己去攞埋先知。
-    if (isPaid() && (trends.length >= 2 || _estateDeal === 'R')) loadEstateChart(id, estateChartBeds);
-    loadMarketTemp(id);
+      <!-- 「樓盤分析」tab：趨勢圖／市場溫度。之前呢兩樣一開屋苑就即刻攞，
+           擺喺「最新放盤」上面——查 90 日趨勢要 aggregate，用戶反映呢一格
+           成日 load 得慢，仲要企喺最想睇嘅嘢（放盤）上面，等佢先睇到盤，
+           好阻手阻腳。而家改做獨立 tab，靜態 render 個空殼（toolbar／
+           loading 位），真正數據留返 switchTab('analysis',…) 先攞
+           （見 loadEstateChart／loadMarketTemp），未撳過依個 tab 就一
+           個 request 都唔會出。 -->
+      <div id="tab-analysis" style="display:none">
+        <div class="chart-section" style="display:flex;gap:1rem;flex-wrap:wrap;align-items:flex-start">
+          <div style="flex:1 1 65%;min-width:280px">
+            ${!isPaid() ? lockPanel('呎價走勢圖', '叫價／成交走勢 + 全組合大市對照線，睇你追緊嘅屋苑跑贏定跑輸大市') : `
+            <div style="display:flex;align-items:center;justify-content:space-between;gap:0.6rem;flex-wrap:wrap;margin-bottom:0.5rem">
+              <div class="section-title" id="estate-chart-title" style="margin:0">${_estateDeal === 'R' ? '實用呎租趨勢' : '實用呎價趨勢'}</div>
+              <div style="display:flex;align-items:center;gap:0.75rem;flex-wrap:wrap">
+                <div id="estate-chart-beds" style="display:flex;gap:0.3rem">
+                  ${['all','1','2','3','4+'].map(b => `<button class="filter-chip ${estateChartBeds===b?'active':''}" data-beds="${b}" onclick="setEstateChartBeds('${b}')">${b==='all'?'全部':b+'房'}</button>`).join('')}
+                </div>
+                <div id="estate-chart-toggle" style="display:flex;gap:0.3rem;margin-left:auto">
+                  <button class="filter-chip ${estateChartMetric === 'price' ? 'active' : ''}" data-metric="price" onclick="setEstateChartMetric('price')">實呎價</button>
+                  <button class="filter-chip ${estateChartMetric === 'count' ? 'active' : ''}" data-metric="count" onclick="setEstateChartMetric('count')">放盤數量</button>
+                </div>
+              </div>
+            </div>
+            <div id="chart-wrap"><div class="loading"><div class="spinner"></div> 載入中…</div></div>`}
+          </div>
+          <div class="stat-card" id="market-temp-card" style="flex:1 1 30%;min-width:200px;display:${_estateDeal === 'R' ? 'none' : ''}">
+            <div class="stat-label" title="去貨月數＝在售盤數 ÷ 近30日成交宗數，即係幾多個月先賣晒現有在售盤。>12個月＝極淡．買家話事；6–12個月＝偏淡．買家有利；3–6個月＝均衡；<3個月＝偏熱．賣家有利。">市場溫度</div>
+            <div style="margin-top:0.35rem;font-size:0.8rem;color:var(--muted)">載入中…</div>
+          </div>
+        </div>
+      </div>
+    `;
 
     // Init listings sort/filter state and render
     if (listings.length > 0) {
@@ -4817,8 +4825,12 @@ async function showEstate(id, name, district) {
     // 偏好「只要租盤」就開頁即刻拉租盤（上面 _estateDeal 已經設咗 'R'）
     if (_estateDeal === 'R') loadRentalListings(id);
 
-    // Load estate info (non-blocking)
-    loadEstateInfo(id);
+    // Load estate info (non-blocking)。追蹤天數獨立攞（唔使等成個
+    // 90 日趨勢 aggregate），同 estate-info 夾埋一次過 render pills。
+    const trackingDaysPromise = isPaid()
+      ? api(`/api/estates/${id}/trends`).then(r => (r.trends || []).length).catch(() => null)
+      : Promise.resolve(null);
+    loadEstateInfo(id, trackingDaysPromise);
 
     // Load viewings count for tab label (non-blocking)
     api(`/api/viewings?estate_id=${id}`).then(r => {
@@ -4830,11 +4842,19 @@ async function showEstate(id, name, district) {
   }
 }
 
-async function loadEstateInfo(estateId) {
+// trackingDaysPromise：追蹤天數本來靠開屋苑嗰陣一齊攞嘅 /trends 順便算
+// （trends.length），而家 trends 改咗做「樓盤分析」tab 先攞（見
+// showEstate 頂部註解），呢個 pill 唔可以再靠佢。獨立輕量咁攞（淨係要
+// 個 length，唔使等成個趨勢圖 aggregate 完），同 estate-info 一齊
+// Promise.all，一次過起好個 pills 列，唔會前後兩次 render 閃一下。
+async function loadEstateInfo(estateId, trackingDaysPromise) {
   const bar = document.getElementById("estate-info-bar");
   if (!bar) return;
   try {
-    const info = await api(`/api/estates/${estateId}/estate-info`);
+    const [info, trackingDays] = await Promise.all([
+      api(`/api/estates/${estateId}/estate-info`),
+      trackingDaysPromise || Promise.resolve(null),
+    ]);
     const currentYear = new Date().getFullYear();
     const rows = [];
     if (info.completion_year) rows.push(['樓齡', `${currentYear - info.completion_year} 年`]);
@@ -4842,9 +4862,7 @@ async function loadEstateInfo(estateId) {
     if (info.blocks)          rows.push(['座數', `${info.blocks} 座`]);
     if (info.total_units)     rows.push(['單位數目', `${info.total_units.toLocaleString()} 個`]);
     if (info.developer)       rows.push(['發展商', info.developer]);
-    const tracking = bar.dataset.tracking;
-    if (tracking) rows.push(['追蹤天數', `${tracking} 天`]);
-    const estId = bar.dataset.id;
+    if (trackingDays) rows.push(['追蹤天數', `${trackingDays} 天`]);
     const infoPills = rows.length ? `
       <div style="margin-top:0.75rem;background:var(--surface2);border-radius:var(--radius);padding:0.75rem 1rem;display:inline-flex;flex-wrap:wrap;gap:0.5rem 1.5rem">
         ${rows.map(([label, val]) => `
@@ -5350,6 +5368,7 @@ function switchTab(tab, estateId) {
   document.getElementById("tab-listings").style.display = tab === "listings" ? "" : "none";
   document.getElementById("tab-transactions").style.display = tab === "transactions" ? "" : "none";
   document.getElementById("tab-viewings").style.display = tab === "viewings" ? "" : "none";
+  document.getElementById("tab-analysis").style.display = tab === "analysis" ? "" : "none";
   const batchBtn = document.getElementById("batch-hs-btn");
   if (batchBtn) batchBtn.style.display = (tab === "transactions" || tab === "viewings") ? "" : "none";
   if (tab === "transactions") {
@@ -5357,6 +5376,13 @@ function switchTab(tab, estateId) {
     else loadTransactions(estateId, 0, false);
   }
   if (tab === "viewings") loadViewings(estateId);
+  // 真正「撳咗先攞」：未撳過依個屋苑嘅「樓盤分析」，一個 request 都唔會出。
+  // _estateChartId／_marketTempLoadedFor 記低「已經幫邊個屋苑攞過」，同一
+  // 屋苑嚟返轉頭唔會再打 API（showEstate 開新屋苑會清返呢兩個旗標）。
+  if (tab === "analysis") {
+    if (isPaid() && _estateChartId !== estateId) loadEstateChart(estateId, estateChartBeds);
+    if (_marketTempLoadedFor !== estateId) { _marketTempLoadedFor = estateId; loadMarketTemp(estateId); }
+  }
 }
 
 // 切買/租：重載當前 tab 嘅數據。租盤同買盤係兩張表、兩個 endpoint，
@@ -5394,7 +5420,11 @@ async function setEstateDeal(deal, estateId) {
   if (titleEl) titleEl.textContent = estateChartMetric === 'count'
     ? (deal === 'R' ? '租盤數量趨勢' : '放盤數量趨勢')
     : (deal === 'R' ? '實用呎租趨勢' : '實用呎價趨勢');
-  if (_estateChartId) loadEstateChart(_estateChartId, estateChartBeds);
+  // 淨係「樓盤分析」tab 已經幫依個屋苑攞過先重畫——未撳過個 tab 就冇
+  // 嘢要 refresh，等用戶真係撳嗰陣先攞（呢度重要：_estateChartId 上次
+  // 開屋苑可能仲係舊屋苑嘅殘留值，唔可以淨係 `if (_estateChartId)`，
+  // 會誤畫咗個舊屋苑嘅圖落新屋苑度）。
+  if (_estateChartId === estateId) loadEstateChart(_estateChartId, estateChartBeds);
 }
 
 // ── 租盤列表 ────────────────────────────────────────────────────────────────
