@@ -1220,7 +1220,9 @@
     .filter-summary .fs-chip {
       background: var(--surface2); border: 1px solid var(--border);
       border-radius: 999px; padding: 0.1rem 0.5rem; color: var(--text);
+      cursor: pointer; transition: background 0.15s, border-color 0.15s;
     }
+    .filter-summary .fs-chip:hover { background: var(--surface); border-color: var(--down); color: var(--down); }
     .filter-summary .fs-clear { margin-left: auto; }
     .filter-bar {
       padding: 0.75rem 1.25rem;
@@ -5416,15 +5418,20 @@ function applyRentalSort(listings) {
 const RENTAL_FILTER_DEFAULTS = { beds: 'all', building: 'all', unit: 'all',
   minPrice: '', maxPrice: '', minSize: '', maxSize: '', source: 'all', hideRemoved: true };
 
+function clearRentalFilterKeys(...keys) {
+  for (const k of keys) _rentalFilters[k] = RENTAL_FILTER_DEFAULTS[k];
+  renderRentalListingsTable();
+}
 function activeRentalFilters() {
   const f = _rentalFilters, out = [];
-  if (f.beds !== 'all') out.push(f.beds + '房');
-  if (f.building !== 'all') out.push(f.building);
-  if (f.unit !== 'all') out.push(f.unit + '室');
-  if (f.minPrice || f.maxPrice) out.push(`月租 ${f.minPrice || ''}–${f.maxPrice || ''}`);
-  if (f.minSize || f.maxSize) out.push(`實呎 ${f.minSize || ''}–${f.maxSize || ''}`);
-  if (f.source !== 'all') out.push(sourceLabel(f.source));
-  if (!f.hideRemoved) out.push('連已下架');
+  const push = (label, clear) => out.push({ label, clear });
+  if (f.beds !== 'all') push(f.beds + '房', "clearRentalFilterKeys('beds')");
+  if (f.building !== 'all') push(f.building, "clearRentalFilterKeys('building')");
+  if (f.unit !== 'all') push(f.unit + '室', "clearRentalFilterKeys('unit')");
+  if (f.minPrice || f.maxPrice) push(rangeLabel('月租', f.minPrice, f.maxPrice), "clearRentalFilterKeys('minPrice','maxPrice')");
+  if (f.minSize || f.maxSize) push(rangeLabel('實呎', f.minSize, f.maxSize), "clearRentalFilterKeys('minSize','maxSize')");
+  if (f.source !== 'all') push(sourceLabel(f.source), "clearRentalFilterKeys('source')");
+  if (!f.hideRemoved) push('連已下架', "setRentalFilter('hideRemoved', true)");
   return out;
 }
 function clearRentalFilters() {
@@ -5629,10 +5636,16 @@ function setRentTxnSort(col) {
   else { _rentTxnSortCol = col; _rentTxnSortDir = col === 'reg_date' ? 'desc' : 'asc'; }
   renderRentalTxnTable();
 }
+function clearRentTxnFilterKeys(...keys) {
+  const defaults = { building: 'all', dateMonths: 0 };
+  for (const k of keys) _rentTxnFilters[k] = defaults[k];
+  renderRentalTxnTable();
+}
 function activeRentTxnFilters() {
   const f = _rentTxnFilters, out = [];
-  if (f.building !== 'all') out.push(f.building);
-  if (f.dateMonths > 0) out.push(TXN_DATE_LABEL[f.dateMonths] || `近${f.dateMonths}個月`);
+  const push = (label, clear) => out.push({ label, clear });
+  if (f.building !== 'all') push(f.building, "clearRentTxnFilterKeys('building')");
+  if (f.dateMonths > 0) push(TXN_DATE_LABEL[f.dateMonths] || `近${f.dateMonths}個月`, "clearRentTxnFilterKeys('dateMonths')");
   return out;
 }
 function clearRentTxnFilters() {
@@ -7242,14 +7255,19 @@ const TXN_FILTER_DEFAULTS = { dateMonths: 0, heldMin: '', heldMax: '', building:
   unit: 'all', sizeMin: '', sizeMax: '', beds: 'all' };
 const TXN_DATE_LABEL = { 0: '', 3: '近3個月', 6: '近6個月', 12: '近1年', 24: '近2年', 36: '近3年', 60: '近5年' };
 
+function clearTxnFilterKeys(...keys) {
+  for (const k of keys) txnFilters[k] = TXN_FILTER_DEFAULTS[k];
+  renderTransactionsTable(txnEstateId, txnOffset, !!document.querySelector(".load-more-btn"));
+}
 function activeTxnFilters() {
   const f = txnFilters, out = [];
-  if (f.dateMonths > 0) out.push(TXN_DATE_LABEL[f.dateMonths] || `近${f.dateMonths}個月`);
-  if (f.building !== 'all') out.push(f.building);
-  if (f.unit !== 'all') out.push(f.unit + '室');
-  if (f.beds !== 'all') out.push(f.beds + '房');
-  if (f.heldMin !== '' || f.heldMax !== '') out.push(`持有 ${f.heldMin || ''}–${f.heldMax || ''} 年`);
-  if (f.sizeMin !== '' || f.sizeMax !== '') out.push(`實呎 ${f.sizeMin || ''}–${f.sizeMax || ''}`);
+  const push = (label, clear) => out.push({ label, clear });
+  if (f.dateMonths > 0) push(TXN_DATE_LABEL[f.dateMonths] || `近${f.dateMonths}個月`, "clearTxnFilterKeys('dateMonths')");
+  if (f.building !== 'all') push(f.building, "clearTxnFilterKeys('building')");
+  if (f.unit !== 'all') push(f.unit + '室', "clearTxnFilterKeys('unit')");
+  if (f.beds !== 'all') push(f.beds + '房', "clearTxnFilterKeys('beds')");
+  if (f.heldMin !== '' || f.heldMax !== '') push(rangeLabel('持有', f.heldMin, f.heldMax, '年'), "clearTxnFilterKeys('heldMin','heldMax')");
+  if (f.sizeMin !== '' || f.sizeMax !== '') push(rangeLabel('實呎', f.sizeMin, f.sizeMax), "clearTxnFilterKeys('sizeMin','sizeMax')");
   return out;
 }
 function clearTxnFilters() {
@@ -7547,6 +7565,8 @@ function toggleFilterPanel(key = "buy") {
 // 砌個殼：收埋就出「掣 + 摘要 chip + 清除 + 計數」一行；開住就出個掣加
 // 落成排 filter 上面。innerHtml 係原本嗰個 `<div class="filter-bar">…</div>`。
 // clearCall 係「清除」個 onclick（string，因為要 inline）。
+// active：{label, clear}[] —— clear 係嗰個單一 filter 嘅 onclick（string，
+// inline），撳個 chip 就撤走嗰一個，唔使撳「清除」全部㩒走。
 function filterShell(key, active, innerHtml, clearCall, countHtml = "") {
   const btn = `
     <button class="filter-toggle-big${active.length ? ' on' : ''}" onclick="toggleFilterPanel('${key}')">
@@ -7563,29 +7583,43 @@ function filterShell(key, active, innerHtml, clearCall, countHtml = "") {
     <div class="filter-summary">
       ${btn}
       ${active.length
-        ? active.map((a) => `<span class="fs-chip">${escHtml(a)}</span>`).join('')
-          + `<button class="history-btn fs-clear" style="font-size:0.7rem" onclick="${clearCall}">清除</button>`
+        ? active.map((a) => `<span class="fs-chip" onclick="${a.clear}" title="撳走呢個篩選">${escHtml(a.label)} ✕</span>`).join('')
+          + `<button class="history-btn fs-clear" style="font-size:0.7rem" onclick="${clearCall}">清除全部</button>`
         : '<span>未有篩選</span>'}
       <span class="filter-count" id="filterCount_${key}" style="margin-left:${active.length ? '0.5rem' : 'auto'}">${countHtml}</span>
     </div>`;
 }
 
+// Min/max 兩個位嘅顯示：兩個都有就「500–800萬」；淨係得上限就「800萬內」；
+// 淨係得下限就「500萬以上」——同得個「–」畫公仔畫出腸相比，講得返出嗰句
+// 用戶會講嘅話。
+function rangeLabel(prefix, min, max, unit = '') {
+  if (min && max) return `${prefix} ${min}–${max}${unit}`;
+  if (max) return `${prefix} ${max}${unit}內`;
+  return `${prefix} ${min}${unit}以上`;
+}
+
 // 開緊嘅 filter（同 default 唔同嗰啲）。「隱藏已下架」預設就係 on，所以
 // 淨係喺用戶關咗佢嗰陣先當一個 filter —— 唔好將預設值當成用戶揀過。
+function clearFilterKeys(...keys) {
+  for (const k of keys) filters[k] = FILTER_DEFAULTS[k];
+  renderFilterBar();
+  renderListingsTable();
+}
 function activeFilters() {
   const out = [];
-  const push = (label) => out.push(label);
-  if (filters.beds !== "all") push(filters.beds + "房");
-  if (filters.floor !== "all") push(filters.floor);
-  if (filters.building !== "all") push(filters.building);
-  if (filters.unit !== "all") push(filters.unit + "室");
-  if (filters.minPrice || filters.maxPrice) push(`售價 ${filters.minPrice || ''}–${filters.maxPrice || ''}萬`);
-  if (filters.minSize || filters.maxSize) push(`實呎 ${filters.minSize || ''}–${filters.maxSize || ''}`);
-  if (filters.minPsf || filters.maxPsf) push(`呎價 ${filters.minPsf || ''}–${filters.maxPsf || ''}`);
-  if (filters.priceChanged !== "all") push(filters.priceChanged === "yes" ? "有價格變動" : "無價格變動");
-  if (filters.source !== "all") push(sourceLabel(filters.source));
-  if (filters.dom !== "all") push(`放盤 ${filters.dom} 日+`);
-  if (!filters.hideRemoved) push("連已下架");
+  const push = (label, clear) => out.push({ label, clear });
+  if (filters.beds !== "all") push(filters.beds + "房", "clearFilterKeys('beds')");
+  if (filters.floor !== "all") push(filters.floor, "clearFilterKeys('floor')");
+  if (filters.building !== "all") push(filters.building, "clearFilterKeys('building')");
+  if (filters.unit !== "all") push(filters.unit + "室", "clearFilterKeys('unit')");
+  if (filters.minPrice || filters.maxPrice) push(rangeLabel('售價', filters.minPrice, filters.maxPrice, '萬'), "clearFilterKeys('minPrice','maxPrice')");
+  if (filters.minSize || filters.maxSize) push(rangeLabel('實呎', filters.minSize, filters.maxSize), "clearFilterKeys('minSize','maxSize')");
+  if (filters.minPsf || filters.maxPsf) push(rangeLabel('呎價', filters.minPsf, filters.maxPsf), "clearFilterKeys('minPsf','maxPsf')");
+  if (filters.priceChanged !== "all") push(filters.priceChanged === "yes" ? "有價格變動" : "無價格變動", "clearFilterKeys('priceChanged')");
+  if (filters.source !== "all") push(sourceLabel(filters.source), "clearFilterKeys('source')");
+  if (filters.dom !== "all") push(`放盤 ${filters.dom} 日+`, "clearFilterKeys('dom')");
+  if (!filters.hideRemoved) push("連已下架", "setFilter('hideRemoved', true)");
   return out;
 }
 
@@ -7705,6 +7739,10 @@ function setFilter(key, val) {
 
 function setRangeFilter(key, val) {
   filters[key] = val;
+  // renderListingsTable() 唔會重畫 filterBar（卡片 view 直接 early-return，
+  // 表格 view 淨係改 #filterCount_buy 個文字）——冇呢句摘要 chip／badge
+  // 數字打完個數都唔會郁，要撳過第二個先「順便」跟到。
+  renderFilterBar();
   renderListingsTable();
 }
 
