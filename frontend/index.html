@@ -1126,6 +1126,13 @@
     /* 睇樓記錄嘅「分析」結論——貴／平定價，之前同一堆細字擠埋，用戶話
        搵唔到邊個先係重點。獨立起底色 box + 左邊粗色條，撐開返少少行距。 */
     .vw-verdict { margin-top: 0.45rem; padding: 0.35rem 0.55rem; border-radius: 6px; }
+    /* 估值嗰句（$757萬 / 比估值高 2.9%）擺入「分析」box 之後要同
+       「約叫價中位數」嗰句同一級數——覆蓋返 .price-cell／.gain-pos／
+       .gain-neg 呢幾個全站共用嘅 class 原本嘅細字。 */
+    .vw-hs-diff { display: inline-flex; align-items: baseline; gap: 0.4rem; }
+    .vw-hs-diff .price-cell { font-size: 0.88rem; }
+    .vw-hs-diff .gain-pos, .vw-hs-diff .gain-neg { font-size: 0.88rem; font-weight: 700; }
+    .vw-hs-diff .unit-price { margin-top: 0; }
     /* 睇樓記錄「未沽出/已沽出」狀態——放大做 pill，一眼睇到邊啲已經有
        結果。已沽出＝綠底（有落實嘅市價數據），未沽出＝灰底（仲未知）。 */
     .vw-status { display: inline-flex; align-items: center; gap: 0.3rem; font-weight: 700; border-radius: 6px; padding: 0.15rem 0.55rem; }
@@ -4928,8 +4935,12 @@ function priceRulerHtml(v) {
     ? v.txn_price / v.size_net : null;
   // 恒生估值查詢本身唔係「我哋嘅分析」（第三方銀行估值），一直都免費——
   // 呢個 block 要喺 isPaid() 判斷之前起好，先至唔會俾條尺個 paywall 累埋佢。
+  // vw-hs-diff：估值嗰句擺咗入「分析」box 之後，用戶想佢同「約叫價中位數」
+  // 嗰句對齊字體大細——但 hsValHtml/hsDiffHtml 全站好多處（成交表、批量
+  // 查估值）共用緊，唔可以喺 function 本身度改（會累埋其他位一齊變大）。
+  // 靠加多一層 class 用 CSS 特異性覆蓋返，淨係呢個位大。
   const hsInner = v.hs_price
-    ? `<span style="color:var(--muted);font-size:0.75rem">估值</span>${hsValHtml(v.hs_price)}${hsDiffHtml(v.hs_price, v.price)}`
+    ? `<span class="vw-hs-diff"><span style="color:var(--muted);font-size:0.75rem">估值</span>${hsValHtml(v.hs_price)}${hsDiffHtml(v.hs_price, v.price)}</span>`
     // 屋苑 id 跟返張卡自己嗰個（v.estate_id），唔可以淨靠 _viewingEstateId——
     // dashboard「睇過嘅盤」係跨屋苑，嗰度個全局係 null／上一個屋苑，會查錯苑。
     : `<button class="hs-val-btn" onclick="manualFetchViewingHSVal(${v.id},${v.estate_id || _viewingEstateId},'${escJsAttr(v.block||'')}','${escJsAttr(v.floor||'')}','${escJsAttr(v.unit||'')}',${v.price||0})">查估值</button>`;
