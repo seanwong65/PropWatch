@@ -1414,8 +1414,20 @@
       /* 同 html/body 個 overflow-x 一樣嘅陷阱：.main 帶住 overflow-y:auto
          就係一個 scroll container，但手機版佢 height:auto、內容永遠塞得落，
          所以佢自己永遠唔會 scroll。入面啲 sticky 貼咗去佢度就等於死咗。
-         手機版真正 scroll 嘅係 window，所以呢度要交返出去。 */
-      .main { overflow: visible; }
+         手機版真正 scroll 嘅係 window，所以呢度要交返出去。
+         ⚠️ 唔可以直接 overflow:visible：.main 係 CSS grid 嘅 item，grid item
+         預設有個「自動最小闊度＝內容闊度」，靠 overflow≠visible 先會歸零。
+         淨係 overflow-y 要 visible（等 window 嚟 scroll），overflow-x 一定
+         要留低一個非 visible 值（clip）先keep 到嗰個歸零——冇嘅話（實測）
+         成交表嗰啲寬表會撐爆 .main，成個 grid track 跟住撐闊，再俾外層
+         body 個 overflow-x:clip 切咗，變成「睇落仲有嘢但完全拉唔到」。
+         overflow-x:clip 理論上會令呢一軸嘅自動最小闊度歸零，但實測
+         （Chrome mobile emulation）grid item 照樣撐到 content width 度
+         （943px），min-width 電腦返嚟都仲係 auto——即係呢條路唔work。
+         最後直接寫死 min-width:0 先解決：CSS Grid item 預設
+         min-width:auto（＝內容闊度），呢個先係撐爆嘅根源，寫死做 0
+         就唔使再賭邊個 overflow 組合啱用。 */
+      .main { overflow-x: clip; overflow-y: visible; min-width: 0; }
       .sidebar {
         position: fixed;
         top: 0; left: 0; bottom: 0;
