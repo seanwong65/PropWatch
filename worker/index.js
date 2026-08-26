@@ -411,6 +411,40 @@ async function checkCronWatchdog(db, env) {
     + `Cloudflare 個 cron 試過無聲停咗（2026-08-17 00:25–04:18），redeploy 就返生。`);
 }
 
+// 每日 email cron 嘅 watchdog + 自動補跑。
+//
+// 點解要有：alert 一路以嚟全部都喺 email cron handler 入面發，即係「個 cron
+// 根本冇 fire」呢個 case 永遠唔會有 alert —— 實測 2026-08-22 同 08-24
+// 兩日，01:00 UTC 嗰分鐘全日淨係得 1 個 invocation（drip），email cron
+// 完全冇跑，用戶收唔到信亦收唔到任何 telegram。上面個 checkCronWatchdog
+// 淨係睇 cron_last_drip，drip 生勾勾嗰陣佢咩都唔會講。
+//
+// 點修：drip cron 一日 fire 720 次，順手查一查「今日封信寄咗未」。過咗
+// EMAIL_CATCHUP_HOUR 都仲未有今日嘅 heartbeat，就即刻補跑一次 + 出 telegram。
+// 補跑本身係 idempotent 嘅（sendDailyEmail 睇當日數據，寄多次最多係重複，
+// 唔會寫壞嘢），而 cron_last_email_start 一寫低就唔會再補第二次。
+const EMAIL_CATCHUP_HOUR = 10;   // 09:00 寄信，過咗 10:00 都未見到就當佢冇跑
+async function checkEmailCronWatchdog(db, env) {
+  if (hkHour() < EMAIL_CATCHUP_HOUR) return;
+  const today = hkDateStr();
+  // 已經補跑過（或者 cron 自己跑過）今日就收工
+  const started = await getSetting(db, "cron_last_email_start") || "";
+  if (started.slice(0, 10) === today) return;
+  // 用一個獨立 key 記「今日補跑過未」——就算補跑途中死咗，都唔會每 2 分鐘
+  // 重複補跑成日（720 次）。
+  if ((await getSetting(db, "email_catchup_day") || "") === today) return;
+  await setSetting(db, "email_catchup_day", today);
+  await sendAdminAlert(db, env, "⚠️ HouseRadar 每日 email cron 冇 fire，補跑緊",
+    "Email cron watchdog（由 drip cron 觸發）",
+    [`${today} 09:00 嘅 email cron 冇跑過（最後一次：${started || "從來未有"}）。`,
+     "而家即刻補跑一次。"],
+    "Cloudflare 個 cron trigger 試過無聲跳過（08-22、08-24 兩日 01:00 UTC "
+    + "得返 drip 一個 invocation）。補跑唔成功嘅話，喺 worker/ 行 "
+    + "`npx wrangler deploy` 重新註冊 trigger。");
+  await runDailyEmailTask(env);
+  return true;      // 叫 caller 今轉唔好再行 syncBatch（見下面）
+}
+
 function randomToken() {
   const arr = new Uint8Array(32);
   crypto.getRandomValues(arr);
@@ -5009,6 +5043,71 @@ async function sendDailyEmail(db, env, onlyAccountId = null, overrideEmail = nul
   return { sent: out };
 }
 
+// 每日 email task 嘅正文。抽咗出嚟做具名 function（本來成舊寫死喺
+// scheduled() 個 waitUntil 入面）——咁樣 /api/admin/run-email-task 就可以
+// 行返「一模一樣」嗰條路徑嚟驗，唔使等第二日 09:00 先知有冇修好。
+// 之前查唔到「收唔到信又冇 alert」係邊度出事，就係因為呢段冇得單獨行。
+//
+// heartbeat：入口／出口各寫一次 settings。cron 唔 fire、fire 咗但中途死，
+// 兩種情況喺 DB 度分得開 —— 缺咗呢個，Cloudflare 個 invocation 數字得個
+// 「success」睇，乜都查唔到。
+async function runDailyEmailTask(env) {
+  const started = new Date().toISOString();
+  try { await setSetting(env.DB, "cron_last_email_start", started); } catch (_) {}
+  const finish = async (status, detail) => {
+    try {
+      await setSetting(env.DB, "cron_last_email_done",
+        JSON.stringify({ at: new Date().toISOString(), started, status, detail }).slice(0, 900));
+    } catch (_) {}
+  };
+  // 逐帳戶寄信 fail(res.sent 有 error)通知 admin;top-level 爆(DB/token 等)都通知。
+  try {
+    await ensureMultiAccount(env.DB);
+    // 寄信之前先同 Stripe 對數。特登搭順風車坐喺呢個 cron 度，唔開多
+    // 個 trigger——Cloudflare Free plan 得 5 個 cron expression，而家已經
+    // 用咗 2 個（drip sync + email），要留返位。順序唔可以倒轉：對完數
+    // 先寄，咁啱啱降咗級嘅人就唔會仲收到當日封收費版 email。
+    let recon = { checked: 0, fixed: [], trouble: new Set(), error: null };
+    try {
+      recon = await reconcileSubscriptions(env.DB, env);
+    } catch (e) {
+      recon.error = _errDetail(e);   // 對數炒咗都要照寄信，聽日再補對數
+    }
+    const res = await sendDailyEmail(env.DB, env, null, null, recon.trouble);
+    const sent = res?.sent || [];
+    const failed = sent.filter((r) => r.error);
+    const skipped = sent.filter((r) => r.skipped);
+    const ok = sent.filter((r) => r.ok);
+    const alerts = [];
+    if (recon.error) alerts.push(`⚠️ Stripe 對數失敗（tier 未改過）：${recon.error}`);
+    if (recon.fixed.length) alerts.push(`🔧 webhook 漏咗，對數補返 ${recon.fixed.length} 個：\n  ${recon.fixed.join("\n  ")}`);
+    if (skipped.length) alerts.push(`💳 扣數出咗事，今日冇寄 email：${skipped.map((r) => r.account).join("、")}`);
+    if (res?.error) {
+      await sendAdminAlert(env.DB, env, "🚨 HouseRadar 每日 email 冇寄到", "每日 email task", [res.error, ...alerts]);
+    } else if (failed.length) {
+      await sendAdminAlert(env.DB, env, `⚠️ HouseRadar 每日 email 有 ${failed.length} 個帳戶寄失敗`,
+        "每日 email task", [...failed.map((f) => `${f.account}: ${f.error}`), ...alerts]);
+    } else if (!sent.length) {
+      // 一個帳戶都冇揀到＝有嘢唔對路（query 條件、帳戶狀態、tier 全部改過都會
+      // 中）。以前呢個 case 靜靜過骨：冇 error、冇 failed，所以乜 alert 都唔出，
+      // 用戶淨係見到「冇信」。而家一定要嘈。
+      await sendAdminAlert(env.DB, env, "🚨 HouseRadar 每日 email：一個帳戶都冇寄到",
+        "每日 email task", ["sendDailyEmail 揀唔到任何合資格帳戶（tier/opt-in/屋苑訂閱？）", ...alerts]);
+    } else if (alerts.length) {
+      // 信照寄得晒，但對數有嘢要你知（補咗數／有人扣唔到錢）
+      await sendAdminAlert(env.DB, env, "💳 HouseRadar 訂閱對數有發現", "每日 email task", alerts);
+    }
+    await finish("done", { ok: ok.length, failed: failed.length, skipped: skipped.length });
+    return { ok: ok.length, failed: failed.length, skipped: skipped.length, sent, recon: { checked: recon.checked, fixed: recon.fixed, error: recon.error } };
+  } catch (e) {
+    const detail = _errDetail(e);
+    await finish("threw", detail);
+    await sendAdminAlert(env.DB, env, "🚨 HouseRadar 每日 email task 整個失敗",
+      "每日 email task（top-level）", [detail]);
+    return { error: detail };
+  }
+}
+
 export default {
   async scheduled(event, env, ctx) {
     // "0 1 * * *" = 09:00 HKT → email only (own fresh subrequest budget).
@@ -5018,41 +5117,7 @@ export default {
     // ensureMultiAccount:sync/email query 靠 account_estates,cron 可能喺
     // 冇任何 fetch request 之前行,所以呢度都要 ensure(冪等,好快)。
     if (event.cron === EMAIL_CRON) {
-      ctx.waitUntil((async () => {
-        // 逐帳戶寄信 fail(res.sent 有 error)通知 admin;top-level 爆(DB/token 等)都通知。
-        try {
-          await ensureMultiAccount(env.DB);
-          // 寄信之前先同 Stripe 對數。特登搭順風車坐喺呢個 cron 度，唔開多
-          // 個 trigger——Cloudflare Free plan 得 5 個 cron expression，而家已經
-          // 用咗 2 個（drip sync + email），要留返位。順序唔可以倒轉：對完數
-          // 先寄，咁啱啱降咗級嘅人就唔會仲收到當日封收費版 email。
-          let recon = { checked: 0, fixed: [], trouble: new Set(), error: null };
-          try {
-            recon = await reconcileSubscriptions(env.DB, env);
-          } catch (e) {
-            recon.error = _errDetail(e);   // 對數炒咗都要照寄信，聽日再補對數
-          }
-          const res = await sendDailyEmail(env.DB, env, null, null, recon.trouble);
-          const failed = (res?.sent || []).filter((r) => r.error);
-          const skipped = (res?.sent || []).filter((r) => r.skipped);
-          const alerts = [];
-          if (recon.error) alerts.push(`⚠️ Stripe 對數失敗（tier 未改過）：${recon.error}`);
-          if (recon.fixed.length) alerts.push(`🔧 webhook 漏咗，對數補返 ${recon.fixed.length} 個：\n  ${recon.fixed.join("\n  ")}`);
-          if (skipped.length) alerts.push(`💳 扣數出咗事，今日冇寄 email：${skipped.map((r) => r.account).join("、")}`);
-          if (res?.error) {
-            await sendAdminAlert(env.DB, env, "🚨 HouseRadar 每日 email 冇寄到", "每日 email task", [res.error, ...alerts]);
-          } else if (failed.length) {
-            await sendAdminAlert(env.DB, env, `⚠️ HouseRadar 每日 email 有 ${failed.length} 個帳戶寄失敗`,
-              "每日 email task", [...failed.map((f) => `${f.account}: ${f.error}`), ...alerts]);
-          } else if (alerts.length) {
-            // 信照寄得晒，但對數有嘢要你知（補咗數／有人扣唔到錢）
-            await sendAdminAlert(env.DB, env, "💳 HouseRadar 訂閱對數有發現", "每日 email task", alerts);
-          }
-        } catch (e) {
-          await sendAdminAlert(env.DB, env, "🚨 HouseRadar 每日 email task 整個失敗",
-            "每日 email task（top-level）", [_errDetail(e)]);
-        }
-      })());
+      ctx.waitUntil(runDailyEmailTask(env));
     } else if (event.cron === DRIP_CRON) {
       // Drip sync：一個 invocation 盡量做多個單元（跑到 DRIP_BATCH_TIME_BUDGET_MS
       // /DRIP_BATCH_SUBREQ_BUDGET 頂晒為止），全部搞定就 idle（唔會多打 portal）。
@@ -5070,6 +5135,13 @@ export default {
           // 00:25 停到 04:18，redeploy 先返生），停咗嘅話任何靠 cron 自己發
           // 嘅 alert 都一定唔會出，所以要有個唔靠 cron 嘅偵測。
           await setSetting(env.DB, "cron_last_drip", new Date().toISOString());
+          // 順手睇下今日封 email 寄咗未（見 checkEmailCronWatchdog）。擺喺
+          // syncBatch 之前：syncBatch 可以行足 45 秒，擺後面驚 invocation
+          // 唔夠時間就走咗。查一個 setting 好平，唔會拖慢 drip。
+          // 補跑咗封信就今轉唔好再行 syncBatch —— email task 食 ~21 秒，
+          // syncBatch 自己可以行 45 秒，夾埋容易爆 invocation 時間預算，
+          // 兩樣都做唔完。下一轉（兩分鐘後）照樣會 sync，冇損失。
+          if (await checkEmailCronWatchdog(env.DB, env).catch(() => false)) return;
           const r = await syncBatch(env.DB);
           // 行到呢度代表冇 D1 閃斷（或者重試之後過咗骨）→ 清 streak
           if (Number(await getSetting(env.DB, "drip_d1_streak") || 0) > 0) {
@@ -5446,6 +5518,16 @@ export default {
           complete: listings.complete,
           sample: listings.slice(0, 2),
         });
+      }
+
+      // 行返每日 email cron 一模一樣嗰條路徑（對數 + 寄信 + alert 判斷），
+      // 唔使等第二日 09:00 先知有冇修好。同 /api/send-today-email 唔同：
+      // 嗰個淨係 sendDailyEmail，跳過咗 reconcile 同 alert 邏輯 —— 即係
+      // cron 出事嗰段佢係測唔到嘅（就係咁先查極查唔到）。
+      if (method === "POST" && path === "/api/admin/run-email-task") {
+        if (!isAdminSession(session)) return json(403, { error: "admin only" });
+        const r = await runDailyEmailTask(env);
+        return json(200, { ok: !r?.error, result: r });
       }
 
       if (method === "POST" && path === "/api/send-today-email") {

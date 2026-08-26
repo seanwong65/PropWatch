@@ -40,3 +40,9 @@ database_id = "b4330ef2-78c4-48be-ae88-b1d94614faad"
 # scheduled() 靠 `event.cron === DRIP_CRON` 分流，唔一致 drip sync 會完全唔行。
 [triggers]
 crons = ["*/2 * * * *", "0 1 * * *"]
+
+# Workers Logs。之前完全冇開,所以 cron 出事嗰陣 console.error 一句都攞唔返,
+# 查「收唔到 email 又冇 alert」淨係得 GraphQL 個 invocation 數字睇,查唔到
+# 邊一步死。開咗之後 `npx wrangler tail` 同 dashboard 都有得睇返。
+[observability]
+enabled = true
