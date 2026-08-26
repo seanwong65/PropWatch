@@ -300,7 +300,7 @@ function htmlPage(status, title, bodyHtml) {
      <title>${_escHtmlW(title)}</title></head>
      <body style="margin:0;background:#0a0f1a;color:#f1f5f9;font-family:-apple-system,system-ui,sans-serif;display:flex;min-height:100vh;align-items:center;justify-content:center;padding:20px">
        <div style="background:#111827;border:1px solid #1f2937;border-radius:14px;padding:28px;max-width:420px;width:100%">
-         <div style="font-size:20px;font-weight:700;margin-bottom:14px">🏙️ HouseRadar</div>
+         <div style="font-size:20px;font-weight:700;margin-bottom:14px">🏙️ 搵樓日記</div>
          ${bodyHtml}
        </div>
      </body></html>`,
@@ -404,7 +404,7 @@ async function checkCronWatchdog(db, env) {
   if (Date.now() - lastAlert < CRON_ALERT_COOLDOWN_MS) return;
   await setSetting(db, "cron_alert_sent_at", new Date().toISOString());
   const mins = Math.round(age / 60000);
-  await sendAdminAlert(db, env, "🚨 HouseRadar cron 好似停咗",
+  await sendAdminAlert(db, env, "🚨 搵樓日記 cron 好似停咗",
     "Cron watchdog（由 API 流量觸發，唔係 cron 自己）",
     [`Drip sync 已經 ${mins} 分鐘冇跑過（最後一次：${last}）。正常每 2 分鐘一次。`],
     `點修：喺 worker/ 行一次 \`npx wrangler deploy\` 重新註冊 cron trigger。\n`
@@ -434,7 +434,7 @@ async function checkEmailCronWatchdog(db, env) {
   // 重複補跑成日（720 次）。
   if ((await getSetting(db, "email_catchup_day") || "") === today) return;
   await setSetting(db, "email_catchup_day", today);
-  await sendAdminAlert(db, env, "⚠️ HouseRadar 每日 email cron 冇 fire，補跑緊",
+  await sendAdminAlert(db, env, "⚠️ 搵樓日記每日 email cron 冇 fire，補跑緊",
     "Email cron watchdog（由 drip cron 觸發）",
     [`${today} 09:00 嘅 email cron 冇跑過（最後一次：${started || "從來未有"}）。`,
      "而家即刻補跑一次。"],
@@ -2442,7 +2442,7 @@ async function handleStripeEvent(db, env, event, ctx) {
         const who = acc?.email || obj.customer_email || `customer ${obj.customer || "?"}`;
         const nextTry = obj.next_payment_attempt
           ? new Date(obj.next_payment_attempt * 1000).toISOString().slice(0, 10) : null;
-        const alert = sendAdminAlert(db, env, "💳 HouseRadar 扣數失敗", "Stripe invoice.payment_failed", [
+        const alert = sendAdminAlert(db, env, "💳 搵樓日記扣數失敗", "Stripe invoice.payment_failed", [
           `帳戶：${who}`,
           `金額：${amt}`,
           `第 ${obj.attempt_count ?? "?"} 次嘗試`,
@@ -3247,7 +3247,7 @@ async function sendEmail(env, to, subject, html, extraHeaders = {}) {
     .map(([k, v]) => `${String(k).replace(/[\r\n]/g, "")}: ${String(v).replace(/[\r\n]/g, "")}`);
   // 中文 subject 用 RFC 2047 encoded-word；body 用 base64 transfer encoding
   const mime = [
-    `From: HouseRadar <hkbuyhouse@gmail.com>`,
+    `From: 搵樓日記 <hkbuyhouse@gmail.com>`,
     `To: ${String(to).replace(/[\r\n]/g, "")}`,
     `Subject: =?UTF-8?B?${_b64utf8(subject)}?=`,
     ...hdrLines,
@@ -3296,7 +3296,7 @@ function buildAlertHtml(taskName, lines, note) {
     <p style="color:#666;font-size:13px;margin:0 0 12px">香港時間 ${when}（UTC+8）${single ? "" : ` · 共 ${lines.length} 項`}</p>
     ${bodyHtml}
     ${note ? `<p style="color:#444;font-size:13px;margin-top:14px;padding-top:10px;border-top:1px solid #e5e7eb;white-space:pre-wrap">${_escHtmlW(note)}</p>` : ""}
-    <p style="color:#999;font-size:12px;margin-top:16px">呢封係 HouseRadar cron task 自動出錯通知。</p>
+    <p style="color:#999;font-size:12px;margin-top:16px">呢封係搵樓日記 cron task 自動出錯通知。</p>
   </div>`;
 }
 // Telegram 純文字版（Telegram 單條訊息上限 4096 字，所以要截）。
@@ -4210,11 +4210,11 @@ function buildEmailHtml(highlights, bargains = [], unsubUrl = null) {
   const body = (sections + bargainSection) || `<p style="color:#cbd5e1;font-size:15px">今日無更新</p>`;
   return `
     <div style="background:#0a0f1a;color:#f1f5f9;font-family:-apple-system,sans-serif;padding:20px;max-width:600px;margin:0 auto;border-radius:12px">
-      <h1 style="margin:0 0 4px;font-size:22px;color:#f8fafc">🏙️ HouseRadar 每日通知</h1>
+      <h1 style="margin:0 0 4px;font-size:22px;color:#f8fafc">🏙️ 搵樓日記每日通知</h1>
       <p style="margin:0 0 20px;color:#94a3b8;font-size:14px">${date}</p>
       ${body}
       <p style="margin-top:24px;font-size:12px;color:#94a3b8">
-        <a href="${APP_BASE}" style="color:#60a5fa">前往 HouseRadar</a>
+        <a href="${APP_BASE}" style="color:#60a5fa">前往 搵樓日記</a>
       </p>
       ${unsubUrl ? `<p style="margin:8px 0 0;font-size:11px;color:#64748b;border-top:1px solid #1e293b;padding-top:10px">
         唔想再收每日通知？<a href="${_escHtmlW(unsubUrl)}" style="color:#94a3b8">取消訂閱</a>（撳完會有確認頁，唔會即刻退）。
@@ -4832,7 +4832,7 @@ async function sendSyncSummary(db, env) {
   const d1Blips = Number(await getSetting(db, `drip_d1_blips_${date}`) || 0);
 
   const lines = [
-    `✅ HouseRadar 今日同步完成（${date}）`,
+    `✅ 搵樓日記今日同步完成（${date}）`,
     ``,
     `⏱ ${hhmm(s?.first_at)} → ${hhmm(s?.last_at)}（實際做嘢 ${dur}）`,
     ...(idleMs > 10 * 60000
@@ -5033,7 +5033,7 @@ async function sendDailyEmail(db, env, onlyAccountId = null, overrideEmail = nul
         parts.push(`${totalRentTxns + totalRentPrice + totalRentNew + totalRentDel + totalRentViewed + totalLinkedRentPrice + totalLinkedRentDel} 個租盤動態`);
       }
       if (bargains.length) parts.push(`${bargains.length} 個筍盤`);
-      const subject = hasChanges || bargains.length ? `HouseRadar 通知：${parts.join("、")}` : "HouseRadar 通知：今日無更新";
+      const subject = hasChanges || bargains.length ? `搵樓日記通知：${parts.join("、")}` : "搵樓日記通知：今日無更新";
       const toEmail = overrideEmail || acc.email;
       // 退訂：footer link（人手撳）+ List-Unsubscribe header（Gmail/Outlook 自己
       // 個「取消訂閱」掣）。One-Click 指定 POST，所以 email client 唔會因為掃
@@ -5093,26 +5093,26 @@ async function runDailyEmailTask(env) {
     if (recon.fixed.length) alerts.push(`🔧 webhook 漏咗，對數補返 ${recon.fixed.length} 個：\n  ${recon.fixed.join("\n  ")}`);
     if (skipped.length) alerts.push(`💳 扣數出咗事，今日冇寄 email：${skipped.map((r) => r.account).join("、")}`);
     if (res?.error) {
-      await sendAdminAlert(env.DB, env, "🚨 HouseRadar 每日 email 冇寄到", "每日 email task", [res.error, ...alerts]);
+      await sendAdminAlert(env.DB, env, "🚨 搵樓日記每日 email 冇寄到", "每日 email task", [res.error, ...alerts]);
     } else if (failed.length) {
-      await sendAdminAlert(env.DB, env, `⚠️ HouseRadar 每日 email 有 ${failed.length} 個帳戶寄失敗`,
+      await sendAdminAlert(env.DB, env, `⚠️ 搵樓日記每日 email 有 ${failed.length} 個帳戶寄失敗`,
         "每日 email task", [...failed.map((f) => `${f.account}: ${f.error}`), ...alerts]);
     } else if (!sent.length) {
       // 一個帳戶都冇揀到＝有嘢唔對路（query 條件、帳戶狀態、tier 全部改過都會
       // 中）。以前呢個 case 靜靜過骨：冇 error、冇 failed，所以乜 alert 都唔出，
       // 用戶淨係見到「冇信」。而家一定要嘈。
-      await sendAdminAlert(env.DB, env, "🚨 HouseRadar 每日 email：一個帳戶都冇寄到",
+      await sendAdminAlert(env.DB, env, "🚨 搵樓日記每日 email：一個帳戶都冇寄到",
         "每日 email task", ["sendDailyEmail 揀唔到任何合資格帳戶（tier/opt-in/屋苑訂閱？）", ...alerts]);
     } else if (alerts.length) {
       // 信照寄得晒，但對數有嘢要你知（補咗數／有人扣唔到錢）
-      await sendAdminAlert(env.DB, env, "💳 HouseRadar 訂閱對數有發現", "每日 email task", alerts);
+      await sendAdminAlert(env.DB, env, "💳 搵樓日記訂閱對數有發現", "每日 email task", alerts);
     }
     await finish("done", { ok: ok.length, failed: failed.length, skipped: skipped.length });
     return { ok: ok.length, failed: failed.length, skipped: skipped.length, sent, recon: { checked: recon.checked, fixed: recon.fixed, error: recon.error } };
   } catch (e) {
     const detail = _errDetail(e);
     await finish("threw", detail);
-    await sendAdminAlert(env.DB, env, "🚨 HouseRadar 每日 email task 整個失敗",
+    await sendAdminAlert(env.DB, env, "🚨 搵樓日記每日 email task 整個失敗",
       "每日 email task（top-level）", [detail]);
     return { error: detail };
   }
@@ -5159,7 +5159,7 @@ export default {
           }
           if (!r.idle && r.failedOut.length) {
             await sendAdminAlert(env.DB, env,
-              `⚠️ HouseRadar 同步失敗：${r.failedOut.length} 個單元`,
+              `⚠️ 搵樓日記同步失敗：${r.failedOut.length} 個單元`,
               `Drip sync（試夠 ${SYNC_MAX_ATTEMPTS} 次，今日唔再試；仲有 ${r.remaining} 個單元排隊）`,
               r.failedOut.map((f) => `${f.label}: ${f.detail}`));
           }
@@ -5179,7 +5179,7 @@ export default {
             // 連續中 D1_ALERT_STREAK 次先響——一次半次係雜訊，連續中就係
             // 真係有事（D1 出緊事／個 DB 有問題），嗰陣一定要嘈醒你。
             if (streak >= D1_ALERT_STREAK) {
-              await sendAdminAlert(env.DB, env, "🚨 HouseRadar D1 連續斷線",
+              await sendAdminAlert(env.DB, env, "🚨 搵樓日記 D1 連續斷線",
                 `Drip sync（cron ${event.cron}）`, [
                   `連續 ${streak} 次 cron 都因為 D1 斷線做唔到嘢（每次已經自動重試 ${D1_RETRY_ATTEMPTS} 次）。`,
                   "呢個唔再係一次性閃斷——D1 可能出緊事，去 Cloudflare status 睇下。",
@@ -5188,7 +5188,7 @@ export default {
               await setSetting(env.DB, "drip_d1_streak", 0);   // 響完重新計，唔好每 2 分鐘嘈一次
             }
           } else {
-            await sendAdminAlert(env.DB, env, `🚨 HouseRadar drip sync 整個失敗`,
+            await sendAdminAlert(env.DB, env, `🚨 搵樓日記 drip sync 整個失敗`,
               `Drip sync（cron ${event.cron}，top-level）`, [_errDetail(e)]);
           }
         }
@@ -5301,33 +5301,33 @@ export default {
           ? await db.prepare("SELECT id FROM accounts WHERE unsub_token = ?").bind(token).first()
           : null;
         if (!acc) {
-          return htmlPage(400, "連結無效 — HouseRadar",
+          return htmlPage(400, "連結無效 — 搵樓日記",
             `<p style="color:#f87171;font-size:14px;line-height:1.6;margin:0">呢條退訂連結無效或者已經失效。</p>
              <p style="color:#94a3b8;font-size:13px;line-height:1.6;margin:12px 0 0">
-               可以喺 <a href="${APP_BASE}" style="color:#60a5fa">HouseRadar</a> 登入之後，
+               可以喺 <a href="${APP_BASE}" style="color:#60a5fa">搵樓日記</a> 登入之後，
                喺 ⚙️ 設定自己較「每日 email 通知」。</p>`);
         }
 
         if (method === "GET") {
-          return htmlPage(200, "取消訂閱 — HouseRadar",
+          return htmlPage(200, "取消訂閱 — 搵樓日記",
             `<p style="color:#cbd5e1;font-size:14px;line-height:1.6;margin:0 0 18px">
-               確認取消 HouseRadar <b>每日通知 email</b>？<br>
+               確認取消搵樓日記 <b>每日通知 email</b>？<br>
                <span style="color:#94a3b8;font-size:13px">帳戶同數據唔會受影響，之後想收返可以喺 ⚙️ 設定自己開返。</span></p>
              <form method="POST" action="/api/unsubscribe">
                <input type="hidden" name="token" value="${_escHtmlW(token)}">
                <button type="submit" style="width:100%;background:#dc2626;color:#fff;border:none;border-radius:10px;padding:12px;font-size:15px;font-weight:600;cursor:pointer;font-family:inherit">確認取消訂閱</button>
              </form>
              <p style="margin:14px 0 0;text-align:center">
-               <a href="${APP_BASE}" style="color:#94a3b8;font-size:13px">唔係，返去 HouseRadar</a></p>`);
+               <a href="${APP_BASE}" style="color:#94a3b8;font-size:13px">唔係，返去 搵樓日記</a></p>`);
         }
 
         await db.prepare("UPDATE accounts SET email_opt_in = 0 WHERE id = ?").bind(acc.id).run();
-        return htmlPage(200, "已取消訂閱 — HouseRadar",
+        return htmlPage(200, "已取消訂閱 — 搵樓日記",
           `<p style="color:#4ade80;font-size:15px;font-weight:600;margin:0 0 10px">✓ 已取消訂閱</p>
            <p style="color:#cbd5e1;font-size:14px;line-height:1.6;margin:0">
              以後唔會再收到每日通知 email。</p>
            <p style="color:#94a3b8;font-size:13px;line-height:1.6;margin:12px 0 0">
-             想收返？登入 <a href="${APP_BASE}" style="color:#60a5fa">HouseRadar</a> →
+             想收返？登入 <a href="${APP_BASE}" style="color:#60a5fa">搵樓日記</a> →
              ⚙️ 設定 → 開返「每日 email 通知」。</p>`);
       }
 
@@ -5403,9 +5403,9 @@ export default {
           "INSERT INTO email_otps (email, code, expires_at, attempts) VALUES (?,?,?,0) ON CONFLICT(email) DO UPDATE SET code=excluded.code, expires_at=excluded.expires_at, attempts=0"
         ).bind(em, code, expires).run();
         try {
-          await sendEmail(env, em, "HouseRadar 註冊驗證碼",
+          await sendEmail(env, em, "搵樓日記註冊驗證碼",
             `<div style="font-family:-apple-system,sans-serif;max-width:420px;margin:0 auto;padding:20px">
-              <h2 style="color:#f59e0b">HouseRadar</h2>
+              <h2 style="color:#f59e0b">搵樓日記</h2>
               <p>你嘅註冊驗證碼係：</p>
               <p style="font-size:30px;font-weight:700;letter-spacing:6px;color:#0f172a">${code}</p>
               <p style="color:#64748b;font-size:13px">10 分鐘內有效。如果唔係你操作，直接無視呢封信就得。</p>
@@ -5470,9 +5470,9 @@ export default {
             "INSERT INTO email_otps (email, code, expires_at, attempts) VALUES (?,?,?,0) ON CONFLICT(email) DO UPDATE SET code=excluded.code, expires_at=excluded.expires_at, attempts=0"
           ).bind(em, code, expires).run();
           try {
-            await sendEmail(env, em, "HouseRadar 重設密碼驗證碼",
+            await sendEmail(env, em, "搵樓日記重設密碼驗證碼",
               `<div style="font-family:-apple-system,sans-serif;max-width:420px;margin:0 auto;padding:20px">
-                <h2 style="color:#f59e0b">HouseRadar</h2>
+                <h2 style="color:#f59e0b">搵樓日記</h2>
                 <p>你嘅重設密碼驗證碼係：</p>
                 <p style="font-size:30px;font-weight:700;letter-spacing:6px;color:#0f172a">${code}</p>
                 <p style="color:#64748b;font-size:13px">10 分鐘內有效。如果唔係你操作，直接無視呢封信，你嘅密碼唔會變。</p>
@@ -5713,7 +5713,7 @@ export default {
         return json(200, { photos });
       }
 
-      // 進階搜尋：跨晒所有已追蹤屋苑搜放盤（中原主頁「進階」嘅 HouseRadar 版，
+      // 進階搜尋：跨晒所有已追蹤屋苑搜放盤（中原主頁「進階」嘅搵樓日記版，
       // 仲多咗人哋冇嘅時間軸篩選——放盤日數／有冇減過價）。
       // 搜嘅係自己 DB 嘅最新 snapshot，唔打任何 portal——快、零 subrequest。
       if (method === "POST" && path === "/api/adv-search") {
@@ -6977,7 +6977,7 @@ export default {
         const result = await sendEmail(
           env,
           "johnwong777@hotmail.com",
-          "HouseRadar 測試郵件",
+          "搵樓日記測試郵件",
           buildEmailHtml({
             date: hkDateStr(),
             byEstate: [{
@@ -8018,7 +8018,7 @@ export default {
               currency: "hkd",
               unit_amount: cents,
               recurring: { interval },
-              product_data: { name: `HouseRadar 收費版（${interval === "year" ? "年費" : "月費"}）` },
+              product_data: { name: `搵樓日記收費版（${interval === "year" ? "年費" : "月費"}）` },
               metadata: { effective_from },
             });
             await db.prepare(
@@ -8225,7 +8225,7 @@ export default {
         if (!isAdminSession(session)) return json(403, { error: "admin only" });
         const tg = { configured: !!(env.TELEGRAM_BOT_TOKEN && env.TELEGRAM_CHAT_ID), ok: false, error: null };
         try {
-          tg.ok = await sendTelegram(env, `✅ HouseRadar 測試通知\n\n${buildAlertText("測試（唔係真係 fail）", ["呢條係測試訊息，見到即係 Telegram alert 通。"])}`);
+          tg.ok = await sendTelegram(env, `✅ 搵樓日記測試通知\n\n${buildAlertText("測試（唔係真係 fail）", ["呢條係測試訊息，見到即係 Telegram alert 通。"])}`);
         } catch (e) { tg.error = e?.message || String(e); }
         const em = { configured: !!env.GMAIL_REFRESH_TOKEN, ok: false, error: null, to: [] };
         if (em.configured) {
@@ -8234,7 +8234,7 @@ export default {
               "SELECT email FROM accounts WHERE role = 'admin' AND email IS NOT NULL AND email != '' AND (is_active IS NULL OR is_active = 1)"
             ).all();
             for (const a of admins) {
-              await sendEmail(env, a.email, "✅ HouseRadar 測試通知", buildAlertHtml("測試（唔係真係 fail）", ["呢條係測試訊息。"]));
+              await sendEmail(env, a.email, "✅ 搵樓日記測試通知", buildAlertHtml("測試（唔係真係 fail）", ["呢條係測試訊息。"]));
               em.to.push(a.email);
             }
             em.ok = true;

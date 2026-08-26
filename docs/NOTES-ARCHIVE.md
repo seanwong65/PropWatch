@@ -1,4 +1,4 @@
-# HouseRadar — Archive (history & superseded designs)
+# 搵樓日記 — Archive (history & superseded designs)
 
 Narrative history moved out of `NOTES.md`. **Nothing is deleted** — the pitfall
 lessons below stay so we don't re-step on them. Where a design was later

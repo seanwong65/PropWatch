@@ -1,4 +1,4 @@
-# HouseRadar — Claude Code 項目規則
+# 搵樓日記 — Claude Code 項目規則
 
 ## 安全 Convention（強制 — 所有新功能一律跟從）
 
