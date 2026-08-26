@@ -1,5 +1,5 @@
 /*
-  Content-Security-Policy: default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https://hkvrdata.centanet.com https://hkais.centanet.com https://hkcdn.centanet.com https://hk.centanet.com https://hkagencystatic.centanet.com https://hkis.centanet.com https://hk.centadata.com https://wm.midland.com.hk https://wm.hkp.com.hk https://wmc.hkp.com.hk; connect-src 'self' https://propwatch-worker.johnwong777.workers.dev; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'
+  Content-Security-Policy: default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https://hkvrdata.centanet.com https://hkais.centanet.com https://hkcdn.centanet.com https://hk.centanet.com https://hkagencystatic.centanet.com https://hkis.centanet.com https://hk.centadata.com; connect-src 'self' https://propwatch-worker.johnwong777.workers.dev; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'
   X-Content-Type-Options: nosniff
   X-Frame-Options: DENY
   Referrer-Policy: no-referrer

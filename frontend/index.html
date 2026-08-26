@@ -7773,17 +7773,36 @@ async function hydrateCardPhotos(estateId, deal) {
   } catch (_) { _photoCache[key] = {}; }
   return _photoCache[key];
 }
+// /api/photo 喺 auth guard 後面，但 <img src> 送唔到 Authorization header，
+// 所以要用 fetch 攞返個 blob 再 createObjectURL。咁樣就唔使開公開 route，
+// 亦唔使將 token 塞落 URL（會入 log／referrer）。
+// 同一條 proxy path 只攞一次，blob URL 留喺度俾之後 re-render 重用。
+const _photoBlobs = {};
+async function photoBlobUrl(rel) {
+  if (_photoBlobs[rel]) return _photoBlobs[rel];
+  const r = await fetch(API + rel, { headers: { Authorization: `Bearer ${getToken()}` } });
+  if (!r.ok) throw new Error(`photo ${r.status}`);
+  const b = await r.blob();
+  if (!b.type.startsWith('image/')) throw new Error('not image');
+  _photoBlobs[rel] = URL.createObjectURL(b);
+  return _photoBlobs[rel];
+}
 function applyCardPhotos(photos) {
   document.querySelectorAll('.lc-photo[data-refs]').forEach(box => {
     if (box.querySelector('img')) return;      // 已經有相（中原嗰啲）
     const refs = (box.dataset.refs || '').split(',').filter(Boolean);
-    const url = refs.map(r => photos[r]).find(Boolean);
-    if (!url) return;
-    const safe = safeImgSrc(url);
-    if (!safe) return;
-    box.innerHTML = `<img src="${safe}" loading="lazy" alt=""
-      onerror="this.parentElement.innerHTML='<span class=&quot;lc-noimg&quot;>🏠</span>'">`
-      + (box.dataset.removed === '1' ? '<div class="lc-removed-overlay">已下架</div>' : '');
+    const rel = refs.map(r => photos[r]).find(Boolean);
+    if (!rel) return;
+    photoBlobUrl(rel).then(src => {
+      // 攞相期間個 view 可能已經轉走／重畫咗，中途走人好過寫落個死節點
+      if (!box.isConnected || box.querySelector('img')) return;
+      const img = document.createElement('img');
+      img.loading = 'lazy'; img.alt = '';
+      img.onerror = () => { box.innerHTML = '<span class="lc-noimg">🏠</span>'; };
+      img.src = src;                            // blob URL，唔經 escHtml
+      box.querySelector('.lc-noimg')?.remove(); // 換走個 🏠 placeholder
+      box.prepend(img);
+    }).catch(() => {});                         // 攞唔到就維持個 🏠 placeholder
   });
 }
 

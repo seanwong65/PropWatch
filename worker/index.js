@@ -5504,6 +5504,48 @@ export default {
       // listings.thumbnail，跟 listing response 落嚟。
       // 利嘉閣冇做：佢係 HTML scrape（每頁 1MB、實測首字節 3.4s），為咗
       // 幾張相拖慢成個卡片 view 唔值——冇相就出返個 placeholder。
+      // 相片 proxy。美聯／香港置業啲相最尾落喺 wmc.*.com.hk（CloudFront），
+      // 嗰個 CDN 對唔係經佢哋自己個站嘅 request 一律回 403（實測：curl、
+      // 真瀏覽器、加齊 Referer/UA/Sec-Fetch 都一樣），所以瀏覽器直接 hotlink
+      // 出唔到相。改由 worker 代取再回俾前端。
+      // 安全：host 白名單寫死（唔係開放 proxy，唔可以攞嚟打內網或者任意站），
+      // 只回 image/* content-type，唔寫任何 DB。
+      if (method === "GET" && path === "/api/photo") {
+        const raw = url.searchParams.get("u") || "";
+        let target;
+        try { target = new URL(raw); } catch { return json(400, { error: "bad url" }); }
+        const PHOTO_HOSTS = new Set([
+          "wm.hkp.com.hk", "wmc.hkp.com.hk",
+          "wm.midland.com.hk", "wmc.midland.com.hk", "wm-cdn.midland.com.hk",
+        ]);
+        if (target.protocol !== "https:" || !PHOTO_HOSTS.has(target.hostname)) {
+          return json(400, { error: "bad host" });
+        }
+        const up = await fetch(target.toString(), {
+          headers: {
+            "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
+            "Accept": "image/avif,image/webp,image/apng,image/*,*/*;q=0.8",
+            "Accept-Language": "zh-HK,zh;q=0.9,en;q=0.8",
+            "Referer": target.hostname.endsWith("hkp.com.hk")
+              ? "https://www.hkp.com.hk/" : "https://www.midland.com.hk/",
+          },
+          cf: { cacheEverything: true, cacheTtl: 86400 },
+        }).catch(() => null);
+        const ct = up?.headers.get("content-type") || "";
+        if (!up || !up.ok || !ct.startsWith("image/")) {
+          return json(502, { error: "上游攞唔到相" });
+        }
+        return new Response(up.body, {
+          status: 200,
+          headers: {
+            "Content-Type": ct,
+            // 相好少變，俾瀏覽器同 CF edge cache 耐啲，慳返 subrequest
+            "Cache-Control": "public, max-age=86400",
+            "X-Content-Type-Options": "nosniff",
+          },
+        });
+      }
+
       if (method === "GET" && path.match(/^\/api\/estates\/\d+\/photos$/)) {
         const estateId = Number(path.split("/")[3]);
         const est = await db.prepare(
@@ -5522,7 +5564,10 @@ export default {
             // WAF，瀏覽器直接攞會 403（實測）。wm.midland.com.hk 同一條路徑回
             // 200 image/jpeg —— 換 host 就得，唔使 proxy。
             u = u.replace("://wm-cdn.midland.com.hk/", "://wm.midland.com.hk/");
-            photos[r.serial_no] = u;
+            // 一律行 /api/photo。呢啲 host 最尾會 301 落 wmc.*（CloudFront），
+            // 而 CloudFront 對外來 request 一律 403 —— 瀏覽器直接攞唔到，
+            // 一定要 worker 代取。順便令 CSP img-src 唔使開任何外部 host。
+            photos[r.serial_no] = `/api/photo?u=${encodeURIComponent(u)}`;
           }
         };
         // 要逐頁攞晒——前端啲卡經篩選／排序之後可以係任何一頁嘅盤，
