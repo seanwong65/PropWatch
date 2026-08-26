@@ -1026,7 +1026,14 @@
     .lc-price .lc-psf { color: var(--muted); font-weight: 400; font-size: 0.75rem; margin-left: 0.35rem; }
     .lc-unit { font-size: 0.85rem; }
     .lc-meta { color: var(--muted); font-size: 0.75rem; display: flex; gap: 0.5rem; flex-wrap: wrap; align-items: center; }
-    .lc-badges { display: flex; gap: 0.35rem; flex-wrap: wrap; margin-top: auto; padding-top: 0.3rem; }
+    .lc-badges { display: flex; gap: 0.35rem 0.5rem; flex-wrap: wrap; margin-top: auto; padding-top: 0.3rem; align-items: center; }
+    .lc-src { font-size: 0.72rem; white-space: nowrap; }
+    .lc-sub { font-size: 0.72rem; color: var(--muted); }
+    .lc-lock { cursor: pointer; }
+    /* 合併行喺表格度係一抹綠底，卡片跟返同一個訊號 */
+    .lc-combined { background: rgba(16,185,129,0.06); }
+    .lc-actions { display: flex; gap: 0.3rem; flex-wrap: wrap; padding-top: 0.4rem; }
+    .lc-btn { font-size: 0.68rem; padding: 0.1rem 0.4rem; margin: 0; }
 
     /* Loading */
     .loading {
@@ -7778,7 +7785,7 @@ function domBadge(l) {
 
 // table ⇄ 卡片 view。偏好記 localStorage，跨屋苑跨 session 都跟身。
 // 群組模式（剔選合併）only makes sense 喺 table——開咗就強制 table。
-let _listingView = (() => { try { return localStorage.getItem("pw_listing_view") || "table"; } catch (_) { return "table"; } })();
+let _listingView = (() => { try { return localStorage.getItem("pw_listing_view") || "card"; } catch (_) { return "card"; } })();
 function toggleListingView() {
   _listingView = _listingView === "card" ? "table" : "card";
   try { localStorage.setItem("pw_listing_view", _listingView); } catch (_) {}
@@ -7906,39 +7913,87 @@ function renderListingCards(el, displayRows) {
     const img = l.thumbnail
       ? `<img src="${safeImgSrc(l.thumbnail)}" loading="lazy" alt="" onerror="this.parentElement.innerHTML='<span class=&quot;lc-noimg&quot;>🏠</span>'">`
       : `<span class="lc-noimg">🏠</span>`;
+
+    // ── 售價 ──────────────────────────────────────────────────────────
     const price = l._combined
       ? `$${(l.price_min/1e4).toFixed(0)}${l.price_max > l.price_min ? `–${(l.price_max/1e4).toFixed(0)}` : ''}萬`
       : (l.price ? `$${(l.price/1e4).toFixed(0)}萬` : '-');
-    const ppf = l._combined
-      ? (l.ppf_min ? `$${Math.round(l.ppf_min).toLocaleString()}/呎` : '')
-      : (l.price_per_ft ? `$${Math.round(l.price_per_ft).toLocaleString()}/呎` : '');
-    const dom = (() => {
-      const d = listingDate(l);
-      if (!d || !isPaid()) return '';
-      const days = Math.round((Date.now() - Date.parse(d)) / 86400000);
-      return days >= 0 ? `<span style="color:var(--muted)">放 ${days} 日</span>` : '';
+    const ppf = (() => {
+      const lo = l._combined ? l.ppf_min : l.price_per_ft;
+      const hi = l._combined ? l.ppf_max : l.price_per_ft;
+      if (!lo) return '';
+      return `$${Math.round(lo).toLocaleString()}${(hi && hi > lo) ? `–${Math.round(hi).toLocaleString()}` : ''}/呎`;
     })();
-    const cut = (l.prev_price && l.price && l.price < l.prev_price)
-      ? `<span style="color:var(--up)">🔻減價</span>` : '';
+    // 表格嗰邊出 priceChangeBadge（±X萬 (±Y%)）同「改價 N 次」，卡片跟返
+    // 同一套，唔好自己另做一個「🔻減價」——兩邊講嘅嘢要一樣。
+    const priceMeta = l._combined
+      ? `<div class="lc-sub">最平 ${escHtml(sourceLabel(l.sources[0].source))} · ${l.sources.length} 個源</div>`
+      : `${priceChangeBadge(l.price, l.prev_price)}
+         ${l.price_variants > 1 ? `<div class="lc-sub" style="color:${l.price < l.prev_price ? 'var(--up)' : 'var(--accent)'}">改價 ${l.price_variants - 1} 次</div>` : ''}`;
+
+    // ── 上盤日期／下架狀態（表格第一欄嗰堆）────────────────────────────
+    const dateLine = (() => {
+      const d = listingDate(l);
+      const head = isPaid()
+        ? `<span>${escHtml(d || '-')}</span>`
+        : `<span class="lc-lock" onclick="event.stopPropagation();showUpgrade('放盤時間軸')">上盤日期 🔒</span>`;
+      const tail = l.removed_date
+        ? `<span style="color:var(--down)">下架 ${escHtml(l.removed_date)}</span>`
+        : l.manual_removed_at
+          ? `<span style="color:var(--down)">已下架(手動)</span>`
+          : domBadge(l).replace(/^<div[^>]*style="([^"]*)"[^>]*>/, '<span style="$1">').replace(/<\/div>$/, '</span>');
+      return `<div class="lc-meta">${head}${tail}</div>`;
+    })();
+
+    // ── 掣：標記已下架／還原（同表格一樣，淨係單一盤先有）──────────────
+    const manualBtn = (!l._combined && l.ref_no && !l.removed_date)
+      ? `<button class="history-btn lc-btn" onclick="event.stopPropagation();toggleManualRemoved('${escJsAttr(l.ref_no)}', this)">${l.manual_removed_at ? '↺ 還原' : '標記已下架'}</button>`
+      : '';
+    // 類近成交（表格喺單位格底下）
+    const lineBtn = (l.building_name && l.unit)
+      ? `<button class="history-btn lc-btn" onclick="event.stopPropagation();openLineHistory('${escJsAttr(l.building_name)}','${escJsAttr(l.unit)}','${escJsAttr(l.floor||'')}')">類近成交 ↓</button>`
+      : '';
+    // 叫價歷史（收費）
+    const histBtn = (isPaid() && !l._combined && l.ref_no)
+      ? `<button class="history-btn lc-btn" onclick="event.stopPropagation();showHistory('${escJsAttr(l.ref_no)}','${escJsAttr((l.building_name||'')+' '+(l.floor||'')+(l.unit||''))}')">歷史 ↓</button>`
+      : '';
+    // 合併／還原（表格喺來源格）
+    const groupBtn = (() => {
+      if (l._combined) {
+        if (!refs.length) return '';
+        const label = l._manual ? '還原' : '拆開';
+        const action = l._manual ? 'reset' : 'ungroup';
+        return `<button class="history-btn lc-btn" onclick='event.stopPropagation();applyGroupOverride("${action}", ${escHtml(JSON.stringify(refs))})'>${label}</button>`;
+      }
+      return (l.ref_no && groupOverrides[l.ref_no])
+        ? `<button class="history-btn lc-btn" onclick="event.stopPropagation();applyGroupOverride('reset',['${escJsAttr(l.ref_no)}'])">↺ 還原自動</button>`
+        : '';
+    })();
+
+    // ── 來源連結：跟表格帶埋每個 source 嘅價同「✓睇過」標記 ──────────────
     const srcLinks = l._combined
       ? l.sources.map(x => x.detail_url
-          ? `<a href="${safeUrl(x.detail_url)}" target="_blank" class="detail-link" style="font-size:0.72rem" onclick="event.stopPropagation();trackListingClick('${escJsAttr(x.ref_no||'')}')">${sourceLabel(x.source)} ↗</a>`
-          : '').join(' ')
+          ? `<a href="${safeUrl(x.detail_url)}" target="_blank" class="detail-link lc-src" data-vref="${escHtml(x.ref_no||'')}" onclick="event.stopPropagation();trackListingClick('${escJsAttr(x.ref_no||'')}')">${escHtml(sourceLabel(x.source))} $${(x.price/1e4).toFixed(0)} ↗</a>${visitedMark(x.ref_no)}`
+          : `<span class="lc-src" style="color:var(--muted)">${escHtml(sourceLabel(x.source))} $${(x.price/1e4).toFixed(0)}</span>`).join('')
       : (l.detail_url
-          ? `<a href="${safeUrl(l.detail_url)}" target="_blank" class="detail-link" style="font-size:0.72rem" onclick="event.stopPropagation();trackListingClick('${escJsAttr(l.ref_no||'')}')">${sourceLabel(l.source)} ↗</a>`
-          : `<span style="font-size:0.72rem;color:var(--muted)">${sourceLabel(l.source)}</span>`);
+          ? `<a href="${safeUrl(l.detail_url)}" target="_blank" class="detail-link lc-src" data-vref="${escHtml(l.ref_no||'')}" onclick="event.stopPropagation();trackListingClick('${escJsAttr(l.ref_no||'')}')">${escHtml(sourceLabel(l.source))} ↗</a>${visitedMark(l.ref_no)}`
+          : `<span class="lc-src" style="color:var(--muted)">${escHtml(sourceLabel(l.source))}</span>`);
+
+    const btns = manualBtn + lineBtn + histBtn + groupBtn;
     return `
-    <div class="lc-card"${removed ? ' style="opacity:0.6"' : ''}>
+    <div class="lc-card${l._combined ? ' lc-combined' : ''}"${removed ? ' style="opacity:0.55"' : ''}>
       <div class="lc-photo" data-refs="${escHtml(refs.join(','))}" data-removed="${removed ? 1 : 0}">${img}${removed ? '<div class="lc-removed-overlay">已下架</div>' : ''}</div>
       <div class="lc-body">
         <div class="lc-price">${price}<span class="lc-psf">${ppf}</span></div>
+        ${priceMeta}
         <div class="lc-unit">${escHtml(l.building_name||'-')} <span class="floor-badge ${floorClass(l.floor)}">${escHtml(l.floor||'-')}</span> ${escHtml(l.unit||'')}</div>
         <div class="lc-meta">
           <span>${l.bedrooms ?? '-'}房 · ${l.size_net ? Math.round(l.size_net).toLocaleString()+'呎' : '-'}</span>
-          ${dom}${cut}
-          ${l._combined ? `<span style="color:var(--up)">${l.sources.length} 個源</span>` : ''}
+          <span>座向 ${escHtml(l.direction||'-')}</span>
         </div>
+        ${dateLine}
         <div class="lc-badges">${srcLinks}</div>
+        ${btns ? `<div class="lc-actions">${btns}</div>` : ''}
       </div>
     </div>`;
   }).join('') + `</div>`;
