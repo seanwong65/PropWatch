@@ -5479,23 +5479,73 @@ function renderRentalListingsTable() {
   panel.innerHTML = `
     <div class="stats-row" style="grid-template-columns:1fr">
       <div class="stat-card">
-        <div class="stat-label">租盤（${rows.length} / ${_rentalListings.length}）</div>
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:0.6rem;flex-wrap:wrap">
+          <div class="stat-label" style="margin:0">租盤（${rows.length} / ${_rentalListings.length}）</div>
+          <button class="history-btn" onclick="toggleListingView()" style="font-size:0.75rem">${_listingView === 'card' ? '📋 表格' : '🖼 卡片'}</button>
+        </div>
         <div style="margin-top:0.5rem">${medLine}</div>
       </div>
     </div>
     <div id="rentalFilterBar"></div>
     <div class="listings-section" id="rentalTableWrap"></div>`;
   renderRentalFilterBar();
+  const wrap = document.getElementById('rentalTableWrap');
   if (!rows.length) {
-    document.getElementById('rentalTableWrap').innerHTML =
+    wrap.innerHTML =
       `<div style="padding:1.5rem;color:var(--muted);text-align:center">${_rentalListings.length ? '冇符合篩選嘅租盤' : '暫時冇租盤'}</div>`;
     return;
   }
+  if (_listingView === 'card') { renderRentalCards(wrap, rows, med); return; }
   renderFrozenTable(
-    document.getElementById('rentalTableWrap'),
+    wrap,
     `${sortTh('building_name', '單位')}<th>房間 / 面積</th>${sortTh('price', '月租')}${sortTh('price_per_ft', '實呎租')}<th>vs 成交中位</th>${sortTh('dom', '放咗幾耐')}<th>來源</th>`,
     body, 10, 'history-table data-table'
   );
+}
+
+// 租盤卡片。買盤嗰個 renderListingCards 套唔到嚟——佢成身都係買賣嘅嘢
+// （萬位售價、改價次數、合併多源、群組模式掣），租盤要嘅係月租、實呎租、
+// 同租務成交中位比貴定平。跟返上面張租盤表**一模一樣**嗰幾欄，唔多唔少。
+// 相同買盤共用一套：中原啲 thumbnail 一早喺 DB，美聯／香港置業即時問
+// /api/estates/:id/photos?deal=R（deal=R 後端會轉做 tx_type=L）。
+function renderRentalCards(el, rows, med) {
+  el.innerHTML = `<div class="listing-cards">` + rows.map((l) => {
+    const removed = l.removed_date;
+    const refs = l.ref_no ? [l.ref_no] : [];
+    const img = l.thumbnail
+      ? `<img src="${safeImgSrc(l.thumbnail)}" loading="lazy" alt="" onerror="this.parentElement.innerHTML='<span class=&quot;lc-noimg&quot;>🏠</span>'">`
+      : `<span class="lc-noimg">🏠</span>`;
+    const psf = l.price_per_ft;
+    let vs = '';
+    if (med && psf) {
+      const pct = (psf - med) / med * 100;
+      vs = `<span class="${pct <= 0 ? 'gain-pos' : 'gain-neg'}">${pct <= 0 ? '平' : '貴'} ${Math.abs(pct).toFixed(1)}%</span>`;
+    }
+    const dom = l.first_seen ? domDaysStr(l.publish_date, l.first_seen) : '';
+    const src = l.detail_url
+      ? `<a href="${safeUrl(l.detail_url)}" target="_blank" class="detail-link lc-src" data-vref="${escHtml(l.ref_no || '')}" onclick="event.stopPropagation();trackListingClick('${escJsAttr(l.ref_no || '')}')">${escHtml(sourceLabel(l.source))} ↗</a>${visitedMark(l.ref_no)}`
+      : `<span class="lc-src" style="color:var(--muted)">${escHtml(sourceLabel(l.source))}</span>`;
+    return `
+    <div class="lc-card"${removed ? ' style="opacity:0.55"' : ''}>
+      <div class="lc-photo" data-refs="${escHtml(refs.join(','))}" data-removed="${removed ? 1 : 0}">${img}${removed ? '<div class="lc-removed-overlay">已下架</div>' : ''}</div>
+      <div class="lc-body">
+        <div class="lc-price">$${l.price ? Math.round(l.price).toLocaleString() : '-'}<span class="lc-psf">/月</span></div>
+        <div class="lc-sub">${psf ? '$' + Math.round(psf).toLocaleString() + '/呎' : '—'} ${vs}</div>
+        <div class="lc-unit">${escHtml(l.building_name || '-')} <span class="floor-badge ${floorClass(l.floor)}">${escHtml(l.floor || '-')}</span> ${escHtml(l.unit || '')}</div>
+        <div class="lc-meta">
+          <span>${l.bedrooms != null ? l.bedrooms + '房' : '-'}${l.size_net ? ' · ' + Math.round(l.size_net).toLocaleString() + '呎' : ''}</span>
+          ${dom ? `<span>放 ${escHtml(dom)}</span>` : ''}
+        </div>
+        <div class="lc-badges">${src}</div>
+      </div>
+    </div>`;
+  }).join('') + `</div>`;
+
+  // 卡先出，相後補（同買盤嗰邊一樣，唔為咗等相而 block 住個 view）
+  if (activeEstateId) {
+    hydrateCardPhotos(activeEstateId, 'R')
+      .then((photos) => { if (_listingView === 'card' && _estateDeal === 'R') applyCardPhotos(photos); });
+  }
 }
 
 // 上盤日 = publish_date 同 first_seen 取較早（同 worker 個 LIST_START_SQL 一致）
@@ -7883,7 +7933,10 @@ let _listingView = (() => { try { return localStorage.getItem("pw_listing_view")
 function toggleListingView() {
   _listingView = _listingView === "card" ? "table" : "card";
   try { localStorage.setItem("pw_listing_view", _listingView); } catch (_) {}
-  renderListingsTable();
+  // 買盤同租盤共用同一個偏好——用戶心目中「卡片定表格」係一個 app 設定，
+  // 唔係兩個。邊個 tab 開緊就重畫邊個（另一個下次 render 自然跟返）。
+  if (_estateDeal === 'R') renderRentalListingsTable();
+  else renderListingsTable();
 }
 
 // 卡片 render：同 table 用同一條 filter/sort/group pipeline（displayRows），
