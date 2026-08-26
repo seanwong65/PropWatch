@@ -5051,15 +5051,24 @@ function priceRulerHtml(v) {
   const verdictTone = primaryVs == null ? 'neutral' : primaryVs <= -band ? 'cheap' : primaryVs >= band ? 'expensive' : 'neutral';
   const verdictBg = { cheap: 'rgba(52,211,153,0.14)', expensive: 'rgba(248,113,113,0.14)', neutral: 'var(--surface2)' }[verdictTone];
   const verdictBorder = { cheap: 'var(--up)', expensive: 'var(--down)', neutral: 'var(--border)' }[verdictTone];
-  const verdictLine = (askBadge || soldBadge)
+  // 恒生估值嗰句（比估值高/低 X%，或者未查過嗰陣嘅「查估值」掣）都係
+  // 「呢個單位貴唔貴」嘅判斷，同下面嗰兩個 badge 屬於同一件事——之前分開
+  // 兩個位（估值喺 hsBlock、badge 喺呢個 box），用戶話想見到埋一齊，
+  // 一次過講晒個結論。冇 badge 得（理論上 hasSold/hasAsk 至少一個為真
+  // 先入到嚟呢段，但留返 fallback）先至將 hsBlock 擺返出面，唔會整走
+  // 個掣。
+  const hasVerdictBox = !!(askBadge || soldBadge);
+  const verdictLine = hasVerdictBox
     ? `<div class="vw-verdict" style="background:${verdictBg};border-left:3px solid ${verdictBorder}">
         <span style="font-size:0.68rem;color:var(--muted);font-weight:600;display:block;margin-bottom:0.1rem">📊 分析</span>
         ${askBadge}${askBadge && soldBadge ? '<span style="color:var(--muted)"> · </span>' : ''}${soldBadge}
+        <div style="margin-top:0.15rem">${hsBlock}</div>
       </div>` : '';
+  const hsStandalone = hasVerdictBox ? '' : `<div style="margin-top:0.3rem">${hsBlock}</div>`;
   const weakNote = (soldConf.weak || askConf.weak)
     ? `<div style="color:var(--accent);font-size:0.68rem;margin-top:0.15rem">樣本少，僅供參考</div>` : '';
 
-  return `<div class="pr-flex">${ruler}<div class="pr-info">${soldLine}${askLine}<div style="margin-top:0.3rem">${hsBlock}</div>${verdictLine}${weakNote}</div></div>`;
+  return `<div class="pr-flex">${ruler}<div class="pr-info">${soldLine}${askLine}${hsStandalone}${verdictLine}${weakNote}</div></div>`;
 }
 
 const _median = arr => {
