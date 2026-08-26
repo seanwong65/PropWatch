@@ -5069,10 +5069,14 @@ function priceRulerHtml(v) {
   // 先入到嚟呢段，但留返 fallback）先至將 hsBlock 擺返出面，唔會整走
   // 個掣。
   const hasVerdictBox = !!(askBadge || soldBadge);
+  // 叫價中位數／市價中位數係兩把唔同嘅尺（一個係同層帶在售叫價，一個係
+  // 實際成交），之前用 " · " 擠埋一行，睇落好似同一件事。分開兩行，
+  // 各自成句。
   const verdictLine = hasVerdictBox
     ? `<div class="vw-verdict" style="background:${verdictBg};border-left:3px solid ${verdictBorder}">
         <span style="font-size:0.68rem;color:var(--muted);font-weight:600;display:block;margin-bottom:0.1rem">📊 分析</span>
-        ${askBadge}${askBadge && soldBadge ? '<span style="color:var(--muted)"> · </span>' : ''}${soldBadge}
+        ${askBadge ? `<div>${askBadge}</div>` : ''}
+        ${soldBadge ? `<div${askBadge ? ' style="margin-top:0.15rem"' : ''}>${soldBadge}</div>` : ''}
         <div style="margin-top:0.15rem">${hsBlock}</div>
       </div>` : '';
   const hsStandalone = hasVerdictBox ? '' : `<div style="margin-top:0.3rem">${hsBlock}</div>`;
