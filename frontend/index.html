@@ -210,11 +210,17 @@
     html {
       -webkit-text-size-adjust: 100%; text-size-adjust: 100%;
       /* 成頁唔准左右揈（手機主要症狀）。兩層一齊做：
-         · overflow-x: hidden — 就算將來有邊個元素唔小心撐爆闊度，都唔會
+         · overflow-x: clip — 就算將來有邊個元素唔小心撐爆闊度，都唔會
            變成成頁可以橫向拖（唔使等人發現咗先補）；
          · overscroll-behavior-x: none — 斷 iOS 嘅橫向 rubber-band。
-         內層要橫拉嘅表格照拉得（見 .table-scroll，佢自己 contain 住）。 */
-      overflow-x: hidden;
+         內層要橫拉嘅表格照拉得（見 .table-scroll，佢自己 contain 住）。
+
+         ⚠️ 一定要 clip 唔可以 hidden：overflow-x:hidden 會令 html/body
+         變成 scroll container，而手機版成頁係靠 window 碌嘅（.layout 喺
+         768px 以下 height:auto），結果 position:sticky 全部貼咗去一個
+         唔會 scroll 嘅 box 度＝完全失效 —— 實測 header 碌到 top:-1500px
+         走晒。clip 唔會製造 scroll container，橫向照樣鎖死。 */
+      overflow-x: clip;
       overscroll-behavior-x: none;
     }
 
@@ -231,7 +237,7 @@
          變死黑，實機重現到）。改用一個 position:fixed 嘅 ::before 圖層，
          佢自己一層 compositing，scroll 唔會重畫，亦冇 fixed-attachment 嗰個
          病。玻璃要有嘢喺後面先折射得出質感，所以呢層唔可以慳。 */
-      overflow-x: hidden;   /* 同 html 一齊鎖，Safari 兩者都要落先穩 */
+      overflow-x: clip;   /* 同 html 一齊鎖（同上：一定要 clip 唔可以 hidden） */
     }
 
     /* 背景光暈層（見 body 註解）。z-index:-1 沉喺所有內容之下；
@@ -745,9 +751,27 @@
       background: var(--surface);
       border: 1px solid var(--border);
       border-radius: var(--radius);
-      overflow: hidden;
+      /* clip 而唔係 hidden：兩者一樣切到圓角，但 hidden 會令呢個 box 變成
+         scroll container，入面嘅 position:sticky 就變成貼住佢自己（佢又
+         唔 scroll）＝完全冇效。clip 唔會製造 scroll container，所以入面
+         啲 .sticky-bar 貼得返真正嘅 scroll container（.main）。 */
+      overflow: clip;
       box-shadow: var(--shadow-sm);
     }
+    /* 收埋咗嘅 filter 得一行，掃長 list 嗰陣要跟得住 —— 唔係碌到一半想改
+       篩選／轉 view，就要碌返晒上去。頂住 .main 個 scrollport 頂（header
+       喺 .layout 外面，本身唔會 scroll，所以 top:0 就啱）。 */
+    .sticky-bar {
+      position: sticky;
+      top: 0;
+      z-index: 20;
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+    }
+    /* 包住之後個 border 由 .sticky-bar 出，唔好孖住兩條 */
+    .sticky-bar .listings-header { border-bottom: none; }
+    .sticky-bar .filter-summary,
+    .sticky-bar .filter-bar { border-bottom: none; }
     .listings-header {
       padding: 1rem 1.25rem;
       border-bottom: 1px solid var(--border);
@@ -1380,6 +1404,16 @@
 
     @media (max-width: 768px) {
       .layout { grid-template-columns: 1fr; height: auto; }
+      /* 手機成頁係 window 碌（上面 height:auto），header 實食住頂 56px，
+         所以 sticky-bar 要由 header 底開始，唔係 viewport 頂 —— 唔係就
+         會匿咗喺 header 後面。桌面版 .main 自己 scroll、header 喺
+         scrollport 外面，所以嗰邊維持 top:0。 */
+      .sticky-bar { top: var(--header-h); }
+      /* 同 html/body 個 overflow-x 一樣嘅陷阱：.main 帶住 overflow-y:auto
+         就係一個 scroll container，但手機版佢 height:auto、內容永遠塞得落，
+         所以佢自己永遠唔會 scroll。入面啲 sticky 貼咗去佢度就等於死咗。
+         手機版真正 scroll 嘅係 window，所以呢度要交返出去。 */
+      .main { overflow: visible; }
       .sidebar {
         position: fixed;
         top: 0; left: 0; bottom: 0;
@@ -4681,17 +4715,20 @@ async function showEstate(id, name, district) {
       </div>
 
         <div class="listings-section" id="listingsSection">
-          <div class="listings-header">
-            <div class="section-title" style="margin:0">最新放盤</div>
-            <div style="display:flex;align-items:center;gap:0.6rem">
-              <button class="history-btn" id="listingViewBtn" onclick="toggleListingView()" style="font-size:0.75rem">🖼 卡片</button>
-              <button class="history-btn" id="groupModeBtn" onclick="toggleGroupSelectMode()" style="font-size:0.75rem">群組模式</button>
+          <div class="sticky-bar">
+            <div class="listings-header">
+              <div class="section-title" style="margin:0">最新放盤</div>
+              <div style="display:flex;align-items:center;gap:0.6rem">
+                <button class="history-btn" id="listingViewBtn" onclick="toggleListingView()" style="font-size:0.75rem">🖼 卡片</button>
+                <button class="history-btn" id="groupModeBtn" onclick="toggleGroupSelectMode()" style="font-size:0.75rem">群組模式</button>
+              </div>
             </div>
+            <div id="groupSelectBar"></div>
+            ${listings.length === 0 ? '' : '<div id="filterBar"></div>'}
           </div>
-          <div id="groupSelectBar"></div>
           ${listings.length === 0
             ? '<div class="no-data">暫無放盤資料</div>'
-            : '<div id="filterBar"></div><div id="listingsTable"></div>'
+            : '<div id="listingsTable"></div>'
           }
         </div>
       </div>
@@ -5376,6 +5413,25 @@ function applyRentalSort(listings) {
   });
   return sorted;
 }
+const RENTAL_FILTER_DEFAULTS = { beds: 'all', building: 'all', unit: 'all',
+  minPrice: '', maxPrice: '', minSize: '', maxSize: '', source: 'all', hideRemoved: true };
+
+function activeRentalFilters() {
+  const f = _rentalFilters, out = [];
+  if (f.beds !== 'all') out.push(f.beds + '房');
+  if (f.building !== 'all') out.push(f.building);
+  if (f.unit !== 'all') out.push(f.unit + '室');
+  if (f.minPrice || f.maxPrice) out.push(`月租 ${f.minPrice || ''}–${f.maxPrice || ''}`);
+  if (f.minSize || f.maxSize) out.push(`實呎 ${f.minSize || ''}–${f.maxSize || ''}`);
+  if (f.source !== 'all') out.push(sourceLabel(f.source));
+  if (!f.hideRemoved) out.push('連已下架');
+  return out;
+}
+function clearRentalFilters() {
+  _rentalFilters = { ...RENTAL_FILTER_DEFAULTS };
+  renderRentalListingsTable();
+}
+
 function renderRentalFilterBar() {
   const bar = document.getElementById('rentalFilterBar');
   if (!bar) return;
@@ -5384,7 +5440,7 @@ function renderRentalFilterBar() {
   const units = ['all', ...Array.from(new Set((_rentalListings || []).map((l) => l.unit).filter(Boolean))).sort()];
   const sel = (key, opts, labelFn) =>
     `<select class="filter-select" onchange="setRentalFilter('${key}',this.value)">${opts.map((o) => `<option value="${escHtml(o)}"${_rentalFilters[key] === o ? ' selected' : ''}>${escHtml(labelFn(o))}</option>`).join('')}</select>`;
-  bar.innerHTML = `
+  bar.innerHTML = filterShell('rent', activeRentalFilters(), `
     <div class="filter-bar">
       <div class="filter-pair">
         <span class="filter-label">房數</span>
@@ -5435,7 +5491,7 @@ function renderRentalFilterBar() {
           隱藏已下架
         </label>
       </div>
-    </div>`;
+    </div>`, 'clearRentalFilters()');
 }
 
 function renderRentalListingsTable() {
@@ -5486,8 +5542,8 @@ function renderRentalListingsTable() {
         <div style="margin-top:0.5rem">${medLine}</div>
       </div>
     </div>
-    <div id="rentalFilterBar"></div>
-    <div class="listings-section" id="rentalTableWrap"></div>`;
+    <div class="sticky-bar" style="border-radius:var(--radius) var(--radius) 0 0;border:1px solid var(--border);border-bottom:1px solid var(--border)"><div id="rentalFilterBar"></div></div>
+    <div class="listings-section" id="rentalTableWrap" style="border-top:none;border-radius:0 0 var(--radius) var(--radius)"></div>`;
   renderRentalFilterBar();
   const wrap = document.getElementById('rentalTableWrap');
   if (!rows.length) {
@@ -5573,9 +5629,19 @@ function setRentTxnSort(col) {
   else { _rentTxnSortCol = col; _rentTxnSortDir = col === 'reg_date' ? 'desc' : 'asc'; }
   renderRentalTxnTable();
 }
+function activeRentTxnFilters() {
+  const f = _rentTxnFilters, out = [];
+  if (f.building !== 'all') out.push(f.building);
+  if (f.dateMonths > 0) out.push(TXN_DATE_LABEL[f.dateMonths] || `近${f.dateMonths}個月`);
+  return out;
+}
+function clearRentTxnFilters() {
+  _rentTxnFilters = { building: 'all', dateMonths: 0 };
+  renderRentalTxnTable();
+}
 function rentTxnFilterBarHtml() {
   const buildings = ['all', ...Array.from(new Set(_rentTxnAll.map((t) => t.building).filter(Boolean))).sort()];
-  return `<div class="filter-bar" style="margin-bottom:0.6rem">
+  return filterShell('renttxn', activeRentTxnFilters(), `<div class="filter-bar" style="margin-bottom:0.6rem">
     <div class="filter-pair">
       <span class="filter-label">座</span>
       <div class="filter-group"><select class="filter-select" onchange="setRentTxnFilter('building',this.value)">${
@@ -5590,7 +5656,7 @@ function rentTxnFilterBarHtml() {
           `<button class="filter-chip ${_rentTxnFilters.dateMonths === v ? 'active' : ''}" onclick="setRentTxnFilter('dateMonths',${v})">${l}</button>`).join('')}
       </div>
     </div>
-  </div>`;
+  </div>`, 'clearRentTxnFilters()');
 }
 function renderRentalTxnTable() {
   const panel = document.getElementById('tab-transactions');
@@ -5631,7 +5697,8 @@ function renderRentalTxnTable() {
     <td class="txn-date">${escHtml(t.reg_date || '')}</td>
     <td style="font-size:0.75rem;color:var(--muted)">${escHtml(sourceLabel(t.source))}</td>
   </tr>`).join('');
-  panel.innerHTML = rentTxnFilterBarHtml() + `<div class="listings-section" id="rentTxnWrap"></div>`;
+  panel.innerHTML = `<div class="sticky-bar" style="background:transparent;border-bottom:none">${rentTxnFilterBarHtml()}</div>`
+    + `<div class="listings-section" id="rentTxnWrap"></div>`;
   renderFrozenTable(
     document.getElementById('rentTxnWrap'),
     `<th>單位</th>${sortTh('size_net', '實呎')}${sortTh('price', '月租')}${sortTh('price_per_ft', '實呎租')}${sortTh('reg_date', '成交日期')}<th>來源</th>`,
@@ -7171,6 +7238,25 @@ let txnSortCol = "reg_date";
 let txnSortDir = "desc";
 let txnFilters = { dateMonths: 0, heldMin: '', heldMax: '', building: 'all', unit: 'all', sizeMin: '', sizeMax: '', beds: 'all' };
 
+const TXN_FILTER_DEFAULTS = { dateMonths: 0, heldMin: '', heldMax: '', building: 'all',
+  unit: 'all', sizeMin: '', sizeMax: '', beds: 'all' };
+const TXN_DATE_LABEL = { 0: '', 3: '近3個月', 6: '近6個月', 12: '近1年', 24: '近2年', 36: '近3年', 60: '近5年' };
+
+function activeTxnFilters() {
+  const f = txnFilters, out = [];
+  if (f.dateMonths > 0) out.push(TXN_DATE_LABEL[f.dateMonths] || `近${f.dateMonths}個月`);
+  if (f.building !== 'all') out.push(f.building);
+  if (f.unit !== 'all') out.push(f.unit + '室');
+  if (f.beds !== 'all') out.push(f.beds + '房');
+  if (f.heldMin !== '' || f.heldMax !== '') out.push(`持有 ${f.heldMin || ''}–${f.heldMax || ''} 年`);
+  if (f.sizeMin !== '' || f.sizeMax !== '') out.push(`實呎 ${f.sizeMin || ''}–${f.sizeMax || ''}`);
+  return out;
+}
+function clearTxnFilters() {
+  txnFilters = { ...TXN_FILTER_DEFAULTS };
+  renderTransactionsTable(txnEstateId, txnOffset, !!document.querySelector(".load-more-btn"));
+}
+
 function setTxnFilter(key, val) {
   txnFilters[key] = val;
   renderTransactionsTable(txnEstateId, txnOffset, !!document.querySelector(".load-more-btn"));
@@ -7362,7 +7448,7 @@ function renderTransactionsTable(estateId, offset, hasMore) {
   const txnBeds = ["all", "1", "2", "3", "4+"];
   const txnSel = (key, opts, labelFn) =>
     `<select class="filter-select" onchange="setTxnFilter('${key}',this.value)">${opts.map(o=>`<option value="${o}"${txnFilters[key]===o?'selected':''}>${labelFn ? labelFn(o) : (o==='all'?'全部':o)}</option>`).join('')}</select>`;
-  const filterBar = `
+  const filterBar = filterShell('txn', activeTxnFilters(), `
     <div class="filter-bar">
       <div class="filter-pair">
         <span class="filter-label">登記日期</span>
@@ -7408,7 +7494,8 @@ function renderTransactionsTable(estateId, offset, hasMore) {
         </div>
       </div>
       <span class="filter-count">${filtered.length !== allTransactions.length ? `${filtered.length} / ${allTransactions.length} 條` : `${allTransactions.length} 條`}</span>
-    </div>`;
+    </div>`, 'clearTxnFilters()',
+    filtered.length !== allTransactions.length ? `${filtered.length} / ${allTransactions.length} 條` : `${allTransactions.length} 條`);
 
   // 樓層溢價:將已載入成交按樓層分組,平均實呎價 → 高層值唔值個溢價
   const buckets = [['1-9樓', 1, 9], ['10-19樓', 10, 19], ['20-29樓', 20, 29], ['30樓+', 30, 999]];
@@ -7427,7 +7514,7 @@ function renderTransactionsTable(estateId, offset, hasMore) {
 
   panel.innerHTML = `
     <div class="listings-section">
-      ${filterBar}
+      <div class="sticky-bar">${filterBar}</div>
       ${premiumStrip}
       <div id="txnTableWrap"></div>
       ${hasMore ? `<button class="load-more-btn" onclick="loadTransactions(${estateId}, ${allTransactions.length}, true)">載入更多…</button>` : ''}
@@ -7435,15 +7522,52 @@ function renderTransactionsTable(estateId, offset, hasMore) {
   renderFrozenTable(document.getElementById('txnTableWrap'), ths, rows);
 }
 
-// 個 filter panel 喺手機成個一屏咁高，掃到最新放盤要碌好耐。預設收埋，
-// 靠 header 個「🔍 篩選」掣開合；有 filter 開緊就個掣轉 accent 底＋出返
-// 個數字，另外收埋嗰陣底下留一行摘要 —— 「顯眼得嚟又搵得返」就係靠呢
-// 兩樣，唔係淨係靠記得個掣喺邊。偏好記 localStorage。
-let _filterOpen = (() => { try { return localStorage.getItem("pw_filter_open") === "1"; } catch (_) { return false; } })();
-function toggleFilterPanel() {
-  _filterOpen = !_filterOpen;
-  try { localStorage.setItem("pw_filter_open", _filterOpen ? "1" : "0"); } catch (_) {}
-  renderFilterBar();
+// 個 filter panel 喺手機成個一屏咁高，掃到啲盤要碌好耐。預設收埋，靠一個
+// 大「🔍 篩選」pill 掣開合；有 filter 開緊就個掣轉 accent 底＋出返個數字，
+// 另外收埋嗰陣留一行摘要 chip —— 「顯眼得嚟又搵得返」就係靠呢兩樣，唔係
+// 淨係靠記得個掣喺邊。
+//
+// 四個 filter bar（買盤／租盤／買盤成交／租盤成交）共用呢個殼，每個自己記
+// 自己開合（各 tab 需求唔同，唔應該一齊開一齊閂）。
+const FILTER_PANELS = {
+  buy:     () => renderFilterBar(),
+  rent:    () => renderRentalListingsTable(),
+  txn:     () => renderTransactionsTable(txnEstateId, txnOffset, !!document.querySelector(".load-more-btn")),
+  renttxn: () => renderRentalTxnTable(),
+};
+function _filterOpenGet(key) {
+  try { return localStorage.getItem(`pw_filter_open_${key}`) === "1"; } catch (_) { return false; }
+}
+function toggleFilterPanel(key = "buy") {
+  const next = !_filterOpenGet(key);
+  try { localStorage.setItem(`pw_filter_open_${key}`, next ? "1" : "0"); } catch (_) {}
+  (FILTER_PANELS[key] || FILTER_PANELS.buy)();
+}
+
+// 砌個殼：收埋就出「掣 + 摘要 chip + 清除 + 計數」一行；開住就出個掣加
+// 落成排 filter 上面。innerHtml 係原本嗰個 `<div class="filter-bar">…</div>`。
+// clearCall 係「清除」個 onclick（string，因為要 inline）。
+function filterShell(key, active, innerHtml, clearCall, countHtml = "") {
+  const btn = `
+    <button class="filter-toggle-big${active.length ? ' on' : ''}" onclick="toggleFilterPanel('${key}')">
+      🔍 篩選${active.length ? `<span class="ft-badge">${active.length}</span>` : ''}
+    </button>`;
+  if (_filterOpenGet(key)) {
+    // 開住：個掣頂住成排 filter（自己一行，flex-basis:100%）
+    return innerHtml.replace('<div class="filter-bar">',
+      `<div class="filter-bar">
+         <div class="filter-pair" style="flex-basis:100%">${btn}</div>
+         <div class="filter-sep" style="flex-basis:100%;height:0;margin:0"></div>`);
+  }
+  return `
+    <div class="filter-summary">
+      ${btn}
+      ${active.length
+        ? active.map((a) => `<span class="fs-chip">${escHtml(a)}</span>`).join('')
+          + `<button class="history-btn fs-clear" style="font-size:0.7rem" onclick="${clearCall}">清除</button>`
+        : '<span>未有篩選</span>'}
+      <span class="filter-count" id="filterCount_${key}" style="margin-left:${active.length ? '0.5rem' : 'auto'}">${countHtml}</span>
+    </div>`;
 }
 
 // 開緊嘅 filter（同 default 唔同嗰啲）。「隱藏已下架」預設就係 on，所以
@@ -7475,26 +7599,6 @@ function renderFilterBar() {
   const bar = document.getElementById("filterBar");
   if (!bar) return;
   const active = activeFilters();
-  // 個掣本身企喺 filter 呢個 section 頭（唔喺 listings-header 同表格/群組
-  // 模式並排），要大到似「買盤/租盤」個 toggle 先夠顯眼；同時佢個 markup
-  // 每次 render 都重寫（唔靠 getElementById 揾返舊嘅去改），跟返 filter-bar
-  // 成頁其他掣一樣嘅寫法。
-  const toggleBtn = `
-    <button class="filter-toggle-big${active.length ? ' on' : ''}" onclick="toggleFilterPanel()">
-      🔍 篩選${active.length ? `<span class="ft-badge">${active.length}</span>` : ''}
-    </button>`;
-  if (!_filterOpen) {
-    bar.innerHTML = `
-      <div class="filter-summary">
-        ${toggleBtn}
-        ${active.length
-          ? active.map(a => `<span class="fs-chip">${escHtml(a)}</span>`).join('')
-            + `<button class="history-btn fs-clear" style="font-size:0.7rem" onclick="clearFilters()">清除</button>`
-          : '<span>未有篩選</span>'}
-        <span class="filter-count" id="filterCount"${active.length ? ' style="margin-left:0.5rem"' : ' style="margin-left:auto"'}></span>
-      </div>`;
-    return;
-  }
   const bedOptions = ["all","1","2","3","4+"];
   const floorOptions = ["all","高層","中層","低層"];
   // Dynamic options from current listings
@@ -7502,10 +7606,8 @@ function renderFilterBar() {
   const units = ["all", ...Array.from(new Set((allListings||[]).map(l=>l.unit).filter(Boolean))).sort()];
   const sel = (key, opts, labelFn) =>
     `<select class="filter-select" onchange="setFilter('${key}',this.value)">${opts.map(o=>`<option value="${escHtml(o)}"${filters[key]===o?'selected':''}>${escHtml(labelFn(o))}</option>`).join('')}</select>`;
-  bar.innerHTML = `
+  bar.innerHTML = filterShell("buy", active, `
     <div class="filter-bar">
-      <div class="filter-pair" style="flex-basis:100%">${toggleBtn}</div>
-      <div class="filter-sep" style="flex-basis:100%;height:0;margin:0"></div>
       <div class="filter-pair">
         <span class="filter-label">房數</span>
         <div class="filter-group">
@@ -7590,9 +7692,9 @@ function renderFilterBar() {
           隱藏已下架
         </label>
       </div>` : ''}
-      <span class="filter-count" id="filterCount"></span>
+      <span class="filter-count" id="filterCount_buy"></span>
     </div>
-  `;
+  `);
 }
 
 function setFilter(key, val) {
@@ -8158,14 +8260,14 @@ function renderListingsTable() {
   const visible = applySortAndFilter();
   const displayRows = groupListings(visible);
   if (_listingView === "card" && !groupSelectMode) {
-    const fc0 = document.getElementById("filterCount");
+    const fc0 = document.getElementById("filterCount_buy");
     if (fc0) fc0.textContent = `顯示 ${visible.length} / ${allListings.length} 個盤${displayRows.length < visible.length ? `(合併為 ${displayRows.length} 張卡)` : ''}`;
     renderListingCards(el, displayRows);
     return;
   }
   { const btn = document.getElementById("listingViewBtn"); if (btn) btn.textContent = "🖼 卡片"; }
 
-  const fc = document.getElementById("filterCount");
+  const fc = document.getElementById("filterCount_buy");
   if (fc) fc.textContent = `顯示 ${visible.length} / ${allListings.length} 個盤${displayRows.length < visible.length ? `(合併為 ${displayRows.length} 行)` : ''}`;
 
   const modeBtn = document.getElementById('groupModeBtn');
