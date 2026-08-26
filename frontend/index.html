@@ -1123,6 +1123,14 @@
     /* Transaction table */
     .gain-pos { color: var(--up); font-size: 0.75rem; font-weight: 600; }
     .gain-neg { color: var(--down); font-size: 0.75rem; font-weight: 600; }
+    /* 睇樓記錄嘅「分析」結論——貴／平定價，之前同一堆細字擠埋，用戶話
+       搵唔到邊個先係重點。獨立起底色 box + 左邊粗色條，撐開返少少行距。 */
+    .vw-verdict { margin-top: 0.45rem; padding: 0.35rem 0.55rem; border-radius: 6px; }
+    /* 睇樓記錄「未沽出/已沽出」狀態——放大做 pill，一眼睇到邊啲已經有
+       結果。已沽出＝綠底（有落實嘅市價數據），未沽出＝灰底（仲未知）。 */
+    .vw-status { display: inline-flex; align-items: center; gap: 0.3rem; font-weight: 700; border-radius: 6px; padding: 0.15rem 0.55rem; }
+    .vw-status-sold { background: rgba(52,211,153,0.16); color: var(--up); font-size: 0.92rem; }
+    .vw-status-unsold { background: var(--surface2); color: var(--muted); font-size: 0.88rem; }
 
     /* 價格尺（睇樓記錄「價格尺」欄）：成交／在售兩條區間 band + 恒生估值／
        叫價兩支針，右邊配文字（成交/在售 range+中位、恒生估值、貴平 badge）。 */
@@ -4895,10 +4903,16 @@ function rentVerdictHtml(v) {
     ? `同層帶近${days}日租務成交中位數（以該座成交最高層 ${v.tier_max_floor} 樓三等分）`
     : `全苑近${days}日租務成交中位數`;
   const pctHtml = v.vs_med_pct != null
-    ? `<span class="${v.vs_med_pct <= 0 ? 'gain-pos' : 'gain-neg'}" style="font-weight:600">${v.vs_med_pct <= 0 ? '平' : '貴'} ${Math.abs(v.vs_med_pct).toFixed(1)}%</span>`
+    ? `<span class="${v.vs_med_pct <= 0 ? 'gain-pos' : 'gain-neg'}" style="font-weight:700;font-size:0.88rem">${v.vs_med_pct <= 0 ? '平' : '貴'} ${Math.abs(v.vs_med_pct).toFixed(1)}%</span>`
     : '';
+  const rentTone = v.vs_med_pct == null ? 'neutral' : v.vs_med_pct <= 0 ? 'cheap' : 'expensive';
+  const rentBg = { cheap: 'rgba(52,211,153,0.14)', expensive: 'rgba(248,113,113,0.14)', neutral: 'var(--surface2)' }[rentTone];
+  const rentBorder = { cheap: 'var(--up)', expensive: 'var(--down)', neutral: 'var(--border)' }[rentTone];
   return `<div class="pr-flex"><div class="pr-info">
-    <div style="white-space:nowrap">${pctHtml} <span style="color:var(--muted);font-size:0.78rem">vs 租務成交中位 $${Math.round(v.sold_med_psf).toLocaleString()}/呎</span></div>
+    <div class="vw-verdict" style="background:${rentBg};border-left:3px solid ${rentBorder}">
+      <span style="font-size:0.68rem;color:var(--muted);font-weight:600;display:block;margin-bottom:0.1rem">📊 分析</span>
+      ${pctHtml} <span style="color:var(--muted);font-size:0.78rem">vs 租務成交中位 $${Math.round(v.sold_med_psf).toLocaleString()}/呎</span>
+    </div>
     <div class="sub" style="margin-top:0.2rem" title="${escHtml(soldConfTip(soldTip, conf))}">${v.market_basis === 'tier' ? '同層帶' : '全苑'}近${days}日 <span style="${conf.weak ? `color:${conf.color};font-weight:600` : ''}">${v.market_n_sold}宗${conf.mark}</span></div>
   </div></div>`;
 }
@@ -5018,18 +5032,30 @@ function priceRulerHtml(v) {
         title="${escHtml(askConf.weak ? askConf.tip : askTip)}" style="${askConf.weak ? `color:${askConf.color};font-weight:600` : ''}">${sim.length}個${askConf.mark}</span></div>`
     : `<div class="sub" style="margin-top:0.3rem">在售：${(v.floor_tier == null || v.bedrooms == null) ? '未有房數/樓層帶' : '冇同類在售盤'}</div>`;
 
+  // 分析結論——一版嘢入面最多資料嘅一格，但先前同其他細字擠喺一齊，
+  // 用戶反映「好難睇到有咩嘢要注意」。改做獨立一個有底色嘅 box：字加大
+  // 加粗，貴／平分別上紅／綠底色，一眼就搵到個結論，唔使逐行讀晒條尺
+  // 先知道結論。
   const badgeFor = (vs, hiLabel, loLabel, midLabel) => {
     if (vs == null) return '';
     const abs = Math.abs(vs).toFixed(1);
-    if (vs <= -band) return `<span class="gain-pos">${loLabel} ${abs}%</span>`;
-    if (vs >= band)  return `<span class="gain-neg">${hiLabel} ${abs}%</span>`;
-    return `<span style="color:var(--muted);font-size:0.75rem">${midLabel} ${vs > 0 ? '+' : ''}${vs.toFixed(1)}%</span>`;
+    if (vs <= -band) return `<span class="gain-pos" style="font-size:0.88rem;font-weight:700">${loLabel} ${abs}%</span>`;
+    if (vs >= band)  return `<span class="gain-neg" style="font-size:0.88rem;font-weight:700">${hiLabel} ${abs}%</span>`;
+    return `<span style="color:var(--muted);font-size:0.82rem;font-weight:600">${midLabel} ${vs > 0 ? '+' : ''}${vs.toFixed(1)}%</span>`;
   };
   const askVs = (hasAsk && ownPsf) ? (ownPsf - askMed) / askMed * 100 : null;
   const askBadge = badgeFor(askVs, '貴叫價中位數', '低叫價中位數', '約叫價中位數');
   const soldBadge = hasSold ? badgeFor(v.vs_med_pct, '貴市價中位數', '低市價中位數', '約市價中位數') : '';
+  // 貴／平以邊個做基準：有成交中位數（實際市價）就以佢為準，冇先睇叫價中位
+  const primaryVs = hasSold ? v.vs_med_pct : askVs;
+  const verdictTone = primaryVs == null ? 'neutral' : primaryVs <= -band ? 'cheap' : primaryVs >= band ? 'expensive' : 'neutral';
+  const verdictBg = { cheap: 'rgba(52,211,153,0.14)', expensive: 'rgba(248,113,113,0.14)', neutral: 'var(--surface2)' }[verdictTone];
+  const verdictBorder = { cheap: 'var(--up)', expensive: 'var(--down)', neutral: 'var(--border)' }[verdictTone];
   const verdictLine = (askBadge || soldBadge)
-    ? `<div style="margin-top:0.3rem">${askBadge}${askBadge && soldBadge ? ' · ' : ''}${soldBadge}</div>` : '';
+    ? `<div class="vw-verdict" style="background:${verdictBg};border-left:3px solid ${verdictBorder}">
+        <span style="font-size:0.68rem;color:var(--muted);font-weight:600;display:block;margin-bottom:0.1rem">📊 分析</span>
+        ${askBadge}${askBadge && soldBadge ? '<span style="color:var(--muted)"> · </span>' : ''}${soldBadge}
+      </div>` : '';
   const weakNote = (soldConf.weak || askConf.weak)
     ? `<div style="color:var(--accent);font-size:0.68rem;margin-top:0.15rem">樣本少，僅供參考</div>` : '';
 
@@ -7069,8 +7095,8 @@ function renderOneViewing(v, estateId, isMobile, showTypeFilter) {
         else if (diff < 0) sqzHtml = `<div style="color:var(--up);font-size:0.72rem">加咗 ${pfmt(-diff)}（${pct}%）</div>`;
       }
       const soldHtml = (v.txn_price && v.txn_reg_date >= v.view_date)
-        ? `<span style="color:var(--accent)"><strong>${pfmt(v.txn_price)}</strong></span> <span style="color:var(--muted);font-size:0.75rem">${v.txn_reg_date}</span>${annualHtml}${sqzHtml}`
-        : `<span style="color:var(--text);font-size:0.95rem">${isRent ? '未租出' : '未沽出'}</span>`;
+        ? `<span class="vw-status vw-status-sold">✓ ${pfmt(v.txn_price)}</span> <span style="color:var(--muted);font-size:0.75rem">${v.txn_reg_date}</span>${annualHtml}${sqzHtml}`
+        : `<span class="vw-status vw-status-unsold">${isRent ? '未租出' : '未沽出'}</span>`;
       // 手機卡片版專用：沽出／未沽出合埋一格，連放咗幾耐／上手購買都夾入嚟
       // （桌面表格版唔改，繼續用返上面嘅 soldHtml/domCell/獨立 vprev-）。
       // 「上手購買」係買賣土地註冊處嘅概念，租盤冇呢樣嘢。
@@ -7080,8 +7106,8 @@ function renderOneViewing(v, estateId, isMobile, showTypeFilter) {
       if (sqzInline) soldMetaParts.push(sqzInline);
       if (domMonths != null && domMonths >= 1) soldMetaParts.push(`<span style="color:var(--muted);font-size:0.72rem">放咗${domMonths}個月</span>`);
       const soldBlockMobile = (v.txn_price && v.txn_reg_date >= v.view_date)
-        ? `<div>${v.txn_reg_date} <strong style="color:var(--accent)">${pfmt(v.txn_price)}</strong> ${isRent ? '租出' : '沽出'}</div>${soldMetaParts.length ? `<div style="margin-top:0.15rem">${soldMetaParts.join(' <span style="color:var(--muted);font-size:0.7rem">·</span> ')}</div>` : ''}`
-        : `<div><span style="color:var(--muted);font-size:0.8rem">${isRent ? '未租出' : '未沽出'}</span>${v.dom_days != null ? ` <span style="color:var(--muted);font-size:0.72rem">· 放咗${v.dom_days.toLocaleString()}日</span>` : ''}</div>
+        ? `<div><span class="vw-status vw-status-sold">✓ ${isRent ? '租出' : '沽出'} ${pfmt(v.txn_price)}</span></div><div style="margin-top:0.2rem;color:var(--muted);font-size:0.75rem">${v.txn_reg_date}</div>${soldMetaParts.length ? `<div style="margin-top:0.15rem">${soldMetaParts.join(' <span style="color:var(--muted);font-size:0.7rem">·</span> ')}</div>` : ''}`
+        : `<div><span class="vw-status vw-status-unsold">${isRent ? '未租出' : '未沽出'}</span>${v.dom_days != null ? ` <span style="color:var(--muted);font-size:0.72rem">· 放咗${v.dom_days.toLocaleString()}日</span>` : ''}</div>
            ${isRent ? '' : `<div style="margin-top:0.25rem;font-size:0.75rem;color:var(--muted)">上手 <span id="vprev-${v.id}" style="cursor:pointer" onclick="fetchUnitTxn(${v.id})">查上手成交</span></div>`}`;
       // 睇樓評分：平均分做個細 badge 貼喺單位名側（一眼比得到邊層好），
       // 逐項分數就同備注擺埋一齊。未評嘅項目唔顯示，亦唔入平均（睇 ratingAvg）。
