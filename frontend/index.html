@@ -1168,15 +1168,25 @@
     /* Filter bar */
     /* 篩選掣：平時同旁邊嘅掣一個樣，一有 filter 就轉 accent 底 —— 收埋咗
        個 panel 之後，呢個掣就係唯一嘅入口，唔可以扮唔存在。 */
-    .filter-toggle { font-size: 0.75rem; }
-    .filter-toggle.on {
-      background: var(--accent); border-color: var(--accent); color: #fff;
+    /* 同 .deal-toggle-btn（買盤／租盤）一樣嘅手勢：粗字、大 padding、實色
+       pill。呢個掣冇 segmented 嘅另一半，企喺 filter 呢個 section 頭
+       （唔喺 listings-header 同表格/群組模式並排），所以要夠大夠獨立
+       先夠顯眼。 */
+    .filter-toggle-big {
+      border: none; cursor: pointer; font-weight: 700; font-size: 0.92rem;
+      padding: 0.5rem 1.2rem; border-radius: 999px; white-space: nowrap;
+      background: var(--surface2); color: var(--text); border: 1px solid var(--border);
+      transition: all 0.18s; display: inline-flex; align-items: center; gap: 0.4rem;
     }
-    .filter-toggle .ft-badge {
-      display: inline-block; margin-left: 0.3rem; padding: 0 0.3rem;
-      border-radius: 999px; background: rgba(255,255,255,0.28);
-      font-size: 0.68rem; font-weight: 700;
+    .filter-toggle-big:hover { border-color: var(--accent); }
+    .filter-toggle-big.on { background: var(--accent); color: #fff; border-color: var(--accent); }
+    .filter-toggle-big .ft-badge {
+      display: inline-flex; align-items: center; justify-content: center;
+      min-width: 1.3rem; height: 1.3rem; padding: 0 0.3rem;
+      border-radius: 999px; background: rgba(255,255,255,0.3);
+      font-size: 0.78rem; font-weight: 700;
     }
+    .filter-toggle-big:not(.on) .ft-badge { background: var(--accent); color: #fff; }
     /* 收埋 panel 嗰陣出嘅一行摘要：睇得返自己開緊咩 filter，唔使撳開先知 */
     .filter-summary {
       display: flex; flex-wrap: wrap; gap: 0.35rem; align-items: center;
@@ -4674,7 +4684,6 @@ async function showEstate(id, name, district) {
           <div class="listings-header">
             <div class="section-title" style="margin:0">最新放盤</div>
             <div style="display:flex;align-items:center;gap:0.6rem">
-              <button class="history-btn filter-toggle" id="filterToggleBtn" onclick="toggleFilterPanel()">🔍 篩選</button>
               <button class="history-btn" id="listingViewBtn" onclick="toggleListingView()" style="font-size:0.75rem">🖼 卡片</button>
               <button class="history-btn" id="groupModeBtn" onclick="toggleGroupSelectMode()" style="font-size:0.75rem">群組模式</button>
             </div>
@@ -7416,14 +7425,18 @@ function renderFilterBar() {
   const bar = document.getElementById("filterBar");
   if (!bar) return;
   const active = activeFilters();
-  const tbtn = document.getElementById("filterToggleBtn");
-  if (tbtn) {
-    tbtn.classList.toggle("on", active.length > 0);
-    tbtn.innerHTML = `🔍 篩選${active.length ? `<span class="ft-badge">${active.length}</span>` : ''}`;
-  }
+  // 個掣本身企喺 filter 呢個 section 頭（唔喺 listings-header 同表格/群組
+  // 模式並排），要大到似「買盤/租盤」個 toggle 先夠顯眼；同時佢個 markup
+  // 每次 render 都重寫（唔靠 getElementById 揾返舊嘅去改），跟返 filter-bar
+  // 成頁其他掣一樣嘅寫法。
+  const toggleBtn = `
+    <button class="filter-toggle-big${active.length ? ' on' : ''}" onclick="toggleFilterPanel()">
+      🔍 篩選${active.length ? `<span class="ft-badge">${active.length}</span>` : ''}
+    </button>`;
   if (!_filterOpen) {
     bar.innerHTML = `
       <div class="filter-summary">
+        ${toggleBtn}
         ${active.length
           ? active.map(a => `<span class="fs-chip">${escHtml(a)}</span>`).join('')
             + `<button class="history-btn fs-clear" style="font-size:0.7rem" onclick="clearFilters()">清除</button>`
@@ -7441,6 +7454,8 @@ function renderFilterBar() {
     `<select class="filter-select" onchange="setFilter('${key}',this.value)">${opts.map(o=>`<option value="${escHtml(o)}"${filters[key]===o?'selected':''}>${escHtml(labelFn(o))}</option>`).join('')}</select>`;
   bar.innerHTML = `
     <div class="filter-bar">
+      <div class="filter-pair" style="flex-basis:100%">${toggleBtn}</div>
+      <div class="filter-sep" style="flex-basis:100%;height:0;margin:0"></div>
       <div class="filter-pair">
         <span class="filter-label">房數</span>
         <div class="filter-group">
