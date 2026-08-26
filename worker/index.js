@@ -5,12 +5,19 @@ const CORS = {
 };
 
 // Email 入面嘅連結唔可以靠 Origin／相對路徑（用戶喺 email client 撳），要絕對 URL。
+// Production（真實用戶／Stripe／email）行呢個 worker，用返正式域名；
+// propwatch-worker-test 嗰邊靠 IS_TEST_ENV 判斷，覆蓋做 propwatch.pages.dev
+// ——test D1 係 production 嘅完整 copy，如果 email 入面啲連結指去
+// homefinding.ws-techs.com，測試賬戶撳落去會睇到 production 嗰邊嘅
+// （冇 email 呢家伙就唔會撞到，但 unsubscribe／confirm 頁呢類直接
+// response HTML 嘅位仍然用得到 APP_BASE，要指返自己）。
 const WORKER_BASE = "https://propwatch-worker.johnwong777.workers.dev";
-const APP_BASE = "https://propwatch.pages.dev";
+const APP_BASE = "https://homefinding.ws-techs.com";
 
 // 瀏覽器跨域只准自己嘅前端；curl/server-side 唔受 CORS 限（靠 auth + rate limit 守）。
 function isAllowedOrigin(origin) {
-  if (origin === "https://propwatch.pages.dev") return true;
+  if (origin === "https://homefinding.ws-techs.com") return true;  // Production 自訂域名
+  if (origin === "https://propwatch.pages.dev") return true;       // Test/dev（propwatch.pages.dev 而家指去 test worker，但兩個 worker 嘅 CORS 都照抄呢張表，簡單啲）
   if (/^https:\/\/[a-z0-9-]+\.propwatch\.pages\.dev$/.test(origin)) return true; // Pages preview deploys
   if (origin === "http://localhost:3456" || origin === "http://127.0.0.1:3456") return true; // local dev
   return false;
@@ -3240,6 +3247,16 @@ function _b64utf8(str) {
 // ——剝走 CR/LF，否則有人喺 email 值入面塞 \r\n 就可以注入自訂 header／改收件人
 // （email header injection）。
 async function sendEmail(env, to, subject, html, extraHeaders = {}) {
+  // Test env 全部 email 一律唔寄——test D1 係 production 嘅完整 copy，連晒
+  // 真實用戶嘅 email 地址，如果 test worker 自己嗰個 cron 都寄一份「今日
+  // 動態」，用戶會一日收兩次同樣嘅信。喺呢個最低層 choke point 度擋，
+  // 唔使逐個 call site（signup 驗證碼／忘記密碼／每日摘要／admin alert）
+  // 各自記得判斷。靜靜 return，唔 throw——唔想搞到 caller 當「寄失敗」
+  // 再觸發多一輪 admin alert。
+  if (env.IS_TEST_ENV) {
+    console.log(`[test env] 跳過寄信 → ${to}: ${subject}`);
+    return { id: "test-env-skipped" };
+  }
   if (!env.GMAIL_REFRESH_TOKEN) throw new Error("no GMAIL credentials");
   const token = await gmailAccessToken(env);
   const hdrLines = Object.entries(extraHeaders)
@@ -7880,7 +7897,7 @@ export default {
           return json(400, { error: "你已經係收費版，想改計劃請用「管理訂閱」" });
         }
         const origin = request.headers.get("Origin");
-        const base = isAllowedOrigin(origin) ? origin : "https://propwatch.pages.dev";
+        const base = isAllowedOrigin(origin) ? origin : APP_BASE;
         try {
           const s = await stripeRequest(env, "POST", "checkout/sessions", {
             mode: "subscription",
@@ -7907,7 +7924,7 @@ export default {
           .bind(session.account_id).first();
         if (!acc?.stripe_customer_id) return json(400, { error: "你未有訂閱記錄" });
         const origin = request.headers.get("Origin");
-        const base = isAllowedOrigin(origin) ? origin : "https://propwatch.pages.dev";
+        const base = isAllowedOrigin(origin) ? origin : APP_BASE;
         try {
           const p = await stripeRequest(env, "POST", "billing_portal/sessions", {
             customer: acc.stripe_customer_id, return_url: base,

@@ -1,0 +1,17 @@
+name = "propwatch-worker-test"
+main = "index.js"
+compatibility_date = "2024-01-01"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "propwatch-db-test"
+database_id = "85cb5e76-a3f1-4a25-a7ed-9901392430d5"
+
+[vars]
+IS_TEST_ENV = "1"
+
+[triggers]
+crons = ["*/2 * * * *", "0 1 * * *"]
+
+[observability]
+enabled = true

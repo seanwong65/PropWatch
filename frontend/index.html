@@ -7,11 +7,11 @@
   <title>搵樓日記｜香港樓盤追蹤 — 放盤幾耐、減價歷史、貴定平一眼睇晒</title>
   <meta name="description" content="每日自動追蹤中原、利嘉閣、香港置業、美聯四大網嘅放盤。睇到經紀唔會話你知嘅嘢：個盤放咗幾多日、減過幾多次價、下架定成交、叫價比同苑成交中位數貴定平。免費追蹤 3 個屋苑，仲有 2026 印花稅按揭計算機。">
   <meta name="keywords" content="香港樓盤,放盤追蹤,樓盤歷史,減價盤,樓盤放咗幾耐,成交中位數,屋苑成交紀錄,抵買盤,按揭計算機2026,印花稅計算,按揭保險,樓市數據,買樓工具,睇樓記錄">
-  <link rel="canonical" href="https://propwatch.pages.dev/">
+  <link rel="canonical" href="https://homefinding.ws-techs.com/">
   <meta property="og:type" content="website">
   <meta property="og:site_name" content="搵樓日記">
   <meta property="og:locale" content="zh_HK">
-  <meta property="og:url" content="https://propwatch.pages.dev/">
+  <meta property="og:url" content="https://homefinding.ws-techs.com/">
   <meta property="og:title" content="搵樓日記｜香港樓盤追蹤 — 經紀唔會話你知嘅嘢，一眼睇晒">
   <meta property="og:description" content="個盤放咗幾多日、減過幾多次價、下架定成交、叫價貴過同苑成交中位數幾多——四大地產網每日自動追蹤。免費開始。">
   <meta name="twitter:card" content="summary">
@@ -20,7 +20,7 @@
     "@context": "https://schema.org",
     "@type": "WebApplication",
     "name": "搵樓日記",
-    "url": "https://propwatch.pages.dev/",
+    "url": "https://homefinding.ws-techs.com/",
     "applicationCategory": "FinanceApplication",
     "operatingSystem": "Web",
     "inLanguage": "zh-HK",
@@ -2407,7 +2407,14 @@ ldCarouselRestart();
 </div>
 
 <script>
-const API = "https://propwatch-worker.johnwong777.workers.dev";
+// Production 自訂域名先至打真正嘅 production worker；其他一律（propwatch.pages.dev、
+// Pages preview、localhost）打 test worker——同一份 build 服務兩個域名，
+// 用戶喺 propwatch.pages.dev 做嘅任何嘢（sync/改設定/hit paywall 等）唔會
+// 掂到真實用戶數據。test worker D1 係 production 嘅 snapshot copy，唔會
+// 自動同步返 production（見 CLAUDE.md 測試環境註解）。
+const API = location.hostname === "homefinding.ws-techs.com"
+  ? "https://propwatch-worker.johnwong777.workers.dev"
+  : "https://propwatch-worker-test.johnwong777.workers.dev";
 let activeEstateId = null;
 // 屋苑頁睇買盤定租盤（'S'|'R'）。只喺偏好有揀租盤時個 toggle 才出現；
 // 每次開屋苑重設做買盤，唔好記住上次（免得開另一個屋苑莫名其妙係租盤模式）。
@@ -9440,7 +9447,7 @@ if (getToken()) {
   checkFirstLoginPrefs();
 } else {
   showLanding();
-  // 深 link：直接分享 https://propwatch.pages.dev/#calculator 俾人，
+  // 深 link：直接分享 https://homefinding.ws-techs.com/#calculator 俾人，
   // 一開就係按揭計算機（免登入）——攞嚟做推廣入口
   const h = decodeURIComponent(location.hash || "");
   if (h === "#calculator" || h === "#按揭計算機") openMortgageModal();
