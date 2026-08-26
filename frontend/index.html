@@ -5668,7 +5668,7 @@ function renderRentalCards(el, rows, med) {
     const removed = l.removed_date;
     const refs = l.ref_no ? [l.ref_no] : [];
     const img = l.thumbnail
-      ? `<img src="${safeImgSrc(l.thumbnail)}" loading="lazy" alt="" onerror="this.parentElement.innerHTML='<span class=&quot;lc-noimg&quot;>🏠</span>'">`
+      ? `<img data-lazy="${safeImgSrc(l.thumbnail)}" alt="" onerror="this.parentElement.innerHTML='<span class=&quot;lc-noimg&quot;>🏠</span>'">`
       : `<span class="lc-noimg">🏠</span>`;
     const psf = l.price_per_ft;
     let vs = '';
@@ -5695,6 +5695,7 @@ function renderRentalCards(el, rows, med) {
       </div>
     </div>`;
   }).join('') + `</div>`;
+  armLazyImgs(el);          // DB thumbnail（中原／利嘉閣）——見 armLazyImgs 註解
 
   // 卡先出，相後補（同買盤嗰邊一樣，唔為咗等相而 block 住個 view）
   if (activeEstateId) {
@@ -8202,6 +8203,29 @@ async function photoBlobUrl(rel) {
   _photoBlobs[rel] = URL.createObjectURL(b);
   return _photoBlobs[rel];
 }
+// 自己做 lazy image。點解唔用 loading="lazy"：.listings-section 為咗令
+// sticky filter 列生效，overflow 由 hidden 改咗做 clip（hidden 會令佢變成
+// scroll container，入面啲 sticky 就死）——但 clip 之下 Chrome 個原生
+// lazy-loading 完全唔會 fire，張圖永遠停喺 complete:false。實測過同一張
+// 圖、同一個位置（完全喺 viewport 入面），淨係將 loading 由 lazy 改做
+// eager 就即刻 load 到，所以肯定係原生 lazy 中咗 overflow:clip 呢個伏。
+// 自己一個 IntersectionObserver 唔靠瀏覽器嗰套 scroll-root 推導，overflow
+// 點設都準，同時保住「唔喺畫面就唔載」呢個好處（一版可以有 100+ 張卡）。
+let _lazyImgObs = null;
+function armLazyImgs(root) {
+  if (!_lazyImgObs) {
+    _lazyImgObs = new IntersectionObserver((entries, obs) => {
+      for (const e of entries) {
+        if (!e.isIntersecting) continue;
+        obs.unobserve(e.target);
+        const src = e.target.dataset.lazy;
+        if (src) { delete e.target.dataset.lazy; e.target.src = src; }
+      }
+    }, { rootMargin: '300px' });   // 未入畫面就開始載，掃落去唔會見到空格
+  }
+  (root || document).querySelectorAll('img[data-lazy]').forEach((img) => _lazyImgObs.observe(img));
+}
+
 // 一格一格咁載。用戶怕 preload 太多張影響 performance，所以規矩係：
 // 只攞緊住嗰張同下一張，掃到邊先攞到邊 —— 一張卡有 8 張相都只會出
 // 2 個 request，永遠唔會一開就拉曬。
@@ -8290,7 +8314,7 @@ function renderListingCards(el, displayRows) {
     const removed = l.removed_date || l.manual_removed_at;
     const refs = l._combined ? l.sources.map(x => x.ref_no).filter(Boolean) : (l.ref_no ? [l.ref_no] : []);
     const img = l.thumbnail
-      ? `<img src="${safeImgSrc(l.thumbnail)}" loading="lazy" alt="" onerror="this.parentElement.innerHTML='<span class=&quot;lc-noimg&quot;>🏠</span>'">`
+      ? `<img data-lazy="${safeImgSrc(l.thumbnail)}" alt="" onerror="this.parentElement.innerHTML='<span class=&quot;lc-noimg&quot;>🏠</span>'">`
       : `<span class="lc-noimg">🏠</span>`;
 
     // ── 售價 ──────────────────────────────────────────────────────────
@@ -8376,6 +8400,7 @@ function renderListingCards(el, displayRows) {
       </div>
     </div>`;
   }).join('') + `</div>`;
+  armLazyImgs(el);          // DB thumbnail（中原／利嘉閣）——見 armLazyImgs 註解
 
   // 卡先出，相後補（唔好為咗等相而 block 住成個 view）
   if (activeEstateId) {

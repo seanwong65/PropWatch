@@ -1269,6 +1269,14 @@ export async function scrapeRicacorpListings(ricacorpUrl, isRent = false) {
       const pfMatch = block.match(/class="[^"]*unit-price[^"]*">@ \$([,\d]+)</);
       const price_per_ft = pfMatch ? parseInt(pfMatch[1].replace(/,/g, "")) : null;
 
+      // 封面相：<img class="post-thumbnail ..." src="https://resourcecdn.ricacorp.com/...">
+      // 已經喺我哋 fetch 咗嘅同一份 HTML 入面，抽佢係零額外 request——同美聯／
+      // 香港置業要另外打 API 唔同，所以利嘉閣照樣唔使加 subrequest。
+      // 條 URL 帶住 ?width=240&height=135：實測帶參數回 20KB 縮圖，剝走參數
+      // 會回足 1.4MB 原圖，所以一定要保留。HTML 入面係 &amp;，要 decode 返。
+      const thumbMatch = block.match(/class="[^"]*post-thumbnail[^"]*"[^>]*\ssrc="([^"]+)"/);
+      const thumbnail = thumbMatch ? thumbMatch[1].replace(/&amp;/g, "&") : null;
+
       listings.push({
         ref_no,
         building_name,
@@ -1278,6 +1286,7 @@ export async function scrapeRicacorpListings(ricacorpUrl, isRent = false) {
         size_net,
         price,
         price_per_ft,
+        thumbnail,
         detail_url: "https://www.ricacorp.com" + href,
         source: "ricacorp",
       });
@@ -1315,7 +1324,7 @@ async function saveRicacorpListings(db, estateId, listings) {
   if (listings.complete === false || shrunk) {
     const scraped = new Set(listings.map((l) => l.ref_no));
     const { results: prev } = bestPrev ? await db.prepare(`
-      SELECT ref_no, building_name, floor, unit, bedrooms, size_net, price, price_per_ft, detail_url, publish_date
+      SELECT ref_no, building_name, floor, unit, bedrooms, size_net, price, price_per_ft, detail_url, publish_date, thumbnail
       FROM listings
       WHERE estate_id = ? AND source = 'ricacorp' AND snapshot_date = ?
     `).bind(estateId, bestPrev.snapshot_date).all() : { results: [] };
@@ -1329,8 +1338,8 @@ async function saveRicacorpListings(db, estateId, listings) {
   const stmt = db.prepare(
     `INSERT OR REPLACE INTO listings
      (estate_id, listing_id, ref_no, building_name, floor, unit, bedrooms,
-      size_net, price, price_per_ft, detail_url, snapshot_date, source, publish_date)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+      size_net, price, price_per_ft, detail_url, snapshot_date, source, publish_date, thumbnail)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
   );
   const stmtHistory = db.prepare(
     `INSERT INTO listing_price_history (ref_no, estate_id, price, price_per_ft, snapshot_date)
@@ -1340,7 +1349,8 @@ async function saveRicacorpListings(db, estateId, listings) {
   const batch = [];
   for (const l of toSave) {
     batch.push(stmt.bind(estateId, l.ref_no, l.ref_no, l.building_name, l.floor, normalizeUnit(l.unit),
-      l.bedrooms, l.size_net, l.price, l.price_per_ft, l.detail_url, today, l.source, l.publish_date ?? null));
+      l.bedrooms, l.size_net, l.price, l.price_per_ft, l.detail_url, today, l.source, l.publish_date ?? null,
+      l.thumbnail ?? null));
     if (l.ref_no && l.price) batch.push(stmtHistory.bind(l.ref_no, estateId, l.price, l.price_per_ft, today));
   }
   await db.batch(batch);
