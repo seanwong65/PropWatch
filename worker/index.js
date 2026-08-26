@@ -330,6 +330,10 @@ const SEC_DEFS = [
         + "15 個已經係 100+ 單元／日，加大之前睇返同步完成時間。" },
   { key: "sec_free_max_viewings", def: 15, min: 1, max: 500, label: "免費版：最多睇樓記錄",
     desc: "免費用戶可以有幾多個睇樓記錄（收費版無限）。淨係擋新增，唔擋改／刪。" },
+  { key: "sec_card_photos_max", def: 8, min: 1, max: 30, label: "卡片：每個盤最多幾多張相",
+    desc: "卡片 view 每張卡可以左右揭嘅相數上限。相係即時經 /api/photo 代取（唔入 DB），"
+        + "每張都食一個 subrequest —— 擺喺 sec_* 而唔係 ⚙️ 設定，就係唔想用戶自己較大變成放大器。"
+        + "前端只會載住緊嗰張同下一張，加大主要影響最多可以揭到幾多張。" },
 ];
 const SEC_DEFAULTS = Object.fromEntries(SEC_DEFS.map((d) => [d.key, d.def]));
 let _secCfgCache = { at: 0, vals: null };
@@ -5555,19 +5559,27 @@ export default {
         ).bind(session.account_id, estateId).first();
         if (!est) return json(404, { error: "搵唔到屋苑" });
         const deal = url.searchParams.get("deal") === "R" ? "L" : "S";
-        const photos = {};   // ref_no -> 圖 URL
+        const photos = {};   // ref_no -> [圖 URL, ...]（第一張係封面）
+        const maxPhotos = (await getSecCfg(db)).sec_card_photos_max;
         const take = (rows) => {
           for (const r of rows || []) {
-            let u = r.outlook_wan_doc_path || r.outlook_photos?.[0]?.wan_doc_path;
-            if (!r.serial_no || !u) continue;
-            // 美聯個 API 回 wm-cdn.midland.com.hk，但嗰個 host 前面有 CloudFront
-            // WAF，瀏覽器直接攞會 403（實測）。wm.midland.com.hk 同一條路徑回
-            // 200 image/jpeg —— 換 host 就得，唔使 proxy。
-            u = u.replace("://wm-cdn.midland.com.hk/", "://wm.midland.com.hk/");
-            // 一律行 /api/photo。呢啲 host 最尾會 301 落 wmc.*（CloudFront），
-            // 而 CloudFront 對外來 request 一律 403 —— 瀏覽器直接攞唔到，
-            // 一定要 worker 代取。順便令 CSP img-src 唔使開任何外部 host。
-            photos[r.serial_no] = `/api/photo?u=${encodeURIComponent(u)}`;
+            if (!r.serial_no) continue;
+            const list = [];
+            const push = (u) => {
+              if (!u || list.length >= maxPhotos) return;
+              // 美聯個 API 回 wm-cdn.midland.com.hk，但嗰個 host 前面有 CloudFront
+              // WAF，瀏覽器直接攞會 403（實測）。wm.midland.com.hk 同一條路徑
+              // 回 200 —— 換 host 慳返一層。
+              u = u.replace("://wm-cdn.midland.com.hk/", "://wm.midland.com.hk/");
+              // 一律行 /api/photo。呢啲 host 最尾都會 301 落 wmc.*（CloudFront），
+              // 而 CloudFront 對外來 request 一律 403 —— 瀏覽器直接攞唔到，
+              // 一定要 worker 代取。順便令 CSP img-src 唔使開任何外部 host。
+              const rel = `/api/photo?u=${encodeURIComponent(u)}`;
+              if (!list.includes(rel)) list.push(rel);
+            };
+            push(r.outlook_wan_doc_path);                       // 封面（同列表一致）
+            for (const ph of r.outlook_photos || []) push(ph.wan_doc_path);
+            if (list.length) photos[r.serial_no] = list;
           }
         };
         // 要逐頁攞晒——前端啲卡經篩選／排序之後可以係任何一頁嘅盤，

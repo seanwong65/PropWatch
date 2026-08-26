@@ -987,6 +987,35 @@
     }
     .lc-photo img { width: 100%; height: 100%; object-fit: cover; display: block; }
     .lc-photo .lc-noimg { font-size: 2rem; opacity: 0.35; }
+    /* 橫向揭相：一個 slot 一版，scroll-snap 對齊。相係 lazy 攞返嚟嘅
+       （見 loadSlot），所以 slot 一開始係空嘅，靠 aspect-ratio 撐住個位，
+       唔會因為圖遲到而跳版。 */
+    .lc-strip {
+      position: absolute; inset: 0; display: flex; overflow-x: auto; overflow-y: hidden;
+      scroll-snap-type: x mandatory; scrollbar-width: none; -webkit-overflow-scrolling: touch;
+    }
+    .lc-strip::-webkit-scrollbar { display: none; }
+    .lc-slot {
+      flex: 0 0 100%; width: 100%; height: 100%; scroll-snap-align: center;
+      display: flex; align-items: center; justify-content: center;
+    }
+    .lc-dots {
+      position: absolute; bottom: 0.45rem; left: 50%; transform: translateX(-50%);
+      display: flex; gap: 0.25rem; pointer-events: none;
+      padding: 0.2rem 0.4rem; border-radius: 999px; background: rgba(0,0,0,0.32);
+    }
+    .lc-dot { width: 0.3rem; height: 0.3rem; border-radius: 999px; background: rgba(255,255,255,0.55); }
+    .lc-dot.active { background: #fff; }
+    .lc-nav {
+      position: absolute; top: 50%; transform: translateY(-50%);
+      width: 1.6rem; height: 1.6rem; border-radius: 50%; border: none;
+      background: rgba(0,0,0,0.35); color: #fff; font-size: 0.95rem; line-height: 1;
+      cursor: pointer; display: none; align-items: center; justify-content: center; padding: 0;
+    }
+    .lc-nav:hover { background: rgba(0,0,0,0.55); }
+    .lc-nav-prev { left: 0.35rem; } .lc-nav-next { right: 0.35rem; }
+    /* 有滑鼠先出箭嘴；觸控裝置直接掃就得，唔好阻住張相 */
+    @media (hover: hover) { .lc-card:hover .lc-nav { display: flex; } }
     .lc-removed-overlay {
       position: absolute; inset: 0; background: rgba(0,0,0,0.45); color: #fff;
       display: flex; align-items: center; justify-content: center;
@@ -7787,22 +7816,80 @@ async function photoBlobUrl(rel) {
   _photoBlobs[rel] = URL.createObjectURL(b);
   return _photoBlobs[rel];
 }
+// 一格一格咁載。用戶怕 preload 太多張影響 performance，所以規矩係：
+// 只攞緊住嗰張同下一張，掃到邊先攞到邊 —— 一張卡有 8 張相都只會出
+// 2 個 request，永遠唔會一開就拉曬。
+function loadSlot(strip, i) {
+  const slots = strip.children;
+  const slot = slots[i];
+  if (!slot || slot.dataset.state) return;      // pending / done / fail 都唔使再嚟
+  slot.dataset.state = 'pending';
+  photoBlobUrl(slot.dataset.rel).then(src => {
+    if (!slot.isConnected) return;
+    const img = document.createElement('img');
+    img.alt = '';
+    img.onerror = () => { slot.dataset.state = 'fail'; slot.innerHTML = '<span class="lc-noimg">🏠</span>'; };
+    img.src = src;                              // blob URL，唔經 escHtml
+    slot.innerHTML = '';
+    slot.appendChild(img);
+    slot.dataset.state = 'done';
+  }).catch(() => {
+    slot.dataset.state = 'fail';
+    slot.innerHTML = '<span class="lc-noimg">🏠</span>';
+  });
+}
+
+function buildPhotoStrip(box, list) {
+  const strip = document.createElement('div');
+  strip.className = 'lc-strip';
+  for (const rel of list) {
+    const slot = document.createElement('div');
+    slot.className = 'lc-slot';
+    slot.dataset.rel = rel;
+    strip.appendChild(slot);
+  }
+  box.querySelector('.lc-noimg')?.remove();     // 換走個 🏠 placeholder
+  box.prepend(strip);
+
+  if (list.length > 1) {
+    const dots = document.createElement('div');
+    dots.className = 'lc-dots';
+    dots.innerHTML = list.map((_, i) => `<span class="lc-dot${i ? '' : ' active'}"></span>`).join('');
+    box.appendChild(dots);
+
+    const go = (dir) => strip.scrollBy({ left: dir * strip.clientWidth, behavior: 'smooth' });
+    for (const [cls, label, dir] of [['prev', '‹', -1], ['next', '›', 1]]) {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = `lc-nav lc-nav-${cls}`;
+      b.textContent = label;
+      b.onclick = (e) => { e.stopPropagation(); go(dir); };
+      box.appendChild(b);
+    }
+
+    let raf = 0;
+    strip.addEventListener('scroll', () => {
+      if (raf) return;                           // scroll 好密，一幀對一次就夠
+      raf = requestAnimationFrame(() => {
+        raf = 0;
+        const i = Math.round(strip.scrollLeft / strip.clientWidth);
+        dots.querySelectorAll('.lc-dot').forEach((d, k) => d.classList.toggle('active', k === i));
+        loadSlot(strip, i);
+        loadSlot(strip, i + 1);                  // 掃到下一張之前先備定
+      });
+    }, { passive: true });
+  }
+  loadSlot(strip, 0);
+  if (list.length > 1) loadSlot(strip, 1);
+}
+
 function applyCardPhotos(photos) {
   document.querySelectorAll('.lc-photo[data-refs]').forEach(box => {
-    if (box.querySelector('img')) return;      // 已經有相（中原嗰啲）
+    if (box.querySelector('img, .lc-strip')) return;   // 已經有相（中原嗰啲）
     const refs = (box.dataset.refs || '').split(',').filter(Boolean);
-    const rel = refs.map(r => photos[r]).find(Boolean);
-    if (!rel) return;
-    photoBlobUrl(rel).then(src => {
-      // 攞相期間個 view 可能已經轉走／重畫咗，中途走人好過寫落個死節點
-      if (!box.isConnected || box.querySelector('img')) return;
-      const img = document.createElement('img');
-      img.loading = 'lazy'; img.alt = '';
-      img.onerror = () => { box.innerHTML = '<span class="lc-noimg">🏠</span>'; };
-      img.src = src;                            // blob URL，唔經 escHtml
-      box.querySelector('.lc-noimg')?.remove(); // 換走個 🏠 placeholder
-      box.prepend(img);
-    }).catch(() => {});                         // 攞唔到就維持個 🏠 placeholder
+    const list = refs.map(r => photos[r]).find(l => l && l.length);
+    if (!list) return;
+    buildPhotoStrip(box, list);
   });
 }
 
