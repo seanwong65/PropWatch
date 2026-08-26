@@ -970,6 +970,35 @@
     .history-table tr:last-child td { border-bottom: none; }
     .history-row-latest td { color: var(--accent); font-weight: 600; }
 
+    /* 放盤卡片 view（同 table view 切換）。相係各 source CDN hotlink——
+       唔儲圖落自己度，portal 拎走張相個位就自動出返 placeholder。 */
+    .listing-cards {
+      display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+      gap: 0.9rem; padding: 1rem;
+    }
+    .lc-card {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: var(--radius); overflow: hidden; position: relative;
+      box-shadow: var(--shadow-sm); display: flex; flex-direction: column;
+    }
+    .lc-photo {
+      aspect-ratio: 4 / 3; background: var(--surface2); position: relative;
+      display: flex; align-items: center; justify-content: center; overflow: hidden;
+    }
+    .lc-photo img { width: 100%; height: 100%; object-fit: cover; display: block; }
+    .lc-photo .lc-noimg { font-size: 2rem; opacity: 0.35; }
+    .lc-removed-overlay {
+      position: absolute; inset: 0; background: rgba(0,0,0,0.45); color: #fff;
+      display: flex; align-items: center; justify-content: center;
+      font-weight: 700; font-size: 0.95rem; letter-spacing: 0.1em;
+    }
+    .lc-body { padding: 0.7rem 0.85rem 0.85rem; flex: 1; display: flex; flex-direction: column; gap: 0.3rem; }
+    .lc-price { color: var(--accent); font-weight: 700; font-size: 1.1rem; }
+    .lc-price .lc-psf { color: var(--muted); font-weight: 400; font-size: 0.75rem; margin-left: 0.35rem; }
+    .lc-unit { font-size: 0.85rem; }
+    .lc-meta { color: var(--muted); font-size: 0.75rem; display: flex; gap: 0.5rem; flex-wrap: wrap; align-items: center; }
+    .lc-badges { display: flex; gap: 0.35rem; flex-wrap: wrap; margin-top: auto; padding-top: 0.3rem; }
+
     /* Loading */
     .loading {
       display: flex;
@@ -1625,7 +1654,7 @@ ldCarouselRestart();
     </button>
     <div class="logo" onclick="goHome()" style="cursor:pointer">
       <span class="logo-icon">🏙️</span>
-      <h1>Prop<span>Watch</span></h1>
+      <h1>House<span>Radar</span></h1>
     </div>
   </div>
   <div style="display:flex;align-items:center;gap:0.5rem">
@@ -4584,6 +4613,7 @@ async function showEstate(id, name, district) {
           <div class="listings-header">
             <div class="section-title" style="margin:0">最新放盤</div>
             <div style="display:flex;align-items:center;gap:0.6rem">
+              <button class="history-btn" id="listingViewBtn" onclick="toggleListingView()" style="font-size:0.75rem">🖼 卡片</button>
               <button class="history-btn" id="groupModeBtn" onclick="toggleGroupSelectMode()" style="font-size:0.75rem">群組模式</button>
             </div>
           </div>
@@ -7478,6 +7508,7 @@ function makeCombined(items, isManual) {
     removed_date: items.every(i => i.removed_date) ? items[0].removed_date : null,
     price_min: Math.min(...prices), price_max: Math.max(...prices),
     ppf_min: ppf.length ? Math.min(...ppf) : null, ppf_max: ppf.length ? Math.max(...ppf) : null,
+    thumbnail: items.map(i => i.thumbnail).find(Boolean) || null,
     sources: byPrice.map(i => ({ source: i.source, price: i.price, detail_url: i.detail_url, ref_no: i.ref_no })),
   };
 }
@@ -7716,11 +7747,115 @@ function domBadge(l) {
   return `<div style="font-size:0.72rem;color:${color}">放 ${days.toLocaleString()} 日</div>`;
 }
 
+// table ⇄ 卡片 view。偏好記 localStorage，跨屋苑跨 session 都跟身。
+// 群組模式（剔選合併）only makes sense 喺 table——開咗就強制 table。
+let _listingView = (() => { try { return localStorage.getItem("pw_listing_view") || "table"; } catch (_) { return "table"; } })();
+function toggleListingView() {
+  _listingView = _listingView === "card" ? "table" : "card";
+  try { localStorage.setItem("pw_listing_view", _listingView); } catch (_) {}
+  renderListingsTable();
+}
+
+// 卡片 render：同 table 用同一條 filter/sort/group pipeline（displayRows），
+// 所以上面成排 filter 一樣生效。相直接 hotlink source CDN（唔儲落自己度），
+// onerror 換返 placeholder——portal 換相/收相都唔會爛版。
+// 美聯／香港置業嘅相：中原啲 thumbnail 一早 scrape 咗落 DB，但另外兩個
+// source 冇。呢度即時問後端攞（唔存 DB，見 /photos endpoint 註解），
+// 攞到就補落已經 render 咗嘅卡度——唔阻住卡片先出，攞唔到就維持
+// placeholder。per estate+deal cache 一次，唔好每次切 view 都再問。
+let _photoCache = {};
+async function hydrateCardPhotos(estateId, deal) {
+  const key = `${estateId}|${deal}`;
+  if (_photoCache[key]) return _photoCache[key];
+  try {
+    const d = await api(`/api/estates/${estateId}/photos?deal=${deal}`);
+    _photoCache[key] = d.photos || {};
+  } catch (_) { _photoCache[key] = {}; }
+  return _photoCache[key];
+}
+function applyCardPhotos(photos) {
+  document.querySelectorAll('.lc-photo[data-refs]').forEach(box => {
+    if (box.querySelector('img')) return;      // 已經有相（中原嗰啲）
+    const refs = (box.dataset.refs || '').split(',').filter(Boolean);
+    const url = refs.map(r => photos[r]).find(Boolean);
+    if (!url) return;
+    const safe = safeImgSrc(url);
+    if (!safe) return;
+    box.innerHTML = `<img src="${safe}" loading="lazy" alt=""
+      onerror="this.parentElement.innerHTML='<span class=&quot;lc-noimg&quot;>🏠</span>'">`
+      + (box.dataset.removed === '1' ? '<div class="lc-removed-overlay">已下架</div>' : '');
+  });
+}
+
+function renderListingCards(el, displayRows) {
+  const btn = document.getElementById("listingViewBtn");
+  if (btn) btn.textContent = "📋 表格";
+  if (!displayRows.length) {
+    el.innerHTML = '<div class="no-data" style="padding:2rem;text-align:center">無符合條件的放盤</div>';
+    return;
+  }
+  el.innerHTML = `<div class="listing-cards">` + displayRows.map(l => {
+    const removed = l.removed_date || l.manual_removed_at;
+    const refs = l._combined ? l.sources.map(x => x.ref_no).filter(Boolean) : (l.ref_no ? [l.ref_no] : []);
+    const img = l.thumbnail
+      ? `<img src="${safeImgSrc(l.thumbnail)}" loading="lazy" alt="" onerror="this.parentElement.innerHTML='<span class=&quot;lc-noimg&quot;>🏠</span>'">`
+      : `<span class="lc-noimg">🏠</span>`;
+    const price = l._combined
+      ? `$${(l.price_min/1e4).toFixed(0)}${l.price_max > l.price_min ? `–${(l.price_max/1e4).toFixed(0)}` : ''}萬`
+      : (l.price ? `$${(l.price/1e4).toFixed(0)}萬` : '-');
+    const ppf = l._combined
+      ? (l.ppf_min ? `$${Math.round(l.ppf_min).toLocaleString()}/呎` : '')
+      : (l.price_per_ft ? `$${Math.round(l.price_per_ft).toLocaleString()}/呎` : '');
+    const dom = (() => {
+      const d = listingDate(l);
+      if (!d || !isPaid()) return '';
+      const days = Math.round((Date.now() - Date.parse(d)) / 86400000);
+      return days >= 0 ? `<span style="color:var(--muted)">放 ${days} 日</span>` : '';
+    })();
+    const cut = (l.prev_price && l.price && l.price < l.prev_price)
+      ? `<span style="color:var(--up)">🔻減價</span>` : '';
+    const srcLinks = l._combined
+      ? l.sources.map(x => x.detail_url
+          ? `<a href="${safeUrl(x.detail_url)}" target="_blank" class="detail-link" style="font-size:0.72rem" onclick="event.stopPropagation();trackListingClick('${escJsAttr(x.ref_no||'')}')">${sourceLabel(x.source)} ↗</a>`
+          : '').join(' ')
+      : (l.detail_url
+          ? `<a href="${safeUrl(l.detail_url)}" target="_blank" class="detail-link" style="font-size:0.72rem" onclick="event.stopPropagation();trackListingClick('${escJsAttr(l.ref_no||'')}')">${sourceLabel(l.source)} ↗</a>`
+          : `<span style="font-size:0.72rem;color:var(--muted)">${sourceLabel(l.source)}</span>`);
+    return `
+    <div class="lc-card"${removed ? ' style="opacity:0.6"' : ''}>
+      <div class="lc-photo" data-refs="${escHtml(refs.join(','))}" data-removed="${removed ? 1 : 0}">${img}${removed ? '<div class="lc-removed-overlay">已下架</div>' : ''}</div>
+      <div class="lc-body">
+        <div class="lc-price">${price}<span class="lc-psf">${ppf}</span></div>
+        <div class="lc-unit">${escHtml(l.building_name||'-')} <span class="floor-badge ${floorClass(l.floor)}">${escHtml(l.floor||'-')}</span> ${escHtml(l.unit||'')}</div>
+        <div class="lc-meta">
+          <span>${l.bedrooms ?? '-'}房 · ${l.size_net ? Math.round(l.size_net).toLocaleString()+'呎' : '-'}</span>
+          ${dom}${cut}
+          ${l._combined ? `<span style="color:var(--up)">${l.sources.length} 個源</span>` : ''}
+        </div>
+        <div class="lc-badges">${srcLinks}</div>
+      </div>
+    </div>`;
+  }).join('') + `</div>`;
+
+  // 卡先出，相後補（唔好為咗等相而 block 住成個 view）
+  if (activeEstateId) {
+    hydrateCardPhotos(activeEstateId, 'S')
+      .then(photos => { if (_listingView === 'card') applyCardPhotos(photos); });
+  }
+}
+
 function renderListingsTable() {
   const el = document.getElementById("listingsTable");
   if (!el) return;
   const visible = applySortAndFilter();
   const displayRows = groupListings(visible);
+  if (_listingView === "card" && !groupSelectMode) {
+    const fc0 = document.getElementById("filterCount");
+    if (fc0) fc0.textContent = `顯示 ${visible.length} / ${allListings.length} 個盤${displayRows.length < visible.length ? `(合併為 ${displayRows.length} 張卡)` : ''}`;
+    renderListingCards(el, displayRows);
+    return;
+  }
+  { const btn = document.getElementById("listingViewBtn"); if (btn) btn.textContent = "🖼 卡片"; }
 
   const fc = document.getElementById("filterCount");
   if (fc) fc.textContent = `顯示 ${visible.length} / ${allListings.length} 個盤${displayRows.length < visible.length ? `(合併為 ${displayRows.length} 行)` : ''}`;

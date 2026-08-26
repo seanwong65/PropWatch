@@ -5493,6 +5493,77 @@ export default {
         return json(200, { results });
       }
 
+      // 放盤相（卡片 view 用）。**特登唔存 DB**：相係 portal 嘅資產，
+      // 佢哋隨時換／落架，儲落自己度只會變成一堆爛 link，而且成個 project
+      // 嘅立場係「我哋儲嘅係數字歷史，唔係人哋啲相」。所以每次即時問，
+      // 由前端 hotlink 佢哋個 CDN。
+      //
+      // 一次 call 攞晒成個屋苑（唔係逐個盤問）——美聯／香港置業個 listing
+      // API 本身就係 per-estate 出晒所有盤，所以 2 個 subrequest 就有齊
+      // 兩邊全部盤嘅相。中原嗰邊唔使問：佢個 thumbnail 一早 scrape 落
+      // listings.thumbnail，跟 listing response 落嚟。
+      // 利嘉閣冇做：佢係 HTML scrape（每頁 1MB、實測首字節 3.4s），為咗
+      // 幾張相拖慢成個卡片 view 唔值——冇相就出返個 placeholder。
+      if (method === "GET" && path.match(/^\/api\/estates\/\d+\/photos$/)) {
+        const estateId = Number(path.split("/")[3]);
+        const est = await db.prepare(
+          `SELECT e.name FROM estates e
+           JOIN account_estates ae ON ae.estate_id = e.id AND ae.account_id = ?
+           WHERE e.id = ?`
+        ).bind(session.account_id, estateId).first();
+        if (!est) return json(404, { error: "搵唔到屋苑" });
+        const deal = url.searchParams.get("deal") === "R" ? "L" : "S";
+        const photos = {};   // ref_no -> 圖 URL
+        const take = (rows) => {
+          for (const r of rows || []) {
+            let u = r.outlook_wan_doc_path || r.outlook_photos?.[0]?.wan_doc_path;
+            if (!r.serial_no || !u) continue;
+            // 美聯個 API 回 wm-cdn.midland.com.hk，但嗰個 host 前面有 CloudFront
+            // WAF，瀏覽器直接攞會 403（實測）。wm.midland.com.hk 同一條路徑回
+            // 200 image/jpeg —— 換 host 就得，唔使 proxy。
+            u = u.replace("://wm-cdn.midland.com.hk/", "://wm.midland.com.hk/");
+            photos[r.serial_no] = u;
+          }
+        };
+        // 要逐頁攞晒——前端啲卡經篩選／排序之後可以係任何一頁嘅盤，
+        // 淨係攞頭 50 個會令大部分卡照樣冇相。10 頁 × 50 封頂，
+        // 再加時間預算防大屋苑拖死個 request。
+        const deadline = Date.now() + 12000;
+        const pageAll = async (mkUrl, call, tok) => {
+          for (let page = 1; page <= 10; page++) {
+            if (Date.now() > deadline) break;
+            const d = await call(mkUrl(page), tok);
+            const rows = d?.result || [];
+            if (!rows.length) break;
+            take(rows);
+            if (rows.length < 50) break;
+          }
+        };
+        const jobs = [
+          (async () => {
+            const tok = await midlandGetToken();
+            if (!tok) return;
+            const eid = await midlandEstId(est.name, tok);
+            if (!eid) return;
+            await pageAll((pg) =>
+              `/search/v2/properties?lang=zh-hk&est_ids=${eid}&tx_type=${deal}&limit=50&page=${pg}`,
+              midlandApi, tok);
+          })(),
+          (async () => {
+            const tok = await hkpGetToken();
+            if (!tok) return;
+            const ac = await hkpApi(`/search/v1/autocomplete/estates?text=${encodeURIComponent(est.name)}`, tok);
+            const eid = ac?.[0]?.result?.[0]?.search?.id;
+            if (!eid) return;
+            await pageAll((pg) =>
+              `/search/v1/properties?est_ids=${eid}&tx_type=${deal}&limit=50&page=${pg}`,
+              hkpApi, tok);
+          })(),
+        ];
+        await Promise.allSettled(jobs);   // 一邊掛咗照出另一邊
+        return json(200, { photos });
+      }
+
       // 進階搜尋：跨晒所有已追蹤屋苑搜放盤（中原主頁「進階」嘅 HouseRadar 版，
       // 仲多咗人哋冇嘅時間軸篩選——放盤日數／有冇減過價）。
       // 搜嘅係自己 DB 嘅最新 snapshot，唔打任何 portal——快、零 subrequest。
