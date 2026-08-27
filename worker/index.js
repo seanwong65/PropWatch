@@ -8008,7 +8008,15 @@ export default {
                (SELECT COUNT(*) FROM payment_events
                   WHERE status='failed' AND created_at >= date('now','+8 hours','-30 day')) AS failed_30d`
           ).first();
-          return json(200, { subs, summary: sum, stripeConfigured: !!env.STRIPE_SECRET_KEY });
+          // Stripe 而家跑緊邊個 mode。淨係睇 key 個 prefix（sk_test_ / sk_live_），
+          // 唔會洩露 key 本身。換 live key 嗰陣一定要有個地方 confirm 到真係
+          // 換咗 —— price id／customer id／subscription id 全部係 mode-specific，
+          // 用錯 mode 唔會即刻報錯，係去到 checkout 先話你「No such price」。
+          const skPrefix = String(env.STRIPE_SECRET_KEY || "");
+          const stripeMode = !skPrefix ? null
+            : skPrefix.includes("_live_") ? "live"
+            : skPrefix.includes("_test_") ? "test" : "unknown";
+          return json(200, { subs, summary: sum, stripeConfigured: !!env.STRIPE_SECRET_KEY, stripeMode });
         }
 
         // 價錢：睇晒歷史 + 排期緊嘅
