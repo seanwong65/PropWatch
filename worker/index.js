@@ -3262,9 +3262,12 @@ async function sendEmail(env, to, subject, html, extraHeaders = {}) {
   const hdrLines = Object.entries(extraHeaders)
     .filter(([, v]) => v != null && v !== "")
     .map(([k, v]) => `${String(k).replace(/[\r\n]/g, "")}: ${String(v).replace(/[\r\n]/g, "")}`);
-  // 中文 subject 用 RFC 2047 encoded-word；body 用 base64 transfer encoding
+  // 中文 subject／From display name 都要用 RFC 2047 encoded-word——header
+  // 淨係准 ASCII，之前 From 個「搵樓日記」直接寫 raw UTF-8，Gmail send API
+  // 冇事，但去到某啲 mail client（用戶截圖嗰個）解唔到就變晒亂碼。
+  // body 用 base64 transfer encoding。
   const mime = [
-    `From: 搵樓日記 <hkbuyhouse@gmail.com>`,
+    `From: =?UTF-8?B?${_b64utf8("搵樓日記")}?= <hkbuyhouse@gmail.com>`,
     `To: ${String(to).replace(/[\r\n]/g, "")}`,
     `Subject: =?UTF-8?B?${_b64utf8(subject)}?=`,
     ...hdrLines,
