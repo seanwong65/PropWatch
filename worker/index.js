@@ -5850,7 +5850,7 @@ export default {
           const already = await db.prepare(
             "SELECT 1 FROM account_estates WHERE account_id = ? AND estate_id = ?"
           ).bind(session.account_id, estate.id).first();
-          if (!already) {
+          if (!already && !isAdminSession(session)) {
             const secCfg = await getSecCfg(db);
             const paid = isPaidSession(session);
             const cap = paid ? secCfg.sec_paid_max_estates : secCfg.sec_free_max_estates;
@@ -6929,7 +6929,7 @@ export default {
         const row = await db.prepare(
           "SELECT COUNT(*) AS c FROM account_estates WHERE account_id = ? AND paused_at IS NULL"
         ).bind(session.account_id).first();
-        if ((row?.c || 0) >= cap) {
+        if (!isAdminSession(session) && (row?.c || 0) >= cap) {
           return json(402, {
             error: `已經有 ${cap} 個生效中嘅屋苑，要暫停／移除其中一個先恢復得到呢個。`,
             upgrade: !paid, feature: "estates", atCap: true,
@@ -8208,12 +8208,15 @@ export default {
         // 每個帳戶受邊個上限管 + 用咗幾多 %，慳返前端自己砌。
         for (const a of accounts) {
           const paid = a.role === "admin" || a.tier === "paid";
-          a.max_estates = paid ? sc.sec_paid_max_estates : sc.sec_free_max_estates;
+          // Admin 帳戶唔受屋苑上限管（見加屋苑／resume 嗰兩個 gate 嘅
+          // isAdminSession 判斷）——呢度跟返做 null＝無限，同 viewings
+          // 一致嘅顯示方式（「31/∞」），唔好扮住有個 cap 佢其實冇嘅嘢。
+          a.max_estates = a.role === "admin" ? null : (paid ? sc.sec_paid_max_estates : sc.sec_free_max_estates);
           a.max_viewings = paid ? null : sc.sec_free_max_viewings;   // null = 無限
           a.estates_pct = a.max_estates ? Math.round(a.estates / a.max_estates * 100) : null;
           a.viewings_pct = a.max_viewings ? Math.round(a.viewings / a.max_viewings * 100) : null;
           // 撞緊頂／爆咗頂（改細上限之後可能會爆）——最值得 admin 留意。
-          a.at_estate_cap = a.estates >= a.max_estates;
+          a.at_estate_cap = a.max_estates != null && a.estates >= a.max_estates;
           a.at_viewing_cap = a.max_viewings != null && a.viewings >= a.max_viewings;
         }
         // Sync 負荷：drip sync 只做「有人訂閱」嘅屋苑，所以呢個數直接決定
