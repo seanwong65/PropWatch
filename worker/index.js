@@ -5497,7 +5497,11 @@ export default {
                 <p style="font-size:30px;font-weight:700;letter-spacing:6px;color:#0f172a">${code}</p>
                 <p style="color:#64748b;font-size:13px">10 分鐘內有效。如果唔係你操作，直接無視呢封信，你嘅密碼唔會變。</p>
               </div>`);
-          } catch (err) { /* 寄唔到都回 ok，唔洩露 email 是否存在；用戶收唔到自然會重試 */ }
+          } catch (err) {
+            // 對外照舊回 ok（唔洩露 email 是否存在），但一定要留低 log——
+            // 之前完全靜靜吞咗，寄唔到都冇任何痕跡，查極都查唔到。
+            console.error(`forgot-otp 寄信失敗 (${em}):`, err?.message || err);
+          }
         }
         return json(200, { ok: true });
       }
