@@ -2106,6 +2106,11 @@ async function ensureRentalTables(db) {
   )`).run();
   await db.prepare("CREATE INDEX IF NOT EXISTS idx_rl_estate_date ON rental_listings(estate_id, snapshot_date)").run();
   await db.prepare("CREATE INDEX IF NOT EXISTS idx_rl_ref ON rental_listings(ref_no)").run();
+  // 租盤 email 嘅 correlated subquery（list_start、下架判斷）同 sync summary
+  // 用——冇呢幾個 index 會逐行 scan，D1 免費 plan 一日 500 萬 rows read 頂唔順。
+  await db.prepare("CREATE INDEX IF NOT EXISTS idx_rl_estate_ref ON rental_listings(estate_id, ref_no, snapshot_date)").run();
+  await db.prepare("CREATE INDEX IF NOT EXISTS idx_rl_estate_src_date ON rental_listings(estate_id, source, snapshot_date)").run();
+  await db.prepare("CREATE INDEX IF NOT EXISTS idx_rl_date_src ON rental_listings(snapshot_date, source)").run();
 
   await db.prepare(`CREATE TABLE IF NOT EXISTS rental_price_history (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -2116,6 +2121,7 @@ async function ensureRentalTables(db) {
     UNIQUE(ref_no, snapshot_date)
   )`).run();
   await db.prepare("CREATE INDEX IF NOT EXISTS idx_rph_ref ON rental_price_history(ref_no, snapshot_date)").run();
+  await db.prepare("CREATE INDEX IF NOT EXISTS idx_rph_estate_ref ON rental_price_history(estate_id, ref_no, snapshot_date)").run();
 
   // 租務成交（agent 網自己嘅租務記錄，唔係土地註冊處——租約唔會公開登記）。
   // 去重同買賣成交同一套：bldg_key 抹平「8座 / 08座 / N座 vs n座 / 屋苑名」
@@ -3477,9 +3483,13 @@ async function getTodayHighlights(db, accountId) {
       JOIN account_estates ae ON ae.estate_id = e.id AND ae.account_id = ?
       WHERE l.snapshot_date = ?
         AND l.ref_no IS NOT NULL
-        AND l.ref_no NOT IN (
-          SELECT ref_no FROM listing_price_history
-          WHERE estate_id = l.estate_id AND snapshot_date < ?
+        -- NOT EXISTS + ref_no 等值，行 idx_lph_estate_ref 一步 seek。
+        -- 之前係 NOT IN (SELECT ref_no … WHERE estate_id = l.estate_id)：每個
+        -- 今日放盤都要 scan 晒成個屋苑嘅價格史，實測一次 email 讀 8,000 萬 row
+        -- （D1 免費 plan 一日先 500 萬）。ref_no 係 NOT NULL，兩個寫法結果一樣。
+        AND NOT EXISTS (
+          SELECT 1 FROM listing_price_history ph
+          WHERE ph.estate_id = l.estate_id AND ph.ref_no = l.ref_no AND ph.snapshot_date < ?
         )
         AND ae.added_at <= ?
         AND date(e.first_seen) <= ?
@@ -3656,9 +3666,10 @@ async function getTodayHighlights(db, accountId) {
         JOIN account_estates ae ON ae.estate_id = e.id AND ae.account_id = ?
         WHERE l.snapshot_date = ?
           AND l.ref_no IS NOT NULL
-          AND l.ref_no NOT IN (
-            SELECT ref_no FROM rental_price_history
-            WHERE estate_id = l.estate_id AND snapshot_date < ?
+          -- 同買盤版一樣：NOT EXISTS + ref_no 等值，行 idx_rph_estate_ref。
+          AND NOT EXISTS (
+            SELECT 1 FROM rental_price_history ph
+            WHERE ph.estate_id = l.estate_id AND ph.ref_no = l.ref_no AND ph.snapshot_date < ?
           )
           AND ae.added_at <= ?
           AND date(e.first_seen) <= ?

@@ -10,8 +10,11 @@ database_id = "85cb5e76-a3f1-4a25-a7ed-9901392430d5"
 [vars]
 IS_TEST_ENV = "1"
 
+# 特登清空：test 環境唔自動 scrape。之前同 production 一樣每 2 分鐘 drip sync，
+# 令成個 account 嘅 CPU 用量翻倍，2026-08-29 兩個 worker 一齊撞 Workers Free
+# 10ms CPU 上限（exceededResources）。要 sync 就人手觸發。
 [triggers]
-crons = ["*/2 * * * *", "0 1 * * *"]
+crons = []
 
 [observability]
 enabled = true

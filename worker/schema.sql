@@ -57,6 +57,12 @@ CREATE TABLE IF NOT EXISTS price_snapshots (
 );
 
 CREATE INDEX IF NOT EXISTS idx_listings_estate ON listings(estate_id, snapshot_date DESC);
+-- 下面幾個 index 係為 D1 免費 plan（一日 500 萬 rows read）而加，2026-09-24。
+-- 之前每日 email 嘅 correlated subquery（list_start、「下架」判斷、70% guard）
+-- 冇 index 可用，一個帳戶一次 email 讀成 1 億 row。
+CREATE INDEX IF NOT EXISTS idx_listings_estate_ref ON listings(estate_id, ref_no, snapshot_date);
+CREATE INDEX IF NOT EXISTS idx_listings_estate_src_date ON listings(estate_id, source, snapshot_date);
+CREATE INDEX IF NOT EXISTS idx_listings_date_src ON listings(snapshot_date, source);
 CREATE INDEX IF NOT EXISTS idx_snapshots_estate ON price_snapshots(estate_id, snapshot_date DESC);
 
 -- 每個 refNo 的每日價格記錄（用於追蹤個別單位升跌）
@@ -71,6 +77,8 @@ CREATE TABLE IF NOT EXISTS listing_price_history (
 );
 
 CREATE INDEX IF NOT EXISTS idx_lph_ref ON listing_price_history(ref_no, snapshot_date DESC);
+-- 「新放盤」嘅 NOT EXISTS（estate_id + ref_no）用，見上面 listings 嗰段註解。
+CREATE INDEX IF NOT EXISTS idx_lph_estate_ref ON listing_price_history(estate_id, ref_no, snapshot_date);
 
 -- 恆生估值記錄
 CREATE TABLE IF NOT EXISTS hangseng_valuations (
