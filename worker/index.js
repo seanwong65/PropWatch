@@ -8,15 +8,17 @@ const CORS = {
 // Production（真實用戶／Stripe／email）行呢個 worker，用返正式域名；
 // propwatch-worker-test 嗰邊靠 IS_TEST_ENV 判斷，覆蓋做 propwatch.pages.dev
 // ——test D1 係 production 嘅完整 copy，如果 email 入面啲連結指去
-// homefinding.ws-techs.com，測試賬戶撳落去會睇到 production 嗰邊嘅
+// home.ws-techs.com，測試賬戶撳落去會睇到 production 嗰邊嘅
 // （冇 email 呢家伙就唔會撞到，但 unsubscribe／confirm 頁呢類直接
 // response HTML 嘅位仍然用得到 APP_BASE，要指返自己）。
+// ⚠️ 2026-09-24 由 homefinding.ws-techs.com 轉做 home.ws-techs.com（新 CNAME）。
+// 舊域名已經冇再用，DNS record 都刪咗——唔留 fallback。
 const WORKER_BASE = "https://propwatch-worker.johnwong777.workers.dev";
-const APP_BASE = "https://homefinding.ws-techs.com";
+const APP_BASE = "https://home.ws-techs.com";
 
 // 瀏覽器跨域只准自己嘅前端；curl/server-side 唔受 CORS 限（靠 auth + rate limit 守）。
 function isAllowedOrigin(origin) {
-  if (origin === "https://homefinding.ws-techs.com") return true;  // Production 自訂域名
+  if (origin === "https://home.ws-techs.com") return true;  // Production 自訂域名
   if (origin === "https://propwatch.pages.dev") return true;       // Test/dev（propwatch.pages.dev 而家指去 test worker，但兩個 worker 嘅 CORS 都照抄呢張表，簡單啲）
   if (/^https:\/\/[a-z0-9-]+\.propwatch\.pages\.dev$/.test(origin)) return true; // Pages preview deploys
   if (origin === "http://localhost:3456" || origin === "http://127.0.0.1:3456") return true; // local dev
