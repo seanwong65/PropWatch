@@ -343,6 +343,13 @@ const SEC_DEFS = [
     desc: "卡片 view 每張卡可以左右揭嘅相數上限。相係即時經 /api/photo 代取（唔入 DB），"
         + "每張都食一個 subrequest —— 擺喺 sec_* 而唔係 ⚙️ 設定，就係唔想用戶自己較大變成放大器。"
         + "前端只會載住緊嗰張同下一張，加大主要影響最多可以揭到幾多張。" },
+  { key: "sec_free_max_viewing_imgs", def: 10, min: 1, max: 100, label: "免費版：每個睇樓記錄最多幾多張相",
+    desc: "免費用戶每個睇樓記錄可以存幾多張相（收費版唔受呢個限，淨係受下面嗰個絕對上限）。" },
+  { key: "sec_viewing_imgs_max", def: 40, min: 1, max: 200, label: "睇樓記錄：每個絕對上限（連收費版都封頂）",
+    desc: "唔分 tier 嘅硬頂——相逐張一行存喺 D1 viewing_images，數量完全唔封頂會俾人當免費圖床。" },
+  { key: "sec_viewing_img_max_kb", def: 1500, min: 100, max: 1900, label: "睇樓記錄：每張相上限（KB）",
+    desc: "每張相（base64 data URL）嘅大小上限。前端會先壓細到長邊 1600px（一般 200–500KB），"
+        + "呢個係後端硬閘。唔可以超過 D1 單格上限（實測 ~4MB 以上就 SQLITE_TOOBIG），留定位。" },
 ];
 const SEC_DEFAULTS = Object.fromEntries(SEC_DEFS.map((d) => [d.key, d.def]));
 let _secCfgCache = { at: 0, vals: null };
@@ -2779,6 +2786,82 @@ const _sqlMedian = (arr) => {
   return Math.round((s[lo - 1] + s[hi - 1]) / 2);
 };
 
+// ── 睇樓記錄相片 ─────────────────────────────────────────────────────────
+// 之前成個 JSON array 塞入 viewings.images 一格，D1 單格 ~4MB 就
+// SQLITE_TOOBIG（手機原圖兩三張已經爆，前端淨係見到「儲存失敗」）。
+// 而家逐張一行存 viewing_images；viewings.images 淨係留俾舊記錄做 fallback
+// （改過一次就會搬晒過嚟，順手清 NULL）。對外 API 照舊用 `images` JSON 字串，
+// 前端唔使知底層點存。
+async function ensureViewingImages(db) {
+  await db.prepare(`CREATE TABLE IF NOT EXISTS viewing_images (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    viewing_id INTEGER NOT NULL,
+    account_id INTEGER NOT NULL,
+    seq INTEGER NOT NULL,
+    data TEXT NOT NULL
+  )`).run();
+  await db.prepare("CREATE INDEX IF NOT EXISTS idx_vimg_acct_viewing ON viewing_images(account_id, viewing_id, seq)").run();
+}
+
+const VIEWING_IMG_RE = /^data:image\/(jpeg|png|webp|gif);base64,[A-Za-z0-9+/]+={0,2}$/;
+
+// 驗 `images`（JSON 字串，array of data URL）。回 { list } 或 { error }。
+// 只准 data:image/*;base64——CSP img-src 本身都擋外部 URL，但入 DB 前都要擋，
+// 唔好俾人存任意字串。`paid`：免費用戶額外受 sec_free_max_viewing_imgs 管，
+// 收費版淨係受 sec_viewing_imgs_max 呢個唔分 tier 嘅絕對硬頂。
+function parseViewingImages(images, sec, paid) {
+  if (images == null || images === "") return { list: [] };
+  let list;
+  try { list = typeof images === "string" ? JSON.parse(images) : images; } catch { return { error: "圖片格式唔啱" }; }
+  if (!Array.isArray(list)) return { error: "圖片格式唔啱" };
+  if (!paid && list.length > sec.sec_free_max_viewing_imgs)
+    return { error: `免費版每個睇樓記錄最多 ${sec.sec_free_max_viewing_imgs} 張相，升級收費版就冇呢個限制`, upgrade: true, feature: "viewing_imgs" };
+  if (list.length > sec.sec_viewing_imgs_max) return { error: `每個睇樓記錄最多 ${sec.sec_viewing_imgs_max} 張相` };
+  const maxBytes = sec.sec_viewing_img_max_kb * 1024;
+  for (const s of list) {
+    if (typeof s !== "string" || !VIEWING_IMG_RE.test(s)) return { error: "圖片格式唔啱" };
+    if (s.length > maxBytes) return { error: `有張相太大（上限 ${sec.sec_viewing_img_max_kb}KB），請重新揀過` };
+  }
+  return { list };
+}
+
+// 一個睇樓記錄嘅相：先刪後插，連同 viewings.images 清 NULL（舊格式搬走）。
+// 回 statements 俾 caller 同其他寫入一齊 db.batch()——D1 batch 係一個
+// transaction，唔會出現「記錄改咗但相寫一半」。
+function viewingImageStatements(db, viewingId, accountId, list) {
+  return [
+    db.prepare("DELETE FROM viewing_images WHERE viewing_id = ? AND account_id = ?").bind(viewingId, accountId),
+    ...list.map((data, i) => db.prepare(
+      "INSERT INTO viewing_images (viewing_id, account_id, seq, data) VALUES (?,?,?,?)"
+    ).bind(viewingId, accountId, i, data)),
+    db.prepare("UPDATE viewings SET images = NULL WHERE id = ? AND account_id = ?").bind(viewingId, accountId),
+  ];
+}
+
+// 將 viewing_images 砌返做 `images` JSON 字串塞返落每個 row（in place）。
+// 一次過攞晒呢個帳戶嘅相再喺 JS 分組——唔用 IN (?,?,…)，D1 bound param 有上限。
+// 冇新表 row 嘅舊記錄保留原本 viewings.images。
+async function attachViewingImages(db, accountId, rows, idKey = "id", estateId = null) {
+  if (!rows.length) return rows;
+  await ensureViewingImages(db);
+  const { results } = await db.prepare(
+    `SELECT vi.viewing_id, vi.data FROM viewing_images vi
+     JOIN viewings v ON v.id = vi.viewing_id AND v.account_id = vi.account_id
+     WHERE vi.account_id = ?1 AND (?2 IS NULL OR v.estate_id = ?2)
+     ORDER BY vi.viewing_id, vi.seq`
+  ).bind(accountId, estateId).all();
+  const byViewing = new Map();
+  for (const r of results) {
+    if (!byViewing.has(r.viewing_id)) byViewing.set(r.viewing_id, []);
+    byViewing.get(r.viewing_id).push(r.data);
+  }
+  for (const row of rows) {
+    const imgs = byViewing.get(row[idKey]);
+    if (imgs) row.images = JSON.stringify(imgs);
+  }
+  return rows;
+}
+
 async function computeViewingComps(db, accountId) {
   // 排序跟屋苑偏好(同側欄屋苑清單一致):已標星最愛優先,再跟手動拖曳嘅
   // sort_order;同一屋苑內嘅卡再按睇樓日期新到舊。Per-account:只計自己
@@ -2800,6 +2883,7 @@ async function computeViewingComps(db, accountId) {
     WHERE v.account_id = ?
     ORDER BY COALESCE(ae.is_favourite, 0) DESC, COALESCE(ae.sort_order, 9999) ASC, v.view_date DESC, v.id DESC
   `).bind(accountId).all();
+  await attachViewingImages(db, accountId, viewings);
 
   const estateIds = [...new Set(viewings.map((v) => v.estate_id))];
   let txns = [];
@@ -7077,6 +7161,7 @@ export default {
           WHERE v.account_id = ?1 AND ${scopeSql}
           ORDER BY v.view_date DESC, v.created_at DESC
         `).bind(...(estateId ? [session.account_id, estateId] : [session.account_id])).all();
+        await attachViewingImages(db, session.account_id, results, "id", estateId ? Number(estateId) : null);
         // 跨屋苑要每個屋苑自己一套市場基準，所以下面全部 per-estate map 住做。
         const estateIds = [...new Set(results.map((v) => v.estate_id).filter(Boolean))];
         if (!estateIds.length) return json(200, { viewings: [] });
@@ -7355,13 +7440,26 @@ export default {
             });
           }
         }
+        const imgs = parseViewingImages(images, await getSecCfg(db), isPaidSession(session));
+        if (imgs.error) return json(imgs.upgrade ? 402 : 400, imgs.upgrade ? { error: imgs.error, upgrade: true, feature: imgs.feature } : { error: imgs.error });
         await db.prepare("ALTER TABLE viewings ADD COLUMN bedrooms INTEGER").run().catch(() => {});
         await db.prepare("ALTER TABLE viewings ADD COLUMN ratings TEXT").run().catch(() => {});
         await db.prepare("ALTER TABLE viewings ADD COLUMN deal_type TEXT DEFAULT 'S'").run().catch(() => {});
+        await ensureViewingImages(db);
         const result = await db.prepare(
-          "INSERT INTO viewings (estate_id, view_date, block, floor, unit, size_net, direction, price, mgmt_fee, images, notes, bedrooms, ratings, account_id, deal_type) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)"
-        ).bind(estate_id, view_date, block||null, floor, unit, size_net, direction||null, price, dealType === 'R' ? null : (mgmt_fee||null), images||null, notes||null, bedrooms||2, sanitizeRatings(ratings), session.account_id, dealType).run();
-        return json(200, { ok: true, id: result.meta.last_row_id });
+          "INSERT INTO viewings (estate_id, view_date, block, floor, unit, size_net, direction, price, mgmt_fee, images, notes, bedrooms, ratings, account_id, deal_type) VALUES (?,?,?,?,?,?,?,?,?,NULL,?,?,?,?,?)"
+        ).bind(estate_id, view_date, block||null, floor, unit, size_net, direction||null, price, dealType === 'R' ? null : (mgmt_fee||null), notes||null, bedrooms||2, sanitizeRatings(ratings), session.account_id, dealType).run();
+        const newId = result.meta.last_row_id;
+        if (imgs.list.length) {
+          try {
+            await db.batch(viewingImageStatements(db, newId, session.account_id, imgs.list));
+          } catch (e) {
+            // 相寫唔落就連記錄一齊撤回，唔好留低一個「冇相」嘅半成品俾用戶以為存咗
+            await db.prepare("DELETE FROM viewings WHERE id = ? AND account_id = ?").bind(newId, session.account_id).run();
+            throw e;
+          }
+        }
+        return json(200, { ok: true, id: newId });
       }
 
       // 改/刪都帶 account_id 條件——一個 account 掂唔到另一個 account 嘅記錄。
@@ -7370,12 +7468,23 @@ export default {
         const body = await request.json();
         const { view_date, block, floor, unit, size_net, direction, price, mgmt_fee, images, notes, bedrooms, ratings } = body;
         const dealType = body.deal_type === 'R' ? 'R' : 'S';
+        const imgs = parseViewingImages(images, await getSecCfg(db), isPaidSession(session));
+        if (imgs.error) return json(imgs.upgrade ? 402 : 400, imgs.upgrade ? { error: imgs.error, upgrade: true, feature: imgs.feature } : { error: imgs.error });
         await db.prepare("ALTER TABLE viewings ADD COLUMN bedrooms INTEGER").run().catch(() => {});
         await db.prepare("ALTER TABLE viewings ADD COLUMN ratings TEXT").run().catch(() => {});
         await db.prepare("ALTER TABLE viewings ADD COLUMN deal_type TEXT DEFAULT 'S'").run().catch(() => {});
-        await db.prepare(
-          "UPDATE viewings SET view_date=?, block=?, floor=?, unit=?, size_net=?, direction=?, price=?, mgmt_fee=?, images=?, notes=?, bedrooms=?, ratings=?, deal_type=?, hs_price=NULL WHERE id=? AND account_id=?"
-        ).bind(view_date, block||null, floor, unit, size_net, direction||null, price, dealType === 'R' ? null : (mgmt_fee||null), images||null, notes||null, bedrooms||2, sanitizeRatings(ratings), dealType, viewingId, session.account_id).run();
+        await ensureViewingImages(db);
+        // 先確認係自己嘅記錄：viewing_images 嘅 INSERT 冇 WHERE 可以擋，
+        // 唔驗就可以對住人哋嘅 viewing_id 寫相（雖然讀嗰邊有 scope，都唔好留）。
+        const own = await db.prepare("SELECT 1 FROM viewings WHERE id = ? AND account_id = ?")
+          .bind(viewingId, session.account_id).first();
+        if (!own) return json(404, { error: "搵唔到呢個睇樓記錄" });
+        await db.batch([
+          db.prepare(
+            "UPDATE viewings SET view_date=?, block=?, floor=?, unit=?, size_net=?, direction=?, price=?, mgmt_fee=?, notes=?, bedrooms=?, ratings=?, deal_type=?, hs_price=NULL WHERE id=? AND account_id=?"
+          ).bind(view_date, block||null, floor, unit, size_net, direction||null, price, dealType === 'R' ? null : (mgmt_fee||null), notes||null, bedrooms||2, sanitizeRatings(ratings), dealType, viewingId, session.account_id),
+          ...viewingImageStatements(db, viewingId, session.account_id, imgs.list),
+        ]);
         return json(200, { ok: true });
       }
 
@@ -7396,7 +7505,11 @@ export default {
 
       if (method === "DELETE" && path.startsWith("/api/viewings/")) {
         const viewingId = path.split("/").pop();
-        await db.prepare("DELETE FROM viewings WHERE id = ? AND account_id = ?").bind(viewingId, session.account_id).run();
+        await ensureViewingImages(db);
+        await db.batch([
+          db.prepare("DELETE FROM viewing_images WHERE viewing_id = ? AND account_id = ?").bind(viewingId, session.account_id),
+          db.prepare("DELETE FROM viewings WHERE id = ? AND account_id = ?").bind(viewingId, session.account_id),
+        ]);
         return json(200, { ok: true });
       }
 
@@ -7546,6 +7659,7 @@ export default {
           // 上限本身係 sec_*（服務端真相），前端呢兩個純粹顯示，改極都冇用。
           maxEstates: paid ? sc.sec_paid_max_estates : sc.sec_free_max_estates,
           maxViewings: paid ? null : sc.sec_free_max_viewings,   // null = 無限
+          maxViewingImgs: paid ? null : sc.sec_free_max_viewing_imgs,   // null = 無限（收費版）
         });
       }
       if (method === "PUT" && path === "/api/config") {
