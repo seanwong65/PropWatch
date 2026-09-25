@@ -1,0 +1,314 @@
+<!DOCTYPE html>
+<html lang="zh-HK" data-theme="light">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <title>按揭計算機 2026｜印花稅、按揭保險、月供一次計晒 — 搵樓日記</title>
+  <meta name="description" content="香港按揭計算機（2026 版）：輸入月入同手頭現金，即計買得起幾錢樓；或者輸入樓價，計首期、印花稅、按揭保險、月供同上會要準備幾多現金。按稅務局 2026-02-26 起印花稅稅階同按證保險現行保費計，免登入。">
+  <link rel="canonical" href="https://home.ws-techs.com/mortgage-calculator">
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="搵樓日記">
+  <meta property="og:locale" content="zh_HK">
+  <meta property="og:url" content="https://home.ws-techs.com/mortgage-calculator">
+  <meta property="og:title" content="按揭計算機 2026｜買得起幾錢樓？印花稅、按保、月供一次計">
+  <meta property="og:description" content="輸入月入同現金，即計買得起幾錢樓；或者輸入樓價，計首期、印花稅、按揭保險同月供。免登入。">
+  <meta property="og:image" content="https://home.ws-techs.com/images/hero-1-overview.jpg">
+  <meta name="twitter:card" content="summary_large_image">
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <meta name="theme-color" content="#047857">
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@graph": [
+      {
+        "@type": "WebApplication",
+        "name": "按揭計算機 2026（搵樓日記）",
+        "url": "https://home.ws-techs.com/mortgage-calculator",
+        "applicationCategory": "FinanceApplication",
+        "operatingSystem": "Web",
+        "inLanguage": "zh-HK",
+        "isAccessibleForFree": true,
+        "offers": { "@type": "Offer", "price": "0", "priceCurrency": "HKD" },
+        "description": "香港按揭計算機：由月入同現金倒推買得起幾錢樓，或者由樓價計首期、印花稅、按揭保險、月供同所需現金。按 2026 年印花稅稅階同按證保險保費表計算。"
+      },
+      {
+        "@type": "BreadcrumbList",
+        "itemListElement": [
+          { "@type": "ListItem", "position": 1, "name": "搵樓日記", "item": "https://home.ws-techs.com/" },
+          { "@type": "ListItem", "position": 2, "name": "按揭計算機", "item": "https://home.ws-techs.com/mortgage-calculator" }
+        ]
+      },
+      {
+        "@type": "FAQPage",
+        "mainEntity": [
+          {
+            "@type": "Question",
+            "name": "首次置業買樓，印花稅會唔會平啲？",
+            "acceptedAnswer": { "@type": "Answer", "text": "唔會。2024 年 2 月撤銷 BSD 同 NRSD 之後，首置同非首置都係交同一套從價印花稅（AVD），分別在於可以借幾多成按揭。" }
+          },
+          {
+            "@type": "Question",
+            "name": "買樓收租可唔可以做 9 成按揭？",
+            "acceptedAnswer": { "@type": "Answer", "text": "唔可以。按揭保險淨係批自住物業，收租盤最多只可以借 7 成。上面個計算機喺「我有幾多錢？」嗰欄會同時計埋「如果打算出租」嘅數。" }
+          },
+          {
+            "@type": "Question",
+            "name": "呢個計算機計出嚟嘅數準唔準？",
+            "acceptedAnswer": { "@type": "Answer", "text": "印花稅、按揭成數上限同按保保費都係跟官方公佈嘅數字計；利率、律師費、佣金可以自己改做你收到嘅報價。實際批核（例如花紅點計、估價會唔會估唔足）以銀行為準。" }
+          },
+          {
+            "@type": "Question",
+            "name": "我輸入嘅數字會唔會俾人睇到？",
+            "acceptedAnswer": { "@type": "Answer", "text": "唔會。全部喺你部機入面計，唔會上傳，亦唔使登入。" }
+          }
+        ]
+      }
+    ]
+  }
+  </script>
+  <style>
+    /* 淨係計算機同呢版內容用到嘅 token／class，值跟 index.html 嘅淺色主題
+       （成個網站而家固定淺色）。改品牌色要兩邊一齊改。 */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --bg: #f5f5f0; --surface: #fdfdfb; --surface2: #f0f0ea;
+      --border: rgba(16,42,34,0.10); --td-border: rgba(16,42,34,0.08);
+      --text: #16211d; --muted: #5c6b66;
+      --accent: #b45309; --accent2: #0369a1; --on-accent2: #ffffff;
+      --down: #dc2626;
+      --brand: #047857; --brand-hover: #065f46; --brand-ink: #ffffff; --brand-soft: rgba(4,120,87,0.10);
+      --btn-bg: #047857; --btn-hover: #065f46;
+      --btn2-bg: rgba(255,255,255,0.72); --btn2-border: rgba(16,42,34,0.14);
+      --badge-low-bg: #fef3c7;
+      --radius: 16px; --radius-sm: 10px;
+    }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI",
+        "PingFang HK", "PingFang TC", "Noto Sans HK", "Noto Sans CJK TC",
+        "Microsoft JhengHei", "Hiragino Sans", sans-serif;
+      background: var(--bg); color: var(--text); line-height: 1.6;
+    }
+    a { color: var(--accent2); }
+
+    .top {
+      position: sticky; top: 0; z-index: 10;
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 0.8rem 1.25rem; background: var(--bg);
+      border-bottom: 1px solid var(--border);
+    }
+    .top-logo { font-weight: 700; font-size: 1.05rem; color: var(--brand); text-decoration: none; }
+    .top-actions { display: flex; gap: 0.5rem; }
+    .top-btn {
+      border: 1px solid var(--btn2-border); background: var(--btn2-bg); color: var(--text);
+      border-radius: 999px; padding: 0.35rem 1rem; font-size: 0.85rem; text-decoration: none;
+    }
+    .top-btn.primary { background: var(--brand); border-color: var(--brand); color: var(--brand-ink); }
+
+    .wrap { max-width: 760px; margin: 0 auto; padding: 1.5rem 1rem 4rem; }
+    .crumb { font-size: 0.78rem; color: var(--muted); margin-bottom: 0.6rem; }
+    .crumb a { color: var(--muted); }
+    h1 { font-size: clamp(1.45rem, 4.5vw, 2rem); line-height: 1.35; font-weight: 800; }
+    .lead { color: var(--muted); margin: 0.6rem 0 1.25rem; font-size: 0.95rem; }
+
+    .card {
+      background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
+      padding: 1.1rem 1.1rem 1.25rem; box-shadow: 0 1px 3px rgba(16,42,34,0.06);
+    }
+    .card-title { font-weight: 700; font-size: 1.05rem; margin-bottom: 0.2rem; }
+
+    /* 計算機表單用到嘅 class（同 index.html 同名同樣） */
+    .vf-label { display: block; font-size: 0.75rem; color: var(--muted); margin-bottom: 0.3rem; margin-top: 0.75rem; }
+    .vf-input {
+      width: 100%; background: var(--surface2); border: 1px solid var(--border);
+      color: var(--text); border-radius: 6px; padding: 0.5rem 0.65rem;
+      font-size: 16px; /* <16px iOS 會自動 zoom */ outline: none; font-family: inherit;
+    }
+    .vf-input:focus { border-color: var(--accent2); }
+    .vf-row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 0.6rem; }
+    .vf-submit {
+      margin-top: 1.1rem; width: 100%; background: var(--btn-bg);
+      border: none; color: var(--brand-ink); border-radius: var(--radius-sm);
+      padding: 0.6rem; font-size: 0.88rem; font-weight: 600; cursor: pointer; font-family: inherit;
+    }
+    .vf-submit:hover { background: var(--btn-hover); }
+    .filter-chip {
+      background: var(--btn2-bg); border: 1px solid var(--btn2-border); color: var(--text);
+      border-radius: 20px; padding: 0.3rem 0.8rem; font-size: 0.8rem; cursor: pointer;
+      transition: all 0.15s; white-space: nowrap; font-family: inherit;
+    }
+    .filter-chip:hover  { border-color: var(--accent2); }
+    .filter-chip.active { background: rgba(251,191,36,0.12); border-color: var(--accent); color: var(--accent); }
+
+    /* 說明文字 */
+    .content h2 { font-size: 1.25rem; font-weight: 700; margin: 2.4rem 0 0.6rem; }
+    .content h3 { font-size: 1rem; font-weight: 700; margin: 1.4rem 0 0.35rem; }
+    .content p, .content li { font-size: 0.93rem; }
+    .content p { margin: 0.5rem 0; }
+    .content ul { padding-left: 1.3rem; margin: 0.5rem 0; }
+    .content li { margin: 0.25rem 0; }
+    .note { font-size: 0.8rem !important; color: var(--muted); }
+    .tbl-scroll { overflow-x: auto; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface); margin: 0.7rem 0; }
+    table { width: 100%; border-collapse: collapse; font-size: 0.86rem; }
+    th { background: var(--surface2); color: var(--muted); font-size: 0.78rem; text-align: left; padding: 0.55rem 0.8rem; white-space: nowrap; }
+    td { padding: 0.55rem 0.8rem; border-top: 1px solid var(--td-border); vertical-align: top; }
+    td.num { white-space: nowrap; font-variant-numeric: tabular-nums; }
+    .eg { background: var(--brand-soft); border-left: 3px solid var(--brand); border-radius: 6px; padding: 0.65rem 0.85rem; margin: 0.8rem 0; font-size: 0.9rem; }
+
+    .cta {
+      margin-top: 2.6rem; text-align: center; background: var(--surface);
+      border: 1px solid var(--border); border-radius: var(--radius); padding: 1.5rem 1.1rem;
+    }
+    .cta h2 { margin-top: 0 !important; }
+    .cta-btn {
+      display: inline-block; margin-top: 0.9rem; background: var(--brand); color: var(--brand-ink);
+      border-radius: var(--radius-sm); padding: 0.8rem 1.8rem; font-weight: 700; text-decoration: none;
+    }
+    .cta-btn:hover { background: var(--brand-hover); }
+    .foot { text-align: center; font-size: 0.75rem; color: var(--muted); line-height: 1.8; padding-top: 2.5rem; }
+  </style>
+</head>
+<body>
+
+<header class="top">
+  <a class="top-logo" href="/">🏙️ 搵樓日記</a>
+  <nav class="top-actions">
+    <a class="top-btn" href="/#login">登入</a>
+    <a class="top-btn primary" href="/#register">免費註冊</a>
+  </nav>
+</header>
+
+<main class="wrap">
+  <nav class="crumb" aria-label="麵包屑"><a href="/">搵樓日記</a> › 按揭計算機</nav>
+  <h1>按揭計算機 2026：買得起幾錢樓？印花稅、按揭保險、月供一次計</h1>
+  <p class="lead">兩個方向都計到：知自己月入同儲蓄，就倒推買得起幾錢樓；睇中咗層樓，就計首期、印花稅、按揭保險、月供同上會要準備幾多現金。唔使登入，數字唔會上傳。</p>
+
+  <section class="card" aria-label="按揭計算機">
+    <div class="card-title">🧮 按揭計算機</div>
+    <div id="mc-form-host"></div>
+  </section>
+
+  <article class="content">
+    <h2>2026 年住宅印花稅稅階</h2>
+    <p>
+      2024 年 2 月 28 日起，額外印花稅（SSD）、買家印花稅（BSD）同新住宅印花稅（NRSD）已經全部撤銷。
+      而家買住宅物業淨係要交<b>從價印花稅（AVD）</b>，首次置業同非首次置業<b>用同一套稅率</b>。
+      下表係稅務局由 <b>2026 年 2 月 26 日</b>起適用嘅稅階（樓價超過 $1 億嗰級由 4.25% 上調至 6.5%）。
+    </p>
+    <div class="tbl-scroll"><table>
+      <tr><th>樓價（代價）</th><th>印花稅</th></tr>
+      <tr><td class="num">$400萬 或以下</td><td>$100</td></tr>
+      <tr><td class="num">$400萬 – $432萬3,780</td><td>$100 + 超出 $400萬 部分嘅 20%</td></tr>
+      <tr><td class="num">$432萬3,781 – $450萬</td><td>1.5%</td></tr>
+      <tr><td class="num">$450萬 – $493萬5,480</td><td>$67,500 + 超出 $450萬 部分嘅 10%</td></tr>
+      <tr><td class="num">$493萬5,481 – $600萬</td><td>2.25%</td></tr>
+      <tr><td class="num">$600萬 – $664萬2,860</td><td>$135,000 + 超出 $600萬 部分嘅 10%</td></tr>
+      <tr><td class="num">$664萬2,861 – $900萬</td><td>3%</td></tr>
+      <tr><td class="num">$900萬 – $1,008萬</td><td>$270,000 + 超出 $900萬 部分嘅 10%</td></tr>
+      <tr><td class="num">$1,008萬 – $2,000萬</td><td>3.75%</td></tr>
+      <tr><td class="num">$2,000萬 – $2,173萬9,120</td><td>$750,000 + 超出 $2,000萬 部分嘅 10%</td></tr>
+      <tr><td class="num">$2,173萬9,121 – $1億</td><td>4.25%</td></tr>
+      <tr><td class="num">$1億 – $1億957萬4,470</td><td>$4,250,000 + 超出 $1億 部分嘅 30%</td></tr>
+      <tr><td class="num">$1億957萬4,470 以上</td><td>6.5%</td></tr>
+    </table></div>
+    <p class="note">「$100 + 超出部分嘅 20%」呢類係<b>邊際寬免</b>：樓價啱啱過一個稅階嗰陣，唔會一下子跳一大舊稅。</p>
+    <div class="eg">
+      例子：$500萬 → $112,500；$600萬 → $135,000；$800萬 → $240,000；
+      $1,000萬 → $370,000（行邊際寬免：$270,000 + $100萬 × 10%）。
+    </div>
+
+    <h2>最高可以借幾多成按揭？</h2>
+    <p>
+      金管局嘅基本上限係 <b>7 成</b>。想借多過 7 成，就要做按揭證券公司（按證保險）嘅<b>按揭保險</b>，
+      可以借到幾多再睇樓價：
+    </p>
+    <div class="tbl-scroll"><table>
+      <tr><th>樓價</th><th>首次置業</th><th>非首次置業</th></tr>
+      <tr><td class="num">$1,000萬 或以下</td><td>最高 9 成</td><td>最高 8 成</td></tr>
+      <tr><td class="num">$1,000萬 – $1,125萬</td><td>9 成，但貸款額封頂 $900萬</td><td>8 成</td></tr>
+      <tr><td class="num">$1,125萬 – $1,500萬</td><td>8 成</td><td>8 成</td></tr>
+      <tr><td class="num">$1,500萬 – $1,715萬</td><td>8 成，貸款額封頂 $1,200萬</td><td>8 成，封頂 $1,200萬</td></tr>
+      <tr><td class="num">$1,715萬 以上</td><td colspan="2">按保唔做，最多 7 成（金管局上限）</td></tr>
+    </table></div>
+    <ul>
+      <li>9 成按揭要<b>申請時名下冇任何香港住宅物業</b>，而且全部申請人都係<b>固定受薪人士</b>。</li>
+      <li>按揭保險<b>淨係批自住</b>。打算買嚟收租嘅話，一律封喺 7 成。</li>
+    </ul>
+
+    <h2>按揭保險保費點計？</h2>
+    <p>
+      保費係<b>貸款額嘅百分比</b>，睇三樣嘢：借幾多成（7 成以上至 75%／80%／85%／90%）、
+      還款年期、樓價同係咪首置。成數越高、年期越長，費率越高。
+      呢個計算機用按證保險 2024 年 10 月版保費表入面最常見嘅「浮息按揭＋一次過付清」組合。
+    </p>
+    <div class="eg">
+      例子：首置買 $600萬，借 9 成（$540萬），30 年：保費率 2.16%，即 <b>$116,640</b>。
+    </div>
+    <p class="note">銀行一般可以將按保保費加入貸款分期還；呢個計算機保守啲，當佢係上會要俾嘅現金。</p>
+
+    <h2>月入要幾多先批到按揭？</h2>
+    <p>
+      銀行睇<b>供款與入息比率（DSR）</b>：每月供款唔可以超過月入嘅 <b>50%</b>。
+      呢個上限由 2024 年 10 月 16 日起劃一，唔再分自住定收租、首置定非首置。
+      壓力測試（假設加息 2% 再計一次）亦已經喺 <b>2025 年 2 月 28 日</b>取消。
+    </p>
+    <div class="eg">
+      例子：$800萬 樓，借 7 成（$560萬），30 年，年利率 3.5%：每月供 <b>$25,147</b>，
+      即係月入要有大約 <b>$50,294</b> 以上。
+    </div>
+    <p class="note">有花紅嘅話，銀行一般用「最近兩年平均 ÷ 12」計入月入，封頂喺底薪 3 倍。呢個係市場慣例，唔係監管規定，各行做法唔同。</p>
+
+    <h2>上會要準備幾多現金？</h2>
+    <p>唔止首期。上會嗰陣手頭要有：</p>
+    <ul>
+      <li><b>首期</b>：樓價減貸款額</li>
+      <li><b>印花稅</b>：見上面稅階表</li>
+      <li><b>按揭保險保費</b>：借超過 7 成先要</li>
+      <li><b>代理佣金</b>：行業慣例一般係樓價 1%</li>
+      <li><b>律師費</b>：冇公價，各律師行報價由幾千蚊到幾萬蚊都有，請以你收到嘅報價為準</li>
+      <li><b>裝修費</b>：如果打算裝修，自己預留</li>
+    </ul>
+    <div class="eg">
+      例子：首置買 $600萬，借 9 成，30 年，年利率 3.5%：<br>
+      首期 $60萬 ＋ 印花稅 $135,000 ＋ 按保 $116,640 ＋ 佣金 $60,000 ＋ 律師費 $15,000
+      ＝ 大約 <b>$92.7萬</b>；每月供 <b>$24,248</b>。
+    </div>
+
+    <h2>常見問題</h2>
+    <h3>首次置業買樓，印花稅會唔會平啲？</h3>
+    <p>唔會。2024 年 2 月撤銷 BSD 同 NRSD 之後，首置同非首置都係交同一套從價印花稅（AVD），分別在於可以借幾多成按揭。</p>
+    <h3>買樓收租可唔可以做 9 成按揭？</h3>
+    <p>唔可以。按揭保險淨係批自住物業，收租盤最多只可以借 7 成。上面個計算機喺「我有幾多錢？」嗰欄會同時計埋「如果打算出租」嘅數。</p>
+    <h3>呢個計算機計出嚟嘅數準唔準？</h3>
+    <p>印花稅、按揭成數上限同按保保費都係跟官方公佈嘅數字計；利率、律師費、佣金可以自己改做你收到嘅報價。實際批核（例如花紅點計、估價會唔會估唔足）以銀行為準。</p>
+    <h3>我輸入嘅數字會唔會俾人睇到？</h3>
+    <p>唔會。全部喺你部機入面計，唔會上傳，亦唔使登入。</p>
+
+    <section class="cta">
+      <h2>計完買得起幾錢，下一步：個盤抵唔抵？</h2>
+      <p>搵樓日記每日追蹤中原、利嘉閣、香港置業、美聯嘅放盤：個盤放咗幾多日、減過幾多次價、叫價比同屋苑成交中位數貴定平，一眼睇晒。</p>
+      <a class="cta-btn" href="/#register">免費開始追蹤</a>
+      <p class="note" style="margin-top:0.7rem">免費追蹤 3 個屋苑・唔使信用卡</p>
+    </section>
+
+    <p class="foot">
+      資料來源：
+      <a href="https://www.ird.gov.hk/chi/faq/avd.htm" rel="noopener" target="_blank">稅務局（從價印花稅）</a>、
+      <a href="https://www.hkmc.com.hk/chi/our_business/mortgage_insurance_programme.html" rel="noopener" target="_blank">香港按揭證券有限公司（按揭保險計劃）</a>。<br>
+      計算結果只供參考，唔構成任何財務建議；實際貸款額、利率及保費以銀行及按證保險批核為準。<br>
+      搵樓日記唔係地產代理，亦唔係銀行。
+    </p>
+  </article>
+</main>
+
+<script src="/mortgage.js"></script>
+<script>
+  // 撳「用 X 萬做我嘅買盤預算」：呢版冇帳戶功能，帶個數返主頁叫佢註冊。
+  function useMcAsBudget(wan) {
+    const n = Math.round(Number(wan));
+    location.href = "/?mc_budget=" + (isFinite(n) && n > 0 ? n : "") + "#register";
+  }
+  mountMortgageForm();
+  renderMortgage();
+</script>
+</body>
+</html>

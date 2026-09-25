@@ -3,4 +3,12 @@
   X-Content-Type-Options: nosniff
   X-Frame-Options: DENY
   Referrer-Policy: no-referrer
-  Permissions-Policy: geolocation=(), microphone=(), camera=()
+  Permissions-Policy: geolocation=(), microphone=(), camera=(self)
+
+# *.pages.dev 係 test 環境（propwatch.pages.dev）同 preview branch，內容同正式站一樣。
+# 唔 noindex 就會同 home.ws-techs.com 爭排名（duplicate content），仲會俾人喺
+# Google 撳入 test 版。正式站只有 home.ws-techs.com。
+https://:project.pages.dev/*
+  X-Robots-Tag: noindex
+https://:version.:project.pages.dev/*
+  X-Robots-Tag: noindex

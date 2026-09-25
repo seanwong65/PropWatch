@@ -1,4 +1,4 @@
 User-agent: *
 Allow: /
 
-Sitemap: https://propwatch.pages.dev/sitemap.xml
+Sitemap: https://home.ws-techs.com/sitemap.xml
