@@ -1,4 +1,4 @@
-// 按揭計算機（共用）——首頁彈窗（index.html）同獨立頁（mortgage-calculator.html）
+// 按揭計算機（共用）——app 彈窗（app.html）同獨立頁（mortgage-calculator.html）
 // 都用呢一份：官方數字 table、計數 pure function、表單 markup、render。
 // ⚠️ 政府改印花稅／按保規定，淨係改呢個檔。獨立頁嘅「說明文字」（稅階表等）
 //    係靜態 HTML（俾 Google 讀），改完數字記得對返 mortgage-calculator.html。
@@ -432,9 +432,9 @@ const MC_FORM_HTML = `
 <!-- ① 由入息倒推 -->
 <div id="mc-pane-afford">
   <div class="vf-row2">
-    <div><label class="vf-label">家庭月入（$）</label>
+    <div><label class="vf-label" for="mc-income">家庭月入（$）</label>
       <input class="vf-input" type="text" inputmode="decimal" id="mc-income" placeholder="例：60,000（唔連花紅）" oninput="_mcFmtInput(this)"></div>
-    <div><label class="vf-label">手頭現金（萬）</label>
+    <div><label class="vf-label" for="mc-cash">手頭現金（萬）</label>
       <input class="vf-input" type="text" inputmode="decimal" id="mc-cash" placeholder="例：200" oninput="_mcFmtInput(this)"></div>
   </div>
   <!-- 花紅係月入嘅 sub-item：分開兩年輸入，因為銀行係計「兩年平均」
@@ -446,8 +446,8 @@ const MC_FORM_HTML = `
   <div id="mc-bonus-box" style="display:none;margin-top:0.4rem">
     <label class="vf-label" style="margin-top:0">最近兩年每年花紅（$）</label>
     <div class="vf-row2" style="margin-top:0">
-      <input class="vf-input" type="text" inputmode="decimal" id="mc-bonus-y1" placeholder="去年" oninput="_mcFmtInput(this)">
-      <input class="vf-input" type="text" inputmode="decimal" id="mc-bonus-y2" placeholder="前年" oninput="_mcFmtInput(this)">
+      <input class="vf-input" type="text" inputmode="decimal" id="mc-bonus-y1" aria-label="去年花紅（$）" placeholder="去年" oninput="_mcFmtInput(this)">
+      <input class="vf-input" type="text" inputmode="decimal" id="mc-bonus-y2" aria-label="前年花紅（$）" placeholder="前年" oninput="_mcFmtInput(this)">
     </div>
     <p style="font-size:0.72rem;color:var(--muted);margin:0.35rem 0 0;line-height:1.45">
       銀行一般用「兩年平均 ÷ 12」計入月入，封頂喺底薪 3 倍——呢個唔係
@@ -459,31 +459,31 @@ const MC_FORM_HTML = `
 <!-- ② 由樓價計 -->
 <div id="mc-pane-cost" style="display:none">
   <div class="vf-row2">
-    <div><label class="vf-label">樓價（萬）</label>
+    <div><label class="vf-label" for="mc-price">樓價（萬）</label>
       <input class="vf-input" type="text" inputmode="decimal" id="mc-price" placeholder="例：800" oninput="_mcFmtInput(this)"></div>
-    <div><label class="vf-label">按揭成數（%）</label>
+    <div><label class="vf-label" for="mc-ltv">按揭成數（%）</label>
       <input class="vf-input" type="number" id="mc-ltv" value="70" min="10" max="90" oninput="renderMortgage()"></div>
   </div>
 </div>
 
 <div class="vf-row2">
-  <div><label class="vf-label">年期（年）</label>
+  <div><label class="vf-label" for="mc-years">年期（年）</label>
     <input class="vf-input" type="number" id="mc-years" value="30" min="1" max="30" oninput="renderMortgage()"></div>
-  <div><label class="vf-label">按揭利率（%）</label>
+  <div><label class="vf-label" for="mc-rate">按揭利率（%）</label>
     <input class="vf-input" type="number" id="mc-rate" value="3.5" step="0.05" oninput="renderMortgage()"></div>
 </div>
 
 <div class="vf-row2">
-  <div><label class="vf-label">代理佣金（%）</label>
+  <div><label class="vf-label" for="mc-agent">代理佣金（%）</label>
     <input class="vf-input" type="number" id="mc-agent" value="1" step="0.1" oninput="renderMortgage()"></div>
-  <div><label class="vf-label">律師費（$）</label>
+  <div><label class="vf-label" for="mc-legal">律師費（$）</label>
     <input class="vf-input" type="text" inputmode="decimal" id="mc-legal" value="15,000" oninput="_mcFmtInput(this)"></div>
 </div>
 
 <!-- 裝修費預留：淨係擺喺呢度俾用戶主動填，唔畀 placeholder 建議數字
      （唔似代理佣金／律師費咁有業內慣例，各人裝修預算差好遠，估錯
      誤導人)。留空＝當 0，唔會扣手頭現金。 -->
-<label class="vf-label">裝修費預留（$）</label>
+<label class="vf-label" for="mc-reno">裝修費預留（$）</label>
 <input class="vf-input" type="text" inputmode="decimal" id="mc-reno" placeholder="未打算裝修可留空" oninput="_mcFmtInput(this)">
 
 <label class="vf-label">係咪首次置業？</label>

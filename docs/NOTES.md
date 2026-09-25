@@ -9,7 +9,7 @@ before re-touching an old area).
 | Layer | Technology |
 |---|---|
 | Backend | Cloudflare Worker (`worker/index.js`) |
-| Frontend | Cloudflare Pages, single-file SPA (`frontend/index.html`) |
+| Frontend | Cloudflare Pages. App = single-file SPA `frontend/app.html` (served at `/app`, noindex); public landing `frontend/index.html` + static pages (`/mortgage-calculator`, `/guides/*`, `/about`, `/privacy`) sharing `site.css` |
 | Database | Cloudflare D1 (SQLite), database name `propwatch-db` |
 | Deploy worker | `TMPDIR=/tmp npx wrangler deploy worker/index.js` |
 | Deploy frontend | `TMPDIR=/tmp npx wrangler pages deploy frontend --project-name=propwatch --branch=main --commit-dirty=true` |
@@ -173,7 +173,7 @@ See `CLAUDE.md` for the enforced conventions. Quick facts:
   settings keys with code defaults: `sec_auth_rpm` (login/register per-IP,
   default 10/min), `sec_api_rpm` (per-token/IP, default 240/min). Change via D1:
   `INSERT INTO settings (key,value) VALUES ('sec_api_rpm','500') ON CONFLICT(key) DO UPDATE SET value=excluded.value;`
-- **Frontend escaping helpers** (bottom of index.html): `escHtml` (HTML text),
+- **Frontend escaping helpers** (bottom of app.html): `escHtml` (HTML text),
   `safeUrl` (hrefs — blocks `javascript:`), `safeImgSrc` (img src — http(s)/data:image
   only), `escJsAttr` (string args inside inline `onclick='fn("…")'` — escHtml
   alone does NOT escape single quotes).

@@ -30,7 +30,7 @@
 
 | 層 | 用咩 | 喺邊 |
 |---|---|---|
-| 前端 | 單一 `index.html`（冇 framework、冇 build step） | `frontend/` |
+| 前端 | App：`app.html`（單檔，冇 framework、冇 build step）；公開頁：`index.html`（landing）＋ 靜態內容頁 | `frontend/` |
 | 後端 | Cloudflare Worker，單一 `index.js`（~7,900 行） | `worker/` |
 | DB | Cloudflare D1（SQLite） | binding `DB` = `propwatch-db` |
 | 排程 | 2 個 cron trigger | 見下 |
@@ -113,7 +113,7 @@ Stripe subscription 自動循環扣數。**冇任何 code 主動去 Stripe 收�
 
 ## 6. 按揭計算機（自成一角，數字全部有官方出處）
 
-`frontend/index.html` 入面嘅 pure function，client-side 計。三張官方表：
+`frontend/mortgage.js` 入面嘅 pure function（app 彈窗同 `/mortgage-calculator` 共用），client-side 計。三張官方表：
 
 | 表 | 出處 | 生效 |
 |---|---|---|

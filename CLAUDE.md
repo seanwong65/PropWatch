@@ -49,7 +49,12 @@ XSS/HTML injection、API 被人狂抽數據去做類似嘅系統。**每個新 f
    ⚠️ 個 Stripe 帳戶同 iPointWeb 共用 —— 帳戶層設定（例如 Adaptive Pricing）
    郁咗會連 iPoint 個 shop 一齊影響，改之前要諗清楚。
 
-### Frontend（`frontend/index.html`）
+### Frontend（`frontend/app.html` = 登入後嘅 app；`frontend/index.html` = 公開 landing）
+
+2026-09-25 起 landing 同 app 分咗家：`/` 係靜態宣傳頁（同 `/mortgage-calculator`、
+`/guides/*`、`/about`、`/privacy` 一樣用 `/site.css`），app 喺 `/app`（`noindex`）。
+已登入用戶開 `/` 會即刻 `location.replace("/app" + search + hash)`，所以 worker／
+Stripe／email 指去 `/?...` 嘅連結照用得。動態內容 escape 規矩主要適用 `app.html`。
 
 所有動態內容入 HTML 前必須 escape，用檔案底部嘅 helpers：
 
