@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { scrapeRicacorpListings, scrapeHkpListings } from "../index.js";
+import { scrapeRicacorpListings, scrapeHkpListings, hsUnitParts, hsBlockKey } from "../index.js";
+import { readFileSync } from "node:fs";
 
 // ── Pure helpers extracted inline (no DB/fetch deps) ──────────────────────
 
@@ -333,5 +334,47 @@ describe("sha256", () => {
     const h1 = await sha256("abc");
     const h2 = await sha256("def");
     expect(h1).not.toBe(h2);
+  });
+});
+
+// 每日自動估值拆單位嘅方法一定要同前端（手動查估值）一樣，否則自動查到嘅
+// 估值同成交表對唔上。規則同實測原因睇 index.js hsBlockKey 註解。
+describe("hsBlockKey", () => {
+  it("恒生實測過嘅格式", () => {
+    expect(hsBlockKey("A座")).toBe("A");      // 傳「A座」恒生 404
+    expect(hsBlockKey("05座")).toBe("5");     // 傳「05」恒生 404
+    expect(hsBlockKey("23A座")).toBe("23A");  // 舊規則變 23 = 攞錯單位估值
+    expect(hsBlockKey("16座")).toBe("16");
+  });
+  it("其他格式", () => {
+    expect(hsBlockKey("第2座")).toBe("2");
+    expect(hsBlockKey("u座")).toBe("U");
+    expect(hsBlockKey("6座 (海翡翠)")).toBe("6");
+    expect(hsBlockKey("景怡峰")).toBe("景怡峰");   // 單幢：用屋苑名
+    expect(hsBlockKey("洋房6")).toBe("洋房6");     // 唔好抽 6 出嚟當 6 座
+    expect(hsBlockKey("車位")).toBe("");
+    expect(hsBlockKey(null)).toBe("");
+  });
+  it("同前端 app.html 嘅 hsBlockKey 一模一樣", () => {
+    const html = readFileSync(new URL("../../frontend/app.html", import.meta.url), "utf8");
+    const src = html.match(/function hsBlockKey\(building\) \{[\s\S]*?\n\}/)?.[0];
+    expect(src).toBeTruthy();
+    const frontend = new Function(`${src}; return hsBlockKey;`)();
+    for (const b of ["A座", "05座", "23A座", "第2座", "u座", "6座 (海翡翠)", "景怡峰", "洋房6", "車位", "1座 (1A)", "", null]) {
+      expect(frontend(b)).toBe(hsBlockKey(b));
+    }
+  });
+});
+
+describe("hsUnitParts", () => {
+  it("座、樓、室", () => {
+    expect(hsUnitParts("3座", "12樓", "A室")).toEqual({ block: "3", floor: "12", flat: "A" });
+    expect(hsUnitParts("A座", "10樓", "2室")).toEqual({ block: "A", floor: "10", flat: "2" });
+  });
+  it("拆唔到就唔查", () => {
+    expect(hsUnitParts("1座", "低層", "A室")).toBeNull();
+    expect(hsUnitParts("A座", null, "7室")).toBeNull();
+    expect(hsUnitParts("車位", "8樓", "A室")).toBeNull();
+    expect(hsUnitParts("1座", "8樓", "室")).toBeNull();
   });
 });

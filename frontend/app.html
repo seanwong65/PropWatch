@@ -4398,7 +4398,6 @@ async function showEstate(id, name, district) {
         <button class="estate-tab" onclick="switchTab('transactions',${id})">成交記錄</button>
         <button class="estate-tab" id="tab-btn-viewings" onclick="switchTab('viewings',${id})">睇樓記錄</button>
         <button class="estate-tab" onclick="switchTab('analysis',${id})">樓盤分析</button>
-        <button class="history-btn" id="batch-hs-btn" style="display:none;margin-left:auto;font-size:0.82rem;padding:0.35rem 0.85rem" onclick="isPaid() ? batchFetchHSVal() : showUpgrade('批量查估值')">批量查估值</button>
       </div>
 
       <div id="tab-listings">
@@ -5013,6 +5012,19 @@ async function openEstateComps(estateId, basis, tier, ownBuilding, ownFloor, own
   }
 }
 
+// 成交紀錄「座」→ 恒生認得嘅座號。一定要同 worker 嘅 hsBlockKey 一模一樣
+// （每日自動估值同成交表配估值都用嗰條），詳細原因同實測例子睇 worker 註解。
+// 例：A座→A、05座→5、23A座→23A（舊規則抽數字會變 23，攞錯單位估值）。
+function hsBlockKey(building) {
+  let b = (building || "").trim();
+  if (!b || b === "車位") return "";
+  b = b.replace(/\s*[（(].*$/, "");
+  b = b.replace(/^第/, "").replace(/座$/, "");
+  b = b.replace(/^0+(?=\d)/, "");
+  if (/^[a-z0-9]+$/i.test(b)) b = b.toUpperCase();
+  return b;
+}
+
 async function fetchHSVal(rowId, estate, block, floor, flat, estateId, txnPrice) {
   const span = document.getElementById(rowId);
   const btn = document.getElementById(rowId + '-btn');
@@ -5072,8 +5084,6 @@ function switchTab(tab, estateId) {
   document.getElementById("tab-transactions").style.display = tab === "transactions" ? "" : "none";
   document.getElementById("tab-viewings").style.display = tab === "viewings" ? "" : "none";
   document.getElementById("tab-analysis").style.display = tab === "analysis" ? "" : "none";
-  const batchBtn = document.getElementById("batch-hs-btn");
-  if (batchBtn) batchBtn.style.display = (tab === "transactions" || tab === "viewings") ? "" : "none";
   if (tab === "transactions") {
     if (_estateDeal === 'R') loadRentalTransactions(estateId);
     else loadTransactions(estateId, 0, false);
@@ -7182,18 +7192,11 @@ function viewImgFull(viewingId, startIdx) {
 }
 
 
-async function batchFetchHSVal() {
-  const btn = document.getElementById("batch-hs-btn");
-  const queryBtns = [...document.querySelectorAll('.hs-val-btn')].filter(b => b.textContent === '查估值' && !b.disabled);
-  if (!queryBtns.length) { if (btn) { btn.textContent = '已全部查完'; setTimeout(() => { btn.textContent = '批量查估值'; }, 2000); } return; }
-  if (btn) { btn.disabled = true; btn.textContent = `查詢中 0/${queryBtns.length}`; }
-  for (let i = 0; i < queryBtns.length; i++) {
-    if (btn) btn.textContent = `查詢中 ${i+1}/${queryBtns.length}`;
-    queryBtns[i].click();
-    await new Promise(r => setTimeout(r, 600));
-  }
-  if (btn) { btn.disabled = false; btn.textContent = '批量查估值'; }
-}
+// 「批量查估值」個掣 2026-09-25 剷咗（用戶逐個撳會短時間內狂打恒生 API，
+// 有俾人 ban 風險）。改成 backend 自動做：新屋苑／啱啱升級收費會自動幫未
+// 查過嘅屋苑插隊掃描，日常仲有每日輪流一個屋苑——見 worker
+// hsQueuePriorityScan／hsScanStep，詳細寫喺 docs/NOTES.md。單個「查估值」
+// 掣（.hs-val-btn，fetchHSVal()）冇郁，用戶想即時查單一單位照舊用得。
 
 let txnOffset = 0;
 let txnEstateId = null;
@@ -7368,7 +7371,7 @@ function renderTransactionsTable(estateId, offset, hasMore) {
       const cls = t.gain_pct >= 0 ? 'gain-pos' : 'gain-neg';
       annualHtml = `<span class="${cls}">${t.gain_pct >= 0 ? '▲' : '▼'} ${Math.abs(t.gain_pct).toFixed(1)}%</span>`;
     }
-    const blockNum   = (t.building || '').match(/\d+/)?.[0] || t.building || '';
+    const blockNum   = hsBlockKey(t.building);
     const floorNum   = (t.floor || '').match(/\d+/)?.[0] || '';
     const flatLetter = (t.unit || '').replace(/[室層樓]/g, '').trim();
     const rowId = `txn-hs-${estateId}-s-${i}`;

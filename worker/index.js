@@ -13,7 +13,9 @@ const CORS = {
 // response HTML 嘅位仍然用得到 APP_BASE，要指返自己）。
 // ⚠️ 2026-09-24 由 homefinding.ws-techs.com 轉做 home.ws-techs.com（新 CNAME）。
 // 舊域名已經冇再用，DNS record 都刪咗——唔留 fallback。
-const WORKER_BASE = "https://propwatch-worker.johnwong777.workers.dev";
+// ⚠️ 2026-09-26 由 workers.dev dev URL 轉做 api.ws-techs.com（Custom Domain）——
+// 用戶喺 daily email 撳退訂連結唔應該見到 workers.dev 呢個內部開發網址。
+const WORKER_BASE = "https://api.ws-techs.com";
 const APP_BASE = "https://home.ws-techs.com";
 
 // 瀏覽器跨域只准自己嘅前端；curl/server-side 唔受 CORS 限（靠 auth + rate limit 守）。
@@ -290,6 +292,217 @@ async function getHangSengValuation(estateName, blockNum, floorNum, flatLetter) 
   const result = Array.isArray(data) ? data[0] : data;
   if (result?.errorCode || result?.fieldName) return null;
   return { price: result.price, saleableArea: result.saleableArea, valuationDate: result.valuationDate };
+}
+
+// 寫入恒生估值：最新值（hangseng_valuations）＋ 每日最多一筆歷史
+// （hangseng_valuation_history，俾「歷史」掣用）。手動查估值、朋友屋企、
+// 每日自動掃描三條路都用呢個，唔好各自抄一次 SQL。
+async function saveHangSengValuation(db, estateId, block, floor, flat, v) {
+  const price = Number(v.price), area = Number(v.saleableArea), vdate = v.valuationDate;
+  await db.prepare(
+    "INSERT OR REPLACE INTO hangseng_valuations (estate_id, building, floor, flat, price, saleable_area, valuation_date) VALUES (?,?,?,?,?,?,?)"
+  ).bind(estateId, block, floor, flat, price, area, vdate).run();
+  const todayEntry = await db.prepare(
+    "SELECT id FROM hangseng_valuation_history WHERE estate_id=? AND building=? AND floor=? AND flat=? AND date(fetched_at,'+8 hours')=date('now','+8 hours') LIMIT 1"
+  ).bind(estateId, block, floor, flat).first();
+  if (!todayEntry) {
+    await db.prepare(
+      "INSERT INTO hangseng_valuation_history (estate_id, building, floor, flat, price, saleable_area, valuation_date) VALUES (?,?,?,?,?,?,?)"
+    ).bind(estateId, block, floor, flat, price, area, vdate).run();
+  }
+}
+
+// ── 每日自動查恒生估值（輪流一個屋苑）──────────────────────────────────
+// 等同每日幫一個屋苑撳一次「批量查估值」：同步單元全部做完之後，喺
+// drip cron 嘅空檔分段做（唔阻 06:00 開始嘅同步，亦唔影響 09:00 email）。
+// 範圍：有付費用戶（連 admin，同 isPaidSession 一致）訂閱、冇暫停、冇
+// disable 嘅屋苑，按 id 輪；做完最後一個返第一個。
+// ⚠️ 特登唔讀 cache：手動查估值係「查過一次就永遠用 cache」，唔重新掃嘅話
+//    估值永遠唔會更新，歷史亦累積唔到。
+const HS_SCAN_BATCH = 40;              // 每次 invocation 最多查幾多個單位
+const HS_SCAN_GAP_MS = 300;            // 每個之間停一停，唔好狂打恒生 API
+const HS_SCAN_TIME_BUDGET_MS = 45000;  // 同 drip sync 一樣留位俾 invocation 收尾
+
+// 成交紀錄嘅「座」→ 恒生估值 API 認得嘅座號。三個地方一定要用同一條規則：
+// 呢度（每日自動估值）、成交表 API 配估值（valMap）、前端 app.html 嘅
+// hsBlockKey（手動查估值）——唔一致嘅話查到嘅估值會對唔返成交表。
+// 實測（2026-09-25，恒生 API）：
+//   「A座」要傳 A（傳 A座 會 404）；「05座」要傳 5（05 會 404）；
+//   「23A座」要傳 23A——舊規則「抽數字」會變 23，恒生照回 23 座嘅估值，
+//   即係**靜靜顯示錯單位嘅價**（海逸豪園 23A座 10D：真 $1,026萬，舊規則出 $1,837萬）。
+// 其他：「6座 (海翡翠)」括號係註解；「u座」細楷；單幢屋苑個「座」就係屋苑名
+// （恒生 findBlockCode 單幢會自動 fallback）；「洋房6」呢類保留原文，查唔到
+// 就當冇結果——好過抽咗個 6 出嚟當 6 座。
+export function hsBlockKey(building) {
+  let b = (building || "").trim();
+  if (!b || b === "車位") return "";
+  b = b.replace(/\s*[（(].*$/, "");
+  b = b.replace(/^第/, "").replace(/座$/, "");
+  b = b.replace(/^0+(?=\d)/, "");
+  if (/^[a-z0-9]+$/i.test(b)) b = b.toUpperCase();
+  return b;
+}
+
+// 樓層抽數字、室去走「室／層／樓」。拆唔到就唔查（前端都唔會出「查估值」掣）。
+export function hsUnitParts(building, floor, unit) {
+  const block = hsBlockKey(building);
+  const fl = (floor || "").match(/\d+/)?.[0] || "";
+  const flat = (unit || "").replace(/[室層樓]/g, "").trim();
+  return block && fl && flat ? { block, floor: fl, flat } : null;
+}
+
+// ── 插隊掃描（新屋苑／啱啱升級）────────────────────────────────────────
+// 兩個觸發位（見下面 hsQueueUnvaluedEstatesForAccount 嘅 call site）：
+//   ① 收費用戶（連 admin）加新屋苑——一路冇 UI 掣，改成 backend 自動查；
+//   ② 帳戶轉做收費（applyTierEstateLimit(paid=true)，5 條改 tier 路徑共用
+//      呢個函數，所以呢度改一次就跟埋晒）。
+// 淨係幫「呢個屋苑成個系統都仲未有過估值」嘅屋苑排隊（NOT EXISTS 查
+// hangseng_valuations）——已經有人查過（手動、或者之前掃描過）就唔使急，
+// 等每日輪流嗰個 cursor 遲早會到，唔好同一個屋苑重複打恒生。
+// 插隊隊列行喺 drip cron 嗰個 hsScanStep 入面，同每日輪流一樣嘅
+// batch／time budget／gap，唔會因為插隊而狂打恒生 API。
+async function ensureHsScanPriority(db) {
+  await db.prepare(`CREATE TABLE IF NOT EXISTS hs_scan_priority (
+    estate_id     INTEGER PRIMARY KEY REFERENCES estates(id) ON DELETE CASCADE,
+    name          TEXT    NOT NULL,
+    offset        INTEGER NOT NULL DEFAULT 0,
+    ok            INTEGER NOT NULL DEFAULT 0,
+    no_result     INTEGER NOT NULL DEFAULT 0,
+    failed        INTEGER NOT NULL DEFAULT 0,
+    requested_at  TEXT    NOT NULL DEFAULT (datetime('now'))
+  )`).run();
+}
+
+async function hsQueuePriorityScan(db, estateId, name) {
+  const already = await db.prepare(
+    "SELECT 1 FROM hangseng_valuations WHERE estate_id = ? LIMIT 1"
+  ).bind(estateId).first();
+  if (already) return false;   // 有人查過（唔理幾耐之前）→ 等日常輪流，唔插隊
+  await ensureHsScanPriority(db);
+  await db.prepare(
+    "INSERT OR IGNORE INTO hs_scan_priority (estate_id, name) VALUES (?, ?)"
+  ).bind(estateId, name).run();
+  return true;
+}
+
+// 幫一個帳戶名下所有生效中訂閱、成個系統都未有估值嘅屋苑排隊。
+// isPaidSession 判斷同 hsScanEligibleEstates 一致（tier=paid 或者 admin）。
+async function hsQueueUnvaluedEstatesForAccount(db, accountId) {
+  const { results } = await db.prepare(`
+    SELECT e.id, e.name FROM account_estates ae
+    JOIN estates e ON e.id = ae.estate_id
+    WHERE ae.account_id = ? AND ae.paused_at IS NULL
+      AND (e.is_disabled = 0 OR e.is_disabled IS NULL)
+      AND NOT EXISTS (SELECT 1 FROM hangseng_valuations h WHERE h.estate_id = e.id)`
+  ).bind(accountId).all();
+  for (const e of results) await hsQueuePriorityScan(db, e.id, e.name);
+}
+
+async function hsScanEligibleEstates(db) {
+  const { results } = await db.prepare(`
+    SELECT DISTINCT e.id, e.name FROM account_estates ae
+    JOIN accounts a ON a.id = ae.account_id
+    JOIN estates e ON e.id = ae.estate_id
+    WHERE ae.paused_at IS NULL
+      AND (a.tier = 'paid' OR a.role = 'admin')
+      AND (a.is_active IS NULL OR a.is_active = 1)
+      AND (e.is_disabled = 0 OR e.is_disabled IS NULL)
+    ORDER BY e.id`).all();
+  return results;
+}
+
+async function hsScanUnits(db, estateId) {
+  const { results } = await db.prepare(
+    "SELECT DISTINCT building, floor, unit FROM transactions WHERE estate_id = ? ORDER BY building, floor, unit"
+  ).bind(estateId).all();
+  const seen = new Set(), units = [];
+  for (const r of results) {
+    const p = hsUnitParts(r.building, r.floor, r.unit);
+    if (!p) continue;
+    const k = `${p.block}|${p.floor}|${p.flat}`;
+    if (seen.has(k)) continue;
+    seen.add(k); units.push(p);
+  }
+  return units;
+}
+
+// 做一段。state 存喺 settings.hs_scan_state（當日揀咗邊個屋苑、做到第幾個）；
+// hs_scan_cursor 記上次揀咗邊個屋苑，第二日由下一個開始。
+// 回 { idle } 或者今次做咗幾多；做晒當日個屋苑會回 finished（俾 caller 發報告）。
+async function hsScanStep(db) {
+  // 插隊優先：新屋苑／啱啱升級嘅帳戶排緊隊嘅屋苑，FIFO，先做晒先返去
+  // 日常輪流。同一個 invocation 淨係做一種（插隊或者日常），唔會混埋。
+  await ensureHsScanPriority(db);
+  const pri = await db.prepare(
+    "SELECT * FROM hs_scan_priority ORDER BY requested_at ASC LIMIT 1"
+  ).first();
+  if (pri) {
+    const units = await hsScanUnits(db, pri.estate_id);
+    const startedAt = Date.now();
+    let off = pri.offset, ok = pri.ok, noResult = pri.no_result, failed = pri.failed, did = 0;
+    while (off < units.length && did < HS_SCAN_BATCH
+           && Date.now() - startedAt < HS_SCAN_TIME_BUDGET_MS) {
+      const u = units[off];
+      try {
+        const v = await getHangSengValuation(pri.name, u.block, u.floor, u.flat);
+        if (v?.price) { await saveHangSengValuation(db, pri.estate_id, u.block, u.floor, u.flat, v); ok++; }
+        else noResult++;
+      } catch (e) {
+        if (isTransientD1(e)) throw e;   // D1 閃斷交返 drip 嗰套處理
+        failed++;
+      }
+      off++; did++;
+      if (off < units.length) await new Promise((r) => setTimeout(r, HS_SCAN_GAP_MS));
+    }
+    const done = off >= units.length;
+    if (done) await db.prepare("DELETE FROM hs_scan_priority WHERE estate_id = ?").bind(pri.estate_id).run();
+    else await db.prepare(
+      "UPDATE hs_scan_priority SET offset=?, ok=?, no_result=?, failed=? WHERE estate_id=?"
+    ).bind(off, ok, noResult, failed, pri.estate_id).run();
+    return { did, finished: done, priority: true,
+      state: { estateId: pri.estate_id, name: pri.name, offset: off, total: units.length, ok, noResult, failed, done } };
+  }
+
+  const today = hkDateStr();
+  let state = null;
+  try { state = JSON.parse(await getSetting(db, "hs_scan_state") || "null"); } catch (_) {}
+  if (state?.date === today && state.done) return { idle: true };
+
+  if (state?.date !== today) {
+    const eligible = await hsScanEligibleEstates(db);
+    if (!eligible.length) return { idle: true, noEstates: true };
+    const cursor = Number(await getSetting(db, "hs_scan_cursor") || 0);
+    const next = eligible.find((e) => e.id > cursor) || eligible[0];
+    const units = await hsScanUnits(db, next.id);
+    state = { date: today, estateId: next.id, name: next.name, offset: 0, total: units.length,
+              ok: 0, noResult: 0, failed: 0, done: units.length === 0, startedAt: new Date().toISOString() };
+    // 一揀定就推進 cursor：就算今日中途出事，聽日都會輪去下一個，唔會卡死喺同一個屋苑
+    await setSetting(db, "hs_scan_cursor", next.id);
+    await setSetting(db, "hs_scan_state", JSON.stringify(state));
+    if (state.done) return { finished: true, state };
+  }
+
+  const units = await hsScanUnits(db, state.estateId);
+  state.total = units.length;
+  const startedAt = Date.now();
+  let did = 0;
+  while (state.offset < units.length && did < HS_SCAN_BATCH
+         && Date.now() - startedAt < HS_SCAN_TIME_BUDGET_MS) {
+    const u = units[state.offset];
+    try {
+      const v = await getHangSengValuation(state.name, u.block, u.floor, u.flat);
+      if (v?.price) { await saveHangSengValuation(db, state.estateId, u.block, u.floor, u.flat, v); state.ok++; }
+      else state.noResult++;       // 恒生冇呢個單位（例如座號對唔到）——同手動查一樣當冇結果
+    } catch (e) {
+      if (isTransientD1(e)) throw e; // D1 閃斷交返 drip 嗰套處理，唔好當估值失敗吞咗
+      state.failed++;
+    }
+    state.offset++; did++;
+    if (state.offset < units.length) await new Promise((r) => setTimeout(r, HS_SCAN_GAP_MS));
+  }
+  if (state.offset >= units.length) { state.done = true; state.finishedAt = new Date().toISOString(); }
+  await setSetting(db, "hs_scan_state", JSON.stringify(state));
+  return { did, finished: state.done, state };
 }
 
 function json(status, data) {
@@ -624,6 +837,10 @@ async function applyTierEstateLimit(db, accountId, paid) {
     await db.prepare(
       "UPDATE account_estates SET paused_at = NULL WHERE account_id = ? AND paused_at IS NOT NULL"
     ).bind(accountId).run();
+    // 升級收費：幫呢個帳戶名下、成個系統都未有估值嘅屋苑插隊掃描——唔使
+    // 等日常輪流（15 個屋苑要幾日先輪到）。5 條改 tier 嘅路徑（webhook／
+    // checkout／對數／admin 手動）全部經呢個函數，改呢度一次就跟晒。
+    try { await hsQueueUnvaluedEstatesForAccount(db, accountId); } catch (_) {}
     return;
   }
   const cap = (await getSecCfg(db)).sec_free_max_estates;
@@ -2738,12 +2955,7 @@ async function enrichFriendHome(db, home) {
       const v = await getHangSengValuation(home.estate_name, blockNum, floorNumHs, flat);
       if (v?.price) {
         hs_price = Number(v.price); hs_area = Number(v.saleableArea); hs_date = v.valuationDate;
-        await db.prepare("INSERT OR REPLACE INTO hangseng_valuations (estate_id,building,floor,flat,price,saleable_area,valuation_date) VALUES (?,?,?,?,?,?,?)")
-          .bind(home.estate_id, blockNum, floorNumHs, flat, hs_price, hs_area, hs_date).run();
-        const dup = await db.prepare("SELECT id FROM hangseng_valuation_history WHERE estate_id=? AND building=? AND floor=? AND flat=? AND date(fetched_at,'+8 hours')=date('now','+8 hours') LIMIT 1")
-          .bind(home.estate_id, blockNum, floorNumHs, flat).first();
-        if (!dup) await db.prepare("INSERT INTO hangseng_valuation_history (estate_id,building,floor,flat,price,saleable_area,valuation_date) VALUES (?,?,?,?,?,?,?)")
-          .bind(home.estate_id, blockNum, floorNumHs, flat, hs_price, hs_area, hs_date).run();
+        await saveHangSengValuation(db, home.estate_id, blockNum, floorNumHs, flat, v);
       }
     } catch (_) {}
   }
@@ -5283,6 +5495,26 @@ export default {
           // 最後一個單元有結論 → 今日跑完，發 summary。之後嘅 invocation 會
           // idle（早 return），所以一日只會發一次。
           if (!r.idle && r.remaining === 0) await sendSyncSummary(env.DB, env);
+          // 當日同步全部做完（idle，而且過咗 06:00）先輪到每日自動估值——
+          // 唔搶同步單元嘅 invocation，亦唔影響 09:00 email（另一條 cron）。
+          // 估值出事唔好拖累 drip：一般錯誤淨係 log，D1 閃斷照交返下面處理。
+          if (r.idle && !r.beforeWindow) {
+            try {
+              const h = await hsScanStep(env.DB);
+              if (h.finished && h.state) {
+                const s = h.state;
+                await sendTelegram(env, [
+                  h.priority ? `🆕 新屋苑估值已查晒：${s.name}` : `🏷 每日自動估值：${s.name}`,
+                  `${s.ok}/${s.total} 個單位有估值` +
+                    (s.noResult ? `，${s.noResult} 個恒生冇結果` : "") +
+                    (s.failed ? `，${s.failed} 個出錯` : ""),
+                ].join("\n")).catch(() => {});
+              }
+            } catch (e) {
+              if (isTransientD1(e)) throw e;
+              console.error("hs scan failed:", e?.message || e);
+            }
+          }
         } catch (e) {
           // D1 閃斷同「真係炒咗」要分開處理，否則一日 720 次 firing 會令
           // 一次性網絡問題變成定期假警報（見 isTransientD1 上面嗰段）。
@@ -5991,6 +6223,13 @@ export default {
         await db.prepare(
           "INSERT OR IGNORE INTO account_estates (account_id, estate_id) VALUES (?, ?)"
         ).bind(session.account_id, estate.id).run();
+        // 收費用戶（連 admin）加新屋苑：如果成個系統都未有人查過呢個屋苑
+        // 嘅估值，插隊掃描，唔使等日常輪流。前端冇掣，純粹 backend 自動做
+        // （見「批量查估值」剷走嗰個 commit）。一個 SELECT + 一個 INSERT，
+        // 對呢個 request 嘅延遲可以忽略，唔使開 ctx.waitUntil。
+        if (isPaidSession(session)) {
+          try { await hsQueuePriorityScan(db, estate.id, estate.name); } catch (_) {}
+        }
         const data = await fetchCentanet(name);
         const listings = data.data || [];
         await saveSearchResults(db, estate.id, listings);
@@ -6567,7 +6806,7 @@ export default {
         const valMap = new Map(savedVals.map(v => [`${v.building}|${v.floor}|${v.flat}`, v]));
 
         const txns = (raw.data || []).map(t => {
-          const blockNum   = (t.buildingName || '').match(/\d+/)?.[0] || '';
+          const blockNum   = hsBlockKey(t.buildingName);   // 同自動估值／前端同一條規則
           const floorNum   = (t.yAxis || '').match(/\d+/)?.[0] || '';
           const flatLetter = (t.xAxis || '').replace(/[室層樓]/g, '').trim();
           const saved = valMap.get(`${blockNum}|${floorNum}|${flatLetter}`);
@@ -6641,6 +6880,13 @@ export default {
           }
           txns.sort((a, b) => (b.reg_date || "").localeCompare(a.reg_date || ""));
         }
+        // 利嘉閣／美聯系補返嚟嘅成交都配埋恒生估值（同中原行同一條 key）——
+        // 每日自動估值掃嘅單位包括呢啲成交，唔配就喺成交表見唔到。
+        for (const t of txns) {
+          if (t.hs_price != null) continue;
+          const saved = valMap.get(`${hsBlockKey(t.building)}|${(t.floor || '').match(/\d+/)?.[0] || ''}|${(t.unit || '').replace(/[室層樓]/g, '').trim()}`);
+          if (saved) { t.hs_price = saved.price; t.hs_date = saved.valuation_date; }
+        }
 
         // 房數推斷（見 makeBedInferrer）：純參考，估唔到就 null（前端唔顯示）。
         const bedInfer = await makeBedInferrer(db, estateId);
@@ -6683,19 +6929,7 @@ export default {
         if (!result) return json(404, { error: "Not found" });
 
         // Save to D1 (latest + history once per day)
-        if (estateId) {
-          await db.prepare(
-            "INSERT OR REPLACE INTO hangseng_valuations (estate_id, building, floor, flat, price, saleable_area, valuation_date) VALUES (?,?,?,?,?,?,?)"
-          ).bind(estateId, blockNum, floorNum, flatLetter, Number(result.price), Number(result.saleableArea), result.valuationDate).run();
-          const todayEntry = await db.prepare(
-            "SELECT id FROM hangseng_valuation_history WHERE estate_id=? AND building=? AND floor=? AND flat=? AND date(fetched_at,'+8 hours')=date('now','+8 hours') LIMIT 1"
-          ).bind(estateId, blockNum, floorNum, flatLetter).first();
-          if (!todayEntry) {
-            await db.prepare(
-              "INSERT INTO hangseng_valuation_history (estate_id, building, floor, flat, price, saleable_area, valuation_date) VALUES (?,?,?,?,?,?,?)"
-            ).bind(estateId, blockNum, floorNum, flatLetter, Number(result.price), Number(result.saleableArea), result.valuationDate).run();
-          }
-        }
+        if (estateId) await saveHangSengValuation(db, estateId, blockNum, floorNum, flatLetter, result);
 
         return json(200, result);
       }
@@ -8107,6 +8341,22 @@ export default {
           await applyTierEstateLimit(db, acc.id, tier === "paid");
           return json(200, { ok: true, email, tier, until: tier === "paid" ? (until || null) : null });
         }
+      }
+
+      // ── Admin：每日自動估值 ──────────────────────────────────────────────
+      // GET 睇今日進度同下一個輪到邊個屋苑；POST 手動行一段（test worker 冇
+      // cron，靠呢個測；production 亦可以用嚟補做）。
+      if (path === "/api/admin/hs-scan") {
+        if (!isAdminSession(session)) return json(403, { error: "admin only" });
+        if (method === "POST") return json(200, await hsScanStep(db));
+        if (method === "GET") {
+          let state = null;
+          try { state = JSON.parse(await getSetting(db, "hs_scan_state") || "null"); } catch (_) {}
+          const eligible = await hsScanEligibleEstates(db);
+          const cursor = Number(await getSetting(db, "hs_scan_cursor") || 0);
+          return json(200, { state, cursor, eligible });
+        }
+        return json(405, { error: "method not allowed" });
       }
 
       // ── Admin 付款後台 ───────────────────────────────────────────────────

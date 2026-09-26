@@ -152,6 +152,25 @@ daily sync is split across staggered slots, each its own invocation (HKT=UTC+8):
 Capacity = slots × `SYNC_SLOT_SIZE` (12). Add a slot cron to grow. Manual
 `立即同步` (all estates) runs synchronously in parallel.
 
+### 每日自動恒生估值（2026-09-25 起）
+
+等同每日幫一個屋苑撳一次「批量查估值」，掛喺 `*/2` drip cron 入面：
+**當日同步單元全部做完（`syncBatch` 回 idle、過咗 06:00）先開始**，唔搶同步、唔影響 09:00 email。
+
+- **範圍**：有付費用戶**或 admin**（同 `isPaidSession` 一致）訂閱、冇暫停、冇 disable 嘅屋苑，按 id 輪。
+  `settings.hs_scan_cursor` 記上次揀咗邊個，做完最後一個返第一個（15 個屋苑 ≈ 15 日一轉）。
+- **單位**：該屋苑 `transactions` 入面所有座／樓／室（同成交表「查估值」掣同一批）。
+- **特登唔讀 cache**：手動查估值查過一次就永遠用 cache，唔重新查就永遠唔更新。每次寫最新值＋每日一筆歷史（`saveHangSengValuation`）。
+- **分段**：每次 invocation 最多 `HS_SCAN_BATCH`（40）個、每個之間停 `HS_SCAN_GAP_MS`（300ms）、`HS_SCAN_TIME_BUDGET_MS`（45s）封頂。進度喺 `settings.hs_scan_state`（當日屋苑、offset、ok／noResult／failed）。實測 ~1.1 秒一個。
+- **完成**：發一條 telegram（屋苑名、幾多個有估值）。
+- **手動**：`GET /api/admin/hs-scan` 睇進度同輪候名單；`POST` 行一段（test worker 冇 cron，靠呢個測）。
+
+**座號規則 `hsBlockKey`**（worker 同 `app.html` 各有一份，**一定要一致**；`tests/unit.test.js` 會直接由 app.html 抽出嚟比較）。恒生 API 實測：
+`A座`→`A`（傳 `A座` 會 404）、`05座`→`5`（`05` 404）、`23A座`→`23A`。
+舊規則「抽數字」會令 `23A座` 變 `23`，恒生照回 23 座嘅估值＝**靜靜顯示錯單位嘅價**（海逸豪園 23A座 10D：真 $1,026萬，舊規則出 $1,837萬）。
+淘大花園／德福花園（字母座）、黃埔花園（`05座`）以前幾乎全部查唔到，改完頭 40 個全中。
+成交表 API 而家連利嘉閣／美聯系補返嘅成交都用同一條 key 配估值（以前淨係中原行有）。
+
 ## Auth
 
 Multi-account (register page open; original data all mapped to `seanwong`).

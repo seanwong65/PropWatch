@@ -22,18 +22,19 @@
   <meta property="og:url" content="https://home.ws-techs.com/">
   <meta property="og:title" content="搵樓日記｜香港樓盤追蹤 — 經紀唔會話你知嘅嘢，一眼睇晒">
   <meta property="og:description" content="個盤放咗幾多日、減過幾多次價、下架定成交、叫價貴過同苑成交中位數幾多——四大地產網每日自動追蹤。免費開始。">
-  <meta property="og:image" content="https://home.ws-techs.com/images/hero-1-overview.jpg">
-  <meta property="og:image:width" content="1000">
-  <meta property="og:image:height" content="673">
-  <meta property="og:image:alt" content="搵樓日記：已放盤 187 日、減價歷史、抵買判斷一覽">
+  <meta property="og:image" content="https://home.ws-techs.com/images/hero-quiet-research.jpg">
+  <meta property="og:image:width" content="1168">
+  <meta property="og:image:height" content="784">
+  <meta property="og:image:alt" content="搵樓日記：追蹤樓盤時間軸，叫價喺第 7／30／90 日嘅跌幅一眼睇晒">
   <meta name="twitter:card" content="summary_large_image">
-  <meta name="twitter:image" content="https://home.ws-techs.com/images/hero-1-overview.jpg">
+  <meta name="twitter:image" content="https://home.ws-techs.com/images/hero-quiet-research.jpg">
   <link rel="icon" href="/favicon.svg" type="image/svg+xml">
-  <!-- LCP：landing 第一張 carousel 圖。張 <img> 排喺 ~150KB inline CSS 後面，
-       唔 preload 嘅話瀏覽器要 parse 到嗰度先開始下載（Lighthouse 實測等咗 2.2 秒）。 -->
-  <link rel="preload" as="image" href="/images/hero-1-overview-1000.webp"
-        imagesrcset="/images/hero-1-overview-640.webp 640w, /images/hero-1-overview-800.webp 800w, /images/hero-1-overview-1000.webp 1000w"
-        imagesizes="(max-width: 880px) calc(100vw - 2.5rem), 840px" fetchpriority="high">
+  <!-- LCP：hero 插圖（2026-09-25 由 3 頁 carousel 改做單張 hero + 文字並排）。
+       張 <img> 排喺 ~150KB inline CSS 後面，唔 preload 嘅話瀏覽器要 parse 到
+       嗰度先開始下載（Lighthouse 實測試過 carousel 版等咗 2.2 秒）。 -->
+  <link rel="preload" as="image" href="/images/hero-quiet-research-1168.webp"
+        imagesrcset="/images/hero-quiet-research-640.webp 640w, /images/hero-quiet-research-900.webp 900w, /images/hero-quiet-research-1168.webp 1168w"
+        imagesizes="(min-width: 860px) 50vw, calc(100vw - 2.5rem)" fetchpriority="high">
   <meta name="theme-color" content="#047857">
   <script type="application/ld+json">
   {
@@ -96,6 +97,38 @@
       color: var(--text); padding: 0.35rem 1rem; font-size: 0.85rem; cursor: pointer; font-family: inherit;
       background: var(--btn2-bg);
     }
+    /* Hero：文字 + 插圖並排（2026-09-25 由 3 頁 carousel 改做呢個排位，
+       但插圖嗰邊保留返 carousel——2 頁輪流：插圖 + 真實系統截圖）。
+       手機疊做一欄，圖擺文字上面（先聲奪人）；≥860px 先左右排（文字先）。 */
+    .ld-hero-row { display: flex; flex-direction: column-reverse; gap: 1.6rem; align-items: center; }
+    .ld-hero-img { width: 100%; }
+    @media (min-width: 860px) {
+      .ld-hero-row { flex-direction: row; align-items: center; gap: 3rem; margin: 1rem 0 1.5rem; }
+      .ld-hero-row .ld-hero { text-align: left; padding: 0; flex: 1 1 46%; }
+      .ld-hero-row .ld-sub { margin-left: 0; }
+      .ld-hero-row .ld-cta-row { justify-content: flex-start; }
+      .ld-hero-img { flex: 1 1 54%; }
+    }
+    .ld-hero-carousel {
+      position: relative; width: 100%; border-radius: var(--radius-lg); overflow: hidden;
+      box-shadow: var(--shadow); background: var(--surface2);
+      aspect-ratio: 1168 / 784;
+    }
+    .ld-hero-slide {
+      position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover;
+      opacity: 0; transition: opacity 0.7s ease;
+    }
+    .ld-hero-slide.active { opacity: 1; }
+    .ld-hero-car-dots { position: absolute; bottom: 0.9rem; left: 50%; transform: translateX(-50%); display: flex; }
+    .ld-hero-car-dot {
+      width: 1.5rem; height: 1.5rem; border: none; background: none; padding: 0; margin: 0;
+      cursor: pointer; display: flex; align-items: center; justify-content: center;
+    }
+    .ld-hero-car-dot::after {
+      content: ""; width: 0.5rem; height: 0.5rem; border-radius: 999px;
+      background: rgba(255,255,255,0.55); transition: width 0.2s, background 0.2s;
+    }
+    .ld-hero-car-dot.active::after { background: #fff; width: 1.3rem; }
     .ld-hero { text-align: center; padding: 0.5rem 0 2.5rem; }
     .ld-eyebrow { font-size: 0.8rem; letter-spacing: 0.12em; color: var(--muted); text-transform: uppercase; margin-bottom: 0.9rem; }
     .ld-h1 { font-size: clamp(1.6rem, 4.5vw, 2.4rem); line-height: 1.35; font-weight: 800; margin: 0 0 1rem; }
@@ -121,11 +154,44 @@
     .ld-pain {
       background: var(--glass-bg); backdrop-filter: var(--glass-blur); -webkit-backdrop-filter: var(--glass-blur);
       border: 1px solid var(--glass-border); border-radius: var(--radius);
-      box-shadow: var(--glass-inner), var(--shadow-sm); padding: 1.1rem 1.2rem;
+      box-shadow: var(--glass-inner), var(--shadow-sm); overflow: hidden;
     }
+    .ld-pain-shot img { width: 100%; height: auto; display: block; }
+    .ld-pain-body { padding: 1.1rem 1.2rem; }
     .ld-pain-quote { font-weight: 700; margin-bottom: 0.45rem; }
     .ld-pain p { font-size: 0.85rem; color: var(--muted); line-height: 1.7; margin: 0; }
     .ld-pain p b { color: var(--text); }
+    /* 「同地產網站有咩分別」表格上面加返個「四網合併」插圖，同表格入面
+       「跨網比較」嗰行呼應。 */
+    .ld-compare-intro { margin-bottom: 1.3rem; text-align: center; }
+    .ld-compare-intro img {
+      max-width: 320px; width: 100%; height: auto; margin: 0 auto; display: block;
+      border-radius: var(--radius); box-shadow: var(--shadow-sm);
+    }
+    /* 「老實監察」信任區：講返個系統點樣處理同步失敗／延遲，唔扮冇事發生。 */
+    .ld-trust-section {
+      display: flex; flex-direction: column-reverse; gap: 1.6rem; align-items: center;
+      margin-top: 3rem;
+    }
+    @media (min-width: 860px) {
+      .ld-trust-section { flex-direction: row; text-align: left; }
+      .ld-trust-section .ld-trust-text { flex: 1 1 46%; }
+      .ld-trust-section .ld-trust-img { flex: 1 1 54%; }
+    }
+    .ld-trust-section { text-align: center; }
+    .ld-trust-img img { width: 100%; height: auto; display: block; border-radius: var(--radius-lg); box-shadow: var(--shadow); }
+    .ld-trust-text h2 { margin: 0 0 0.5rem; text-align: inherit; }
+    .ld-trust-text p { color: var(--muted); font-size: 0.92rem; line-height: 1.8; }
+    /* 最尾 CTA 加返個插圖，兩欄；手機圖擺上面。 */
+    .ld-final-row { display: flex; flex-direction: column; gap: 1.8rem; align-items: center; margin-top: 3rem; }
+    @media (min-width: 860px) {
+      .ld-final-row { flex-direction: row-reverse; text-align: left; }
+      .ld-final-row .ld-final { flex: 1 1 50%; padding: 0; }
+      .ld-final-row .ld-final .ld-h2 { text-align: left; }
+      .ld-final-row .ld-final .ld-h2sub { text-align: left; margin-left: 0; }
+      .ld-final-img { flex: 1 1 50%; }
+    }
+    .ld-final-img img { width: 100%; height: auto; display: block; border-radius: var(--radius-lg); box-shadow: var(--shadow); }
     .ld-table-scroll { overflow-x: auto; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); }
     .ld-table { width: 100%; border-collapse: collapse; font-size: 0.86rem; min-width: 560px; }
     .ld-table th { background: var(--surface2); color: var(--muted); font-size: 0.78rem; padding: 0.6rem 0.9rem; text-align: left; }
@@ -173,30 +239,6 @@
     .ld-feat-card-name { color: var(--text); font-weight: 700; font-size: 1.05rem; margin-bottom: 0.4rem; }
     .ld-feat-card-body p { color: var(--muted); font-size: 0.88rem; line-height: 1.75; margin: 0; }
     .ld-feat-card-body p b { color: var(--text); }
-    .ld-carousel {
-      /* 而家坐喺 ld-wrap 最頂（sticky topbar 下面），ld-wrap 本身冇 top
-         padding（本來靠 ld-hero 自己嘅 padding-top:3.5rem 頂住），所以要
-         自己留返段距離，唔好貼住 topbar。 */
-      position: relative; margin: 1.6rem 0 2.5rem; border-radius: var(--radius-lg);
-      overflow: hidden; box-shadow: var(--shadow); background: var(--surface2);
-      aspect-ratio: 1712 / 1152;
-    }
-    .ld-slide {
-      position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover;
-      opacity: 0; transition: opacity 0.7s ease;
-    }
-    .ld-slide.active { opacity: 1; }
-    .ld-car-btn {
-      position: absolute; top: 50%; transform: translateY(-50%);
-      background: rgba(0,0,0,0.4); color: #fff; border: none;
-      width: 2.1rem; height: 2.1rem; border-radius: 50%; font-size: 1.3rem;
-      line-height: 1; cursor: pointer; display: flex; align-items: center; justify-content: center;
-    }
-    .ld-car-btn:hover { background: rgba(0,0,0,0.6); }
-    .ld-car-prev { left: 0.7rem; } .ld-car-next { right: 0.7rem; }
-    .ld-car-dots { position: absolute; bottom: 0.9rem; left: 50%; transform: translateX(-50%); display: flex; gap: 0.4rem; }
-    .ld-car-dot { width: 0.5rem; height: 0.5rem; border-radius: 999px; background: rgba(255,255,255,0.55); border: none; padding: 0; cursor: pointer; transition: width 0.2s, background 0.2s; }
-    .ld-car-dot.active { background: #fff; width: 1.3rem; }
     .ld-final { text-align: center; padding: 3.2rem 0 1rem; }
     .ld-foot { text-align: center; font-size: 0.75rem; color: var(--muted); line-height: 1.8; padding-top: 2.5rem; }
   </style>
@@ -209,16 +251,36 @@
   </div>
   <div class="ld-wrap">
 
-    <div class="ld-carousel" id="ld-carousel" role="region" aria-label="功能截圖">
-      <img class="ld-slide active" src="images/hero-1-overview-1000.webp" srcset="images/hero-1-overview-640.webp 640w, images/hero-1-overview-800.webp 800w, images/hero-1-overview-1000.webp 1000w" sizes="(max-width: 880px) calc(100vw - 2.5rem), 840px" width="1000" height="673" fetchpriority="high" alt="搵樓日記：已放盤 187 日、減價歷史、抵買判斷一覽">
-      <img class="ld-slide" data-src="images/hero-2-radar-1000.webp" data-srcset="images/hero-2-radar-640.webp 640w, images/hero-2-radar-800.webp 800w, images/hero-2-radar-1000.webp 1000w" sizes="(max-width: 880px) calc(100vw - 2.5rem), 840px" width="1000" height="671" fetchpriority="low" alt="抵買雷達：叫價同同苑成交中位數對比，一眼睇清貴定平">
-      <img class="ld-slide" data-src="images/hero-3-history-1000.webp" data-srcset="images/hero-3-history-640.webp 640w, images/hero-3-history-800.webp 800w, images/hero-3-history-1000.webp 1000w" sizes="(max-width: 880px) calc(100vw - 2.5rem), 840px" width="1000" height="671" fetchpriority="low" alt="真實放盤日數同完整減價歷史，唔怕刷新扮新盤">
-      <button class="ld-car-btn ld-car-prev" onclick="ldCarouselNav(-1)" aria-label="上一張">‹</button>
-      <button class="ld-car-btn ld-car-next" onclick="ldCarouselNav(1)" aria-label="下一張">›</button>
-      <div class="ld-car-dots">
-        <button class="ld-car-dot active" onclick="ldCarouselTo(0)" aria-label="第 1 張"></button>
-        <button class="ld-car-dot" onclick="ldCarouselTo(1)" aria-label="第 2 張"></button>
-        <button class="ld-car-dot" onclick="ldCarouselTo(2)" aria-label="第 3 張"></button>
+    <div class="ld-hero-row">
+      <div class="ld-hero">
+        <div class="ld-eyebrow">香港樓市追蹤</div>
+        <h1 class="ld-h1">個盤放咗 <em>187 日</em>、減咗 <em>3 次價</em>——<br>經紀唔會話你知，搵樓日記會。</h1>
+        <p class="ld-sub">四大地產網每日自動追蹤，記低每個盤嘅歷史——幾時上、減幾多、幾時落。</p>
+        <div class="ld-cta-row">
+          <a class="ld-cta" href="/app#register">免費開始追蹤</a>
+          <a class="ld-cta-ghost" href="#ld-pains">睇下有咩唔同 ↓</a>
+        </div>
+        <div class="ld-trust">免費追蹤 3 個屋苑・唔使信用卡・唔會攞你電話</div>
+      </div>
+      <div class="ld-hero-img">
+        <div class="ld-hero-carousel" id="ld-hero-carousel" role="region" aria-label="功能截圖">
+          <img class="ld-hero-slide active"
+               src="images/hero-quiet-research-1168.webp"
+               srcset="images/hero-quiet-research-640.webp 640w, images/hero-quiet-research-900.webp 900w, images/hero-quiet-research-1168.webp 1168w"
+               sizes="(min-width: 860px) 50vw, calc(100vw - 2.5rem)"
+               width="1168" height="784" fetchpriority="high"
+               alt="樓盤時間軸：已放盤 14 日，叫價喺第 7／30／90 日分別跌 2.1%／4.8%／7.3%">
+          <img class="ld-hero-slide"
+               data-src="images/hero-estate-days-780.webp"
+               data-srcset="images/hero-estate-days-640.webp 640w, images/hero-estate-days-780.webp 780w"
+               sizes="(min-width: 860px) 50vw, calc(100vw - 2.5rem)"
+               width="780" height="493" fetchpriority="low"
+               alt="真實系統畫面：昇悅居最新放盤，按房數分類嘅售價／實呎價範圍">
+          <div class="ld-hero-car-dots">
+            <button class="ld-hero-car-dot active" onclick="ldHeroCarTo(0)" aria-label="第 1 張"></button>
+            <button class="ld-hero-car-dot" onclick="ldHeroCarTo(1)" aria-label="第 2 張"></button>
+          </div>
+        </div>
       </div>
     </div>
 
@@ -227,24 +289,38 @@
 
     <div class="ld-feat-breakout"><div class="ld-feat-grid">
       <div class="ld-feat-card">
-        <div class="ld-feat-card-shot"><img src="images/feat-listings-1600.webp" srcset="images/feat-listings-640.webp 640w, images/feat-listings-1000.webp 1000w, images/feat-listings-1600.webp 1600w" sizes="(min-width: 860px) min(calc(45vw - 3rem), 770px), calc(90vw - 2rem)" width="1798" height="791" alt="放盤列表：顯示放盤日數、減價次數、多個來源合併、下架配對成交" loading="lazy"></div>
+        <div class="ld-feat-card-shot"><img src="images/cap-multi-source-780.webp" srcset="images/cap-multi-source-640.webp 640w, images/cap-multi-source-780.webp 780w" sizes="(min-width: 860px) min(calc(45vw - 3rem), 770px), calc(90vw - 2rem)" width="780" height="493" alt="放盤列表：顯示放盤日數、減價次數、多個來源合併、下架配對成交" loading="lazy"></div>
         <div class="ld-feat-card-body">
           <div class="ld-feat-card-name">🕰️ 放盤列表：日數、減價、下架一次過睇</div>
           <p>每個盤跟住<b>真實放盤日數</b>、減過幾多次價。同一單位喺幾個網重複放會<b>自動合併做一行</b>，仲會自動配對返成交價。</p>
         </div>
       </div>
       <div class="ld-feat-card">
-        <div class="ld-feat-card-shot"><img src="images/feat-radar-1600.webp" srcset="images/feat-radar-640.webp 640w, images/feat-radar-1000.webp 1000w, images/feat-radar-1600.webp 1600w" sizes="(min-width: 860px) min(calc(45vw - 3rem), 770px), calc(90vw - 2rem)" width="1678" height="705" alt="抵買雷達：叫價對比同屋苑成交中位數，標示減價同擺賣日數" loading="lazy"></div>
+        <div class="ld-feat-card-shot"><img src="images/cap-bargain-radar-780.webp" srcset="images/cap-bargain-radar-640.webp 640w, images/cap-bargain-radar-780.webp 780w" sizes="(min-width: 860px) min(calc(45vw - 3rem), 770px), calc(90vw - 2rem)" width="780" height="493" alt="抵買雷達：叫價對比同屋苑成交中位數，標示減價同擺賣日數" loading="lazy"></div>
         <div class="ld-feat-card-body">
           <div class="ld-feat-card-name">💎 抵買雷達：邊個盤真係平</div>
           <p>自動攞<b>同屋苑近期成交中位數</b>做基準，篩出叫價低最多嗰批，仲會標埋「擺賣幾耐」「啱啱減價」。</p>
         </div>
       </div>
       <div class="ld-feat-card">
-        <div class="ld-feat-card-shot"><img src="images/feat-history-1041.webp" srcset="images/feat-history-640.webp 640w, images/feat-history-1041.webp 1041w" sizes="(min-width: 860px) min(calc(45vw - 3rem), 770px), calc(90vw - 2rem)" width="1041" height="865" alt="售價歷史：逐次改價記錄同總減幅" loading="lazy"></div>
+        <div class="ld-feat-card-shot"><img src="images/cap-price-timeline-780.webp" srcset="images/cap-price-timeline-640.webp 640w, images/cap-price-timeline-780.webp 780w" sizes="(min-width: 860px) min(calc(45vw - 3rem), 770px), calc(90vw - 2rem)" width="780" height="493" alt="售價歷史：逐次改價記錄同總減幅" loading="lazy"></div>
         <div class="ld-feat-card-body">
           <div class="ld-feat-card-name">📉 售價歷史：每次改價都留低證據</div>
           <p>由我哋<b>首次見到嗰日</b>開始記，每次減價幾多、幾時減，一條時間線列曬。</p>
+        </div>
+      </div>
+      <div class="ld-feat-card">
+        <div class="ld-feat-card-shot"><img src="images/cap-estate-analysis-780.webp" srcset="images/cap-estate-analysis-640.webp 640w, images/cap-estate-analysis-780.webp 780w" sizes="(min-width: 860px) min(calc(45vw - 3rem), 770px), calc(90vw - 2rem)" width="780" height="493" alt="樓盤分析：實用呎價趨勢，叫價同成交對照" loading="lazy"></div>
+        <div class="ld-feat-card-body">
+          <div class="ld-feat-card-name">📊 樓盤分析：呎價走勢一眼睇</div>
+          <p>成個屋苑嘅<b>叫價／成交呎價走勢圖</b>，按房數拆開睇，市況一路點變一眼睇晒。</p>
+        </div>
+      </div>
+      <div class="ld-feat-card">
+        <div class="ld-feat-card-shot"><img src="images/cap-daily-activity-780.webp" srcset="images/cap-daily-activity-640.webp 640w, images/cap-daily-activity-780.webp 780w" sizes="(min-width: 860px) min(calc(45vw - 3rem), 770px), calc(90vw - 2rem)" width="780" height="493" alt="今日動態：睇過嘅放盤售價變動即時提示" loading="lazy"></div>
+        <div class="ld-feat-card-body">
+          <div class="ld-feat-card-name">🔔 今日動態：邊個盤有變動即刻知</div>
+          <p>新放盤、減價、下架，同埋<b>你睇過嗰啲盤</b>嘅最新變動，一開 app 就見晒，唔使自己逐個翻查。</p>
         </div>
       </div>
       <div class="ld-feat-card">
@@ -256,35 +332,36 @@
       </div>
     </div></div>
 
-    <div class="ld-hero">
-      <div class="ld-eyebrow">香港樓市追蹤</div>
-      <h1 class="ld-h1">個盤放咗 <em>187 日</em>、減咗 <em>3 次價</em>——<br>經紀唔會話你知，搵樓日記會。</h1>
-      <p class="ld-sub">四大地產網每日自動追蹤，記低每個盤嘅歷史——幾時上、減幾多、幾時落。</p>
-      <div class="ld-cta-row">
-        <a class="ld-cta" href="/app#register">免費開始追蹤</a>
-        <a class="ld-cta-ghost" href="#ld-pains">睇下有咩唔同 ↓</a>
-      </div>
-      <div class="ld-trust">免費追蹤 3 個屋苑・唔使信用卡・唔會攞你電話</div>
-    </div>
-
     <h2 class="ld-h2" id="ld-pains">經紀唔會話你知嘅三件事</h2>
     <div class="ld-pains">
       <div class="ld-pain">
-        <div class="ld-pain-quote">「呢個盤啱啱先放出嚟！」</div>
-        <p>刷新扮新盤？我哋用<b>首次見到嗰日</b>計，呃唔到。</p>
+        <div class="ld-pain-shot"><img src="images/pain-repost-900.webp" srcset="images/pain-repost-640.webp 640w, images/pain-repost-900.webp 900w, images/pain-repost-1168.webp 1168w" sizes="(min-width: 860px) min(30vw, 380px), calc(100vw - 2.5rem)" width="1168" height="784" alt="已核實放盤：首次見盤 180 日前，唔係刷新扮新嘅新盤" loading="lazy"></div>
+        <div class="ld-pain-body">
+          <div class="ld-pain-quote">「呢個盤啱啱先放出嚟！」</div>
+          <p>刷新扮新盤？我哋用<b>首次見到嗰日</b>計，呃唔到。</p>
+        </div>
       </div>
       <div class="ld-pain">
-        <div class="ld-pain-quote">「業主好硬淨，冇得傾。」</div>
-        <p>兩個月減三次價，<b>每次都記低</b>俾你睇晒。</p>
+        <div class="ld-pain-shot"><img src="images/pain-pricecut-900.webp" srcset="images/pain-pricecut-640.webp 640w, images/pain-pricecut-900.webp 900w, images/pain-pricecut-1168.webp 1168w" sizes="(min-width: 860px) min(30vw, 380px), calc(100vw - 2.5rem)" width="1712" height="1152" alt="每次減價都記低：5 月 12 日、5 月 28 日、6 月 10 日逐次改價紀錄" loading="lazy"></div>
+        <div class="ld-pain-body">
+          <div class="ld-pain-quote">「業主好硬淨，冇得傾。」</div>
+          <p>兩個月減三次價，<b>每次都記低</b>俾你睇晒。</p>
+        </div>
       </div>
       <div class="ld-pain">
-        <div class="ld-pain-quote">「呢個價已經好抵！」</div>
-        <p><b>自動對比成交中位數</b>，貴定平即刻知。</p>
+        <div class="ld-pain-shot"><img src="images/pain-value-900.webp" srcset="images/pain-value-640.webp 640w, images/pain-value-900.webp 900w, images/pain-value-1168.webp 1168w" sizes="(min-width: 860px) min(30vw, 380px), calc(100vw - 2.5rem)" width="1712" height="1152" alt="呢個盤，平過屋苑中位：用成交中位數比較，唔使靠感覺" loading="lazy"></div>
+        <div class="ld-pain-body">
+          <div class="ld-pain-quote">「呢個價已經好抵！」</div>
+          <p><b>自動對比成交中位數</b>，貴定平即刻知。</p>
+        </div>
       </div>
     </div>
 
     <h2 class="ld-h2">同地產網站有咩分別？</h2>
     <div class="ld-h2sub">佢哋幫你搵盤；搵完之後嘅嘢，我哋做</div>
+    <div class="ld-compare-intro">
+      <img src="images/illust-four-sources-merge-900.webp" srcset="images/illust-four-sources-merge-640.webp 640w, images/illust-four-sources-merge-900.webp 900w, images/illust-four-sources-merge-1168.webp 1168w" sizes="(min-width: 860px) 320px, min(90vw, 420px)" width="1168" height="784" alt="四個來源自動合併做一張樓盤卡：已合併、放盤日數、減價歷史" loading="lazy">
+    </div>
     <div class="ld-table-scroll"><table class="ld-table">
       <tr><th></th><th>搵樓日記</th><th>地產代理網站</th></tr>
       <tr><td>立場</td><td><b class="ld-tick">✓</b> 買家自己嘅工具</td><td>促成交易</td></tr>
@@ -295,6 +372,16 @@
       <tr><td>貴定平</td><td><b class="ld-tick">✓</b> 自動對比成交中位數</td><td>自己揭成交</td></tr>
       <tr><td>你嘅電話</td><td><b class="ld-tick">✓</b> 唔會攞，亦冇經紀</td><td>留低等經紀跟進</td></tr>
     </table></div>
+
+    <div class="ld-trust-section">
+      <div class="ld-trust-text">
+        <h2 class="ld-h2">老實監察，唔扮即時</h2>
+        <p>四個資料來源逐個獨立監察，邊個正常、邊個延遲一目瞭然。同步偶爾斷過都唔會靜靜當冇事發生——狀態清楚，有延遲就話你知，唔會扮冇事發生嚟呃你個「今日動態」睇落好靚。</p>
+      </div>
+      <div class="ld-trust-img">
+        <img src="images/trust-source-status-900.webp" srcset="images/trust-source-status-640.webp 640w, images/trust-source-status-900.webp 900w, images/trust-source-status-1168.webp 1168w" sizes="(min-width: 860px) 54vw, calc(100vw - 2.5rem)" width="1168" height="784" alt="老實監察：中原、利嘉閣、香港置業正常，美聯延遲／暫缺會清楚標示" loading="lazy">
+      </div>
+    </div>
 
     <div class="ld-calc">
       <h2 class="ld-h2" style="margin-top:0">未諗住買住？至少知下自己買得起幾錢</h2>
@@ -315,11 +402,16 @@
       </a></li>
     </ul>
 
-    <div class="ld-final">
-      <h2 class="ld-h2" style="margin-top:0">今日開始，等數據幫你講價</h2>
-      <div class="ld-h2sub">而家開始追蹤，一個月後你就有一個月嘅歷史——遲一日，少一日</div>
-      <a class="ld-cta" href="/app#register">免費註冊</a>
-      <div class="ld-trust">只需 email・唔使信用卡・隨時退訂</div>
+    <div class="ld-final-row">
+      <div class="ld-final">
+        <h2 class="ld-h2" style="margin-top:0">今日開始，等數據幫你講價</h2>
+        <div class="ld-h2sub">而家開始追蹤，一個月後你就有一個月嘅歷史——遲一日，少一日</div>
+        <a class="ld-cta" href="/app#register">免費註冊</a>
+        <div class="ld-trust">只需 email・唔使信用卡・隨時退訂</div>
+      </div>
+      <div class="ld-final-img">
+        <img src="images/illust-quiet-desk-900.webp" srcset="images/illust-quiet-desk-640.webp 640w, images/illust-quiet-desk-900.webp 900w, images/illust-quiet-desk-1168.webp 1168w" sizes="(min-width: 860px) 50vw, calc(100vw - 2.5rem)" width="1168" height="784" alt="夜晚喺屋企電腦慢慢比較心水盤，唔使急住聯絡經紀" loading="lazy">
+      </div>
     </div>
 
   </div>
@@ -336,37 +428,35 @@
   <div>數據每日自動收集自各大公開地產網站，並非官方數據源；成交紀錄以土地註冊處為準。<br>
   搵樓日記唔係地產代理，唔會促成任何交易，亦唔會將你嘅資料交俾第三方。</div>
 </footer>
+
 <script>
-// Carousel：3 張靜態截圖，5 秒自動轉。撳箭嘴／dot 會即刻切換並重新計
-// 落去嘅 5 秒（唔跟返原本個 timer），咁樣用戶手動撳完唔會 0.5 秒後
-// 又自己跳走。掛喺呢個 script（唔係 body 尾個大 script）係因為呢頁淨係
-// 未登入先會見到，同登入後嘅 app 邏輯無關，唔使等大 script 全部 parse 完。
-let _ldCarIdx = 0, _ldCarTimer = null;
-// 第 2、3 張 5 秒後先會出現，唔好同第一張（LCP）爭頻寬：用 data-src 存住，
-// 等成頁 load 完（或者用戶手動撳去嗰張）先真正載入。
-function ldLoadSlide(img) {
+// Hero carousel：2 頁輪流（插圖 + 真實截圖），5 秒自動轉。撳 dot 即刻切換
+// 並重新計落去嘅 5 秒，用戶手動撳完唔會 0.5 秒後又自己跳走。
+// 第一張已經係 LCP 元素（preload 咗），第二張用 data-src 存住，等成頁
+// load 完先真正下載，唔同第一張爭頻寬。
+let _ldHeroIdx = 0, _ldHeroTimer = null;
+function ldHeroLoadSlide(img) {
   if (!img || !img.dataset.src) return;
   img.srcset = img.dataset.srcset || "";
   img.src = img.dataset.src;
   delete img.dataset.src; delete img.dataset.srcset;
 }
-window.addEventListener("load", () => document.querySelectorAll("#ld-carousel .ld-slide").forEach(ldLoadSlide));
-function ldCarouselShow(i) {
-  const slides = document.querySelectorAll("#ld-carousel .ld-slide");
-  const dots = document.querySelectorAll("#ld-carousel .ld-car-dot");
+window.addEventListener("load", () => document.querySelectorAll("#ld-hero-carousel .ld-hero-slide").forEach(ldHeroLoadSlide));
+function ldHeroCarShow(i) {
+  const slides = document.querySelectorAll("#ld-hero-carousel .ld-hero-slide");
+  const dots = document.querySelectorAll("#ld-hero-carousel .ld-hero-car-dot");
   if (!slides.length) return;
-  _ldCarIdx = (i + slides.length) % slides.length;
-  ldLoadSlide(slides[_ldCarIdx]);
-  slides.forEach((s, idx) => s.classList.toggle("active", idx === _ldCarIdx));
-  dots.forEach((d, idx) => d.classList.toggle("active", idx === _ldCarIdx));
+  _ldHeroIdx = (i + slides.length) % slides.length;
+  ldHeroLoadSlide(slides[_ldHeroIdx]);
+  slides.forEach((s, idx) => s.classList.toggle("active", idx === _ldHeroIdx));
+  dots.forEach((d, idx) => d.classList.toggle("active", idx === _ldHeroIdx));
 }
-function ldCarouselRestart() {
-  clearInterval(_ldCarTimer);
-  _ldCarTimer = setInterval(() => ldCarouselShow(_ldCarIdx + 1), 5000);
+function ldHeroCarRestart() {
+  clearInterval(_ldHeroTimer);
+  _ldHeroTimer = setInterval(() => ldHeroCarShow(_ldHeroIdx + 1), 5000);
 }
-function ldCarouselNav(delta) { ldCarouselShow(_ldCarIdx + delta); ldCarouselRestart(); }
-function ldCarouselTo(i) { ldCarouselShow(i); ldCarouselRestart(); }
-ldCarouselRestart();
+function ldHeroCarTo(i) { ldHeroCarShow(i); ldHeroCarRestart(); }
+ldHeroCarRestart();
 </script>
 </body>
 </html>
