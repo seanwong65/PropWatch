@@ -505,6 +505,14 @@ async function hsScanStep(db) {
   return { did, finished: state.done, state };
 }
 
+// 回俾用戶嘅錯誤一律用通用句子；真正嘅錯誤（D1 額度、SQL、外部網站）寫落
+// Workers Logs（wrangler tail / dashboard），後台睇到就夠，唔好漏內部細節。
+const GENERIC_ERR = "系統暫時出現問題，請稍後再試";
+function userSafeError(e, where) {
+  console.error(`[${where}]`, e?.stack || e?.message || e);
+  return GENERIC_ERR;
+}
+
 function json(status, data) {
   return new Response(JSON.stringify(data), {
     status,
@@ -550,6 +558,9 @@ const SEC_DEFS = [
   { key: "sec_paid_max_estates", def: 15, min: 1, max: 100, label: "收費版：最多追蹤屋苑",
     desc: "每個訂閱屋苑每日食 ~8 個 drip sync 單元（3 source × 放盤+成交，加租盤）。"
         + "15 個已經係 100+ 單元／日，加大之前睇返同步完成時間。" },
+  { key: "sec_max_favourites", def: 10, min: 1, max: 100, label: "最愛屋苑：每個帳戶預設上限",
+    desc: "付費帳戶嘅最愛屋苑先會每日 sync；其餘屋苑輪住 sync（每個最多隔 7 日更新）。"
+        + "呢個係預設值，admin 可以喺用量統計逐個帳戶覆寫（accounts.max_favourites）。" },
   { key: "sec_free_max_viewings", def: 15, min: 1, max: 500, label: "免費版：最多睇樓記錄",
     desc: "免費用戶可以有幾多個睇樓記錄（收費版無限）。淨係擋新增，唔擋改／刪。" },
   { key: "sec_card_photos_max", def: 8, min: 1, max: 30, label: "卡片：每個盤最多幾多張相",
@@ -919,6 +930,9 @@ async function ensureMultiAccount(db) {
     // 收費分層：free(預設) / paid。新註冊一律 free;要升級由 admin 經
     // /api/admin/set-tier 改(將來接 payment 就喺付款成功 callback 度改)。
     try { await db.prepare("ALTER TABLE accounts ADD COLUMN tier TEXT NOT NULL DEFAULT 'free'").run(); } catch (_) {}
+    // 最愛屋苑上限：NULL＝跟全局 sec_max_favourites（預設 10）；只有 admin 改得
+    // （/api/admin/max-favourites）——特登放 accounts 而唔係用戶自己嘅 ⚙️ 設定。
+    try { await db.prepare("ALTER TABLE accounts ADD COLUMN max_favourites INTEGER").run(); } catch (_) {}
     await db.prepare(`CREATE TABLE IF NOT EXISTS email_otps (
       email TEXT PRIMARY KEY,
       code TEXT NOT NULL,
@@ -4759,6 +4773,11 @@ const SYNC_MAX_ATTEMPTS = 3;
 const D1_RETRY_ATTEMPTS = 3;      // 總共試幾多次（包括第一次）
 const D1_RETRY_BASE_MS = 250;     // 250ms → 500ms 遞增
 const D1_ALERT_STREAK = 3;        // 連續幾多次 cron 都掛先出 🚨
+// D1 免費 plan 每日讀取額度用爆（UTC 午夜 = 香港 08:00 先 reset）。呢個唔係閃斷，
+// 重試都冇用；而且 D1 讀唔到，上面嗰套靠 settings 計數嘅防 spam 亦用唔到——
+// 之前每 2 分鐘 cron 就發一次 🚨，一晚幾百條。改做淨係喺固定時間（UTC 每
+// 3 個鐘嘅第一次 firing，即香港 02/05/08/11/14/17/20/23 點）提一次，唔使靠 D1。
+const isD1QuotaExceeded = (e) => /daily row read limit|exceeded D1's free tier/i.test(e?.message || String(e));
 
 const isTransientD1 = (e) => /network connection lost|storage operation|d1_error.*(network|connection)|internal error/i
   .test(String(e?.message || e));
@@ -4797,17 +4816,78 @@ async function ensureSyncLog(db) {
   await db.prepare("CREATE INDEX IF NOT EXISTS idx_synclog_date ON sync_log(sync_date)").run();
 }
 
+// ── 每日 sync 範圍：付費最愛 ＋ 輪住 sync 其餘 ─────────────────────────────
+// 每日全部 sync：有「付費（或 admin）帳戶」標咗最愛嘅屋苑。
+// 其餘生效中屋苑：輪住 sync，保證每個最多隔 SYNC_ROTATE_DAYS 日更新一次——
+// 每日做 ceil(N/7) 個（最舊嗰批先），另外「已經 ≥7 日冇成功 sync／從未 sync 過」
+// 嘅一定做（包括新加嘅屋苑，第一次即日補齊）。純函數，方便寫 test。
+const SYNC_ROTATE_DAYS = 7;
+export function pickRotationEstates(restIds, lastSynced, days = SYNC_ROTATE_DAYS) {
+  // lastSynced: Map(estateId → 最近一次成功 sync 嘅日期 YYYY-MM-DD)，
+  // 只含窗口內（最近 days-1 日）有 sync 過嘅屋苑；冇入 map ＝ 已經到期或從未做過。
+  const due = restIds.filter((id) => !lastSynced.has(id));
+  const quota = Math.ceil(restIds.length / days);
+  const picked = [...due];
+  if (picked.length < quota) {
+    const rest = restIds
+      .filter((id) => lastSynced.has(id))
+      .sort((a, b) => String(lastSynced.get(a)).localeCompare(String(lastSynced.get(b))) || a - b);
+    for (const id of rest) { if (picked.length >= quota) break; picked.push(id); }
+  }
+  return picked;
+}
+
+async function getDailySyncEstateIds(db, today, activeEstateIds) {
+  const { results: favRows } = await d1Retry(() => db.prepare(
+    `SELECT DISTINCT ae.estate_id AS id FROM account_estates ae
+     JOIN accounts a ON a.id = ae.account_id
+     WHERE ae.is_favourite = 1 AND ae.paused_at IS NULL
+       AND (a.tier = 'paid' OR a.role = 'admin')
+       AND (a.is_active IS NULL OR a.is_active = 1)`
+  ).all(), "dailySync/fav");
+  const fav = new Set(favRows.map((r) => r.id));
+  let plan = null;
+  try { plan = JSON.parse(await getSetting(db, "sync_plan") || "null"); } catch (_) {}
+  if (plan?.date !== today) {
+    const restIds = activeEstateIds.filter((id) => !fav.has(id));
+    const from = new Date(Date.parse(`${today}T00:00:00Z`) - (SYNC_ROTATE_DAYS - 1) * 86400000).toISOString().slice(0, 10);
+    const { results } = await d1Retry(() => db.prepare(
+      `SELECT estate_id, MAX(sync_date) AS d FROM sync_log
+       WHERE sync_date >= ? AND sync_date < ? AND ok = 1 AND kind = 'listings'
+       GROUP BY estate_id`
+    ).bind(from, today).all(), "dailySync/last");
+    const last = new Map(results.map((r) => [r.estate_id, r.d]));
+    plan = { date: today, rotate: pickRotationEstates(restIds, last) };
+    await setSetting(db, "sync_plan", JSON.stringify(plan));
+  }
+  return new Set([...fav, ...(plan.rotate || [])]);
+}
+
+// 用戶今日新加屋苑：如果今日個 plan 已經定咗，插入去，令 drip 下一輪就補齊
+// （唔使等聽日）。plan 未定（06:00 前）就唔使做，定 plan 時「從未 sync 過」自然到期。
+async function syncPlanAddEstate(db, estateId) {
+  let plan = null;
+  try { plan = JSON.parse(await getSetting(db, "sync_plan") || "null"); } catch (_) {}
+  if (plan?.date === hkDateStr() && !plan.rotate.includes(estateId)) {
+    plan.rotate.push(estateId);
+    await setSetting(db, "sync_plan", JSON.stringify(plan));
+  }
+}
+
 // 攞返今日全部未搞定嘅單元（唔執行，淨係計）。抽出嚟俾 syncNextUnit（單個，
 // admin 手動測試用）同 syncBatch（一個 invocation 做多個，真正 cron 用）共用，
 // 兩者都要用返同一套「邊個 pending」邏輯，唔可以有兩份漂移。
 async function buildPendingUnits(db, today) {
-  const { results: estates } = await d1Retry(() => db.prepare(
+  const { results: allActive } = await d1Retry(() => db.prepare(
     `SELECT * FROM estates e
      WHERE (e.is_disabled = 0 OR e.is_disabled IS NULL)
        AND EXISTS (SELECT 1 FROM account_estates ae
                    WHERE ae.estate_id = e.id AND ae.paused_at IS NULL)
      ORDER BY e.id`
   ).all(), "buildPendingUnits/estates");
+  // 只 sync：付費最愛（每日）＋今日輪到嘅屋苑（每個最多隔 7 日）。
+  const todayIds = await getDailySyncEstateIds(db, today, allActive.map((e) => e.id));
+  const estates = allActive.filter((e) => todayIds.has(e.id));
   const { results: log } = await d1Retry(() => db.prepare(
     "SELECT estate_id, source, kind, ok, attempts FROM sync_log WHERE sync_date = ?"
   ).bind(today).all(), "buildPendingUnits/sync_log");
@@ -5518,7 +5598,15 @@ export default {
         } catch (e) {
           // D1 閃斷同「真係炒咗」要分開處理，否則一日 720 次 firing 會令
           // 一次性網絡問題變成定期假警報（見 isTransientD1 上面嗰段）。
-          if (isTransientD1(e)) {
+          if (isD1QuotaExceeded(e)) {
+            const t = new Date(event.scheduledTime);
+            if (t.getUTCHours() % 3 === 0 && t.getUTCMinutes() < 2) {
+              await sendAdminAlert(env.DB, env, "🚨 搵樓日記 D1 每日讀取額度用爆",
+                `Drip sync（cron ${event.cron}）`, [_errDetail(e)],
+                "全站 API 同 sync 都停咗，要等 UTC 午夜（香港時間 08:00）額度 reset 先會自動恢復；" +
+                "想即刻恢復就要升 Cloudflare Workers Paid。期間唔會每 2 分鐘 alert，每 3 個鐘提一次。");
+            }
+          } else if (isTransientD1(e)) {
             const streak = Number(await getSetting(env.DB, "drip_d1_streak") || 0) + 1;
             await setSetting(env.DB, "drip_d1_streak", streak);
             // 當日總次數：就算單次唔出 alert，都會喺每日 summary 度報返，
@@ -6230,6 +6318,7 @@ export default {
         if (isPaidSession(session)) {
           try { await hsQueuePriorityScan(db, estate.id, estate.name); } catch (_) {}
         }
+        try { await syncPlanAddEstate(db, estate.id); } catch (_) {}   // 新屋苑第一次即日補齊
         const data = await fetchCentanet(name);
         const listings = data.data || [];
         await saveSearchResults(db, estate.id, listings);
@@ -7003,7 +7092,7 @@ export default {
 
           return json(200, { completion_year: completionYear, phases, blocks, total_units: totalUnits, developer });
         } catch (e) {
-          return json(502, { error: e.message });
+          return json(502, { error: userSafeError(e, "estate-info") });
         }
       }
 
@@ -7034,78 +7123,111 @@ export default {
             ORDER BY t.first_seen DESC, t.price DESC
           `).bind(hAid, cutoffStr, today, cutoffStr).all(),
 
+          // ⚠️ 2026-09-29：舊版 `JOIN listings l ON l.ref_no = lph.ref_no
+          // AND l.estate_id = lph.estate_id` 冇夾埋 snapshot_date——listings
+          // 同 listing_price_history 都係一日一行，兩個表咁樣 join 會做成
+          // 笛卡兒積（一個 ref_no 追蹤 200 日 = 200×200 行先至 GROUP BY 縮
+          // 返），跟優化 priceChanges 嗰條 query 之後改到呢度先再撞
+          // SQLITE_NOMEM，就係呢個 bug。改法：first_seen_date 淨係喺
+          // listing_price_history 度計，計完先用「最新一日」精準 join 返
+          // listings 攞單位資料（同下面 priceChanges 果條 query 一致嘅手法）。
           db.prepare(`
             SELECT l.building_name, l.floor, l.unit, l.bedrooms, l.price, l.price_per_ft, l.size_net,
-                   l.detail_url, e.name as estate_name, MIN(lph.snapshot_date) as first_seen_date
-            FROM listing_price_history lph
-            JOIN listings l ON l.ref_no = lph.ref_no AND l.estate_id = lph.estate_id
-            JOIN estates e ON e.id = lph.estate_id
-            JOIN account_estates ae ON ae.estate_id = e.id AND ae.account_id = ?
+                   l.detail_url, e.name as estate_name, fs.first_seen_date
+            FROM (
+              SELECT lph.ref_no, lph.estate_id, MIN(lph.snapshot_date) as first_seen_date
+              FROM listing_price_history lph
+              JOIN account_estates ae ON ae.estate_id = lph.estate_id AND ae.account_id = ?
+              GROUP BY lph.ref_no, lph.estate_id
+              HAVING MIN(lph.snapshot_date) >= ?
+                AND MIN(lph.snapshot_date) >= ae.added_at
+                AND MIN(lph.snapshot_date) > (SELECT date(e2.first_seen) FROM estates e2 WHERE e2.id = lph.estate_id)
+            ) fs
+            JOIN listings l
+              ON l.ref_no = fs.ref_no AND l.estate_id = fs.estate_id
+              AND l.snapshot_date = (
+                SELECT MAX(l2.snapshot_date) FROM listings l2
+                WHERE l2.ref_no = fs.ref_no AND l2.estate_id = fs.estate_id
+              )
+            JOIN estates e ON e.id = fs.estate_id
             WHERE (e.is_disabled = 0 OR e.is_disabled IS NULL)
-            GROUP BY lph.ref_no, lph.estate_id
-            HAVING MIN(lph.snapshot_date) >= ?
-              AND MIN(lph.snapshot_date) >= MAX(ae.added_at)
-              AND MIN(lph.snapshot_date) > date(e.first_seen)
-            ORDER BY first_seen_date DESC, l.price ASC
+            ORDER BY fs.first_seen_date DESC, l.price ASC
           `).bind(hAid, cutoffStr).all(),
 
+          // ⚠️ 2026-09-29：呢條 query 之前用 3 個 unbounded 嘅
+          // 「SELECT DISTINCT ... FROM listing_price_history」／
+          // 「... FROM listings GROUP BY」全表 derived table（跨晒全部帳戶
+          // 全部屋苑，唔止呢個 account 訂閱緊嗰幾個），listing_price_history
+          // 儲夠幾個月幾十個屋苑嘅數之後掃到爆 D1 CPU time limit，
+          // 令「歷史動態」成頁「載入失敗」。改法：一開始就用 account_estates
+          // 篩實得返呢個帳戶訂閱嗰幾個屋苑（`changed` 個 CTE 入面），
+          // first_p／last_p／l 嗰三個 join 都改做直接查返 indexed 嘅
+          // listing_price_history／listings（唔使再 DISTINCT 全表——
+          // listing_price_history 本身有 UNIQUE(ref_no, snapshot_date)，
+          // 唔可能有重複）。
           db.prepare(`
             SELECT l.building_name, l.floor, l.unit, l.detail_url, e.name as estate_name,
                    first_p.price as old_price, last_p.price as new_price,
                    first_p.snapshot_date as old_date, last_p.snapshot_date as new_date
             FROM (
-              SELECT ref_no, estate_id, MIN(snapshot_date) as min_d, MAX(snapshot_date) as max_d
-              FROM (SELECT DISTINCT ref_no, estate_id, snapshot_date, price FROM listing_price_history WHERE snapshot_date >= ?)
-              GROUP BY ref_no, estate_id
-              HAVING COUNT(DISTINCT price) > 1 AND MIN(price) != MAX(price)
+              SELECT lph.ref_no, lph.estate_id, MIN(lph.snapshot_date) as min_d, MAX(lph.snapshot_date) as max_d
+              FROM listing_price_history lph
+              JOIN account_estates ae0 ON ae0.estate_id = lph.estate_id AND ae0.account_id = ?
+              WHERE lph.snapshot_date >= ?
+              GROUP BY lph.ref_no, lph.estate_id
+              HAVING COUNT(DISTINCT lph.price) > 1 AND MIN(lph.price) != MAX(lph.price)
             ) changed
             JOIN account_estates ae ON ae.estate_id = changed.estate_id AND ae.account_id = ?
-            JOIN (SELECT DISTINCT ref_no, estate_id, snapshot_date, price FROM listing_price_history) first_p
+            JOIN listing_price_history first_p
               ON first_p.ref_no = changed.ref_no AND first_p.estate_id = changed.estate_id AND first_p.snapshot_date = changed.min_d
-            JOIN (SELECT DISTINCT ref_no, estate_id, snapshot_date, price FROM listing_price_history) last_p
+            JOIN listing_price_history last_p
               ON last_p.ref_no = changed.ref_no AND last_p.estate_id = changed.estate_id AND last_p.snapshot_date = changed.max_d
-            JOIN (
-              SELECT ref_no, estate_id, building_name, floor, unit, detail_url
-              FROM listings
-              WHERE (ref_no, estate_id, snapshot_date) IN (
-                SELECT ref_no, estate_id, MAX(snapshot_date) FROM listings GROUP BY ref_no, estate_id
+            JOIN listings l
+              ON l.ref_no = changed.ref_no AND l.estate_id = changed.estate_id
+              AND l.snapshot_date = (
+                SELECT MAX(l2.snapshot_date) FROM listings l2
+                WHERE l2.ref_no = changed.ref_no AND l2.estate_id = changed.estate_id
               )
-            ) l ON l.ref_no = changed.ref_no AND l.estate_id = changed.estate_id
             JOIN estates e ON e.id = changed.estate_id
             WHERE first_p.price != last_p.price
               AND changed.max_d >= ae.added_at
               AND (e.is_disabled = 0 OR e.is_disabled IS NULL)
             ORDER BY ABS(last_p.price - first_p.price) DESC
-          `).bind(cutoffStr, hAid).all(),
+          `).bind(hAid, cutoffStr, hAid).all(),
 
+          // ⚠️ 2026-09-29：舊版兩個 correlated 「NOT IN (SELECT ... WHERE
+          // estate_id = l.estate_id AND snapshot_date = ...)」逐個 outer
+          // row 都要重新行一次 subquery，outer 集合（一個月 × 全部訂閱
+          // 屋苑嘅 listings）大到會撞 D1 CPU time limit。改用 LEFT JOIN
+          // 精準夾住「今日」／「上一個 sync 日」嗰兩個快照，再用
+          // IS NULL 判斷「冇再出現」——同一個邏輯，但改行 indexed join
+          // （idx_listings_estate_ref）， 唔使逐行重複 subquery。
           db.prepare(`
             SELECT l.building_name, l.floor, l.unit, l.bedrooms, l.price,
                    l.detail_url, e.name as estate_name, l.snapshot_date as last_seen_date
             FROM listings l
             JOIN estates e ON e.id = l.estate_id
             JOIN account_estates ae ON ae.estate_id = e.id AND ae.account_id = ?
+            LEFT JOIN listings today_l
+              ON today_l.estate_id = l.estate_id AND today_l.ref_no = l.ref_no AND today_l.snapshot_date = ?
+            LEFT JOIN (
+              SELECT estate_id, MAX(snapshot_date) as prev_date FROM listings WHERE snapshot_date < ? GROUP BY estate_id
+            ) prev ON prev.estate_id = l.estate_id
+            LEFT JOIN listings prev_l
+              ON prev_l.estate_id = l.estate_id AND prev_l.ref_no = l.ref_no AND prev_l.snapshot_date = prev.prev_date
             WHERE l.snapshot_date >= ?
               AND l.snapshot_date < ?
               AND l.snapshot_date >= ae.added_at
               AND l.ref_no IS NOT NULL
               -- 連續兩個 sync(今日 T 同前一個 P)都冇再出現先當下架,
               -- 避免一次 scrape 甩漏(利嘉閣分頁)造成嘅假下架喺歷史度閃出閃入。
-              AND l.ref_no NOT IN (
-                SELECT ref_no FROM listings
-                WHERE estate_id = l.estate_id AND snapshot_date = ?
-              )
-              AND l.ref_no NOT IN (
-                SELECT ref_no FROM listings
-                WHERE estate_id = l.estate_id AND snapshot_date = (
-                  SELECT MAX(snapshot_date) FROM listings
-                  WHERE estate_id = l.estate_id AND snapshot_date < ?
-                )
-              )
+              AND today_l.ref_no IS NULL
+              AND prev_l.ref_no IS NULL
               AND date(e.first_seen) <= l.snapshot_date
               AND (e.is_disabled = 0 OR e.is_disabled IS NULL)
             GROUP BY l.ref_no, l.estate_id
             ORDER BY l.snapshot_date DESC
-          `).bind(hAid, cutoffStr, today, today, today).all(),
+          `).bind(hAid, today, today, cutoffStr, today).all(),
 
           db.prepare(`
             SELECT t.building, t.floor, t.unit, t.price AS txn_price, t.size_net, t.reg_date, t.first_seen,
@@ -7200,6 +7322,18 @@ export default {
         ).bind(session.account_id, estateId).first();
         if (!sub) return json(404, { error: "Not found" });
         const newVal = sub.is_favourite ? 0 : 1;
+        if (newVal === 1) {
+          // 上限：帳戶自己嘅 max_favourites（admin 設）優先，冇就跟全局 sec_max_favourites。
+          // 淨計生效中（暫停咗嘅唔食額度）；撞頂就擋，唔靠前端。
+          const accRow = await db.prepare("SELECT max_favourites FROM accounts WHERE id = ?").bind(session.account_id).first();
+          const cap = accRow?.max_favourites ?? (await getSecCfg(db)).sec_max_favourites;
+          const cnt = await db.prepare(
+            "SELECT COUNT(*) AS c FROM account_estates WHERE account_id = ? AND is_favourite = 1 AND paused_at IS NULL"
+          ).bind(session.account_id).first();
+          if ((cnt?.c || 0) >= cap) {
+            return json(409, { error: `最愛屋苑最多 ${cap} 個，要取消其中一個先可以加新嘅。`, atCap: true, cap });
+          }
+        }
         await db.prepare(
           "UPDATE account_estates SET is_favourite = ? WHERE account_id = ? AND estate_id = ?"
         ).bind(newVal, session.account_id, estateId).run();
@@ -7309,7 +7443,7 @@ export default {
           try {
             return json(200, { ok: true, results: [await syncOneEstate(db, estate)] });
           } catch (err) {
-            return json(200, { ok: true, results: [{ estate: estate.name, error: err.message, ok: false }] });
+            return json(200, { ok: true, results: [{ estate: estate.name, error: userSafeError(err, "sync " + estate.name), ok: false }] });
           }
         }
         // All estates in one request (best-effort, immediate feedback). The
@@ -7323,7 +7457,7 @@ export default {
            ORDER BY e.id`).all();
         const results = await Promise.all(estates.map(async (estate) => {
           try { return await syncOneEstate(db, estate); }
-          catch (err) { return { estate: estate.name, error: err.message, ok: false }; }
+          catch (err) { return { estate: estate.name, error: userSafeError(err, "sync " + estate.name), ok: false }; }
         }));
         return json(200, { ok: true, results });
       }
@@ -7641,7 +7775,7 @@ export default {
           });
           return json(200, r);
         } catch (e) {
-          return json(502, { error: e.message || "centanet error" });
+          return json(502, { error: userSafeError(e, "centanet") });
         }
       }
 
@@ -8303,6 +8437,23 @@ export default {
         }
       }
 
+      // 逐個帳戶改最愛屋苑上限（admin 專用）。max = null 就還原做全局預設。
+      if (method === "POST" && path === "/api/admin/max-favourites") {
+        if (!isAdminSession(session)) return json(403, { error: "admin only" });
+        const { account_id, max } = await request.json();
+        const id = Number(account_id);
+        if (!Number.isInteger(id) || id <= 0) return json(400, { error: "account_id 唔啱" });
+        let val = null;
+        if (max !== null && max !== undefined && max !== "") {
+          const n = Number(max);
+          if (!Number.isFinite(n)) return json(400, { error: "max 要係數字" });
+          val = Math.round(Math.min(100, Math.max(0, n)));
+        }
+        const r = await db.prepare("UPDATE accounts SET max_favourites = ? WHERE id = ?").bind(val, id).run();
+        if (!r.meta?.changes) return json(404, { error: "搵唔到呢個帳戶" });
+        return json(200, { ok: true, account_id: id, max_favourites: val });
+      }
+
       if (path === "/api/admin/tiers") {
         if (!isAdminSession(session)) return json(403, { error: "admin only" });
         if (method === "GET") {
@@ -8583,6 +8734,8 @@ export default {
                  COALESCE(a.is_active,1) AS is_active,
                  COALESCE(a.email_opt_in,1) AS email_opt_in,
                  (SELECT COUNT(*) FROM account_estates ae WHERE ae.account_id = a.id) AS estates,
+                 (SELECT COUNT(*) FROM account_estates ae WHERE ae.account_id = a.id AND ae.is_favourite = 1 AND ae.paused_at IS NULL) AS favourites,
+                 a.max_favourites AS max_favourites_override,
                  (SELECT COUNT(*) FROM viewings v WHERE v.account_id = a.id) AS viewings,
                  (SELECT COUNT(*) FROM friend_homes f WHERE f.account_id = a.id) AS friend_homes,
                  (SELECT MAX(created_at) FROM sessions s WHERE s.account_id = a.id) AS last_login
@@ -8596,6 +8749,7 @@ export default {
           // isAdminSession 判斷）——呢度跟返做 null＝無限，同 viewings
           // 一致嘅顯示方式（「31/∞」），唔好扮住有個 cap 佢其實冇嘅嘢。
           a.max_estates = a.role === "admin" ? null : (paid ? sc.sec_paid_max_estates : sc.sec_free_max_estates);
+          a.max_favourites = a.max_favourites_override ?? sc.sec_max_favourites;
           a.max_viewings = paid ? null : sc.sec_free_max_viewings;   // null = 無限
           a.estates_pct = a.max_estates ? Math.round(a.estates / a.max_estates * 100) : null;
           a.viewings_pct = a.max_viewings ? Math.round(a.viewings / a.max_viewings * 100) : null;
@@ -8690,8 +8844,7 @@ export default {
 
       return json(404, { error: "Not found" });
     } catch (err) {
-      console.error(err);
-      return json(500, { error: err.message });
+      return json(500, { error: userSafeError(err, `${request.method} ${new URL(request.url).pathname}`) });
     }
   },
 };

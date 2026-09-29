@@ -162,26 +162,21 @@
     .ld-pain p { font-size: 0.85rem; color: var(--muted); line-height: 1.7; margin: 0; }
     .ld-pain p b { color: var(--text); }
     /* 「同地產網站有咩分別」表格上面加返個「四網合併」插圖，同表格入面
-       「跨網比較」嗰行呼應。 */
-    .ld-compare-intro { margin-bottom: 1.3rem; text-align: center; }
+       「跨網比較」嗰行呼應。跟 .ld-feat-breakout 同一套 breakout 手法跳出
+       .ld-wrap 880px 闊度，等張圖夠大睇得清楚。 */
+    .ld-compare-intro {
+      position: relative; left: 50%; transform: translateX(-50%);
+      width: 90vw; max-width: 960px; margin: 0 auto 1.3rem; text-align: center;
+    }
     .ld-compare-intro img {
-      max-width: 320px; width: 100%; height: auto; margin: 0 auto; display: block;
+      width: 100%; height: auto; margin: 0 auto; display: block;
       border-radius: var(--radius); box-shadow: var(--shadow-sm);
     }
-    /* 「老實監察」信任區：講返個系統點樣處理同步失敗／延遲，唔扮冇事發生。 */
-    .ld-trust-section {
-      display: flex; flex-direction: column-reverse; gap: 1.6rem; align-items: center;
-      margin-top: 3rem;
-    }
-    @media (min-width: 860px) {
-      .ld-trust-section { flex-direction: row; text-align: left; }
-      .ld-trust-section .ld-trust-text { flex: 1 1 46%; }
-      .ld-trust-section .ld-trust-img { flex: 1 1 54%; }
-    }
-    .ld-trust-section { text-align: center; }
-    .ld-trust-img img { width: 100%; height: auto; display: block; border-radius: var(--radius-lg); box-shadow: var(--shadow); }
-    .ld-trust-text h2 { margin: 0 0 0.5rem; text-align: inherit; }
-    .ld-trust-text p { color: var(--muted); font-size: 0.92rem; line-height: 1.8; }
+    /* 「老實監察」信任區：講返個系統點樣處理同步失敗／延遲，唔扮冇事發生。
+       張截圖搬咗去「功能介紹」個 grid 度做多一張卡，呢度剩返純文字。 */
+    .ld-trust-section { max-width: 640px; margin: 3rem auto 0; text-align: center; }
+    .ld-trust-section h2 { margin: 0 0 0.5rem; }
+    .ld-trust-section p { color: var(--muted); font-size: 0.92rem; line-height: 1.8; }
     /* 最尾 CTA 加返個插圖，兩欄；手機圖擺上面。 */
     .ld-final-row { display: flex; flex-direction: column; gap: 1.8rem; align-items: center; margin-top: 3rem; }
     @media (min-width: 860px) {
@@ -276,9 +271,37 @@
                sizes="(min-width: 860px) 50vw, calc(100vw - 2.5rem)"
                width="780" height="493" fetchpriority="low"
                alt="真實系統畫面：昇悅居最新放盤，按房數分類嘅售價／實呎價範圍">
+          <img class="ld-hero-slide"
+               data-src="images/pain-repost-900.webp"
+               data-srcset="images/pain-repost-640.webp 640w, images/pain-repost-900.webp 900w, images/pain-repost-1168.webp 1168w"
+               sizes="(min-width: 860px) 50vw, calc(100vw - 2.5rem)"
+               width="1168" height="784" fetchpriority="low"
+               alt="已核實放盤：首次見盤 180 日前，唔係刷新扮新嘅新盤">
+          <img class="ld-hero-slide"
+               data-src="images/pain-pricecut-900.webp"
+               data-srcset="images/pain-pricecut-640.webp 640w, images/pain-pricecut-900.webp 900w, images/pain-pricecut-1168.webp 1168w"
+               sizes="(min-width: 860px) 50vw, calc(100vw - 2.5rem)"
+               width="1712" height="1152" fetchpriority="low"
+               alt="每次減價都記低：5 月 12 日、5 月 28 日、6 月 10 日逐次改價紀錄">
+          <img class="ld-hero-slide"
+               data-src="images/pain-value-900.webp"
+               data-srcset="images/pain-value-640.webp 640w, images/pain-value-900.webp 900w, images/pain-value-1168.webp 1168w"
+               sizes="(min-width: 860px) 50vw, calc(100vw - 2.5rem)"
+               width="1712" height="1152" fetchpriority="low"
+               alt="呢個盤，平過屋苑中位：用成交中位數比較，唔使靠感覺">
+          <img class="ld-hero-slide"
+               data-src="images/trust-source-status-900.webp"
+               data-srcset="images/trust-source-status-640.webp 640w, images/trust-source-status-900.webp 900w, images/trust-source-status-1168.webp 1168w"
+               sizes="(min-width: 860px) 50vw, calc(100vw - 2.5rem)"
+               width="1168" height="784" fetchpriority="low"
+               alt="老實監察：中原、利嘉閣、香港置業正常，美聯延遲／暫缺會清楚標示">
           <div class="ld-hero-car-dots">
             <button class="ld-hero-car-dot active" onclick="ldHeroCarTo(0)" aria-label="第 1 張"></button>
             <button class="ld-hero-car-dot" onclick="ldHeroCarTo(1)" aria-label="第 2 張"></button>
+            <button class="ld-hero-car-dot" onclick="ldHeroCarTo(2)" aria-label="第 3 張"></button>
+            <button class="ld-hero-car-dot" onclick="ldHeroCarTo(3)" aria-label="第 4 張"></button>
+            <button class="ld-hero-car-dot" onclick="ldHeroCarTo(4)" aria-label="第 5 張"></button>
+            <button class="ld-hero-car-dot" onclick="ldHeroCarTo(5)" aria-label="第 6 張"></button>
           </div>
         </div>
       </div>
@@ -330,6 +353,13 @@
           <p>逐項自訂評分，影相、寫備註。仲會同時話你知呢個單位<b>相對叫價同成交中位數</b>係貴定平。</p>
         </div>
       </div>
+      <div class="ld-feat-card">
+        <div class="ld-feat-card-shot"><img src="images/trust-source-status-900.webp" srcset="images/trust-source-status-640.webp 640w, images/trust-source-status-900.webp 900w, images/trust-source-status-1168.webp 1168w" sizes="(min-width: 860px) min(calc(45vw - 3rem), 770px), calc(90vw - 2rem)" width="1168" height="784" alt="老實監察：中原、利嘉閣、香港置業正常，美聯延遲／暫缺會清楚標示" loading="lazy"></div>
+        <div class="ld-feat-card-body">
+          <div class="ld-feat-card-name">📡 資料來源監察：邊個網有延遲一眼睇晒</div>
+          <p>四個資料來源逐個獨立監察，<b>邊個正常、邊個延遲</b>一目瞭然，斷過都唔會扮冇事發生嚟呃靚「今日動態」。</p>
+        </div>
+      </div>
     </div></div>
 
     <h2 class="ld-h2" id="ld-pains">經紀唔會話你知嘅三件事</h2>
@@ -360,7 +390,7 @@
     <h2 class="ld-h2">同地產網站有咩分別？</h2>
     <div class="ld-h2sub">佢哋幫你搵盤；搵完之後嘅嘢，我哋做</div>
     <div class="ld-compare-intro">
-      <img src="images/illust-four-sources-merge-900.webp" srcset="images/illust-four-sources-merge-640.webp 640w, images/illust-four-sources-merge-900.webp 900w, images/illust-four-sources-merge-1168.webp 1168w" sizes="(min-width: 860px) 320px, min(90vw, 420px)" width="1168" height="784" alt="四個來源自動合併做一張樓盤卡：已合併、放盤日數、減價歷史" loading="lazy">
+      <img src="images/illust-four-sources-merge-900.webp" srcset="images/illust-four-sources-merge-640.webp 640w, images/illust-four-sources-merge-900.webp 900w, images/illust-four-sources-merge-1168.webp 1168w" sizes="min(90vw, 960px)" width="1168" height="784" alt="四個來源自動合併做一張樓盤卡：已合併、放盤日數、減價歷史" loading="lazy">
     </div>
     <div class="ld-table-scroll"><table class="ld-table">
       <tr><th></th><th>搵樓日記</th><th>地產代理網站</th></tr>
@@ -374,13 +404,8 @@
     </table></div>
 
     <div class="ld-trust-section">
-      <div class="ld-trust-text">
-        <h2 class="ld-h2">老實監察，唔扮即時</h2>
-        <p>四個資料來源逐個獨立監察，邊個正常、邊個延遲一目瞭然。同步偶爾斷過都唔會靜靜當冇事發生——狀態清楚，有延遲就話你知，唔會扮冇事發生嚟呃你個「今日動態」睇落好靚。</p>
-      </div>
-      <div class="ld-trust-img">
-        <img src="images/trust-source-status-900.webp" srcset="images/trust-source-status-640.webp 640w, images/trust-source-status-900.webp 900w, images/trust-source-status-1168.webp 1168w" sizes="(min-width: 860px) 54vw, calc(100vw - 2.5rem)" width="1168" height="784" alt="老實監察：中原、利嘉閣、香港置業正常，美聯延遲／暫缺會清楚標示" loading="lazy">
-      </div>
+      <h2 class="ld-h2">老實監察，唔扮即時</h2>
+      <p>四個資料來源逐個獨立監察，邊個正常、邊個延遲一目瞭然。同步偶爾斷過都唔會靜靜當冇事發生——狀態清楚，有延遲就話你知，唔會扮冇事發生嚟呃你個「今日動態」睇落好靚。</p>
     </div>
 
     <div class="ld-calc">

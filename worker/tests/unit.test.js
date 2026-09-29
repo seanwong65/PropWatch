@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { scrapeRicacorpListings, scrapeHkpListings, hsUnitParts, hsBlockKey } from "../index.js";
+import { scrapeRicacorpListings, scrapeHkpListings, hsUnitParts, hsBlockKey, pickRotationEstates } from "../index.js";
 import { readFileSync } from "node:fs";
 
 // ── Pure helpers extracted inline (no DB/fetch deps) ──────────────────────
@@ -376,5 +376,43 @@ describe("hsUnitParts", () => {
     expect(hsUnitParts("A座", null, "7室")).toBeNull();
     expect(hsUnitParts("車位", "8樓", "A室")).toBeNull();
     expect(hsUnitParts("1座", "8樓", "室")).toBeNull();
+  });
+});
+
+describe("pickRotationEstates（非最愛屋苑輪住 sync，每個最多隔 7 日）", () => {
+  it("從未 sync 過／已經 ≥7 日冇做嘅一定揀（新屋苑第一次即日補齊）", () => {
+    const last = new Map([[1, "2026-09-28"], [2, "2026-09-27"]]);
+    expect(pickRotationEstates([1, 2, 3], last)).toContain(3);
+  });
+  it("到期嘅唔受每日配額限制", () => {
+    const ids = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12];
+    expect(pickRotationEstates(ids, new Map()).sort((a, b) => a - b)).toEqual(ids);
+  });
+  it("冇到期嘅按 ceil(N/7) 每日配額揀最舊", () => {
+    const ids = [1, 2, 3, 4, 5, 6, 7, 8];   // ceil(8/7)=2
+    const last = new Map(ids.map((id, i) => [id, `2026-09-2${i}`]));
+    expect(pickRotationEstates(ids, last)).toEqual([1, 2]);
+  });
+  it("到期數已經夠配額就唔再多揀", () => {
+    const last = new Map([[1, "2026-09-25"], [2, "2026-09-26"]]);
+    expect(pickRotationEstates([1, 2, 3], last)).toEqual([3]);   // ceil(3/7)=1，3 到期
+  });
+  it("冇屋苑就冇嘢揀", () => expect(pickRotationEstates([], new Map())).toEqual([]));
+  it("模擬 12 個屋苑連續 30 日：任何屋苑都唔會隔過 7 日", () => {
+    const ids = Array.from({ length: 12 }, (_, i) => i + 1);
+    const history = new Map(ids.map((id) => [id, []]));
+    for (let day = 0; day < 30; day++) {
+      const last = new Map();
+      for (const id of ids) {
+        const past = history.get(id).filter((d) => day - d <= 6);
+        if (past.length) last.set(id, String(1000 + Math.max(...past)));
+      }
+      for (const id of pickRotationEstates(ids, last)) history.get(id).push(day);
+    }
+    for (const id of ids) {
+      const h = history.get(id);
+      for (let i = 1; i < h.length; i++) expect(h[i] - h[i - 1]).toBeLessThanOrEqual(7);
+      expect(h.length).toBeGreaterThan(3);
+    }
   });
 });

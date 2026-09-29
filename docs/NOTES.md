@@ -171,6 +171,17 @@ Capacity = slots × `SYNC_SLOT_SIZE` (12). Add a slot cron to grow. Manual
 淘大花園／德福花園（字母座）、黃埔花園（`05座`）以前幾乎全部查唔到，改完頭 40 個全中。
 成交表 API 而家連利嘉閣／美聯系補返嘅成交都用同一條 key 配估值（以前淨係中原行有）。
 
+### 每日 sync 範圍（2026-09-29 起）
+
+Drip sync 唔再對「有人訂閱」嘅屋苑逐個每日做，改成：
+- **每日全做**：有「付費（或 admin）帳戶」標咗 ★ 最愛嘅屋苑（`getDailySyncEstateIds`）。
+- **輪住做**：其餘生效中屋苑，每日 `ceil(N/7)` 個（最舊優先）；≥7 日冇成功 sync／從未 sync 過嘅一定做，
+  所以**每個屋苑最多隔 7 日更新一次**（`pickRotationEstates`，有 unit test 模擬 30 日）。
+- **新屋苑第一次即日補齊**：`/api/track` 加訂閱後 `syncPlanAddEstate` 塞入今日 plan，drip 下一輪即做。
+- 今日 plan 存 `settings.sync_plan`（`{date, rotate:[ids]}`），每日第一次算一次。手動「立即同步」照舊做全部。
+- **最愛上限**：`accounts.max_favourites`（NULL＝跟全局 `sec_max_favourites`，預設 10），只有 admin 改得
+  （`POST /api/admin/max-favourites`，喺 ⚙️ 設定→用量統計嘅「最愛」欄）；`POST /api/estates/:id/favourite` 後端擋（409）。
+
 ## Auth
 
 Multi-account (register page open; original data all mapped to `seanwong`).

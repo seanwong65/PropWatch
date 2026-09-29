@@ -946,6 +946,67 @@
     }
     /* Viewings tab */
     .viewings-list { padding: 0.75rem 0; }
+    .viewing-date-group { margin-bottom: 0.75rem; }
+    .viewing-date-header {
+      width: 100%; display: flex; align-items: center; gap: 0.5rem;
+      background: var(--surface2); border: 1px solid var(--border); border-radius: var(--radius);
+      padding: 0.7rem 1rem; font-family: inherit; cursor: pointer; text-align: left;
+    }
+    .viewing-date-header-date { font-weight: 700; font-size: 0.88rem; color: var(--text); }
+    .viewing-date-header-count { color: var(--accent); font-size: 0.78rem; margin-left: auto; }
+    .viewing-date-header-chevron { color: var(--muted); font-size: 0.8rem; }
+    .viewing-date-body { padding-top: 0.75rem; }
+    /* 「睇樓日記」（dashboard 個 tab）：左邊日期篩選 panel + 右邊卡片列表。
+       手機闊度冇位擺側邊 panel，摺埋做一粒掣，撳先彈個 modal（用返
+       .modal-overlay／.modal 嗰套全站共用嘅彈窗樣式）。 */
+    .comps-layout { display: flex; gap: 1.2rem; align-items: flex-start; }
+    .comps-date-panel {
+      flex: 0 0 180px; display: flex; flex-direction: column; gap: 0.15rem;
+      background: var(--glass-bg); backdrop-filter: var(--glass-blur); -webkit-backdrop-filter: var(--glass-blur);
+      border: 1px solid var(--glass-border); border-radius: var(--radius); padding: 0.8rem;
+      position: sticky; top: 0.5rem;
+    }
+    .comps-date-panel-title { font-size: 0.8rem; font-weight: 700; color: var(--text); margin-bottom: 0.3rem; }
+    .comps-date-panel-all {
+      font-size: 0.78rem; color: var(--accent2); cursor: pointer; background: none; border: none;
+      padding: 0.2rem 0; text-align: left; font-family: inherit; margin-bottom: 0.2rem;
+    }
+    .comps-date-range-row { display: flex; flex-direction: column; gap: 0.2rem; margin-top: 0.4rem; }
+    .comps-date-range-label { font-size: 0.75rem; color: var(--muted); }
+    .comps-date-input {
+      width: 100%; background: var(--surface2); border: 1px solid var(--border); border-radius: 8px;
+      color: var(--text); font-size: 0.85rem; padding: 0.4rem 0.5rem; box-sizing: border-box; font-family: inherit;
+    }
+    .comps-date-chips { display: flex; flex-wrap: wrap; gap: 0.3rem; margin-top: 0.6rem; }
+    .comps-date-chip {
+      display: inline-flex; align-items: center; gap: 0.3rem; font-family: inherit; cursor: pointer;
+      font-size: 0.75rem; padding: 0.25rem 0.55rem; border-radius: 999px; font-weight: 600;
+      background: var(--brand-soft); color: var(--brand); border: 1px solid var(--brand);
+    }
+    .comps-date-chip:hover { background: var(--brand); color: var(--brand-ink); }
+    #comps-body .viewing-date-group { scroll-margin-top: 0.75rem; }
+    .viewing-date-header.flash { animation: vdgFlash 1.2s ease; }
+    @keyframes vdgFlash { 0%, 40% { border-color: var(--brand); box-shadow: 0 0 0 3px var(--brand-soft); } 100% { box-shadow: none; } }
+    .comps-date-chip-n { font-size: 0.68rem; opacity: 0.8; font-weight: 400; }
+    .comps-main { flex: 1; min-width: 0; }
+    .comps-main .viewing-card { max-width: 100%; overflow-x: auto; }
+    .comps-filter-btn-mobile { display: none; margin-bottom: 0.6rem; }
+    /* 右邊張卡片要 ~520px 先唔會爆出界；dashboard 夾喺 sidebar 隔籬，
+       個闊度同 window 闊度無關，所以用 container query 睇返自己夠唔夠位：
+       唔夠就改做上下排（篩選喺上面、卡片全闊）。 */
+    /* container-type 會令入面 position:fixed 嘅嘢以佢做定位框（modal 會困喺裏面），
+       所以放喺淨係包住 layout 嘅 .comps-cq，modal 擺喺佢外面。 */
+    .comps-cq { container-type: inline-size; }
+    @container (max-width: 760px) {
+      .comps-layout { flex-direction: column; align-items: stretch; }
+      .comps-date-panel { flex: none; position: static; }
+      .comps-date-panel .comps-date-range-row { flex-direction: row; align-items: center; gap: 0.5rem; }
+      .comps-date-panel .comps-date-range-label { flex: 0 0 1.2rem; }
+    }
+    @media (max-width: 768px) {
+      .comps-date-panel { display: none; }
+      .comps-filter-btn-mobile { display: inline-flex; }
+    }
     .viewing-card {
       background: var(--glass-bg); border: 1px solid var(--border);
       backdrop-filter: var(--glass-blur);
@@ -2574,13 +2635,13 @@ async function showDashboard(estates) {
         <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:0.4rem;margin-bottom:0.75rem">
           <div style="display:flex;gap:0;border-bottom:2px solid var(--border)">
             <button id="dash-tab-today" onclick="switchDashTab('today')" style="background:none;border:none;border-bottom:2px solid var(--brand);margin-bottom:-2px;color:var(--text);font-size:0.9rem;font-weight:600;padding:0.35rem 0.85rem;cursor:pointer">今日動態 <span id="highlights-date" style="font-weight:400;color:var(--muted);font-size:0.8rem"></span></button>
-            <button id="dash-tab-comps" onclick="switchDashTab('comps')" style="background:none;border:none;border-bottom:2px solid transparent;margin-bottom:-2px;color:var(--muted);font-size:0.9rem;padding:0.35rem 0.85rem;cursor:pointer">睇過嘅盤</button>
+            <button id="dash-tab-comps" onclick="switchDashTab('comps')" style="background:none;border:none;border-bottom:2px solid transparent;margin-bottom:-2px;color:var(--muted);font-size:0.9rem;padding:0.35rem 0.85rem;cursor:pointer">睇樓日記</button>
             <button id="dash-tab-radar" onclick="switchDashTab('radar')" style="background:none;border:none;border-bottom:2px solid transparent;margin-bottom:-2px;color:var(--muted);font-size:0.9rem;padding:0.35rem 0.85rem;cursor:pointer">💎 抵買雷達</button>
             <button id="dash-tab-friends" onclick="switchDashTab('friends')" style="background:none;border:none;border-bottom:2px solid transparent;margin-bottom:-2px;color:var(--muted);font-size:0.9rem;padding:0.35rem 0.85rem;cursor:pointer">👥 朋友屋企</button>
           </div>
-          <div style="display:flex;align-items:center;gap:0.5rem">
+          <div id="dash-tab-actions" style="display:flex;align-items:center;gap:0.5rem">
             <button class="filter-chip hl-pref-toggle active" onclick="toggleHlPrefFilter()" title="用你嘅睇樓偏好（售價/房數/實呎）篩選下面嘅動態" style="display:none">🎯 偏好</button>
-            <button class="history-btn" style="font-size:0.88rem;padding:0.35rem 0.85rem" onclick="isPaid() ? showHistoryPage() : showUpgrade('歷史動態')">歷史動態 →</button>
+            <button class="history-btn" id="dash-history-btn" style="font-size:0.88rem;padding:0.35rem 0.85rem" onclick="isPaid() ? showHistoryPage() : showUpgrade('歷史動態')">歷史動態 →</button>
           </div>
         </div>
         <div id="dash-panel-today"><div id="highlights-body" style="color:var(--muted);font-size:0.75rem">載入中…</div></div>
@@ -2672,6 +2733,12 @@ function switchDashTab(tab) {
       btn.style.fontWeight = active ? '600' : '400';
     }
   }
+  // 「🎯 偏好」淨係篩今日動態同抵買雷達；「歷史動態」係今日動態嘅延伸。
+  // 喺睇樓日記／朋友屋企 tab 度同內容無關，收埋。
+  const actions = document.getElementById('dash-tab-actions');
+  if (actions) actions.style.display = (tab === 'today' || tab === 'radar') ? 'flex' : 'none';
+  const histBtn = document.getElementById('dash-history-btn');
+  if (histBtn) histBtn.style.display = tab === 'today' ? '' : 'none';
   // 免費版：分析／朋友屋企 tab 照見到（唔收埋），撳入去見個鎖 + 升級。
   const LOCKED_DASH_TABS = {
     comps:  ['相對市價', '你睇過嘅單位貴過定平過同層／同苑成交中位數'],
@@ -3141,102 +3208,150 @@ async function loadViewingComps() {
   }
 }
 
-// ── 「睇過嘅盤」：未成交／已成交 sub-tab + 排序 ─────────────────────────────
-// 兩個 state 都淨係影響顯示，唔會重新 fetch（_compsData 已經喺手）。
-let _compsSubTab = 'listed';   // 'listed' = 未成交（追蹤中）｜'sold' = 已成交
-let _compsSort = 'estate';     // estate | view_date | rating | price
+// ── 「睇樓日記」（舊名「睇過嘅盤」）：左邊日期篩選 panel + 右邊按日期分組嘅卡片列表 ──
+// 淨係得一種顯示方式（按日期分組），冇晒之前「未成交／已成交」sub-tab 同
+//「排序」揀項——個日期 panel 已經做晒篩選嘅角色（剔走邊幾日，剩返嘅
+// 日期照舊分組摺埋，撳先展開）。狀態（未成交/已成交）每張卡自己顯示，
+// 唔使再分頁。
+let _compsDateFrom = '';         // '' = 冇下限
+let _compsDateTo = '';           // '' = 冇上限
+let _compsDateModalOpen = false; // 手機版「篩選日期」modal 開關（要獨立記，因為每次篩選都會成個 panel 重畫）
 
-// 排序：屋苑跟返側邊欄／睇樓偏好嗰個次序（最愛行先→手動拖曳嘅 sort_order），
-// 唔可以喺前端 by 名排——咁會同用戶熟悉嗰個次序唔同。其餘三個都係「大→細」
-// （最新／最高分／最貴行先），冇分嗰啲（例如未評分）一律排最後，唔好夾雜
-// 喺中間扮有值。
-const COMPS_SORTS = [
-  { id: 'estate',    label: '屋苑' },
-  { id: 'view_date', label: '睇樓日期' },
-  { id: 'rating',    label: '評分' },
-  { id: 'price',     label: '價錢' },
-];
+// From/To 嘅可揀範圍鎖死喺實際有記錄嘅日期之間，唔畀揀到「揀咗都係得返
+// 0 個記錄」嘅日期。
+function _compsDateBounds() {
+  const dates = _compsData.map(v => v.view_date).filter(Boolean).sort();
+  return { min: dates[0] || '', max: dates[dates.length - 1] || '' };
+}
 
-function setCompsSubTab(t) { _compsSubTab = t; renderCompsPanel(); }
-function setCompsSort(s) { _compsSort = s; renderCompsPanel(); }
+function setCompsDateFrom(v) { _compsDateFrom = v; renderCompsPanel(); }
+function setCompsDateTo(v) { _compsDateTo = v; renderCompsPanel(); }
+function resetCompsDateFilter() { _compsDateFrom = ''; _compsDateTo = ''; renderCompsPanel(); }
+// 撳日期 chip：跳去右邊對應嘅日期 header（摺埋咗就順手展開），閃一下提示係邊組。
+function jumpToCompsDate(d) {
+  if (_compsDateModalOpen) closeCompsDateModal();
+  const group = document.querySelector(`#comps-body .viewing-date-group[data-date="${CSS.escape(d)}"]`);
+  if (!group) return;
+  const body = group.querySelector('.viewing-date-body');
+  if (body && body.style.display === 'none') toggleCompsDateGroup(Number(group.dataset.gi));
+  group.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  const head = group.querySelector('.viewing-date-header');
+  head.classList.remove('flash'); void head.offsetWidth; head.classList.add('flash');
+}
+const _inCompsRange = d => (!_compsDateFrom || d >= _compsDateFrom) && (!_compsDateTo || d <= _compsDateTo);
+// 篩選日期 modal 一定要掛喺 <body>：.highlights-section 有 backdrop-filter，
+// 會變成 position:fixed 子孫嘅定位框，擺喺入面個 modal 會跟住版面飛走。
+function _mountCompsDateModal(html) {
+  let host = document.getElementById('compsDateModalHost');
+  if (!host) { host = document.createElement('div'); host.id = 'compsDateModalHost'; document.body.appendChild(host); }
+  host.innerHTML = html;
+}
+function openCompsDateModal() { _compsDateModalOpen = true; renderCompsPanel(); }
+function closeCompsDateModal() { _compsDateModalOpen = false; renderCompsPanel(); }
 
-function _compsSorted(rows) {
-  const arr = rows.slice();
-  // 已成交嗰邊「價錢」排成交價（真實），未成交排睇樓價——同張卡主打嗰個
-  // 數字一致，否則用戶會覺得排錯。
-  const priceOf = v => (v.status === 'sold' && v.sold ? v.sold.price : v.price) ?? null;
-  const nullsLast = (a, b, get) => {
-    const x = get(a), y = get(b);
-    if (x == null && y == null) return 0;
-    if (x == null) return 1;
-    if (y == null) return -1;
-    return y - x;   // 大→細
-  };
-  if (_compsSort === 'view_date') {
-    arr.sort((a, b) => String(b.view_date || '').localeCompare(String(a.view_date || '')));
-  } else if (_compsSort === 'rating') {
-    arr.sort((a, b) => nullsLast(a, b, v => ratingAvg(parseRatings(v))));
-  } else if (_compsSort === 'price') {
-    arr.sort((a, b) => nullsLast(a, b, priceOf));
-  } else {
-    // 屋苑：最愛→sort_order→同屋苑內睇樓日期新到舊（同後端 ORDER BY 一致）
-    arr.sort((a, b) =>
-      (b.is_favourite || 0) - (a.is_favourite || 0) ||
-      (a.sort_order ?? 9999) - (b.sort_order ?? 9999) ||
-      String(a.estate_name || '').localeCompare(String(b.estate_name || '')) ||
-      String(b.view_date || '').localeCompare(String(a.view_date || '')));
+// 撳個日期先展開嗰組卡片——同「睇樓記錄」個 tab 用返同一套
+// .viewing-date-group／header／body CSS，但 id／function 分開命名
+// （cvdg- 前綴），因為兩個 panel 用嘅係唔同數據源，唔想耦合埋一齊。
+function toggleCompsDateGroup(gi) {
+  const body = document.getElementById(`cvdg-body-${gi}`);
+  const chev = document.getElementById(`cvdg-chev-${gi}`);
+  if (!body) return;
+  const show = body.style.display === 'none';
+  body.style.display = show ? '' : 'none';
+  if (chev) chev.textContent = show ? '▾' : '▸';
+  const header = body.previousElementSibling;
+  if (header) header.setAttribute('aria-expanded', show ? 'true' : 'false');
+}
+
+// From/To 日期範圍——側邊 panel（桌面）同 modal（手機）共用同一份 markup。
+function _compsDateRangeHtml(bounds) {
+  const allSelected = !_compsDateFrom && !_compsDateTo;
+  // 範圍以內每個有記錄嘅日期一粒 chip，撳落去跳去右邊嗰日嘅 header。
+  const counts = new Map();
+  for (const v of _compsData) {
+    const d = v.view_date || '';
+    if (d && _inCompsRange(d)) counts.set(d, (counts.get(d) || 0) + 1);
   }
-  return arr;
+  const chips = [...counts.entries()].sort((a, b) => b[0].localeCompare(a[0])).map(([d, n]) => {
+    return `<button type="button" class="comps-date-chip" onclick="jumpToCompsDate('${escJsAttr(d)}')" title="跳去 ${escHtml(d)}">${escHtml(d)}<span class="comps-date-chip-n">${n}</span></button>`;
+  }).join('');
+  return `<button type="button" class="comps-date-panel-all" onclick="resetCompsDateFilter()">${allSelected ? '✓ ' : ''}全部日期</button>
+    <label class="comps-date-range-row"><span class="comps-date-range-label">由</span>
+      <input type="date" class="comps-date-input" value="${_compsDateFrom}" min="${bounds.min}" max="${bounds.max}" onchange="setCompsDateFrom(this.value)"></label>
+    <label class="comps-date-range-row"><span class="comps-date-range-label">至</span>
+      <input type="date" class="comps-date-input" value="${_compsDateTo}" min="${bounds.min}" max="${bounds.max}" onchange="setCompsDateTo(this.value)"></label>
+    ${chips ? `<div class="comps-date-chips">${chips}</div>` : ''}`;
 }
 
 function renderCompsPanel() {
   const body = document.getElementById('comps-body');
   if (!body) return;
-  const sold = _compsData.filter(v => v.status === 'sold');
-  const listed = _compsData.filter(v => v.status !== 'sold');
-  const rows = _compsSubTab === 'sold' ? sold : listed;
+  if (!_compsData.length) {
+    body.innerHTML = '<div style="padding:1.2rem;color:var(--muted);font-size:0.85rem;text-align:center">未有睇樓記錄。喺屋苑頁「睇樓記錄」新增,呢度就會顯示參考成交。</div>';
+    return;
+  }
+  const bounds = _compsDateBounds();
+  const hasFilter = !!(_compsDateFrom || _compsDateTo);
+  const rows = _compsData.filter(v => {
+    const d = v.view_date || '';
+    return _inCompsRange(d);
+  });
+  const rangeHtml = _compsDateRangeHtml(bounds);
 
-  // Sub-tab bar：同上面 dashboard 個 tab bar 一模一樣嘅寫法（底線 + 字色），
-  // 令兩層 tab 睇落係同一個系統，唔會以為係第二種控件。
-  const tabBtn = (id, label, n) => {
-    const active = _compsSubTab === id;
-    return `<button onclick="setCompsSubTab('${id}')" style="background:none;border:none;border-bottom:2px solid ${
-      active ? 'var(--brand)' : 'transparent'};margin-bottom:-2px;color:${active ? 'var(--text)' : 'var(--muted)'};font-size:0.85rem;font-weight:${
-      active ? '600' : '400'};padding:0.3rem 0.7rem;cursor:pointer">${label} <span style="color:var(--muted);font-size:0.75rem;font-weight:400">${n}</span></button>`;
-  };
-  const bar = `<div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:0.4rem;margin-bottom:0.6rem">
-      <div style="display:flex;gap:0;border-bottom:2px solid var(--border)">
-        ${tabBtn('listed', '🔍 未成交', listed.length)}${tabBtn('sold', '✅ 已成交', sold.length)}
-      </div>
-      <div style="display:flex;align-items:center;gap:0.35rem">
-        <span style="font-size:0.75rem;color:var(--muted)">排序</span>
-        <select class="filter-select" onchange="setCompsSort(this.value)">
-          ${COMPS_SORTS.map(s => `<option value="${s.id}"${_compsSort === s.id ? ' selected' : ''}>${s.label}</option>`).join('')}
-        </select>
+  const panelHtml = `<div class="comps-date-panel">
+      <div class="comps-date-panel-title">📅 篩選日期</div>
+      ${rangeHtml}
+    </div>`;
+  const mobileFilterBtnHtml = `<button type="button" class="filter-chip comps-filter-btn-mobile" onclick="openCompsDateModal()">📅 篩選日期${
+    hasFilter ? `（${rows.length}/${_compsData.length}）` : ''}</button>`;
+  const dateModalHtml = `<div class="modal-overlay" id="compsDateModalOverlay" style="display:${_compsDateModalOpen ? 'flex' : 'none'};z-index:600" onclick="if(event.target===this)closeCompsDateModal()">
+      <div class="modal" style="max-width:340px;max-height:80vh;overflow-y:auto">
+        <button class="modal-close" onclick="closeCompsDateModal()">✕</button>
+        <div class="modal-title">篩選日期</div>
+        <div style="display:flex;flex-direction:column;gap:0.5rem;margin-top:0.5rem">${rangeHtml}</div>
       </div>
     </div>`;
 
-  const blurb = _compsSubTab === 'sold'
-    ? '呢啲單位睇完之後已經成交,價格尺會顯示真實成交價。'
-    : '配近 12 個月同屋苑可比成交推算合理價,同埋對應返而家市面嘅在售放盤。';
+  const blurb = '配近 12 個月同屋苑可比成交推算合理價,同埋對應返而家市面嘅在售放盤。';
   if (!rows.length) {
-    body.innerHTML = bar + `<div style="padding:1.2rem;color:var(--muted);font-size:0.85rem;text-align:center">${
-      _compsSubTab === 'sold' ? '未有睇過嘅單位成交。' : '冇追蹤緊嘅睇樓記錄。'}</div>`;
+    body.innerHTML = `<div class="comps-cq"><div class="comps-layout">${panelHtml}<div class="comps-main">${mobileFilterBtnHtml}
+      <div style="padding:1.2rem;color:var(--muted);font-size:0.85rem;text-align:center">${
+        hasFilter ? '冇符合篩選嘅睇樓記錄。' : '冇追蹤緊嘅睇樓記錄。'}</div></div></div></div>`;
+    _mountCompsDateModal(dateModalHtml);
     return;
   }
   // 用返「睇樓記錄」同一個 renderOneViewing（卡片版）——唔喺呢度另砌一款卡。
   // 屋苑名淨係喺呢度加返（睇樓記錄本身喺屋苑頁入面，唔使重複寫屋苑名）。
   // buildMatchCell 靠全局 allListings，跨屋苑要逐張卡換返啱嗰個屋苑先 render。
   const saved = allListings;
-  const cards = _compsSorted(rows).map(v => {
+  const cardHtml = v => {
     allListings = (window._matchListingsByEstate || {})[v.estate_id] || [];
     return `<div style="margin-bottom:0.15rem"><div style="font-size:0.75rem;color:var(--accent2);font-weight:600;margin:0 0 0.15rem 0.15rem">${
       escHtml(v.estate_name || '')}</div>${renderOneViewing(v, v.estate_id, true, true)}</div>`;
-  }).join('');
+  };
+  // 按「睇於」日期分組（跨屋苑），最新日期行先；預設全部展開，撳日期可以摺埋。
+  const sortedByDate = rows.slice().sort((a, b) => String(b.view_date || '').localeCompare(String(a.view_date || '')));
+  const groups = [];
+  const idx = new Map();
+  for (const v of sortedByDate) {
+    const d = v.view_date || '日期不詳';
+    if (!idx.has(d)) { idx.set(d, groups.length); groups.push({ date: d, items: [] }); }
+    groups[idx.get(d)].items.push(v);
+  }
+  const listHtml = groups.map((g, gi) => `
+      <div class="viewing-date-group" data-date="${escHtml(g.date)}" data-gi="${gi}">
+        <button type="button" class="viewing-date-header" onclick="toggleCompsDateGroup(${gi})" aria-expanded="true">
+          <span class="viewing-date-header-date">📅 ${escHtml(g.date)}</span>
+          <span class="viewing-date-header-count">${g.items.length} 個記錄</span>
+          <span class="viewing-date-header-chevron" id="cvdg-chev-${gi}">▾</span>
+        </button>
+        <div class="viewing-date-body" id="cvdg-body-${gi}">${g.items.map(cardHtml).join('')}</div>
+      </div>`).join('');
   allListings = saved;
-  body.innerHTML = bar +
-    `<p style="font-size:0.75rem;color:var(--muted);margin:-0.1rem 0 0.5rem">${blurb}</p>` +
-    `<div class="viewings-list">${cards}</div>`;
+  body.innerHTML = `<div class="comps-cq"><div class="comps-layout">${panelHtml}<div class="comps-main">${mobileFilterBtnHtml}
+    <p style="font-size:0.75rem;color:var(--muted);margin:0.5rem 0 0.5rem">${blurb}</p>
+    ${listHtml}</div></div></div>`;
+  _mountCompsDateModal(dateModalHtml);
 }
 
 function openCompModal(id) {
@@ -4073,7 +4188,8 @@ async function loadEstates() {
 
 async function toggleFavourite(e, id) {
   e.stopPropagation();
-  await api(`/api/estates/${id}/favourite`, { method: "POST" });
+  try { await api(`/api/estates/${id}/favourite`, { method: "POST" }); }
+  catch (err) { if (!err.paywall) toast(err.message, "error"); }
   loadEstates();
 }
 
@@ -6419,6 +6535,11 @@ async function loadUsageStats() {
         <div style="font-size:0.7rem;color:var(--muted)">${escHtml(a.email || '—')}</div>
       </td>
       <td style="text-align:right;padding:0.35rem 0.4rem;white-space:nowrap">${cap(a.estates, a.max_estates, a.at_estate_cap)}</td>
+      <td style="text-align:right;padding:0.35rem 0.4rem;white-space:nowrap" title="最愛屋苑數／上限（付費帳戶嘅最愛先會每日 sync）">
+        <span style="color:var(--text)">${a.favourites}/</span><input type="number" min="0" max="100" value="${a.max_favourites}"
+          data-override="${a.max_favourites_override == null ? '' : '1'}"
+          onchange="setAccountMaxFav(${Number(a.id)}, this.value)"
+          style="width:3.2rem;background:var(--surface2);border:1px solid ${a.max_favourites_override == null ? 'var(--border)' : 'var(--accent)'};border-radius:6px;color:var(--text);font-size:0.78rem;padding:0.15rem 0.25rem;font-family:inherit"></td>
       <td style="text-align:right;padding:0.35rem 0 0.35rem 0.4rem;white-space:nowrap">${cap(a.viewings, a.max_viewings, a.at_viewing_cap)}</td>
     </tr>`;
   }).join('');
@@ -6429,11 +6550,21 @@ async function loadUsageStats() {
         <thead><tr style="color:var(--muted);font-size:0.72rem;text-align:left">
           <th style="padding:0 0.4rem 0.3rem 0">帳戶</th>
           <th style="text-align:right;padding:0 0.4rem 0.3rem">屋苑</th>
+          <th style="text-align:right;padding:0 0.4rem 0.3rem">最愛</th>
           <th style="text-align:right;padding:0 0 0.3rem 0.4rem">睇樓記錄</th>
         </tr></thead>
         <tbody>${rows}</tbody>
       </table>
     </div>`;
+}
+
+// admin：改某個帳戶嘅最愛屋苑上限（框留空＝還原做全局預設）
+async function setAccountMaxFav(accountId, val) {
+  try {
+    await api('/api/admin/max-favourites', { method: 'POST', body: JSON.stringify({ account_id: accountId, max: val === '' ? null : Number(val) }) });
+    toast('已更新最愛上限', 'success');
+  } catch (e) { toast(e.message, 'error'); }
+  loadUsageStats();
 }
 
 function closeSettingsModal() {
@@ -6890,6 +7021,18 @@ async function manualFetchViewingHSVal(viewingId, estateId, block, floor, unit, 
   }
 }
 
+// 手機卡片版「睇樓記錄」按日期摺埋——撳個日期先 expand 出嗰日嘅卡。
+function toggleViewingDateGroup(gi) {
+  const body = document.getElementById(`vdg-body-${gi}`);
+  const chev = document.getElementById(`vdg-chev-${gi}`);
+  if (!body) return;
+  const show = body.style.display === 'none';
+  body.style.display = show ? '' : 'none';
+  if (chev) chev.textContent = show ? '▾' : '▸';
+  const header = body.previousElementSibling;
+  if (header) header.setAttribute('aria-expanded', show ? 'true' : 'false');
+}
+
 async function loadViewings(estateId) {
   const panel = document.getElementById('tab-viewings');
   if (!panel) return;
@@ -6947,7 +7090,16 @@ async function renderViewingsList(viewings0, estateId, fetchExtras) {
     const isMobile = window.matchMedia('(max-width: 768px)').matches;
     _viewingsIsMobile = isMobile;
     const rows = viewings.map(v => renderOneViewing(v, estateId, isMobile, showTypeFilter)).join('');
-    _renderViewingsTail(panel, rows, filterBarHtml, isMobile, viewings, fetchExtras);
+    // 手機卡片版按「睇於」日期分組摺埋——一個記錄多，成頁卡片好長，
+    // 撳個日期先 expand 返嗰日嘅卡（保留返 viewings 本身嘅次序，即最新日期喺頭）。
+    const dateGroups = [];
+    const dateGroupIdx = new Map();
+    viewings.forEach(v => {
+      const d = v.view_date || '日期不詳';
+      if (!dateGroupIdx.has(d)) { dateGroupIdx.set(d, dateGroups.length); dateGroups.push({ date: d, html: '' }); }
+      dateGroups[dateGroupIdx.get(d)].html += renderOneViewing(v, estateId, isMobile, showTypeFilter);
+    });
+    _renderViewingsTail(panel, rows, filterBarHtml, isMobile, viewings, fetchExtras, dateGroups);
   } catch {
     panel.innerHTML = '<div class="listings-section" style="padding:1.5rem;color:var(--muted);text-align:center">載入失敗</div>';
   }
@@ -7096,9 +7248,18 @@ function renderOneViewing(v, estateId, isMobile, showTypeFilter) {
       </tr>`;
 }
 
-async function _renderViewingsTail(panel, rows, filterBarHtml, isMobile, viewings, fetchExtras) {
+async function _renderViewingsTail(panel, rows, filterBarHtml, isMobile, viewings, fetchExtras, dateGroups) {
   if (isMobile) {
-    panel.innerHTML = filterBarHtml + `<div class="viewings-list" id="viewingsCardsWrap">${rows}</div>`;
+    const groupsHtml = (dateGroups || []).map((g, gi) => `
+      <div class="viewing-date-group">
+        <button type="button" class="viewing-date-header" onclick="toggleViewingDateGroup(${gi})" aria-expanded="false">
+          <span class="viewing-date-header-date">📅 ${escHtml(g.date)}</span>
+          <span class="viewing-date-header-count">${(g.html.match(/class="viewing-card"/g) || []).length} 個記錄</span>
+          <span class="viewing-date-header-chevron" id="vdg-chev-${gi}">▸</span>
+        </button>
+        <div class="viewing-date-body" id="vdg-body-${gi}" style="display:none">${g.html}</div>
+      </div>`).join('');
+    panel.innerHTML = filterBarHtml + `<div class="viewings-list" id="viewingsCardsWrap">${groupsHtml}</div>`;
   } else {
     panel.innerHTML = filterBarHtml + `<div class="listings-section" id="viewingsTableWrap"></div>`;
     renderFrozenTable(
