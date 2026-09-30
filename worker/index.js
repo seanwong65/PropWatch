@@ -3064,26 +3064,25 @@ function viewingImageStatements(db, viewingId, accountId, list) {
   ];
 }
 
-// 將 viewing_images 砌返做 `images` JSON 字串塞返落每個 row（in place）。
-// 一次過攞晒呢個帳戶嘅相再喺 JS 分組——唔用 IN (?,?,…)，D1 bound param 有上限。
-// 冇新表 row 嘅舊記錄保留原本 viewings.images。
-async function attachViewingImages(db, accountId, rows, idKey = "id", estateId = null) {
+// 列表（/api/viewings、/api/viewings/all、comps）唔再帶相本身——base64 相一張
+// 幾百 KB，38 個記錄帶埋係 20MB／13 秒，而且成個 JSON 仲會塞入卡上面個 ✏️
+// onclick。改為淨係回 `img_count`，撳「N 張相」先經 /api/viewings/:id/images 攞。
+// 舊格式（viewings.images JSON）都計埋，同時將 row.images 清走。
+async function attachViewingImageCounts(db, accountId, rows, estateId = null) {
   if (!rows.length) return rows;
   await ensureViewingImages(db);
   const { results } = await db.prepare(
-    `SELECT vi.viewing_id, vi.data FROM viewing_images vi
+    `SELECT vi.viewing_id, COUNT(*) AS c FROM viewing_images vi
      JOIN viewings v ON v.id = vi.viewing_id AND v.account_id = vi.account_id
      WHERE vi.account_id = ?1 AND (?2 IS NULL OR v.estate_id = ?2)
-     ORDER BY vi.viewing_id, vi.seq`
+     GROUP BY vi.viewing_id`
   ).bind(accountId, estateId).all();
-  const byViewing = new Map();
-  for (const r of results) {
-    if (!byViewing.has(r.viewing_id)) byViewing.set(r.viewing_id, []);
-    byViewing.get(r.viewing_id).push(r.data);
-  }
+  const counts = new Map(results.map((r) => [r.viewing_id, r.c]));
   for (const row of rows) {
-    const imgs = byViewing.get(row[idKey]);
-    if (imgs) row.images = JSON.stringify(imgs);
+    let n = counts.get(row.id) || 0;
+    if (!n && typeof row.images === "string" && row.images) n = (row.images.match(/data:image\//g) || []).length;
+    row.img_count = n;
+    row.images = null;
   }
   return rows;
 }
@@ -3109,7 +3108,7 @@ async function computeViewingComps(db, accountId) {
     WHERE v.account_id = ?
     ORDER BY COALESCE(ae.is_favourite, 0) DESC, COALESCE(ae.sort_order, 9999) ASC, v.view_date DESC, v.id DESC
   `).bind(accountId).all();
-  await attachViewingImages(db, accountId, viewings);
+  await attachViewingImageCounts(db, accountId, viewings);
 
   const estateIds = [...new Set(viewings.map((v) => v.estate_id))];
   let txns = [];
@@ -3206,7 +3205,7 @@ async function computeViewingComps(db, accountId) {
       price: v.price, view_date: v.view_date, status: sold ? "sold" : "listed", sold,
       linked_ref_no: v.linked_ref_no, dismissed_refs: v.dismissed_refs,
       // 「睇樓記錄」嗰套 detail（前端用返同一個 card 排版）
-      ratings: v.ratings, notes: v.notes, images: v.images, direction: v.direction,
+      ratings: v.ratings, notes: v.notes, img_count: v.img_count, direction: v.direction,
       mgmt_fee: v.mgmt_fee, hs_price: v.hs_price, deal_type: v.deal_type,
       is_favourite: v.is_favourite, sort_order: v.sort_order,
       range, verdict, comp_count: comps.length, comps };
@@ -7529,7 +7528,7 @@ export default {
           WHERE v.account_id = ?1 AND ${scopeSql}
           ORDER BY v.view_date DESC, v.created_at DESC
         `).bind(...(estateId ? [session.account_id, estateId] : [session.account_id])).all();
-        await attachViewingImages(db, session.account_id, results, "id", estateId ? Number(estateId) : null);
+        await attachViewingImageCounts(db, session.account_id, results, estateId ? Number(estateId) : null);
         // 跨屋苑要每個屋苑自己一套市場基準，所以下面全部 per-estate map 住做。
         const estateIds = [...new Set(results.map((v) => v.estate_id).filter(Boolean))];
         if (!estateIds.length) return json(200, { viewings: [] });
@@ -7736,6 +7735,23 @@ export default {
       // 登記日早過睇樓日——即係嗰宗成交發生喺睇樓之前,唔算「睇完先賣」)。
       // Dashboard「追蹤中放盤」tab 用。前端本身有 call 呢個 endpoint,但
       // 之前一直冇實作(404),依家補返。
+      // 單個睇樓記錄嘅相（撳「N 張相」／開編輯先攞）。一律 scope 返 session.account_id，
+      // 唔信 URL 上嘅 id 係自己嘅。
+      if (method === "GET" && /^\/api\/viewings\/\d+\/images$/.test(path)) {
+        const viewingId = Number(path.split("/")[3]);
+        const own = await db.prepare(
+          "SELECT images FROM viewings WHERE id = ? AND account_id = ?"
+        ).bind(viewingId, session.account_id).first();
+        if (!own) return json(404, { error: "Not found" });
+        await ensureViewingImages(db);
+        const { results } = await db.prepare(
+          "SELECT data FROM viewing_images WHERE viewing_id = ? AND account_id = ? ORDER BY seq"
+        ).bind(viewingId, session.account_id).all();
+        let images = results.map((r) => r.data);
+        if (!images.length && own.images) { try { images = JSON.parse(own.images) || []; } catch (_) {} }
+        return json(200, { images });
+      }
+
       if (method === "GET" && path === "/api/viewings/unsold") {
         const { results } = await db.prepare(`
           SELECT v.*, e.name AS estate_name,

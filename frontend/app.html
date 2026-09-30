@@ -1041,6 +1041,12 @@
     .rstar-row { display: flex; align-items: center; gap: 0.5rem; padding: 0.25rem 0; }
     .rstar-name { font-size: 0.85rem; color: var(--text); flex: 1; min-width: 0; }
     .rstar-val { font-size: 0.78rem; color: var(--muted); width: 2.6rem; text-align: right; flex-shrink: 0; }
+    .viewing-photos-btn {
+      margin-top: 0.3rem; font-family: inherit; font-size: 0.78rem; cursor: pointer;
+      background: var(--surface2); color: var(--text); border: 1px solid var(--border);
+      border-radius: 999px; padding: 0.2rem 0.65rem;
+    }
+    .viewing-photos-btn:disabled { opacity: 0.6; cursor: default; }
     .viewing-card-img {
       width: 72px; height: 72px; object-fit: cover; border-radius: 4px;
       cursor: pointer; border: 1px solid var(--border);
@@ -6719,10 +6725,22 @@ function openViewingModal(viewing = null) {
   preview.innerHTML = '';
   _viewingImages = [];
   setVfImgStatus('');
-  if (viewing?.images) {
-    let existing = [];
-    try { existing = JSON.parse(viewing.images) || []; } catch { existing = []; }
-    existing.forEach(dataUrl => addViewingImage(dataUrl));
+  _vfPhotosLoading = false;
+  if (viewing && Number(viewing.img_count) > 0) {
+    // 列表唔帶相，開編輯先攞。攞緊嗰陣唔准儲存，否則 _viewingImages 係空嘅，
+    // 一存就會將原有相片洗走。
+    const editId = viewing.id;
+    _vfPhotosLoading = true;
+    setVfImgStatus('載入相片中…');
+    fetchViewingPhotos(editId).then(list => {
+      if (_viewingEditId !== editId) return;
+      list.forEach(dataUrl => addViewingImage(dataUrl));
+      setVfImgStatus('');
+      _vfPhotosLoading = false;
+    }).catch(() => {
+      // 失敗就一直擋住儲存（_vfPhotosLoading 保持 true），唔可以俾佢用空相 array 覆寫原有相片
+      if (_viewingEditId === editId) setVfImgStatus('相片載入失敗，請關咗再開一次（未載入前唔可以儲存，避免洗走原有相片）');
+    });
   }
   if (!viewing && _vfDeal !== 'R') {
     api(`/api/viewings/last-mgmt-fee?estate_id=${_viewingEstateId}`).then(r => {
@@ -6928,9 +6946,11 @@ function closeBurstCamera() {
   document.getElementById('burstCam').style.display = 'none';
 }
 
+let _vfPhotosLoading = false;
 async function submitViewing(e) {
   e.preventDefault();
   if (!_vfDeal) { alert('請揀「買盤」定「租盤」'); return; }
+  if (_vfPhotosLoading) { toast('相片載入緊，等一等再儲存', 'error'); return; }
   const btn = e.target.querySelector('.vf-submit');
   btn.disabled = true; btn.textContent = '儲存中…';
   try {
@@ -6969,6 +6989,7 @@ async function submitViewing(e) {
       const res = await api('/api/viewings', { method: 'POST', body: JSON.stringify(body) });
       savedId = res.id;
     }
+    if (window._viewingImgsMap) delete window._viewingImgsMap[savedId];   // 相可能改咗，cache 作廢
     closeViewingModal();
     if (document.getElementById('tab-viewings')?.style.display !== 'none') {
       await loadViewings(_viewingEstateId);
@@ -7115,12 +7136,12 @@ function renderOneViewing(v, estateId, isMobile, showTypeFilter) {
       const isRent = v.deal_type === 'R';
       const pfmt = isRent ? fmtRent : fmt;
       const typeBadge = showTypeFilter ? (isRent ? '🔑 ' : '🏠 ') : '';
-      const imgs = (() => { try { return v.images ? JSON.parse(v.images) : []; } catch { return []; } })();
+      // 列表唔帶相（太重），淨係有 img_count；撳掣先經 /api/viewings/:id/images 攞。
+      const imgCount = Number(v.img_count) || 0;
       window._viewingImgsMap = window._viewingImgsMap || {};
       window._viewingMap = window._viewingMap || {};
-      window._viewingImgsMap[v.id] = imgs;
       window._viewingMap[v.id] = v;
-      const imgHtml = imgs.length ? `<img class="viewing-card-img" src="${safeImgSrc(imgs[0])}" onclick="viewImgFull(${v.id},0)" style="height:56px;border-radius:4px;cursor:pointer;margin-top:0.3rem">${imgs.length>1?`<span style="font-size:0.75rem;color:var(--muted);display:block;margin-top:2px">+${imgs.length-1} 張</span>`:''}` : '';
+      const imgHtml = imgCount ? `<button type="button" class="viewing-photos-btn" onclick="openViewingPhotos(${v.id}, this)">📷 ${imgCount} 張相</button>` : '';
       const fmtBlock = v.block ? ((/座$/.test(v.block) ? v.block : v.block+'座')) : null;
       const fmtFloor = v.floor ? ((/樓$/.test(v.floor)||/層$/.test(v.floor) ? v.floor : v.floor+'樓')) : null;
       const fmtUnit = v.unit ? ((/室$/.test(v.unit)||/號$/.test(v.unit) ? v.unit : v.unit+'室')) : null;
@@ -7308,6 +7329,23 @@ async function deleteViewing(id, estateId) {
   if (!confirm('確定刪除這個睇樓記錄？')) return;
   await api(`/api/viewings/${id}`, { method: 'DELETE' });
   loadViewings(estateId);
+}
+
+// 相要撳先載：每個 viewing 攞一次就記住（_viewingImgsMap），之後開 lightbox／編輯都唔使再攞。
+async function fetchViewingPhotos(viewingId) {
+  window._viewingImgsMap = window._viewingImgsMap || {};
+  if (!window._viewingImgsMap[viewingId]) {
+    const r = await api(`/api/viewings/${viewingId}/images`);
+    window._viewingImgsMap[viewingId] = r.images || [];
+  }
+  return window._viewingImgsMap[viewingId];
+}
+async function openViewingPhotos(viewingId, btn) {
+  const label = btn?.textContent;
+  if (btn) { btn.disabled = true; btn.textContent = '載入相片…'; }
+  try { await fetchViewingPhotos(viewingId); viewImgFull(viewingId, 0); }
+  catch (e) { toast(e.message || '載入相片失敗', 'error'); }
+  finally { if (btn) { btn.disabled = false; btn.textContent = label; } }
 }
 
 function viewImgFull(viewingId, startIdx) {
