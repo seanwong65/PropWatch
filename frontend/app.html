@@ -2205,9 +2205,12 @@
 // 用戶喺 propwatch.pages.dev 做嘅任何嘢（sync/改設定/hit paywall 等）唔會
 // 掂到真實用戶數據。test worker D1 係 production 嘅 snapshot copy，唔會
 // 自動同步返 production（見 CLAUDE.md 測試環境註解）。
+// localhost／127.0.0.1 → 本機 worker（wrangler dev --local，用 production dump，唔食 D1 額度）
 const API = location.hostname === "home.ws-techs.com"
   ? "https://propwatch-worker.johnwong777.workers.dev"
-  : "https://propwatch-worker-test.johnwong777.workers.dev";
+  : (location.hostname === "localhost" || location.hostname === "127.0.0.1")
+    ? "http://localhost:8787"
+    : "https://propwatch-worker-test.johnwong777.workers.dev";
 let activeEstateId = null;
 // 屋苑頁睇買盤定租盤（'S'|'R'）。只喺偏好有揀租盤時個 toggle 才出現；
 // 每次開屋苑重設做買盤，唔好記住上次（免得開另一個屋苑莫名其妙係租盤模式）。

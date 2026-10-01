@@ -411,7 +411,19 @@ async function hsScanEligibleEstates(db) {
   return results;
 }
 
+// 單位清單喺掃描期間（每 2 分鐘一段、一個屋苑做幾十段）唔會變，同一個
+// isolate 內同一日就重用，唔使每段都 DISTINCT 掃一次成交表（每次 ~1 千 rows）。
+// isolate 重啟就重新查一次，結果一樣，冇正確性問題。
+const _hsUnitsCache = new Map();
 async function hsScanUnits(db, estateId) {
+  const ck = `${estateId}|${hkDateStr()}`;
+  if (_hsUnitsCache.has(ck)) return _hsUnitsCache.get(ck);
+  const units = await _hsScanUnitsUncached(db, estateId);
+  _hsUnitsCache.clear();          // 淨係留住最新一個，唔好無限長
+  _hsUnitsCache.set(ck, units);
+  return units;
+}
+async function _hsScanUnitsUncached(db, estateId) {
   const { results } = await db.prepare(
     "SELECT DISTINCT building, floor, unit FROM transactions WHERE estate_id = ? ORDER BY building, floor, unit"
   ).bind(estateId).all();
@@ -3752,6 +3764,14 @@ async function sendAdminAlert(db, env, subject, taskName, lines, note) {
 // 上盤日 = source 公佈日 同 我哋第一次見到 之間較早嗰個——同 /api/viewings 個
 // dom_days 用返同一把尺。淨用 first_seen 會嚴重低估（我哋 scrape 咗冇幾耐，
 // 對舊盤嚟講 first_seen 都好近期）。日數留返俾前端／email 各自計同格式化。
+// 睇樓記錄 linked_ref_no（逗號分隔）→ SQL `IN (...)` 用嘅 literal list。
+// 用 literal 唔用 bind：D1 一條 query 最多 100 個參數。每個 ref 一律先過
+// 白名單 regex，唔合格就丟，所以唔會有 injection。冇 ref 就回 "''"（IN ('') 乜都唔中）。
+function refInList(linkedStrs) {
+  return [...new Set(linkedStrs.flatMap((x) => String(x || "").split(",")))]
+    .map((r) => r.trim()).filter((r) => /^[A-Za-z0-9_-]{1,40}$/.test(r))
+    .map((r) => `'${r}'`).join(",") || "''";
+}
 const LIST_START_SQL = `(SELECT MIN(CASE
     WHEN NULLIF(x.publish_date,'') IS NOT NULL AND x.publish_date < x.snapshot_date
     THEN x.publish_date ELSE x.snapshot_date END)
@@ -3803,6 +3823,14 @@ async function getTodayHighlights(db, accountId) {
   // （利嘉閣／香港置業）首次抓返一大堆舊成交時，全部 first_seen=今日 而被
   // 當成「新成交」（用戶收到 100+ 舊成交嘅通知就係咁）。
   const newTxnMaxAge = (await getConfig(db, accountId)).new_txn_max_age_days ?? 90;
+
+  // 睇樓記錄 link 咗嘅 ref：下面幾條「睇過嘅放盤」query 用 LIKE 對 linked_ref_no，
+  // 冇得行 index，要逐行掃屋苑全部歷史 snapshot（一次 ~9 萬 rows read）。
+  // 先限 ref_no IN (...) 就變成逐個 ref 用 index seek。
+  const { results: hlViewings } = await db.prepare(
+    "SELECT linked_ref_no FROM viewings WHERE account_id = ? AND linked_ref_no IS NOT NULL"
+  ).bind(accountId).all();
+  const hlRefs = refInList(hlViewings.map((v) => v.linked_ref_no));
 
   const [newTxns, priceChanges, newListings, removedListings, viewedTxns, linkedPriceChanges, linkedRemoved] = await Promise.all([
     db.prepare(`
@@ -3925,7 +3953,7 @@ async function getTodayHighlights(db, accountId) {
       FROM viewings v
       -- linked_ref_no 係逗號分隔多 ref（每 source 一個），用包含 match；
       -- 每個 linked 盤獨立出一行
-      JOIN listings l ON (',' || v.linked_ref_no || ',') LIKE ('%,' || l.ref_no || ',%') AND l.snapshot_date = ?
+      JOIN listings l ON l.ref_no IN (${hlRefs}) AND (',' || v.linked_ref_no || ',') LIKE ('%,' || l.ref_no || ',%') AND l.snapshot_date = ?
       JOIN estates e ON e.id = v.estate_id
       JOIN listing_price_history ph_prev
         ON ph_prev.ref_no = l.ref_no
@@ -3947,7 +3975,7 @@ async function getTodayHighlights(db, accountId) {
              l.size_net, l.price_per_ft, l.source, e.name AS estate_name,
              ${LIST_START_SQL} AS list_start
       FROM viewings v
-      JOIN listings l ON (',' || v.linked_ref_no || ',') LIKE ('%,' || l.ref_no || ',%')
+      JOIN listings l ON l.ref_no IN (${hlRefs}) AND (',' || v.linked_ref_no || ',') LIKE ('%,' || l.ref_no || ',%')
         AND l.estate_id = v.estate_id
       JOIN estates e ON e.id = v.estate_id
       WHERE v.linked_ref_no IS NOT NULL
@@ -4098,7 +4126,7 @@ async function getTodayHighlights(db, accountId) {
                l.detail_url, ph_prev.price AS old_price, e.name AS estate_name,
                ${RENTAL_LIST_START_SQL} AS list_start
         FROM viewings v
-        JOIN rental_listings l ON (',' || v.linked_ref_no || ',') LIKE ('%,' || l.ref_no || ',%') AND l.snapshot_date = ?
+        JOIN rental_listings l ON l.ref_no IN (${hlRefs}) AND (',' || v.linked_ref_no || ',') LIKE ('%,' || l.ref_no || ',%') AND l.snapshot_date = ?
         JOIN estates e ON e.id = v.estate_id
         JOIN rental_price_history ph_prev
           ON ph_prev.ref_no = l.ref_no
@@ -4118,7 +4146,7 @@ async function getTodayHighlights(db, accountId) {
                l.size_net, l.price_per_ft, l.source, e.name AS estate_name,
                ${RENTAL_LIST_START_SQL} AS list_start
         FROM viewings v
-        JOIN rental_listings l ON (',' || v.linked_ref_no || ',') LIKE ('%,' || l.ref_no || ',%')
+        JOIN rental_listings l ON l.ref_no IN (${hlRefs}) AND (',' || v.linked_ref_no || ',') LIKE ('%,' || l.ref_no || ',%')
           AND l.estate_id = v.estate_id
         JOIN estates e ON e.id = v.estate_id
         WHERE v.linked_ref_no IS NOT NULL
@@ -4923,6 +4951,7 @@ async function getDailySyncEstateIds(db, today, activeEstateIds) {
 // 用戶今日新加屋苑：如果今日個 plan 已經定咗，插入去，令 drip 下一輪就補齊
 // （唔使等聽日）。plan 未定（06:00 前）就唔使做，定 plan 時「從未 sync 過」自然到期。
 async function syncPlanAddEstate(db, estateId) {
+  await setSetting(db, "sync_idle_until", "0");   // 唔好等 idle cache 過期，下一轉 cron 即刻補做
   let plan = null;
   try { plan = JSON.parse(await getSetting(db, "sync_plan") || "null"); } catch (_) {}
   if (plan?.date === hkDateStr() && !plan.rotate.includes(estateId)) {
@@ -5131,6 +5160,8 @@ function withFetchCounter(fn) {
 // worst-case（budget 啱啱用晒先開始一個 45s 嘅利嘉閣單元），都仲有得靠
 // 「invocation 俾斬咗都唔會壞數據／唔算 retry」呢個已驗證嘅特性頂住。
 const DRIP_BATCH_TIME_BUDGET_MS = 53000;
+// 今日 sync 做完之後，隔幾耐先重新檢查有冇新嘅 pending 單元（見 syncBatch）。
+const SYNC_IDLE_RECHECK_MS = 30 * 60 * 1000;
 // 規劃閘：估算加落去唔可以超過呢個數。
 const DRIP_BATCH_SUBREQ_BUDGET = 45;
 // 安全閘：countedFetch 數到嘅**實數**去到呢度就唔再開新單元。留 4 個
@@ -5151,8 +5182,19 @@ async function syncBatch(db, { force = false } = {}) {
     return { idle: true, beforeWindow: true, processed: 0, ok: 0, failedOut: [], remaining: 0 };
   }
   const today = hkDateStr();
+  // 今日排隊清咗之後，唔使每 2 分鐘都重新計一次 pending（estates／sync_log／
+  // 偏好幾條 query，一日 720 次 ≈ 15 萬 rows read，佔咗 sync 本身大部分 D1 用量）。
+  // 記低「幾時先再查」，期間 cron 讀一個 setting 就收工。新加屋苑會清走呢個
+  // key（見 syncPlanAddEstate），所以即刻補做；其他變動（例如改最愛）最遲
+  // SYNC_IDLE_RECHECK_MS 後自動執到。force（admin 手動）照查。
+  if (!force && Date.now() < Number(await getSetting(db, "sync_idle_until") || 0)) {
+    return { idle: true, cached: true, processed: 0, ok: 0, failedOut: [], remaining: 0 };
+  }
   const pending = await buildPendingUnits(db, today);
-  if (!pending.length) return { idle: true, processed: 0, ok: 0, failedOut: [], remaining: 0 };
+  if (!pending.length) {
+    await setSetting(db, "sync_idle_until", String(Date.now() + SYNC_IDLE_RECHECK_MS));
+    return { idle: true, processed: 0, ok: 0, failedOut: [], remaining: 0 };
+  }
 
   const startedAt = Date.now();
   const results = [];
@@ -5631,7 +5673,14 @@ export default {
           }
           // 最後一個單元有結論 → 今日跑完，發 summary。之後嘅 invocation 會
           // idle（早 return），所以一日只會發一次。
-          if (!r.idle && r.remaining === 0) await sendSyncSummary(env.DB, env);
+          // 一日最多發一次：summary 幾條 COUNT 會掃成個表（成交／租務成交冇
+          // first_seen 單獨 index），之前試過一日發幾十次（新屋苑插隊、
+          // 重試單元做完等等都會令 remaining 再次變 0）。
+          if (!r.idle && r.remaining === 0
+              && (await getSetting(env.DB, "sync_summary_day")) !== hkDateStr()) {
+            await setSetting(env.DB, "sync_summary_day", hkDateStr());
+            await sendSyncSummary(env.DB, env);
+          }
           // 當日同步全部做完（idle，而且過咗 06:00）先輪到每日自動估值——
           // 唔搶同步單元嘅 invocation，亦唔影響 09:00 email（另一條 cron）。
           // 估值出事唔好拖累 drip：一般錯誤淨係 log，D1 閃斷照交返下面處理。
@@ -6059,9 +6108,14 @@ export default {
             // 個 removed_date 判斷用返同一套 per-source 邏輯，令兩處數字對得返。
             `SELECT e.*, ae.is_favourite, ae.sort_order, ae.added_at,
                (ae.paused_at IS NOT NULL) AS paused, ae.paused_at,
-               (SELECT COUNT(*) FROM listings l
-                WHERE l.estate_id = e.id
-                  AND l.snapshot_date = (SELECT MAX(snapshot_date) FROM listings WHERE estate_id = e.id AND source = l.source)
+               -- 逐個 source 用 idx_listings_estate_src_date 攞「自己最新一日」再數嗰日
+               -- 幾多行；舊寫法逐行掃晒屋苑全部歷史 snapshot（成個側邊欄一次
+               -- ~20 萬 rows read，每次開 app 都行）。source 清單跟 SOURCES。
+               (SELECT SUM((SELECT COUNT(*) FROM listings l
+                            WHERE l.estate_id = e.id AND l.source = s.id
+                              AND l.snapshot_date = (SELECT MAX(snapshot_date) FROM listings
+                                                     WHERE estate_id = e.id AND source = s.id)))
+                FROM (${SOURCES.map((x) => `SELECT '${x.id}' AS id`).join(" UNION ALL ")}) s
                ) AS today_count,
                (SELECT COUNT(*) FROM transactions t WHERE t.estate_id = e.id
                 AND t.reg_date >= date('now','+8 hours','-3 months')) AS txn_3m_count,
@@ -7410,6 +7464,13 @@ export default {
         const allViewedTxns = viewedTxns.results.map(v => ({ ...v }));
 
         // Linked listing price changes over the period
+        // 只睇呢個帳戶自己嘅睇樓記錄（之前漏咗 v.account_id，會回埋其他帳戶嘅
+        // 記錄），亦只查佢哋 link 咗嗰幾個 ref：舊寫法對成個 listings 表做
+        // GROUP BY ref_no 攞最新、再掃晒 listing_price_history，每次 ~40 萬 rows read。
+        const { results: lpcViewings } = await db.prepare(
+          "SELECT linked_ref_no FROM viewings WHERE account_id = ? AND linked_ref_no IS NOT NULL"
+        ).bind(hAid).all();
+        const lpcRefs = refInList(lpcViewings.map((v) => v.linked_ref_no));
         const linkedPriceChangesRes = await db.prepare(`
           SELECT v.id AS viewing_id, v.price AS view_price, v.view_date,
                  v.block, v.floor AS view_floor, v.unit AS view_unit,
@@ -7420,20 +7481,23 @@ export default {
           JOIN estates e ON e.id = v.estate_id
           JOIN (
             SELECT ref_no, MIN(snapshot_date) as min_d, MAX(snapshot_date) as max_d
-            FROM listing_price_history WHERE snapshot_date >= ?
+            FROM listing_price_history WHERE ref_no IN (${lpcRefs}) AND snapshot_date >= ?2
             GROUP BY ref_no HAVING COUNT(DISTINCT price) > 1
           -- linked_ref_no 係逗號分隔多 ref（每 source 一個），用包含 match
           ) changed ON (',' || v.linked_ref_no || ',') LIKE ('%,' || changed.ref_no || ',%')
           JOIN listing_price_history first_p ON first_p.ref_no = changed.ref_no AND first_p.snapshot_date = changed.min_d
           JOIN listing_price_history last_p  ON last_p.ref_no  = changed.ref_no AND last_p.snapshot_date  = changed.max_d
           JOIN (
-            SELECT ref_no, building_name, floor, unit, price, detail_url
-            FROM listings WHERE (ref_no, snapshot_date) IN (SELECT ref_no, MAX(snapshot_date) FROM listings GROUP BY ref_no)
+            SELECT x.ref_no, x.building_name, x.floor, x.unit, x.price, x.detail_url
+            FROM listings x
+            WHERE x.ref_no IN (${lpcRefs}) AND x.estate_id IN (SELECT estate_id FROM viewings WHERE account_id = ?1)
+              AND x.snapshot_date = (SELECT MAX(snapshot_date) FROM listings y
+                                     WHERE y.estate_id = x.estate_id AND y.ref_no = x.ref_no)
           ) l ON l.ref_no = changed.ref_no
-          WHERE v.linked_ref_no IS NOT NULL AND first_p.price != last_p.price
+          WHERE v.account_id = ?1 AND v.linked_ref_no IS NOT NULL AND first_p.price != last_p.price
             AND (e.is_disabled = 0 OR e.is_disabled IS NULL)
           ORDER BY ABS(last_p.price - first_p.price) DESC
-        `).bind(cutoffStr).all();
+        `).bind(hAid, cutoffStr).all();
 
         return json(200, { months, cutoff: cutoffStr, byEstate, allViewedTxns, linkedPriceChanges: linkedPriceChangesRes.results || [] });
       }
@@ -7741,11 +7805,8 @@ export default {
         // removed_date／放咗幾耐會計錯。
         // 只查「睇樓記錄真係 link 咗」嗰幾個 ref：per_ref／price_bounds 唔限 ref 就要
         // 掃晒屋苑全部歷史 snapshot（每次 ~10 萬 rows read），限咗行 idx_*_estate_ref
-        // 逐個 ref seek。ref 內嵌做 SQL literal（D1 一條 query 得 100 個參數），
-        // 一律先過白名單 regex，唔合格就丟，所以唔會有 injection。
-        const refLit = [...new Set(results.flatMap((v) => String(v.linked_ref_no || "").split(",")))]
-          .map((r) => r.trim()).filter((r) => /^[A-Za-z0-9_-]{1,40}$/.test(r))
-          .map((r) => `'${r}'`).join(",") || "''";
+        // 逐個 ref seek（見 refInList）。
+        const refLit = refInList(results.map((v) => v.linked_ref_no));
         const { results: refRows } = await db.prepare(`
           WITH src_latest AS (
             SELECT estate_id, source, MAX(snapshot_date) AS d FROM listings
