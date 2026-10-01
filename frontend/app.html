@@ -8,7 +8,7 @@
   <!-- App 本身（登入後介面）唔需要被搜尋器收錄；公開內容喺 / 同各內容頁。 -->
   <meta name="robots" content="noindex">
   <link rel="icon" href="/favicon.svg" type="image/svg+xml">
-  <meta name="theme-color" content="#047857">
+  <meta name="theme-color" content="#1270ac">
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -47,11 +47,13 @@
       --brand-hover: #6ee7b7;
       --brand-ink: #052e23;    /* 品牌色做底時嘅字色（深綠，唔用純黑）*/
       --brand-soft: rgba(52,211,153,0.14);   /* active chip／selected 卡 tint */
+      --brand-bright: #34d399;               /* 非文字用（同淺色版對應）*/
 
       /* ── Glass ─────────────────────────────────────────────────────────
          三級：卡片／浮起（modal、hover）／inset（input、chip）。 */
       --glass-bg: rgba(255,255,255,0.09);
       --glass-bg-raised: rgba(255,255,255,0.13);
+      --chrome-bg: var(--glass-bg);   /* header／sidebar 底（深色版同玻璃面一樣）*/
       --glass-bg-inset: rgba(255,255,255,0.05);
       --glass-border: rgba(255,255,255,0.12);
       --glass-blur: blur(20px);
@@ -124,67 +126,69 @@
        係上一版白底要放棄玻璃嘅原因。米白底 + 更白嘅玻璃就有反差。
        前景色全部對「玻璃卡片實效底 #fdfdfb」量過，全部 ≥4.5:1 過 AA。 */
     :root[data-theme="light"] {
-      --bg: #f5f5f0;
-      --surface: #fdfdfb;      /* ＝ bg 疊 60% 白之後嘅實效色 */
-      --surface1: #fdfdfb;
-      --surface2: #f0f0ea;
-      --border: rgba(16,42,34,0.10);
-      --border-strong: rgba(16,42,34,0.20);
-      --text: #16211d;         /* 16.5:1 */
-      --muted: #5c6b66;        /* 5.5:1 */
+      --bg: #eef6fd;            /* 頁底：最淺嗰層藍（參考 diary app 色系）*/
+      --surface: #ffffff;      /* 白卡 */
+      --surface1: #ffffff;
+      --surface2: #f1f7fc;      /* inset（input／chip）*/
+      --border: rgba(30,80,130,0.12);
+      --border-strong: rgba(30,80,130,0.22);
+      --text: #0f1c2e;         /* 深藍黑 17:1 */
+      --muted: #4f647a;        /* 灰藍 6.2:1（白）／4.6:1（導覽列 #c8e2f6）*/
       --accent: #b45309;       /* 價錢（深琥珀）4.9:1 */
       --on-accent: #fff7ed;
-      --accent2: #0369a1;      /* 連結／資訊 5.8:1 */
+      --accent2: #0f5f9c;      /* 連結／資訊 6.7:1（白）／5.0:1（導覽列）*/
       --on-accent2: #ffffff;   /* --accent2 做底時嘅字色，5.9:1 */
       --up: #15803d;           /* 4.9:1 */
-      --down: #dc2626;         /* 4.7:1 */
+      --down: #cf2020;         /* 5.0:1（#ebf5fd 底都過 AA）*/
 
-      /* 淺底之下品牌色要深一級：#34d399 喺白面得 1.8:1。#047857 做字
-         5.4:1，做底配白字 5.5:1，兩邊都夠。 */
-      --brand: #047857;
-      --brand-hover: #065f46;
+      /* 品牌藍：#1270ac（參考圖最深嗰個圈）。白字喺上面 5.3:1、字喺 #ebf5fd 4.8:1，
+         兩邊都過 AA。參考圖個亮藍 #1c9ee8 只得 3.0:1，淨係用喺唔係字嘅位（--brand-bright）。 */
+      --brand: #1270ac;
+      --brand-bright: #1c9ee8;   /* 非文字用：圈圈、選中框、把手、active 底線 */
+      --brand-hover: #0f5f9c;
       --brand-ink: #ffffff;
-      --brand-soft: rgba(4,120,87,0.10);
+      --brand-soft: rgba(28,158,232,0.12);
 
-      /* 玻璃：跟 reference 淺色版 60% 白，浮起／inset 各上落一級 */
-      --glass-bg: rgba(255,255,255,0.60);
-      --glass-bg-raised: rgba(255,255,255,0.78);
-      --glass-bg-inset: rgba(255,255,255,0.45);
-      --glass-border: rgba(16,42,34,0.10);
+      /* 玻璃：參考 diary app 係實白卡，所以 92% 白（仍然保留少少通透），浮起／inset 各上落一級 */
+      --glass-bg: rgba(255,255,255,0.92);   /* 參考圖係實白卡 */
+      --glass-bg-raised: rgba(255,255,255,0.97);
+      --chrome-bg: rgba(200,226,246,0.96);   /* header／sidebar：明顯深一級嘅藍（#c8e2f6），同頁底、白卡拉開三層 */
+      --glass-bg-inset: rgba(255,255,255,0.70);
+      --glass-border: rgba(30,80,130,0.10);
 
       /* 淺底陰影唔可以用深色嗰套（0.35~0.5 黑會好污）；改返 4~10% */
-      --shadow-sm: 0 1px 2px rgba(16,42,34,0.05);
-      --shadow: 0 4px 12px rgba(16,42,34,0.07);
-      --shadow-lg: 0 12px 32px rgba(16,42,34,0.12);
+      --shadow-sm: 0 2px 10px rgba(30,90,140,0.08);
+      --shadow: 0 6px 18px rgba(30,90,140,0.10);
+      --shadow-lg: 0 14px 34px rgba(30,90,140,0.16);
       --glass-inner: inset 0 1px 0 rgba(255,255,255,0.75);
 
-      --btn-bg: #047857;
-      --btn-hover: #065f46;
+      --btn-bg: #1270ac;
+      --btn-hover: #0f5f9c;
       --btn2-bg: rgba(255,255,255,0.72);
       --btn2-bg-hover: rgba(255,255,255,0.95);
-      --btn2-border: rgba(16,42,34,0.14);
+      --btn2-border: rgba(30,80,130,0.16);
 
-      --row-hover: rgba(16,42,34,0.035);
-      --td-border: rgba(16,42,34,0.08);
-      --overlay: rgba(16,42,34,0.28);
-      --overlay-strong: rgba(16,42,34,0.55);
+      --row-hover: rgba(28,158,232,0.06);
+      --td-border: rgba(30,80,130,0.08);
+      --overlay: rgba(15,40,70,0.30);
+      --overlay-strong: rgba(15,40,70,0.55);
       /* Pastel tint badge（reference 個 badge 語言），文字用深語義色保對比 */
       --badge-high-bg: #dcfce7;   /* 配 --up  4.6:1 */
       --badge-mid-bg:  #e0f2fe;   /* 配 --accent2 5.2:1 */
       --badge-low-bg:  #fef3c7;   /* 配 --accent 4.5:1 */
-      --btn-soft-hover: #d7f2e6;
+      --btn-soft-hover: #d8ecfa;
 
       --chart-price: #b45309;
-      --chart-count: #0369a1;
+      --chart-count: #1270ac;
       --chart-sold:  #15803d;
       --chart-overlay: #6d28d9;
-      --chart-grid: rgba(16,42,34,0.10);
+      --chart-grid: rgba(30,80,130,0.10);
 
       /* 淺底光暈 5~8% 已經夠，深色嗰套 20% 落喺米白會變螢光 */
-      --glow-1: rgba(16,185,129,0.10);
-      --glow-2: rgba(56,189,248,0.08);
-      --glow-3: rgba(168,85,247,0.07);
-      --glow-4: rgba(16,185,129,0.07);
+      --glow-1: rgba(28,158,232,0.10);
+      --glow-2: rgba(105,184,229,0.12);
+      --glow-3: rgba(37,139,210,0.06);
+      --glow-4: rgba(28,158,232,0.08);
     }
 
     html {
@@ -239,7 +243,7 @@
 
     /* Header */
     header {
-      border-bottom: 1px solid var(--border);
+      border-bottom: 1px solid var(--border-strong);
       height: var(--header-h);
       padding: 0 max(1.5rem, env(safe-area-inset-right)) 0 max(1.5rem, env(safe-area-inset-left));
       display: flex;
@@ -248,7 +252,7 @@
       position: sticky;
       top: 0;
       /* Glass 用喺呢度係啱嘅：header 自己唔 scroll 內容，blur 只計一次 */
-      background: var(--glass-bg);
+      background: var(--chrome-bg);
       backdrop-filter: saturate(140%) var(--glass-blur);
       -webkit-backdrop-filter: saturate(140%) var(--glass-blur);
       box-shadow: var(--glass-inner);
@@ -294,11 +298,11 @@
 
     /* Sidebar：glass（佢自己唔 scroll，內層 .estate-list 先 scroll） */
     .sidebar {
-      border-right: 1px solid var(--border);
+      border-right: 1px solid var(--border-strong);
       display: flex;
       flex-direction: column;
       overflow: hidden;
-      background: var(--glass-bg);
+      background: var(--chrome-bg);
       backdrop-filter: saturate(160%) blur(10px);
       -webkit-backdrop-filter: saturate(160%) blur(10px);
     }
@@ -956,57 +960,93 @@
     .viewing-date-header-count { color: var(--accent); font-size: 0.78rem; margin-left: auto; }
     .viewing-date-header-chevron { color: var(--muted); font-size: 0.8rem; }
     .viewing-date-body { padding-top: 0.75rem; }
-    /* 「睇樓日記」（dashboard 個 tab）：左邊日期篩選 panel + 右邊卡片列表。
-       手機闊度冇位擺側邊 panel，摺埋做一粒掣，撳先彈個 modal（用返
-       .modal-overlay／.modal 嗰套全站共用嘅彈窗樣式）。 */
-    .comps-layout { display: flex; gap: 1.2rem; align-items: flex-start; }
-    .comps-date-panel {
-      flex: 0 0 180px; display: flex; flex-direction: column; gap: 0.15rem;
-      background: var(--glass-bg); backdrop-filter: var(--glass-blur); -webkit-backdrop-filter: var(--glass-blur);
-      border: 1px solid var(--glass-border); border-radius: var(--radius); padding: 0.8rem;
-      position: sticky; top: 0.5rem;
+    /* 「睇樓日記」（dashboard 個 tab）：跟參考 diary app——排版同淺藍色調都照抄。
+       上面「月份圈圈」strip（每個圈＝嗰個月睇咗幾多個盤），下面一張張白色日期卡
+       （左日期／右睇過嘅樓），撳咗先展開詳細卡。
+       顏色由參考圖取樣：底 #ebf5fd、主藍 #1c9ee8（FAB）、圈圈 #a5cde9→#69b8e5→#258bd2→#1270ac。
+       淨係喺 .dj 入面重新指定 token，所以入面嘅詳細卡（查估值掣等）都會跟藍色，其他頁唔受影響。 */
+    .dj { background: #ebf5fd; border-radius: var(--radius-lg); padding: 0.85rem 0.75rem 0.9rem; color: var(--text); }
+    .dj-top { margin-bottom: 0.7rem; }
+    .dj-yearnav { display: flex; align-items: center; gap: 0.45rem; margin-bottom: 0.65rem; padding: 0 0.15rem; }
+    .dj-year { font-weight: 700; font-size: 0.98rem; color: var(--text); min-width: 3.6rem; text-align: center; }
+    .dj-ynav {
+      width: 1.7rem; height: 1.7rem; border-radius: 50%; border: none; background: #ffffff; color: var(--brand);
+      cursor: pointer; font-size: 1.05rem; line-height: 1; font-family: inherit; box-shadow: var(--shadow-sm);
+      display: inline-flex; align-items: center; justify-content: center; padding: 0;
     }
-    .comps-date-panel-title { font-size: 0.8rem; font-weight: 700; color: var(--text); margin-bottom: 0.3rem; }
-    .comps-date-panel-all {
-      font-size: 0.78rem; color: var(--accent2); cursor: pointer; background: none; border: none;
-      padding: 0.2rem 0; text-align: left; font-family: inherit; margin-bottom: 0.2rem;
+    .dj-ynav:disabled { opacity: 0.4; cursor: default; box-shadow: none; }
+    .dj-total { margin-left: auto; font-size: 0.75rem; color: var(--muted); }
+    .dj-months { display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); gap: 2px; }
+    .dj-m {
+      display: flex; flex-direction: column; align-items: center; gap: 0.25rem; background: none; border: none;
+      padding: 0.25rem 0 0.3rem; cursor: pointer; font-family: inherit; border-radius: 12px; min-width: 0;
     }
-    .comps-date-range-row { display: flex; flex-direction: column; gap: 0.2rem; margin-top: 0.4rem; }
-    .comps-date-range-label { font-size: 0.75rem; color: var(--muted); }
-    .comps-date-input {
-      width: 100%; background: var(--surface2); border: 1px solid var(--border); border-radius: 8px;
-      color: var(--text); font-size: 0.85rem; padding: 0.4rem 0.5rem; box-sizing: border-box; font-family: inherit;
+    .dj-m:disabled { cursor: default; }
+    .dj-m.sel { background: #ffffff; box-shadow: 0 0 0 1.5px var(--brand-bright) inset; }
+    .dj-m-label { font-size: 0.62rem; color: var(--muted); white-space: nowrap; }
+    .dj-m.cur .dj-m-label, .dj-m.sel .dj-m-label { color: var(--brand); font-weight: 700; }
+    .dj-circle {
+      width: 100%; max-width: 34px; aspect-ratio: 1; border-radius: 50%; box-sizing: border-box;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 0.72rem; font-weight: 700; transition: transform 0.15s;
+      background: #dde8f1; color: transparent;
     }
-    .comps-date-chips { display: flex; flex-wrap: wrap; gap: 0.3rem; margin-top: 0.6rem; }
-    .comps-date-chip {
-      display: inline-flex; align-items: center; gap: 0.3rem; font-family: inherit; cursor: pointer;
-      font-size: 0.75rem; padding: 0.25rem 0.55rem; border-radius: 999px; font-weight: 600;
-      background: var(--brand-soft); color: var(--brand); border: 1px solid var(--brand);
+    .dj-circle.lv1 { background: #a5cde9; color: #0f4c75; }
+    .dj-circle.lv2 { background: #69b8e5; color: #0b3f66; }
+    .dj-circle.lv3 { background: #258bd2; color: #ffffff; }
+    .dj-circle.lv4 { background: #1270ac; color: #ffffff; }
+    .dj-m:not(:disabled):hover .dj-circle { transform: scale(1.08); }
+    .dj-handle { display: block; width: 100%; background: none; border: none; padding: 0.55rem 0 0.35rem; cursor: pointer; }
+    .dj-handle span { display: block; width: 2.4rem; height: 4px; border-radius: 999px; background: #a0b3c0; opacity: 0.55; margin: 0 auto; }
+    .dj-handle.active span { background: var(--brand-bright); opacity: 1; }
+    .dj-range { display: none; align-items: flex-end; gap: 0.6rem; flex-wrap: wrap; padding: 0.1rem 0.15rem 0.5rem; }
+    .dj-range.open { display: flex; }
+    .dj-range label { display: flex; flex-direction: column; gap: 0.2rem; font-size: 0.72rem; color: var(--muted); }
+    .dj-input {
+      background: #ffffff; border: 1px solid var(--border); border-radius: 10px; color: var(--text);
+      font-size: 0.85rem; padding: 0.35rem 0.5rem; box-sizing: border-box; font-family: inherit;
     }
-    .comps-date-chip:hover { background: var(--brand); color: var(--brand-ink); }
-    #comps-body .viewing-date-group { scroll-margin-top: 0.75rem; }
-    .viewing-date-header.flash { animation: vdgFlash 1.2s ease; }
-    @keyframes vdgFlash { 0%, 40% { border-color: var(--brand); box-shadow: 0 0 0 3px var(--brand-soft); } 100% { box-shadow: none; } }
-    .comps-date-chip-n { font-size: 0.68rem; opacity: 0.8; font-weight: 400; }
-    .comps-main { flex: 1; min-width: 0; }
-    .comps-main .viewing-card { max-width: 100%; overflow-x: auto; }
-    .comps-filter-btn-mobile { display: none; margin-bottom: 0.6rem; }
-    /* 右邊張卡片要 ~520px 先唔會爆出界；dashboard 夾喺 sidebar 隔籬，
-       個闊度同 window 闊度無關，所以用 container query 睇返自己夠唔夠位：
-       唔夠就改做上下排（篩選喺上面、卡片全闊）。 */
-    /* container-type 會令入面 position:fixed 嘅嘢以佢做定位框（modal 會困喺裏面），
-       所以放喺淨係包住 layout 嘅 .comps-cq，modal 擺喺佢外面。 */
-    .comps-cq { container-type: inline-size; }
-    @container (max-width: 760px) {
-      .comps-layout { flex-direction: column; align-items: stretch; }
-      .comps-date-panel { flex: none; position: static; }
-      .comps-date-panel .comps-date-range-row { flex-direction: row; align-items: center; gap: 0.5rem; }
-      .comps-date-panel .comps-date-range-label { flex: 0 0 1.2rem; }
+    .dj-reset { background: none; border: none; color: var(--brand); cursor: pointer; font-family: inherit; font-size: 0.78rem; padding: 0.4rem 0.2rem; }
+    .dj-list { display: flex; flex-direction: column; gap: 0.6rem; }
+    .dj-card { background: #ffffff; border-radius: var(--radius); box-shadow: var(--shadow-sm); overflow: hidden; }
+    .dj-head { display: flex; align-items: stretch; gap: 0.75rem; padding: 0.85rem 0.9rem; color: var(--text); }
+    .dj-date {
+      flex: 0 0 3.1rem; display: flex; flex-direction: column; align-items: center; justify-content: center;
+      padding: 0 0.75rem 0 0; border: none; border-right: 1px solid var(--border); background: none;
+      font-family: inherit; color: inherit; cursor: default;
     }
-    @media (max-width: 768px) {
-      .comps-date-panel { display: none; }
-      .comps-filter-btn-mobile { display: inline-flex; }
+    .dj-card.multi .dj-date { cursor: pointer; }
+    .dj-date b { font-size: 1.4rem; line-height: 1.1; font-weight: 800; color: var(--text); }
+    .dj-date small { font-size: 0.62rem; color: var(--muted); margin-top: 2px; white-space: nowrap; }
+    .dj-right { flex: 1; min-width: 0; display: flex; flex-direction: column; justify-content: center; gap: 0.15rem; }
+    .dj-rows { display: flex; flex-direction: column; gap: 0.1rem; }
+    /* 一行一個盤，撳咗先打開嗰個盤嘅詳細卡。超過 3 個嘅喺日期卡未展開前收埋。 */
+    .dj-card:not(.open) .dj-row[data-extra="1"] { display: none; }
+    .dj-row {
+      display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.1rem 0.5rem; font-size: 0.82rem;
+      width: calc(100% + 0.8rem); margin: 0 -0.4rem; padding: 0.28rem 1.4rem 0.28rem 0.4rem; position: relative;
+      background: none; border: none; border-radius: 8px; text-align: left; font-family: inherit; color: inherit; cursor: pointer;
     }
+    .dj-row:hover { background: var(--brand-soft); }
+    .dj-row.open { background: var(--brand-soft); }
+    .dj-row::after { content: "›"; position: absolute; right: 0.5rem; top: 50%; transform: translateY(-50%); color: #a0b3c0; font-size: 1.05rem; transition: transform 0.2s; }
+    .dj-row.open::after { transform: translateY(-50%) rotate(90deg); color: var(--brand-bright); }
+    .dj-estate { font-weight: 700; color: var(--text); }
+    .dj-unit { color: var(--muted); }
+    .dj-price { color: #1270ac; font-weight: 700; }
+    .dj-tag { font-size: 0.66rem; padding: 0.05rem 0.45rem; border-radius: 999px; background: var(--brand-soft); color: #1270ac; }
+    .dj-meta { font-size: 0.7rem; color: var(--muted); }
+    .dj-more {
+      align-self: flex-start; background: none; border: none; padding: 0.15rem 0; margin-top: 0.1rem;
+      font-family: inherit; font-size: 0.75rem; color: var(--brand); cursor: pointer;
+    }
+    /* 詳細卡全闊擺喺清單下面（右邊欄太窄擺唔落），撳邊行就開邊個 */
+    .dj-body { display: none; padding: 0.75rem 0.75rem 0.25rem; border-top: 1px solid var(--border); background: #f6fafe; }
+    .dj-card.has-detail .dj-body { display: block; }
+    .dj-detail { display: none; }
+    .dj-detail.show { display: block; }
+    .dj-body .viewing-card { max-width: 100%; overflow-x: auto; }
+    .dj-empty { padding: 1.2rem; color: var(--muted); font-size: 0.85rem; text-align: center; }
     .viewing-card {
       background: var(--glass-bg); border: 1px solid var(--border);
       backdrop-filter: var(--glass-blur);
@@ -1105,6 +1145,8 @@
       display: flex; gap: 0.25rem; pointer-events: none;
       padding: 0.2rem 0.4rem; border-radius: 999px; background: rgba(0,0,0,0.32);
     }
+    .lc-dots.lc-count { color: #fff; font-size: 0.7rem; line-height: 1; padding: 0.25rem 0.5rem; letter-spacing: 0.04em; }
+    .lc-nav.loading { opacity: 0.6; cursor: progress; }
     .lc-dot { width: 0.3rem; height: 0.3rem; border-radius: 999px; background: rgba(255,255,255,0.55); }
     .lc-dot.active { background: #fff; }
     .lc-nav {
@@ -1117,6 +1159,7 @@
     .lc-nav-prev { left: 0.35rem; } .lc-nav-next { right: 0.35rem; }
     /* 有滑鼠先出箭嘴；觸控裝置直接掃就得，唔好阻住張相 */
     @media (hover: hover) { .lc-card:hover .lc-nav { display: flex; } }
+    @media (hover: none) { .lc-photo[data-more="1"] .lc-nav-next { display: flex; } }   /* 觸控：淨得一張相但仲有，要有掣先知可以撳 */
     .lc-removed-overlay {
       position: absolute; inset: 0; background: rgba(0,0,0,0.45); color: #fff;
       display: flex; align-items: center; justify-content: center;
@@ -1132,7 +1175,7 @@
     .lc-sub { font-size: 0.72rem; color: var(--muted); }
     .lc-lock { cursor: pointer; }
     /* 合併行喺表格度係一抹綠底，卡片跟返同一個訊號 */
-    .lc-combined { background: rgba(16,185,129,0.06); }
+    .lc-combined { background: rgba(28,158,232,0.07); }
     .lc-actions { display: flex; gap: 0.3rem; flex-wrap: wrap; padding-top: 0.4rem; }
     .lc-btn { font-size: 0.68rem; padding: 0.1rem 0.4rem; margin: 0; }
 
@@ -1529,7 +1572,7 @@
         transform: translateX(-100%);
         transition: transform 0.25s ease;
         z-index: 200;
-        background: var(--glass-bg);
+        background: var(--chrome-bg);
         backdrop-filter: var(--glass-blur);
         -webkit-backdrop-filter: var(--glass-blur);
         box-shadow: var(--glass-inner), var(--shadow);
@@ -3147,217 +3190,227 @@ async function loadViewingComps() {
   try {
     const r = await api('/api/viewings/comps');
     _compsData = r.items || [];
-    if (!_compsData.length) {
-      body.innerHTML = '<span style="color:var(--muted)">未有睇樓記錄。喺屋苑頁「睇樓記錄」新增,呢度就會顯示參考成交。</span>';
-      return;
-    }
+    _compsEnriched = null;        // 詳細資料（/api/viewings/all）撳開第一張卡先攞；重新載入要作廢
     _lastViewings = _compsData;   // 俾 ✓/✕ (confirm/dismiss) 搵返個 viewing
-    // viewImgFull 靠呢個 map 攞相片 array（睇樓記錄嗰邊都係咁），
-    // 「睇過嘅盤」而家都顯示相片，所以要一齊填。
     window._viewingImgsMap = window._viewingImgsMap || {};
-    body.innerHTML = '<div class="loading"><div class="spinner"></div> 載入睇過嘅盤…</div>';
-
-    // 兩輪 per-estate fetch：
-    //  ① listings — 對應在售放盤（buildMatchCell 靠全局 allListings，所以要
-    //     逐個屋苑存落 _matchListingsByEstate，render 嗰陣先換）。
-    //  ② viewings — 卡片 detail 要嘅嘢（價格尺／成交／放咗幾耐／叫價變動／
-    //     估值）全部由 /api/viewings 計，comps endpoint 冇。攞返 enriched 版
-    //     再用 id merge，令「睇過嘅盤」同「睇樓記錄」共用 renderOneViewing()，
-    //     唔會兩邊 design 分叉。
-    // viewings 而家一個 request 搞掂（/api/viewings/all）；listings 仲係
-    // per-estate（每個屋苑 payload 好大，冇合併），所以照舊擺背景行，
-    // 返到嚟先填「對應放盤」嗰格，唔阻住卡片出。
-    const _listedEstIds = [...new Set(_compsData.filter(v => v.status !== 'sold')
-      .map(v => v.estate_id).filter(Boolean))];
-    window._matchListingsByEstate = {};
-
-    // 一個 request 拎晒全部屋苑（/api/viewings/all）。之前逐個屋苑打一次，
-    // 14 個屋苑實測 8.5 秒；而家一次過。
-    const enrichedById = {};
-    try {
-      const { viewings } = await api('/api/viewings/all');
-      for (const ev of (viewings || [])) enrichedById[ev.id] = ev;
-    } catch (_) { /* 攞唔到就用返 comps 本身嗰份，卡片會少咗分析欄 */ }
-    // comps 專有嘅欄位（status/sold/range/verdict/comp_count/排序用嘅屋苑次序）
-    // 要留返，所以係 enriched 打底、comps 蓋上去。
-    _compsData = _compsData.map(v => ({ ...(enrichedById[v.id] || {}), ...v }));
-    _lastViewings = _compsData;
-
+    window._matchListingsByEstate = window._matchListingsByEstate || {};
     renderCompsPanel();
-
-    // listings 一定要等 viewings 行晒先開始——瀏覽器同一個 host 只得 6 條
-    // 連線，兩批一齊發只會互相爭，實測反而由 16s 變 18s。排住行嘅話
-    // viewings 食晒 6 條，卡片 ~8s 就出到，之後先慢慢補返靠 listings 嘅嘢。
-    //
-    // 成張卡靠 renderOneViewing() 重畫，唔逐格 patch——卡入面依賴 allListings
-    // 嘅嘢唔止一處（buildMatchCell 嘅「對應放盤」、priceRulerHtml 嘅「在售」
-    // band），逐格 patch 就要自己記住成張卡邊幾格靠緊 allListings，漏一格
-    // 都唔知（試過漏咗價格尺）。成張卡重用同一個 render function，先保證
-    // 同首次 render 一定一致——加新嘅 allListings 依賴都唔使記得嚟呢度加多
-    // 一行 patch。
-    (async () => {
-      await Promise.all(_listedEstIds.map(async eid => {
-        try { const { listings } = await api(`/api/estates/${eid}/listings`); window._matchListingsByEstate[eid] = listings || []; }
-        catch (_) { window._matchListingsByEstate[eid] = []; }
-      }));
-      const saved = allListings;
-      for (const v of _compsData) {
-        const card = document.querySelector(`[data-vrow="${v.id}"]`);
-        if (!card) continue;
-        allListings = window._matchListingsByEstate[v.estate_id] || [];
-        card.outerHTML = renderOneViewing(v, v.estate_id, true, true);
-      }
-      allListings = saved;
-    })();
   } catch (e) {
-    body.innerHTML = `<span style="color:var(--down)">載入失敗:${escHtml(e.message)}</span>`;
+    if (body) body.innerHTML = `<span style="color:var(--down)">載入失敗：${escHtml(e.message)}</span>`;
   }
 }
 
-// ── 「睇樓日記」（舊名「睇過嘅盤」）：左邊日期篩選 panel + 右邊按日期分組嘅卡片列表 ──
-// 淨係得一種顯示方式（按日期分組），冇晒之前「未成交／已成交」sub-tab 同
-//「排序」揀項——個日期 panel 已經做晒篩選嘅角色（剔走邊幾日，剩返嘅
-// 日期照舊分組摺埋，撳先展開）。狀態（未成交/已成交）每張卡自己顯示，
-// 唔使再分頁。
+// 詳細卡（價格尺／成交／放咗幾耐／叫價變動／估值）要 /api/viewings/all 嘅 enriched 版，
+// 而「對應放盤」要逐個屋苑嘅 /api/estates/:id/listings。呢兩樣都好重（一個屋苑
+// listings ≈ 11 萬行 D1 讀取，十幾個屋苑一齊拉一次就成 140 萬行），所以唔再開 tab 就
+// 預先拉晒，改為撳開某日嗰張卡先攞嗰日用到嘅，攞過就記住（唔會重複攞）。
+let _compsEnriched = null;
+function ensureCompsEnriched() {
+  if (!_compsEnriched) {
+    _compsEnriched = (async () => {
+      try {
+        const { viewings } = await api('/api/viewings/all');
+        const byId = {};
+        for (const ev of (viewings || [])) byId[ev.id] = ev;
+        // comps 專有嘅欄位（status/sold/range/verdict/comp_count）要留返，所以 enriched 打底、comps 蓋上去。
+        _compsData = _compsData.map(v => ({ ...(byId[v.id] || {}), ...v }));
+        _lastViewings = _compsData;
+      } catch (_) { _compsEnriched = null; /* 攞唔到下次撳開再試，卡片暫時用 comps 本身嗰份 */ }
+    })();
+  }
+  return _compsEnriched;
+}
+async function ensureCompsListings(estateIds) {
+  window._matchListingsByEstate = window._matchListingsByEstate || {};
+  await Promise.all(estateIds.filter(id => !(id in window._matchListingsByEstate)).map(async id => {
+    try { const { listings } = await api(`/api/estates/${id}/listings`); window._matchListingsByEstate[id] = listings || []; }
+    catch (_) { /* 唔記失敗，下次撳開再試；呢次卡片「對應放盤」暫時空 */ }
+  }));
+}
+
+// ── 「睇樓日記」（舊名「睇過嘅盤」）：月份圈圈 strip ＋ 日期卡 ──────────────────
+// 上面：揀年份，12 個月每月一個圈，圈入面係嗰個月睇咗幾多個盤（撳個月就只睇嗰個月）。
+// 下面：每個有睇樓嘅日子一張卡（左＝日期，右＝嗰日睇過嘅樓），撳咗先展開詳細卡。
+// 底部嗰條「把手」可以展開「由／至」日期範圍（同月份 strip 夾埋用）。
 let _compsDateFrom = '';         // '' = 冇下限
 let _compsDateTo = '';           // '' = 冇上限
-let _compsDateModalOpen = false; // 手機版「篩選日期」modal 開關（要獨立記，因為每次篩選都會成個 panel 重畫）
+let _compsYear = null;           // null = 最新有記錄嗰年
+let _compsMonth = 0;             // 0 = 成年
+let _compsRangeOpen = false;
+const _compsOpen = new Set();    // 展開咗清單嘅日期（重畫之後照樣展開）
+const _compsOpenRows = new Set(); // 打開咗詳細卡嘅睇樓記錄 id
 
-// From/To 嘅可揀範圍鎖死喺實際有記錄嘅日期之間，唔畀揀到「揀咗都係得返
-// 0 個記錄」嘅日期。
+const _inCompsRange = d => (!_compsDateFrom || d >= _compsDateFrom) && (!_compsDateTo || d <= _compsDateTo);
 function _compsDateBounds() {
   const dates = _compsData.map(v => v.view_date).filter(Boolean).sort();
   return { min: dates[0] || '', max: dates[dates.length - 1] || '' };
 }
-
+function setCompsYear(y) { _compsYear = y; _compsMonth = 0; renderCompsPanel(); }
+function setCompsMonth(m) { _compsMonth = _compsMonth === m ? 0 : m; renderCompsPanel(); }
 function setCompsDateFrom(v) { _compsDateFrom = v; renderCompsPanel(); }
 function setCompsDateTo(v) { _compsDateTo = v; renderCompsPanel(); }
 function resetCompsDateFilter() { _compsDateFrom = ''; _compsDateTo = ''; renderCompsPanel(); }
-// 撳日期 chip：跳去右邊對應嘅日期 header（摺埋咗就順手展開），閃一下提示係邊組。
-function jumpToCompsDate(d) {
-  if (_compsDateModalOpen) closeCompsDateModal();
-  const group = document.querySelector(`#comps-body .viewing-date-group[data-date="${CSS.escape(d)}"]`);
-  if (!group) return;
-  const body = group.querySelector('.viewing-date-body');
-  if (body && body.style.display === 'none') toggleCompsDateGroup(Number(group.dataset.gi));
-  group.scrollIntoView({ behavior: 'smooth', block: 'start' });
-  const head = group.querySelector('.viewing-date-header');
-  head.classList.remove('flash'); void head.offsetWidth; head.classList.add('flash');
+function toggleCompsRange() {
+  _compsRangeOpen = !_compsRangeOpen;
+  document.getElementById('dj-range')?.classList.toggle('open', _compsRangeOpen);
 }
-const _inCompsRange = d => (!_compsDateFrom || d >= _compsDateFrom) && (!_compsDateTo || d <= _compsDateTo);
-// 篩選日期 modal 一定要掛喺 <body>：.highlights-section 有 backdrop-filter，
-// 會變成 position:fixed 子孫嘅定位框，擺喺入面個 modal 會跟住版面飛走。
-function _mountCompsDateModal(html) {
-  let host = document.getElementById('compsDateModalHost');
-  if (!host) { host = document.createElement('div'); host.id = 'compsDateModalHost'; document.body.appendChild(host); }
-  host.innerHTML = html;
-}
-function openCompsDateModal() { _compsDateModalOpen = true; renderCompsPanel(); }
-function closeCompsDateModal() { _compsDateModalOpen = false; renderCompsPanel(); }
 
-// 撳個日期先展開嗰組卡片——同「睇樓記錄」個 tab 用返同一套
-// .viewing-date-group／header／body CSS，但 id／function 分開命名
-// （cvdg- 前綴），因為兩個 panel 用嘅係唔同數據源，唔想耦合埋一齊。
+// 同 renderOneViewing 一樣嘅叫法：7座 11樓 F室
+function _compsUnitLabel(v) {
+  const b = v.block ? (/座$/.test(v.block) ? v.block : v.block + '座') : null;
+  const f = v.floor ? (/樓$/.test(v.floor) || /層$/.test(v.floor) ? v.floor : v.floor + '樓') : null;
+  const u = v.unit ? (/室$/.test(v.unit) || /號$/.test(v.unit) ? v.unit : v.unit + '室') : null;
+  return [b, f, u].filter(Boolean).join(' ');
+}
+function _compsPriceLabel(v) {
+  if (!v.price) return '';
+  return v.deal_type === 'R' ? `$${Math.round(v.price).toLocaleString()}/月`
+    : `$${(v.price / 1e4).toFixed(v.price % 10000 === 0 ? 0 : 1)}萬`;
+}
+const _DJ_WEEKDAY = ['日', '一', '二', '三', '四', '五', '六'];
+
+// 詳細卡：用返「睇樓記錄」同一個 renderOneViewing（卡片版），屋苑名淨係喺呢度加返。
+// buildMatchCell 靠全局 allListings，跨屋苑要逐張卡換返啱嗰個屋苑先 render。
+function _compsCardHtml(v) {
+  const saved = allListings;
+  allListings = (window._matchListingsByEstate || {})[v.estate_id] || [];
+  try {
+    return `<div style="margin-bottom:0.15rem"><div style="font-size:0.75rem;color:var(--accent2);font-weight:600;margin:0 0 0.15rem 0.15rem">${
+      escHtml(v.estate_name || '')}</div>${renderOneViewing(v, v.estate_id, true, true)}</div>`;
+  } finally { allListings = saved; }
+}
+
+// 撳某一行先打開嗰個盤嘅詳細卡：先攞詳細資料同**嗰個屋苑**嘅 listings（唔係成日全部），再畫。
+async function fillCompsDetail(vid) {
+  const box = document.querySelector(`#comps-body .dj-detail[data-vid="${vid}"]`);
+  if (!box || box.dataset.filled === '1') return;
+  box.innerHTML = '<div class="loading"><div class="spinner"></div> 載入詳情…</div>';
+  await ensureCompsEnriched();
+  const v = _compsData.find(x => x.id === vid);
+  if (!v) return;
+  if (v.status !== 'sold' && v.estate_id) await ensureCompsListings([v.estate_id]);
+  if (!box.isConnected) return;   // 期間重畫咗，呢個已經唔喺度
+  box.innerHTML = _compsCardHtml(v);
+  box.dataset.filled = '1';
+}
+
+// 撳日期卡：展開／收起成日嘅睇樓清單（簡潔行，唔係詳細卡）
 function toggleCompsDateGroup(gi) {
-  const body = document.getElementById(`cvdg-body-${gi}`);
-  const chev = document.getElementById(`cvdg-chev-${gi}`);
-  if (!body) return;
-  const show = body.style.display === 'none';
-  body.style.display = show ? '' : 'none';
-  if (chev) chev.textContent = show ? '▾' : '▸';
-  const header = body.previousElementSibling;
-  if (header) header.setAttribute('aria-expanded', show ? 'true' : 'false');
+  const card = document.querySelector(`#comps-body .dj-card[data-gi="${gi}"]`);
+  if (!card || !card.classList.contains('multi')) return;
+  const open = !card.classList.contains('open');
+  card.classList.toggle('open', open);
+  card.querySelector('.dj-date')?.setAttribute('aria-expanded', open ? 'true' : 'false');
+  const more = card.querySelector('.dj-more');
+  if (more) more.textContent = open ? '收起' : `另外 ${card.dataset.extra} 個…`;
+  if (open) _compsOpen.add(card.dataset.date); else _compsOpen.delete(card.dataset.date);
 }
 
-// From/To 日期範圍——側邊 panel（桌面）同 modal（手機）共用同一份 markup。
-function _compsDateRangeHtml(bounds) {
-  const allSelected = !_compsDateFrom && !_compsDateTo;
-  // 範圍以內每個有記錄嘅日期一粒 chip，撳落去跳去右邊嗰日嘅 header。
-  const counts = new Map();
-  for (const v of _compsData) {
-    const d = v.view_date || '';
-    if (d && _inCompsRange(d)) counts.set(d, (counts.get(d) || 0) + 1);
-  }
-  const chips = [...counts.entries()].sort((a, b) => b[0].localeCompare(a[0])).map(([d, n]) => {
-    return `<button type="button" class="comps-date-chip" onclick="jumpToCompsDate('${escJsAttr(d)}')" title="跳去 ${escHtml(d)}">${escHtml(d)}<span class="comps-date-chip-n">${n}</span></button>`;
-  }).join('');
-  return `<button type="button" class="comps-date-panel-all" onclick="resetCompsDateFilter()">${allSelected ? '✓ ' : ''}全部日期</button>
-    <label class="comps-date-range-row"><span class="comps-date-range-label">由</span>
-      <input type="date" class="comps-date-input" value="${_compsDateFrom}" min="${bounds.min}" max="${bounds.max}" onchange="setCompsDateFrom(this.value)"></label>
-    <label class="comps-date-range-row"><span class="comps-date-range-label">至</span>
-      <input type="date" class="comps-date-input" value="${_compsDateTo}" min="${bounds.min}" max="${bounds.max}" onchange="setCompsDateTo(this.value)"></label>
-    ${chips ? `<div class="comps-date-chips">${chips}</div>` : ''}`;
+// 撳某一行：打開／收埋嗰個盤嘅詳細卡
+function toggleCompsViewing(vid) {
+  const row = document.querySelector(`#comps-body .dj-row[data-vid="${vid}"]`);
+  const detail = document.querySelector(`#comps-body .dj-detail[data-vid="${vid}"]`);
+  const card = row && row.closest('.dj-card');
+  if (!row || !detail || !card) return;
+  const open = !row.classList.contains('open');
+  row.classList.toggle('open', open);
+  row.setAttribute('aria-expanded', open ? 'true' : 'false');
+  detail.classList.toggle('show', open);
+  card.classList.toggle('has-detail', !!card.querySelector('.dj-detail.show'));
+  if (open) { _compsOpenRows.add(vid); fillCompsDetail(vid); } else _compsOpenRows.delete(vid);
 }
 
 function renderCompsPanel() {
   const body = document.getElementById('comps-body');
   if (!body) return;
   if (!_compsData.length) {
-    body.innerHTML = '<div style="padding:1.2rem;color:var(--muted);font-size:0.85rem;text-align:center">未有睇樓記錄。喺屋苑頁「睇樓記錄」新增,呢度就會顯示參考成交。</div>';
+    body.innerHTML = '<div class="dj"><div class="dj-empty">未有睇樓記錄。喺屋苑頁「睇樓記錄」新增，呢度就會顯示。</div></div>';
     return;
   }
   const bounds = _compsDateBounds();
-  const hasFilter = !!(_compsDateFrom || _compsDateTo);
-  const rows = _compsData.filter(v => {
-    const d = v.view_date || '';
-    return _inCompsRange(d);
-  });
-  const rangeHtml = _compsDateRangeHtml(bounds);
+  const hasRange = !!(_compsDateFrom || _compsDateTo);
+  const inRange = _compsData.filter(v => _inCompsRange(v.view_date || ''));
+  // 年份永遠跟全部數據（唔受日期範圍影響），咁先唔會因為篩走晒而連年份都消失
+  const years = [...new Set(_compsData.map(v => (v.view_date || '').slice(0, 4)).filter(Boolean))].sort();
+  const year = years.includes(String(_compsYear)) ? String(_compsYear) : years[years.length - 1];
+  _compsYear = year;
+  const yearRows = inRange.filter(v => (v.view_date || '').startsWith(year));
+  const perMonth = new Array(13).fill(0);
+  for (const v of yearRows) perMonth[Number((v.view_date || '').slice(5, 7))]++;
+  const month = _compsMonth && perMonth[_compsMonth] ? _compsMonth : 0;
+  const rows = month ? yearRows.filter(v => Number((v.view_date || '').slice(5, 7)) === month) : yearRows;
 
-  const panelHtml = `<div class="comps-date-panel">
-      <div class="comps-date-panel-title">📅 篩選日期</div>
-      ${rangeHtml}
-    </div>`;
-  const mobileFilterBtnHtml = `<button type="button" class="filter-chip comps-filter-btn-mobile" onclick="openCompsDateModal()">📅 篩選日期${
-    hasFilter ? `（${rows.length}/${_compsData.length}）` : ''}</button>`;
-  const dateModalHtml = `<div class="modal-overlay" id="compsDateModalOverlay" style="display:${_compsDateModalOpen ? 'flex' : 'none'};z-index:600" onclick="if(event.target===this)closeCompsDateModal()">
-      <div class="modal" style="max-width:340px;max-height:80vh;overflow-y:auto">
-        <button class="modal-close" onclick="closeCompsDateModal()">✕</button>
-        <div class="modal-title">篩選日期</div>
-        <div style="display:flex;flex-direction:column;gap:0.5rem;margin-top:0.5rem">${rangeHtml}</div>
+  const hkNow = new Date(Date.now() + 8 * 3600000).toISOString();
+  const curY = hkNow.slice(0, 4), curM = Number(hkNow.slice(5, 7));
+  const level = n => (n === 0 ? 0 : n === 1 ? 1 : n <= 3 ? 2 : n <= 6 ? 3 : 4);
+  const yi = years.indexOf(year);
+  const prevY = yi > 0 ? years[yi - 1] : null, nextY = yi < years.length - 1 ? years[yi + 1] : null;
+  const monthsHtml = Array.from({ length: 12 }, (_, k) => k + 1).map(m => {
+    const n = perMonth[m];
+    const cls = `dj-m${month === m ? ' sel' : ''}${year === curY && m === curM ? ' cur' : ''}`;
+    return `<button type="button" class="${cls}" ${n ? '' : 'disabled'} onclick="setCompsMonth(${m})" aria-pressed="${month === m}" aria-label="${m}月 ${n} 個盤">
+        <span class="dj-m-label">${m}月</span><span class="dj-circle lv${level(n)}">${n || ''}</span></button>`;
+  }).join('');
+  const topHtml = `<div class="dj-top">
+      <div class="dj-yearnav">
+        <button type="button" class="dj-ynav" ${prevY ? `onclick="setCompsYear('${escJsAttr(prevY)}')"` : 'disabled'} aria-label="上一年">‹</button>
+        <span class="dj-year">${escHtml(year)} 年</span>
+        <button type="button" class="dj-ynav" ${nextY ? `onclick="setCompsYear('${escJsAttr(nextY)}')"` : 'disabled'} aria-label="下一年">›</button>
+        <span class="dj-total">${month ? `${month}月 ` : '全年 '}${rows.length} 個盤</span>
+      </div>
+      <div class="dj-months">${monthsHtml}</div>
+      <button type="button" class="dj-handle${hasRange ? ' active' : ''}" onclick="toggleCompsRange()" aria-label="日期範圍"><span></span></button>
+      <div class="dj-range${_compsRangeOpen ? ' open' : ''}" id="dj-range">
+        <label>由<input type="date" class="dj-input" value="${escHtml(_compsDateFrom)}" min="${bounds.min}" max="${bounds.max}" onchange="setCompsDateFrom(this.value)"></label>
+        <label>至<input type="date" class="dj-input" value="${escHtml(_compsDateTo)}" min="${bounds.min}" max="${bounds.max}" onchange="setCompsDateTo(this.value)"></label>
+        <button type="button" class="dj-reset" onclick="resetCompsDateFilter()">${hasRange ? '重設日期範圍' : '全部日期'}</button>
       </div>
     </div>`;
 
-  const blurb = '配近 12 個月同屋苑可比成交推算合理價,同埋對應返而家市面嘅在售放盤。';
   if (!rows.length) {
-    body.innerHTML = `<div class="comps-cq"><div class="comps-layout">${panelHtml}<div class="comps-main">${mobileFilterBtnHtml}
-      <div style="padding:1.2rem;color:var(--muted);font-size:0.85rem;text-align:center">${
-        hasFilter ? '冇符合篩選嘅睇樓記錄。' : '冇追蹤緊嘅睇樓記錄。'}</div></div></div></div>`;
-    _mountCompsDateModal(dateModalHtml);
+      body.innerHTML = `<div class="dj">${topHtml}<div class="dj-empty">${hasRange ? '冇符合篩選嘅睇樓記錄。' : '呢段時間冇睇樓記錄。'}</div></div>`;
     return;
   }
-  // 用返「睇樓記錄」同一個 renderOneViewing（卡片版）——唔喺呢度另砌一款卡。
-  // 屋苑名淨係喺呢度加返（睇樓記錄本身喺屋苑頁入面，唔使重複寫屋苑名）。
-  // buildMatchCell 靠全局 allListings，跨屋苑要逐張卡換返啱嗰個屋苑先 render。
-  const saved = allListings;
-  const cardHtml = v => {
-    allListings = (window._matchListingsByEstate || {})[v.estate_id] || [];
-    return `<div style="margin-bottom:0.15rem"><div style="font-size:0.75rem;color:var(--accent2);font-weight:600;margin:0 0 0.15rem 0.15rem">${
-      escHtml(v.estate_name || '')}</div>${renderOneViewing(v, v.estate_id, true, true)}</div>`;
-  };
-  // 按「睇於」日期分組（跨屋苑），最新日期行先；預設全部展開，撳日期可以摺埋。
-  const sortedByDate = rows.slice().sort((a, b) => String(b.view_date || '').localeCompare(String(a.view_date || '')));
-  const groups = [];
-  const idx = new Map();
-  for (const v of sortedByDate) {
-    const d = v.view_date || '日期不詳';
-    if (!idx.has(d)) { idx.set(d, groups.length); groups.push({ date: d, items: [] }); }
-    groups[idx.get(d)].items.push(v);
+
+  // 按「睇於」日期分組（跨屋苑），最新日期行先
+  const sorted = rows.slice().sort((a, b) => String(b.view_date).localeCompare(String(a.view_date)));
+  const groups = [], idx = new Map();
+  for (const v of sorted) {
+    if (!idx.has(v.view_date)) { idx.set(v.view_date, groups.length); groups.push({ date: v.view_date, items: [] }); }
+    groups[idx.get(v.view_date)].items.push(v);
   }
-  const listHtml = groups.map((g, gi) => `
-      <div class="viewing-date-group" data-date="${escHtml(g.date)}" data-gi="${gi}">
-        <button type="button" class="viewing-date-header" onclick="toggleCompsDateGroup(${gi})" aria-expanded="true">
-          <span class="viewing-date-header-date">📅 ${escHtml(g.date)}</span>
-          <span class="viewing-date-header-count">${g.items.length} 個記錄</span>
-          <span class="viewing-date-header-chevron" id="cvdg-chev-${gi}">▾</span>
-        </button>
-        <div class="viewing-date-body" id="cvdg-body-${gi}">${g.items.map(cardHtml).join('')}</div>
-      </div>`).join('');
-  allListings = saved;
-  body.innerHTML = `<div class="comps-cq"><div class="comps-layout">${panelHtml}<div class="comps-main">${mobileFilterBtnHtml}
-    <p style="font-size:0.75rem;color:var(--muted);margin:0.5rem 0 0.5rem">${blurb}</p>
-    ${listHtml}</div></div></div>`;
-  _mountCompsDateModal(dateModalHtml);
+  const cardsHtml = groups.map((g, gi) => {
+    const d = new Date(`${g.date}T00:00:00Z`);
+    const multi = g.items.length > 3;
+    // 有行（第 4 個起）收埋，或者其中一個盤已經打開咗詳細卡，個日期卡就要係展開狀態
+    const open = multi && (_compsOpen.has(g.date) || g.items.some((v, k) => k >= 3 && _compsOpenRows.has(v.id)));
+    const rowsHtml = g.items.map((v, k) => {
+      const r = ratingAvg(parseRatings(v));
+      const n = Number(v.img_count) || 0;
+      const rowOpen = _compsOpenRows.has(v.id);
+      return `<button type="button" class="dj-row${rowOpen ? ' open' : ''}" data-vid="${Number(v.id)}" data-extra="${k >= 3 ? 1 : 0}" aria-expanded="${rowOpen}" onclick="toggleCompsViewing(${Number(v.id)})">`
+        + `<span class="dj-estate">${escHtml(v.estate_name || '')}</span>`
+        + `<span class="dj-unit">${escHtml(_compsUnitLabel(v))}</span>`
+        + (v.price ? `<span class="dj-price">${escHtml(_compsPriceLabel(v))}</span>` : '')
+        + (v.status === 'sold' ? `<span class="dj-tag">已${v.deal_type === 'R' ? '租' : '沽'}</span>` : '')
+        + (r != null ? `<span class="dj-meta">⭐${r.toFixed(1)}</span>` : '')
+        + (n ? `<span class="dj-meta">📷${n}</span>` : '') + `</button>`;
+    }).join('');
+    const detailsHtml = g.items.map(v => `<div class="dj-detail${_compsOpenRows.has(v.id) ? ' show' : ''}" data-vid="${Number(v.id)}"></div>`).join('');
+    const hasDetail = g.items.some(v => _compsOpenRows.has(v.id));
+    return `<div class="dj-card${multi ? ' multi' : ''}${open ? ' open' : ''}${hasDetail ? ' has-detail' : ''}" data-date="${escHtml(g.date)}" data-gi="${gi}" data-extra="${g.items.length - 3}">
+        <div class="dj-head">
+          <button type="button" class="dj-date" ${multi ? `onclick="toggleCompsDateGroup(${gi})" aria-expanded="${open}"` : 'tabindex="-1"'}><b>${d.getUTCDate()}</b><small>${d.getUTCMonth() + 1}月 · 週${_DJ_WEEKDAY[d.getUTCDay()]}</small></button>
+          <div class="dj-right">
+            <div class="dj-rows">${rowsHtml}</div>
+            ${multi ? `<button type="button" class="dj-more" onclick="toggleCompsDateGroup(${gi})">${open ? '收起' : `另外 ${g.items.length - 3} 個…`}</button>` : ''}
+          </div>
+        </div>
+        <div class="dj-body">${detailsHtml}</div>
+      </div>`;
+  }).join('');
+  body.innerHTML = `<div class="dj">${topHtml}<div class="dj-list">${cardsHtml}</div></div>`;
+  for (const v of rows) if (_compsOpenRows.has(v.id)) fillCompsDetail(v.id);
 }
 
 function openCompModal(id) {
@@ -5517,7 +5570,7 @@ function renderRentalCards(el, rows, med) {
       : `<span class="lc-src" style="color:var(--muted)">${escHtml(sourceLabel(l.source))}</span>`;
     return `
     <div class="lc-card"${removed ? ' style="opacity:0.55"' : ''}>
-      <div class="lc-photo" data-refs="${escHtml(refs.join(','))}" data-removed="${removed ? 1 : 0}">${img}${removed ? '<div class="lc-removed-overlay">已下架</div>' : ''}</div>
+      <div class="lc-photo" data-refs="${escHtml(refs.join(','))}"${(l.thumbnail && l.source === 'centanet' && l.ref_no) ? ` data-owner="${escHtml(l.ref_no)}"` : ''} data-removed="${removed ? 1 : 0}">${img}${removed ? '<div class="lc-removed-overlay">已下架</div>' : ''}</div>
       <div class="lc-body">
         <div class="lc-price">$${l.price ? Math.round(l.price).toLocaleString() : '-'}<span class="lc-psf">/月</span></div>
         <div class="lc-sub">${psf ? '$' + Math.round(psf).toLocaleString() + '/呎' : '—'} ${vs}</div>
@@ -5531,6 +5584,7 @@ function renderRentalCards(el, rows, med) {
     </div>`;
   }).join('') + `</div>`;
   armLazyImgs(el);          // DB thumbnail（中原／利嘉閣）——見 armLazyImgs 註解
+  enhanceThumbCards(el, 'R');
 
   // 卡先出，相後補（同買盤嗰邊一樣，唔為咗等相而 block 住個 view）
   if (activeEstateId) {
@@ -6690,8 +6744,14 @@ async function deleteRatingCriterion(id) {
   renderRatingCrits();
 }
 
+let _vfBorrowedEstate = null;   // 由 dashboard（冇開屋苑頁）開編輯時，暫借記錄本身嘅屋苑，閂窗還原
 function openViewingModal(viewing = null) {
-  if (!_viewingEstateId) return;
+  if (!_viewingEstateId) {
+    if (!viewing?.estate_id) return;
+    _vfBorrowedEstate = { id: _viewingEstateId, name: _viewingEstateName };
+    _viewingEstateId = viewing.estate_id;
+    _viewingEstateName = viewing.estate_name || '';
+  }
   _viewingEditId = viewing ? viewing.id : null;
   document.getElementById('viewingModalOverlay').style.display = 'flex';
   document.getElementById('viewing-modal-estate-name').textContent = _viewingEstateName;
@@ -6770,7 +6830,13 @@ function syncVfPriceLabels() {
 function closeViewingModal() {
   closeBurstCamera();
   document.getElementById('viewingModalOverlay').style.display = 'none';
+  if (_vfBorrowedEstate) {
+    _viewingEstateId = _vfBorrowedEstate.id; _viewingEstateName = _vfBorrowedEstate.name;
+    _vfBorrowedEstate = null;
+  }
 }
+// 喺 dashboard「睇樓日記」改／刪咗記錄之後要重新攞（屋苑頁嗰邊有 loadViewings）
+function refreshComps() { if (document.getElementById('comps-body')) loadViewingComps(); }
 
 // ── 睇樓相片 ──────────────────────────────────────────────────────────
 // 手機原圖一張 2–5MB，之前原封不動 base64 塞入 DB，兩三張就爆
@@ -6990,12 +7056,14 @@ async function submitViewing(e) {
       savedId = res.id;
     }
     if (window._viewingImgsMap) delete window._viewingImgsMap[savedId];   // 相可能改咗，cache 作廢
+    const hsEstate = { id: _viewingEstateId, name: _viewingEstateName };   // closeViewingModal 可能會還原返借嘅屋苑
     closeViewingModal();
     if (document.getElementById('tab-viewings')?.style.display !== 'none') {
       await loadViewings(_viewingEstateId);
     }
+    refreshComps();
     // Auto-fetch HS valuation in background（恒生估值係「買樓值幾錢」，租盤唔啱用）
-    if (_vfDeal !== 'R') fetchViewingHSVal(savedId, body.block, body.floor, body.unit, body.price);
+    if (_vfDeal !== 'R') fetchViewingHSVal(savedId, body.block, body.floor, body.unit, body.price, hsEstate);
   } catch(err) {
     // 402 已經彈咗升級 modal；400（例如相太多／太大）講返後端嗰句，唔好淨係「請再試」
     // 5xx 嘅 error 可能係內部 DB 訊息，唔好照出
@@ -7005,13 +7073,13 @@ async function submitViewing(e) {
   }
 }
 
-async function fetchViewingHSVal(viewingId, block, floor, unit, price) {
-  if (!viewingId || !_viewingEstateName || !block || !floor || !unit) return;
+async function fetchViewingHSVal(viewingId, block, floor, unit, price, estate = { id: _viewingEstateId, name: _viewingEstateName }) {
+  if (!viewingId || !estate.name || !block || !floor || !unit) return;
   try {
     const floorNum = String(floor).replace(/[^0-9]/g, '');
     const flatLetter = String(unit).replace(/[^A-Za-z0-9]/g, '');
     if (!floorNum || !flatLetter) return;
-    const params = new URLSearchParams({ estate: _viewingEstateName, block, floor: floorNum, flat: flatLetter, estateId: _viewingEstateId });
+    const params = new URLSearchParams({ estate: estate.name, block, floor: floorNum, flat: flatLetter, estateId: estate.id });
     const data = await api(`/api/hangseng-valuation?${params}`);
     if (data.price) {
       await api(`/api/viewings/${viewingId}`, { method: 'PATCH', body: JSON.stringify({ hs_price: Number(data.price) }) });
@@ -7329,6 +7397,7 @@ async function deleteViewing(id, estateId) {
   if (!confirm('確定刪除這個睇樓記錄？')) return;
   await api(`/api/viewings/${id}`, { method: 'DELETE' });
   loadViewings(estateId);
+  refreshComps();
 }
 
 // 相要撳先載：每個 viewing 攞一次就記住（_viewingImgsMap），之後開 lightbox／編輯都唔使再攞。
@@ -7982,6 +8051,8 @@ function makeCombined(items, isManual) {
     price_min: Math.min(...prices), price_max: Math.max(...prices),
     ppf_min: ppf.length ? Math.min(...ppf) : null, ppf_max: ppf.length ? Math.max(...ppf) : null,
     thumbnail: items.map(i => i.thumbnail).find(Boolean) || null,
+    thumb_src: (items.find(i => i.thumbnail) || {}).source || null,
+    thumb_ref: (items.find(i => i.thumbnail) || {}).ref_no || null,
     sources: byPrice.map(i => ({ source: i.source, price: i.price, detail_url: i.detail_url, ref_no: i.ref_no })),
   };
 }
@@ -8287,47 +8358,127 @@ function armLazyImgs(root) {
 }
 
 // 一格一格咁載。用戶怕 preload 太多張影響 performance，所以規矩係：
-// 只攞緊住嗰張同下一張，掃到邊先攞到邊 —— 一張卡有 8 張相都只會出
+// 只攞緊住嗰張同下一張，掃到邊先攞到邊 —— 一張卡有幾多張相都只會出
 // 2 個 request，永遠唔會一開就拉曬。
+// slot 兩款來源：data-rel＝要經 worker 代取（美聯／置業，blob URL），
+// data-src＝可以直接 hotlink（中原 hkais.centanet.com，CSP 已准）。
 function loadSlot(strip, i) {
   const slots = strip.children;
   const slot = slots[i];
   if (!slot || slot.dataset.state) return;      // pending / done / fail 都唔使再嚟
   slot.dataset.state = 'pending';
-  photoBlobUrl(slot.dataset.rel).then(src => {
+  const fail = () => { slot.dataset.state = 'fail'; slot.innerHTML = '<span class="lc-noimg">🏠</span>'; };
+  const url = slot.dataset.rel ? photoBlobUrl(slot.dataset.rel) : Promise.resolve(safeImgSrc(slot.dataset.src || ''));
+  url.then(src => {
     if (!slot.isConnected) return;
+    if (!src) return fail();
     const img = document.createElement('img');
     img.alt = '';
-    img.onerror = () => { slot.dataset.state = 'fail'; slot.innerHTML = '<span class="lc-noimg">🏠</span>'; };
-    img.src = src;                              // blob URL，唔經 escHtml
+    img.onerror = fail;
+    img.src = src;                              // blob／已驗證嘅 URL，唔經 escHtml
     slot.innerHTML = '';
     slot.appendChild(img);
     slot.dataset.state = 'done';
-  }).catch(() => {
-    slot.dataset.state = 'fail';
-    slot.innerHTML = '<span class="lc-noimg">🏠</span>';
-  });
+  }).catch(fail);
 }
 
-function buildPhotoStrip(box, list) {
+// 「全部相」：列表 API 只有 4 張（中原淨係 1 張），撳到最後一張先問 worker 攞齊。
+// 只喺記憶體記住個 URL 清單（唔存相，唔存 DB），同一個盤唔會問第二次。
+const _fullPhotoCache = {};
+function fetchFullPhotoList(estateId, ref, deal) {
+  const key = `${estateId}|${ref}|${deal}`;
+  if (!_fullPhotoCache[key]) {
+    _fullPhotoCache[key] = api(`/api/listing-photos?estate_id=${encodeURIComponent(estateId)}&ref=${encodeURIComponent(ref)}&deal=${deal}`)
+      .then(d => d.photos || [])
+      .catch(() => { delete _fullPhotoCache[key]; return []; });   // 失敗唔記，下次再試
+  }
+  return _fullPhotoCache[key];
+}
+
+function _mkSlot(it) {
+  const slot = document.createElement('div');
+  slot.className = 'lc-slot';
+  if (typeof it === 'string') slot.dataset.rel = it;      // /photos 回嚟嘅係 rel 字串
+  else if (it.rel) slot.dataset.rel = it.rel;
+  else if (it.src) slot.dataset.src = it.src;
+  return slot;
+}
+// 去重用：同一張相嘅 thumbnail 同原圖 URL 可能只差 query（尺寸參數），所以剝走 ?/# 先比
+const _normPhotoKey = (k) => String(k || '').split(/[?#]/)[0].toLowerCase();
+const _slotKey = (slot) => _normPhotoKey(slot.dataset.rel || slot.dataset.src || '');
+const _stripIndex = (strip) => Math.round(strip.scrollLeft / (strip.clientWidth || 1));
+
+// 相多過 8 張，點仔排唔落，改顯示「3 / 19」
+function refreshPhotoIndicator(strip, i) {
+  const box = strip.parentElement, dots = box.querySelector('.lc-dots');
+  if (!dots) return;
+  const n = strip.children.length;
+  if (i == null) i = _stripIndex(strip);
+  if (n > 8) { dots.classList.add('lc-count'); dots.textContent = `${i + 1} / ${n}`; return; }
+  dots.classList.remove('lc-count');
+  dots.innerHTML = Array.from({ length: n }, (_, k) => `<span class="lc-dot${k === i ? ' active' : ''}"></span>`).join('');
+}
+
+// 問齊全部相，補入未有嘅位（按 URL 去重，次序跟 portal 相簿）。
+function ensureFullPhotos(strip) {
+  const st = strip._ph;
+  if (!st || !st.owner || st.fetched) return Promise.resolve();
+  if (st.pending) return st.pending;
+  const box = strip.parentElement, btn = box.querySelector('.lc-nav-next');
+  btn?.classList.add('loading');
+  st.pending = fetchFullPhotoList(st.owner.estateId, st.owner.ref, st.owner.deal).then(list => {
+    st.fetched = true;
+    const have = new Set([...strip.children].map(_slotKey).filter(Boolean));
+    // 中原 thumbnail 就係相簿第 1 張；URL 對唔上都唔好重覆補一次
+    const skipFirst = st.thumbSlot && list.length && !list.some(it => have.has(_normPhotoKey(it.rel || it.src)));
+    for (const it of skipFirst ? list.slice(1) : list) {
+      const k = _normPhotoKey(it.rel || it.src);
+      if (!k || have.has(k)) continue;
+      have.add(k);
+      strip.appendChild(_mkSlot(it));
+    }
+    box.dataset.more = '0';
+    refreshPhotoIndicator(strip);
+  }).finally(() => { st.pending = null; btn?.classList.remove('loading'); });
+  return st.pending;
+}
+
+// items：已知嘅相（/photos 回嚟嗰 4 張）。owner：一齊登記「邊個盤、邊個屋苑」，
+// 撳到最後一張先用佢去問全部相；冇 owner（例如利嘉閣）就唔會再問。
+// 如果 box 入面本身已經有一張 thumbnail（中原），搬入去做第 1 格。
+function buildPhotoStrip(box, items, owner) {
   const strip = document.createElement('div');
   strip.className = 'lc-strip';
-  for (const rel of list) {
+  const existing = box.querySelector(':scope > img');
+  if (existing) {
     const slot = document.createElement('div');
     slot.className = 'lc-slot';
-    slot.dataset.rel = rel;
+    slot.dataset.state = 'done';               // 呢張已經有（lazy 入面），唔使 loadSlot
+    slot.dataset.src = existing.dataset.lazy || existing.getAttribute('src') || '';   // 只作去重 key
+    slot.appendChild(existing);
     strip.appendChild(slot);
   }
+  for (const it of items) strip.appendChild(_mkSlot(it));
   box.querySelector('.lc-noimg')?.remove();     // 換走個 🏠 placeholder
   box.prepend(strip);
+  strip._ph = { thumbSlot: !!existing, owner: owner || null, known: strip.children.length, fetched: !owner, pending: null };
 
-  if (list.length > 1) {
+  const moreComing = !!owner;
+  if (strip.children.length > 1 || moreComing) {
     const dots = document.createElement('div');
     dots.className = 'lc-dots';
-    dots.innerHTML = list.map((_, i) => `<span class="lc-dot${i ? '' : ' active'}"></span>`).join('');
     box.appendChild(dots);
+    refreshPhotoIndicator(strip, 0);
+    if (moreComing) box.dataset.more = '1';
 
-    const go = (dir) => strip.scrollBy({ left: dir * strip.clientWidth, behavior: 'smooth' });
+    const go = async (dir) => {
+      const i = _stripIndex(strip);
+      if (dir > 0 && i >= strip.children.length - 1) {
+        await ensureFullPhotos(strip);          // 喺最後一張再撳 ›：先問齊再行
+        if (i >= strip.children.length - 1) return;   // 真係冇更多
+      }
+      strip.scrollBy({ left: dir * strip.clientWidth, behavior: 'smooth' });
+    };
     for (const [cls, label, dir] of [['prev', '‹', -1], ['next', '›', 1]]) {
       const b = document.createElement('button');
       b.type = 'button';
@@ -8342,24 +8493,39 @@ function buildPhotoStrip(box, list) {
       if (raf) return;                           // scroll 好密，一幀對一次就夠
       raf = requestAnimationFrame(() => {
         raf = 0;
-        const i = Math.round(strip.scrollLeft / strip.clientWidth);
-        dots.querySelectorAll('.lc-dot').forEach((d, k) => d.classList.toggle('active', k === i));
+        const i = _stripIndex(strip);
+        refreshPhotoIndicator(strip, i);
         loadSlot(strip, i);
         loadSlot(strip, i + 1);                  // 掃到下一張之前先備定
+        // 掃到「已知嗰幾張」嘅最後一張（第 4 張）先去攞全部相，再備定第 5 張。
+        // 未掃到第 4 張就唔會問、唔會載第 5 張。
+        if (strip._ph.owner && !strip._ph.fetched && i >= strip._ph.known - 1) {
+          ensureFullPhotos(strip).then(() => { if (_stripIndex(strip) === i) loadSlot(strip, i + 1); });
+        }
       });
     }, { passive: true });
   }
   loadSlot(strip, 0);
-  if (list.length > 1) loadSlot(strip, 1);
+  if (strip.children.length > 1) loadSlot(strip, 1);
 }
 
 function applyCardPhotos(photos) {
+  const deal = _estateDeal === 'R' ? 'R' : 'S';
   document.querySelectorAll('.lc-photo[data-refs]').forEach(box => {
     if (box.querySelector('img, .lc-strip')) return;   // 已經有相（中原嗰啲）
     const refs = (box.dataset.refs || '').split(',').filter(Boolean);
-    const list = refs.map(r => photos[r]).find(l => l && l.length);
-    if (!list) return;
-    buildPhotoStrip(box, list);
+    const ref = refs.find(r => photos[r] && photos[r].length);
+    if (!ref) return;
+    buildPhotoStrip(box, photos[ref], { estateId: activeEstateId, ref, deal });
+  });
+}
+
+// 中原卡：DB 得一張 thumbnail，本來冇得揭。依家都起個 strip（第 1 格係原本嗰張），
+// 撳 › 先問齊全部相。淨係加 DOM，唔 call 任何 API——要用戶撳先食額度。
+function enhanceThumbCards(root, deal) {
+  (root || document).querySelectorAll('.lc-photo[data-owner]').forEach(box => {
+    if (box.querySelector('.lc-strip')) return;
+    buildPhotoStrip(box, [], { estateId: activeEstateId, ref: box.dataset.owner, deal });
   });
 }
 
@@ -8445,7 +8611,7 @@ function renderListingCards(el, displayRows) {
     const btns = manualBtn + lineBtn + histBtn + groupBtn;
     return `
     <div class="lc-card${l._combined ? ' lc-combined' : ''}"${removed ? ' style="opacity:0.55"' : ''}>
-      <div class="lc-photo" data-refs="${escHtml(refs.join(','))}" data-removed="${removed ? 1 : 0}">${img}${removed ? '<div class="lc-removed-overlay">已下架</div>' : ''}</div>
+      <div class="lc-photo" data-refs="${escHtml(refs.join(','))}"${(() => { const o = l._combined ? (l.thumb_src === 'centanet' ? l.thumb_ref : null) : ((l.thumbnail && l.source === 'centanet') ? l.ref_no : null); return o ? ` data-owner="${escHtml(o)}"` : ''; })()} data-removed="${removed ? 1 : 0}">${img}${removed ? '<div class="lc-removed-overlay">已下架</div>' : ''}</div>
       <div class="lc-body">
         <div class="lc-price">${price}<span class="lc-psf">${ppf}</span></div>
         ${priceMeta}
@@ -8461,6 +8627,7 @@ function renderListingCards(el, displayRows) {
     </div>`;
   }).join('') + `</div>`;
   armLazyImgs(el);          // DB thumbnail（中原／利嘉閣）——見 armLazyImgs 註解
+  enhanceThumbCards(el, 'S');
 
   // 卡先出，相後補（唔好為咗等相而 block 住成個 view）
   if (activeEstateId) {
@@ -8573,7 +8740,7 @@ function renderListingsTable() {
     : displayRows.map(l => {
       const isGreyed = l.removed_date || l.manual_removed_at;
       const rowStyle = (isGreyed || l._combined)
-        ? ` style="${isGreyed ? 'opacity:0.45;' : ''}${l._combined ? 'background:rgba(16,185,129,0.06);' : ''}"` : '';
+        ? ` style="${isGreyed ? 'opacity:0.45;' : ''}${l._combined ? 'background:rgba(28,158,232,0.07);' : ''}"` : '';
       const checkboxCell = groupSelectMode
         ? `<td>${(!l._combined && l.ref_no) ? `<input type="checkbox" ${groupSelected.has(l.ref_no) ? 'checked' : ''} onchange="toggleGroupSelect('${escHtml(l.ref_no)}')">` : ''}</td>`
         : '';

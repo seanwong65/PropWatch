@@ -563,7 +563,7 @@ const SEC_DEFS = [
         + "呢個係預設值，admin 可以喺用量統計逐個帳戶覆寫（accounts.max_favourites）。" },
   { key: "sec_free_max_viewings", def: 15, min: 1, max: 500, label: "免費版：最多睇樓記錄",
     desc: "免費用戶可以有幾多個睇樓記錄（收費版無限）。淨係擋新增，唔擋改／刪。" },
-  { key: "sec_card_photos_max", def: 8, min: 1, max: 30, label: "卡片：每個盤最多幾多張相",
+  { key: "sec_card_photos_max", def: 30, min: 1, max: 30, label: "卡片：每個盤最多幾多張相",
     desc: "卡片 view 每張卡可以左右揭嘅相數上限。相係即時經 /api/photo 代取（唔入 DB），"
         + "每張都食一個 subrequest —— 擺喺 sec_* 而唔係 ⚙️ 設定，就係唔想用戶自己較大變成放大器。"
         + "前端只會載住緊嗰張同下一張，加大主要影響最多可以揭到幾多張。" },
@@ -1237,10 +1237,48 @@ function parseRentalListing(item) {
   };
 }
 
+// ── 放盤「首次／最後出現」日期（listing_span / rental_listing_span）────────
+// /api/estates/:id/listings 要知每個盤第一次同最後一次出現喺邊日，舊寫法
+// GROUP BY listing_id 掃晒屋苑全部歷史 snapshot（每次開屋苑 ~4.7 萬 rows read）。
+// 而家 sync 入庫時順手 upsert 呢兩個日期（MIN/MAX 合併，所以重覆寫、亂序寫都冇事），
+// 讀嗰邊淨係讀「盤數」咁多行。第一次會由現有 listings 一次過 backfill。
+async function ensureListingSpan(db) {
+  await db.batch([
+    db.prepare(`CREATE TABLE IF NOT EXISTS listing_span (
+      estate_id INTEGER NOT NULL, listing_id TEXT NOT NULL,
+      first_seen TEXT NOT NULL, last_seen TEXT NOT NULL,
+      PRIMARY KEY (estate_id, listing_id))`),
+    db.prepare(`CREATE TABLE IF NOT EXISTS rental_listing_span (
+      estate_id INTEGER NOT NULL, listing_id TEXT NOT NULL,
+      first_seen TEXT NOT NULL, last_seen TEXT NOT NULL,
+      PRIMARY KEY (estate_id, listing_id))`),
+  ]);
+  if (await getSetting(db, "listing_span_backfilled")) return;
+  await db.batch([
+    db.prepare(`INSERT INTO listing_span (estate_id, listing_id, first_seen, last_seen)
+      SELECT estate_id, listing_id, MIN(snapshot_date), MAX(snapshot_date) FROM listings
+      GROUP BY estate_id, listing_id
+      ON CONFLICT(estate_id, listing_id) DO UPDATE SET
+        first_seen = MIN(first_seen, excluded.first_seen), last_seen = MAX(last_seen, excluded.last_seen)`),
+    db.prepare(`INSERT INTO rental_listing_span (estate_id, listing_id, first_seen, last_seen)
+      SELECT estate_id, listing_id, MIN(snapshot_date), MAX(snapshot_date) FROM rental_listings
+      GROUP BY estate_id, listing_id
+      ON CONFLICT(estate_id, listing_id) DO UPDATE SET
+        first_seen = MIN(first_seen, excluded.first_seen), last_seen = MAX(last_seen, excluded.last_seen)`),
+  ]);
+  await setSetting(db, "listing_span_backfilled", "1");
+}
+const spanStmt = (db, table, estateId, listingId, date) => db.prepare(
+  `INSERT INTO ${table} (estate_id, listing_id, first_seen, last_seen) VALUES (?,?,?,?)
+   ON CONFLICT(estate_id, listing_id) DO UPDATE SET
+     first_seen = MIN(first_seen, excluded.first_seen), last_seen = MAX(last_seen, excluded.last_seen)`
+).bind(estateId, String(listingId), date, date);
+
 // 共用嘅租盤入庫：三個 source 都 map 成 parseRentalListing 個 shape 之後
 // 行呢個，唔使各自抄一份 INSERT。
 async function saveRentalListings(db, estateId, rows, source) {
   await ensureRentalTables(db);
+  await ensureListingSpan(db);
   const today = hkDateStr();
   const stmtListing = db.prepare(
     `INSERT OR REPLACE INTO rental_listings
@@ -1268,6 +1306,7 @@ async function saveRentalListings(db, estateId, rows, source) {
       V(l.publish_date), source, today
     ));
     if (l.ref_no && l.price) batch.push(stmtHistory.bind(l.ref_no, estateId, l.price, today));
+    batch.push(spanStmt(db, "rental_listing_span", estateId, l.listing_id, today));
   }
   if (batch.length) await db.batch(batch);
   return rows.length;
@@ -1351,6 +1390,7 @@ async function saveRentalTxns(db, estateId, txns, source) {
 
 async function saveSearchResults(db, estateId, listings) {
   const today = hkDateStr();
+  await ensureListingSpan(db);
 
   const stmtListing = db.prepare(
     `INSERT OR REPLACE INTO listings
@@ -1379,6 +1419,7 @@ async function saveSearchResults(db, estateId, listings) {
     if (l.ref_no && l.price) {
       batch.push(stmtHistory.bind(l.ref_no, estateId, l.price, l.price_per_ft, today));
     }
+    batch.push(spanStmt(db, "listing_span", estateId, l.listing_id, today));
   }
   if (batch.length > 0) await db.batch(batch);
 
@@ -1582,6 +1623,7 @@ async function saveRicacorpListings(db, estateId, listings) {
   }
 
   if (!toSave.length) return;
+  await ensureListingSpan(db);
   const stmt = db.prepare(
     `INSERT OR REPLACE INTO listings
      (estate_id, listing_id, ref_no, building_name, floor, unit, bedrooms,
@@ -1599,6 +1641,7 @@ async function saveRicacorpListings(db, estateId, listings) {
       l.bedrooms, l.size_net, l.price, l.price_per_ft, l.detail_url, today, l.source, l.publish_date ?? null,
       l.thumbnail ?? null));
     if (l.ref_no && l.price) batch.push(stmtHistory.bind(l.ref_no, estateId, l.price, l.price_per_ft, today));
+    batch.push(spanStmt(db, "listing_span", estateId, l.ref_no, today));
   }
   await db.batch(batch);
 }
@@ -1765,6 +1808,7 @@ export async function scrapeHkpListings(estateName, txType = "S") {
 async function saveHkpListings(db, estateId, listings) {
   if (!listings.length) return;
   const today = hkDateStr();
+  await ensureListingSpan(db);
   const stmt = db.prepare(
     `INSERT OR REPLACE INTO listings
      (estate_id, listing_id, ref_no, building_name, floor, unit, bedrooms,
@@ -1781,6 +1825,7 @@ async function saveHkpListings(db, estateId, listings) {
     batch.push(stmt.bind(estateId, l.ref_no, l.ref_no, l.building_name, l.floor, normalizeUnit(l.unit),
       l.bedrooms, l.size_net, l.price, l.price_per_ft, l.detail_url, today, l.source, l.publish_date ?? null));
     if (l.ref_no && l.price) batch.push(stmtHistory.bind(l.ref_no, estateId, l.price, l.price_per_ft, today));
+    batch.push(spanStmt(db, "listing_span", estateId, l.ref_no, today));
   }
   await db.batch(batch);
 }
@@ -2382,6 +2427,9 @@ async function ensureRentalTables(db) {
     first_seen TEXT NOT NULL
   )`).run();
   await db.prepare("CREATE INDEX IF NOT EXISTS idx_rt_estate ON rental_transactions(estate_id, reg_date)").run();
+  // 睇樓記錄對成交（按 座+樓+室 逐單位查最新一宗）用：冇呢個 index 就要掃晒成個成交表。
+  await db.prepare("CREATE INDEX IF NOT EXISTS idx_rt_unit ON rental_transactions(estate_id, building, floor, unit, reg_date)").run();
+  await db.prepare("CREATE INDEX IF NOT EXISTS idx_txn_unit ON transactions(estate_id, building, floor, unit, reg_date)").run();
   await db.prepare(
     `CREATE UNIQUE INDEX IF NOT EXISTS idx_rt_combo ON rental_transactions
      (estate_id, COALESCE(bldg_key,''), COALESCE(floor,''), COALESCE(unit,''),
@@ -3407,8 +3455,13 @@ async function computeBargainRadar(db, { belowPct = null, limit = 30, accountId 
   const medMap = await soldMedianPsf(db, { days: cfg.market_median_days, estateIds: favIds });
 
   // 屋苑統計：在售量 / 平均叫價呎價 / 消化 / 蝕讓（中位數由上面 helper 補）。
+  // 全部用編號參數：?1/?2 係日數，?3.. 係自選屋苑（同一組 id 多個 CTE 共用）。
+  const favPhN = favIds.map((_, i) => `?${i + 3}`).join(",");
   const { results: statRows } = await db.prepare(`
-    WITH latest AS (SELECT estate_id, MAX(snapshot_date) d FROM listings GROUP BY estate_id),
+    -- latest 一定要逐個自選屋苑用 index 查 MAX（O(屋苑數)）；舊寫法 GROUP BY
+    -- 全表會掃晒所有屋苑嘅全部 snapshot，一次 ~10 萬 rows read。
+    WITH latest AS (SELECT e.id AS estate_id, (SELECT MAX(snapshot_date) FROM listings WHERE estate_id = e.id) d
+                    FROM estates e WHERE e.id IN (${favPhN})),
     stock AS (
       SELECT l.estate_id, COUNT(DISTINCT l.ref_no) n_stock, AVG(l.price_per_ft) ask_psf
       FROM listings l JOIN latest ON l.estate_id=latest.estate_id AND l.snapshot_date=latest.d
@@ -3416,12 +3469,12 @@ async function computeBargainRadar(db, { belowPct = null, limit = 30, accountId 
     ),
     vol AS (
       SELECT estate_id, COUNT(*) n_vol FROM transactions
-      WHERE reg_date >= date('now', ?1) GROUP BY estate_id
+      WHERE estate_id IN (${favPhN}) AND reg_date >= date('now', ?1) GROUP BY estate_id
     ),
     loss AS (
       SELECT estate_id, COUNT(*) n, SUM(CASE WHEN gain_pct < 0 THEN 1 ELSE 0 END) n_loss
       FROM transactions
-      WHERE reg_date >= date('now', ?2) AND gain_pct IS NOT NULL
+      WHERE estate_id IN (${favPhN}) AND reg_date >= date('now', ?2) AND gain_pct IS NOT NULL
       GROUP BY estate_id
     )
     SELECT e.id, e.name, s.n_stock, ROUND(s.ask_psf) ask_psf,
@@ -3430,7 +3483,7 @@ async function computeBargainRadar(db, { belowPct = null, limit = 30, accountId 
     JOIN stock s ON s.estate_id = e.id
     LEFT JOIN vol v ON v.estate_id = e.id
     LEFT JOIN loss l ON l.estate_id = e.id
-    WHERE e.id IN (${favPh})
+    WHERE e.id IN (${favPhN})
   `).bind(`-${cfg.absorption_days} days`, `-${cfg.loss_days} days`, ...favIds).all();
 
   const clamp01 = (x) => Math.max(0, Math.min(1, x));
@@ -3465,12 +3518,8 @@ async function computeBargainRadar(db, { belowPct = null, limit = 30, accountId 
 
   // 在售盤（每個 座+樓+室+面積 取最平嗰個），對同苑中位數計 vs_med_pct。
   const { results: curRows } = await db.prepare(`
-    WITH latest AS (SELECT estate_id, MAX(snapshot_date) d FROM listings GROUP BY estate_id),
-    cuts AS (
-      SELECT ref_no, COUNT(DISTINCT price) n_prices, MIN(price) min_p, MAX(price) max_p,
-             MIN(snapshot_date) first_d
-      FROM listing_price_history GROUP BY ref_no
-    ),
+    WITH latest AS (SELECT e.id AS estate_id, (SELECT MAX(snapshot_date) FROM listings WHERE estate_id = e.id) d
+                    FROM estates e WHERE e.id IN (${favPh})),
     cur AS (
       SELECT l.*, ROW_NUMBER() OVER (
         PARTITION BY l.estate_id, l.building_name, l.floor, l.unit, l.size_net
@@ -3478,6 +3527,15 @@ async function computeBargainRadar(db, { belowPct = null, limit = 30, accountId 
       ) dup_rn
       FROM listings l JOIN latest ON l.estate_id=latest.estate_id AND l.snapshot_date=latest.d
       WHERE l.price_per_ft > 0
+    ),
+    -- 改價統計只需要「而家在售嗰批 ref」嘅歷史；舊寫法 GROUP BY 掃晒成個
+    -- listing_price_history（全站所有屋苑所有日子）。
+    cuts AS (
+      SELECT h.ref_no, COUNT(DISTINCT h.price) n_prices, MIN(h.price) min_p, MAX(h.price) max_p,
+             MIN(h.snapshot_date) first_d
+      FROM listing_price_history h
+      WHERE h.estate_id IN (${favPh}) AND h.ref_no IN (SELECT ref_no FROM cur WHERE dup_rn = 1)
+      GROUP BY h.ref_no
     )
     SELECT e.name estate_name, c.estate_id, c.ref_no, c.building_name, c.floor, c.unit,
            c.bedrooms, c.size_net, c.price, c.price_per_ft, ROUND(c.price_per_ft) psf,
@@ -3487,7 +3545,7 @@ async function computeBargainRadar(db, { belowPct = null, limit = 30, accountId 
     JOIN estates e ON e.id = c.estate_id
     LEFT JOIN cuts k ON k.ref_no = c.ref_no
     WHERE c.dup_rn = 1 AND e.id IN (${favPh})
-  `).bind(...favIds).all();
+  `).bind(...favIds, ...favIds, ...favIds).all();
 
   const now = Date.now();
   const listings = curRows.map((r) => {
@@ -6046,6 +6104,73 @@ export default {
       // 出唔到相。改由 worker 代取再回俾前端。
       // 安全：host 白名單寫死（唔係開放 proxy，唔可以攞嚟打內網或者任意站），
       // 只回 image/* content-type，唔寫任何 DB。
+      // 單盤「全部相」。列表 API（美聯／香港置業）每個盤只回封面＋3 張＝4 張，
+      // 中原淨係得一張 thumbnail；真正相簿要問單盤詳細（美聯／置業：detail 頁
+      // __NEXT_DATA__ 入面 propertyDetail.photos，實測 19／6 張；中原：
+      // /Post/Detail?refNo= 嘅 media.postImages，實測 11 張）。
+      // 撳到卡片最後一張先由前端 call 一次，唔係開卡就拉（一版 100+ 張卡）。
+      // 相本身唔落任何儲存：中原係直接 hotlink hkais.centanet.com（CSP 已准），
+      // 美聯／置業一樣行 /api/photo 代取；呢度只係回 URL 清單。
+      // 安全：ref 一定要係「呢個帳戶訂閱緊嘅屋苑」入面真係有嘅盤，而 detail
+      // URL 係由 DB 攞（唔係由前端傳），而且 host 白名單寫死——唔係開放 proxy。
+      if (method === "GET" && path === "/api/listing-photos") {
+        const estateId = Number(url.searchParams.get("estate_id"));
+        const ref = String(url.searchParams.get("ref") || "");
+        const deal = url.searchParams.get("deal") === "R" ? "R" : "S";
+        if (!Number.isInteger(estateId) || estateId <= 0 || !/^[A-Za-z0-9_-]{3,40}$/.test(ref)) {
+          return json(400, { error: "參數唔啱" });
+        }
+        const tbl = deal === "R" ? "rental_listings" : "listings";
+        const row = await db.prepare(
+          `SELECT l.source, l.detail_url FROM ${tbl} l
+           JOIN account_estates ae ON ae.estate_id = l.estate_id AND ae.account_id = ?
+           WHERE l.estate_id = ? AND l.ref_no = ?
+           ORDER BY l.snapshot_date DESC LIMIT 1`
+        ).bind(session.account_id, estateId, ref).first();
+        if (!row) return json(404, { error: "Not found" });
+        const maxPhotos = (await getSecCfg(db)).sec_card_photos_max;
+        const photos = [];
+        try {
+          if (row.source === "centanet") {
+            const r = await fetch(`https://hk.centanet.com/findproperty/api/Post/Detail?refNo=${encodeURIComponent(ref)}`, {
+              headers: Object.fromEntries(Object.entries(FETCH_HEADERS).filter(([k]) => k !== "Content-Type")), signal: AbortSignal.timeout(12000),
+            });
+            if (r.ok) {
+              const d = await r.json();
+              for (const p of d?.media?.postImages || []) {
+                const u = p?.path;
+                // CSP img-src 只准 hkais.centanet.com，其他 host 即使有都放棄
+                if (typeof u === "string" && u.startsWith("https://hkais.centanet.com/") && photos.length < maxPhotos) photos.push({ src: u });
+              }
+            }
+          } else if (row.source === "midland" || row.source === "hkp") {
+            let page;
+            try { page = new URL(row.detail_url || ""); } catch (_) { page = null; }
+            const okHost = page && page.protocol === "https:" && (row.source === "hkp" ? page.hostname === "www.hkp.com.hk" : page.hostname === "www.midland.com.hk");
+            if (okHost) {
+              const r = await fetch(page.toString(), {
+                headers: { "User-Agent": row.source === "hkp" ? HKP_UA : MIDLAND_UA, "Accept-Language": "zh-HK,zh;q=0.9" },
+                signal: AbortSignal.timeout(15000),
+              });
+              const html = r.ok ? await r.text() : "";
+              const m = html.match(/<script id="__NEXT_DATA__"[^>]*>([\s\S]*?)<\/script>/);
+              const list = m ? (JSON.parse(m[1])?.props?.pageProps?.propertyDetail?.photos || []) : [];
+              // 跟返 portal 相簿原本次序（單位相先，屋苑公共相喺尾）。唔自作主張剔嘢：
+              // 列表 API 嗰 4 張有時包咗屋苑相，剔咗會令已有嗰張同全部相對唔上。
+              for (const p of list) {
+                let u = p?.wan_doc_path;
+                if (typeof u !== "string" || photos.length >= maxPhotos) continue;
+                u = u.replace("://wm-cdn.midland.com.hk/", "://wm.midland.com.hk/");   // 同 /photos 一致，前端先 dedupe 到
+                photos.push({ rel: `/api/photo?u=${encodeURIComponent(u)}` });
+              }
+            }
+          }
+        } catch (e) {
+          console.error("[listing-photos]", row.source, ref, e?.message || e);   // 攞唔到就回空，前端照用已有嗰幾張
+        }
+        return json(200, { source: row.source, photos });
+      }
+
       if (method === "GET" && path === "/api/photo") {
         const raw = url.searchParams.get("u") || "";
         let target;
@@ -6327,6 +6452,7 @@ export default {
 
       if (method === "GET" && path.match(/^\/api\/estates\/\d+\/listings$/)) {
         await ensureManualRemoved(db);
+        await ensureListingSpan(db);
         const estateId = path.split("/")[3];
         // 「改價 N 次」/「原價」都係售價歷史嘅衍生——由加入自選日開始計。
         const lSub = await db.prepare("SELECT added_at FROM account_estates WHERE account_id = ? AND estate_id = ?")
@@ -6358,11 +6484,8 @@ export default {
                GROUP BY source
              ),
              per_listing AS (
-               SELECT listing_id,
-                 MIN(snapshot_date) AS first_seen,
-                 MAX(snapshot_date) AS last_seen
-               FROM listings WHERE estate_id = ?1
-               GROUP BY listing_id
+               SELECT listing_id, first_seen, last_seen
+               FROM listing_span WHERE estate_id = ?1
              )
              SELECT l.*,
                pl.first_seen,
@@ -6413,6 +6536,7 @@ export default {
       // 最新比，冇輪到嗰兩個 source 嘅盤日日都會扮下架。
       if (method === "GET" && path.match(/^\/api\/estates\/\d+\/rental-listings$/)) {
         await ensureRentalTables(db);
+        await ensureListingSpan(db);
         const estateId = path.split("/")[3];
         const sub = await db.prepare("SELECT added_at FROM account_estates WHERE account_id = ? AND estate_id = ?")
           .bind(session.account_id, estateId).first();
@@ -6435,8 +6559,8 @@ export default {
              GROUP BY source
            ),
            per_listing AS (
-             SELECT listing_id, MIN(snapshot_date) AS first_seen, MAX(snapshot_date) AS last_seen
-             FROM rental_listings WHERE estate_id = ?1 GROUP BY listing_id
+             SELECT listing_id, first_seen, last_seen
+             FROM rental_listing_span WHERE estate_id = ?1
            )
            SELECT l.*, pl.first_seen,
              CASE WHEN sp.d IS NOT NULL AND pl.last_seen < sp.d
@@ -7504,30 +7628,27 @@ export default {
             COALESCE(t.reg_date, rt.reg_date) AS txn_reg_date,
             t.prev_price AS txn_prev_price,
             t.held_days AS txn_held_days
-          FROM viewings v
-          LEFT JOIN (
-            SELECT estate_id, building, floor, unit, price, reg_date, prev_price, held_days,
-                   ROW_NUMBER() OVER (PARTITION BY estate_id, building, floor, unit ORDER BY reg_date DESC) AS rn
-            FROM transactions
-          ) t ON t.estate_id = v.estate_id
-            AND t.building = CASE WHEN v.block LIKE '%座' THEN v.block ELSE v.block || '座' END
-            AND t.floor = CASE WHEN v.floor LIKE '%樓' OR v.floor LIKE '%層' THEN v.floor ELSE v.floor || '樓' END
-            AND t.unit = CASE WHEN v.unit LIKE '%室' OR v.unit LIKE '%號' THEN v.unit ELSE v.unit || '室' END
-            AND t.rn = 1
-            AND COALESCE(v.deal_type, 'S') = 'S'
-          LEFT JOIN (
-            SELECT estate_id, building, floor, unit, price, reg_date,
-                   ROW_NUMBER() OVER (PARTITION BY estate_id, building, floor, unit ORDER BY reg_date DESC) AS rn
-            FROM rental_transactions
-          ) rt ON rt.estate_id = v.estate_id
-            AND rt.building = CASE WHEN v.block LIKE '%座' THEN v.block ELSE v.block || '座' END
-            AND rt.floor = CASE WHEN v.floor LIKE '%樓' OR v.floor LIKE '%層' THEN v.floor ELSE v.floor || '樓' END
-            AND rt.unit = CASE WHEN v.unit LIKE '%室' OR v.unit LIKE '%號' THEN v.unit ELSE v.unit || '室' END
-            AND rt.rn = 1
-            AND v.deal_type = 'R'
-          WHERE v.account_id = ?1 AND ${scopeSql}
+          FROM (
+            -- 先砌好標準化嘅 座/樓/室，再逐個睇樓記錄用 idx_txn_unit 查最新一宗；
+            -- 舊寫法 ROW_NUMBER() 窗口函數會掃晒成個 transactions／rental_transactions
+            -- 表（每次 ~4 萬 rows read），而睇樓記錄得幾十個。
+            SELECT v0.*,
+              CASE WHEN v0.block LIKE '%座' THEN v0.block ELSE v0.block || '座' END AS _b,
+              CASE WHEN v0.floor LIKE '%樓' OR v0.floor LIKE '%層' THEN v0.floor ELSE v0.floor || '樓' END AS _f,
+              CASE WHEN v0.unit LIKE '%室' OR v0.unit LIKE '%號' THEN v0.unit ELSE v0.unit || '室' END AS _u
+            FROM viewings v0 WHERE v0.account_id = ?1 AND ${scopeSql.replace("v.", "v0.")}
+          ) v
+          LEFT JOIN transactions t ON COALESCE(v.deal_type, 'S') = 'S' AND t.id = (
+            SELECT x.id FROM transactions x
+            WHERE x.estate_id = v.estate_id AND x.building = v._b AND x.floor = v._f AND x.unit = v._u
+            ORDER BY x.reg_date DESC LIMIT 1)
+          LEFT JOIN rental_transactions rt ON v.deal_type = 'R' AND rt.id = (
+            SELECT x.id FROM rental_transactions x
+            WHERE x.estate_id = v.estate_id AND x.building = v._b AND x.floor = v._f AND x.unit = v._u
+            ORDER BY x.reg_date DESC LIMIT 1)
           ORDER BY v.view_date DESC, v.created_at DESC
         `).bind(...(estateId ? [session.account_id, estateId] : [session.account_id])).all();
+        for (const r of results) { delete r._b; delete r._f; delete r._u; }
         await attachViewingImageCounts(db, session.account_id, results, estateId ? Number(estateId) : null);
         // 跨屋苑要每個屋苑自己一套市場基準，所以下面全部 per-estate map 住做。
         const estateIds = [...new Set(results.map((v) => v.estate_id).filter(Boolean))];
@@ -7618,6 +7739,13 @@ export default {
         // 跨屋苑版：全部 CTE 都要 GROUP BY 埋 estate_id，join 返 pr.estate_id
         // ——唔係嘅話，A 苑某個 source 嘅最新 snapshot 會攞去同 B 苑比，
         // removed_date／放咗幾耐會計錯。
+        // 只查「睇樓記錄真係 link 咗」嗰幾個 ref：per_ref／price_bounds 唔限 ref 就要
+        // 掃晒屋苑全部歷史 snapshot（每次 ~10 萬 rows read），限咗行 idx_*_estate_ref
+        // 逐個 ref seek。ref 內嵌做 SQL literal（D1 一條 query 得 100 個參數），
+        // 一律先過白名單 regex，唔合格就丟，所以唔會有 injection。
+        const refLit = [...new Set(results.flatMap((v) => String(v.linked_ref_no || "").split(",")))]
+          .map((r) => r.trim()).filter((r) => /^[A-Za-z0-9_-]{1,40}$/.test(r))
+          .map((r) => `'${r}'`).join(",") || "''";
         const { results: refRows } = await db.prepare(`
           WITH src_latest AS (
             SELECT estate_id, source, MAX(snapshot_date) AS d FROM listings
@@ -7626,11 +7754,11 @@ export default {
           per_ref AS (
             SELECT estate_id, ref_no, source, MIN(snapshot_date) AS first_seen, MAX(snapshot_date) AS last_seen,
                    MIN(NULLIF(publish_date, '')) AS publish_date
-            FROM listings WHERE estate_id IN (${eidPh}) GROUP BY estate_id, ref_no, source
+            FROM listings WHERE estate_id IN (${eidPh}) AND ref_no IN (${refLit}) GROUP BY estate_id, ref_no, source
           ),
           price_bounds AS (
             SELECT ref_no, MIN(snapshot_date) AS min_d, MAX(snapshot_date) AS max_d
-            FROM listing_price_history GROUP BY ref_no
+            FROM listing_price_history WHERE estate_id IN (${eidPh}) AND ref_no IN (${refLit}) GROUP BY ref_no
           ),
           rsrc_latest AS (
             SELECT estate_id, source, MAX(snapshot_date) AS d FROM rental_listings
@@ -7639,11 +7767,11 @@ export default {
           rper_ref AS (
             SELECT estate_id, ref_no, source, MIN(snapshot_date) AS first_seen, MAX(snapshot_date) AS last_seen,
                    MIN(NULLIF(publish_date, '')) AS publish_date
-            FROM rental_listings WHERE estate_id IN (${eidPh}) GROUP BY estate_id, ref_no, source
+            FROM rental_listings WHERE estate_id IN (${eidPh}) AND ref_no IN (${refLit}) GROUP BY estate_id, ref_no, source
           ),
           rprice_bounds AS (
             SELECT ref_no, MIN(snapshot_date) AS min_d, MAX(snapshot_date) AS max_d
-            FROM rental_price_history GROUP BY ref_no
+            FROM rental_price_history WHERE estate_id IN (${eidPh}) AND ref_no IN (${refLit}) GROUP BY ref_no
           )
           SELECT v.id AS viewing_id, pr.ref_no,
             -- 上盤日 = source 公佈日 同 我哋第一次見到 之間較早嗰個，同
@@ -7685,8 +7813,10 @@ export default {
           // 全部用位置參數，順序一定要同上面 SQL 出現次序一樣：
           ...estateIds,                    // src_latest
           ...estateIds,                    // per_ref
+          ...estateIds,                    // price_bounds（只掃呢幾個屋苑嘅改價歷史）
           ...estateIds,                    // rsrc_latest
           ...estateIds,                    // rper_ref
+          ...estateIds,                    // rprice_bounds
           session.account_id, ...estateIds, // 買盤分支
           session.account_id, ...estateIds, // 租盤分支
         ).all();

@@ -15,3 +15,6 @@ backups/
 # （InvestWatch / iPointWeb）嘅筆記同個人偏好，唔應該推上 PropWatch 個
 # GitHub repo。搬機時跟住 folder copy 就得。
 memory/
+
+# production DB dump（含用戶資料／密碼雜湊，絕對唔入 git）
+worker/.local-dump/
