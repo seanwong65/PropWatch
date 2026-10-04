@@ -1035,6 +1035,18 @@
     .dj-unit { color: var(--muted); }
     .dj-price { color: #1270ac; font-weight: 700; }
     .dj-tag { font-size: 0.66rem; padding: 0.05rem 0.45rem; border-radius: 999px; background: var(--brand-soft); color: #1270ac; }
+    /* 只睇模式：收埋編輯／刪除同「對應放盤」✓✕，唔會㩒錯 */
+    .dj.viewonly .viewing-del-btn, .dj.viewonly .vw-edit-only { display: none !important; }
+    .dj-mode { margin-left: 0.6rem; font-size: 0.72rem; padding: 0.15rem 0.6rem; border-radius: 999px; border: 1px solid var(--border-strong); background: var(--surface); color: var(--text); cursor: pointer; }
+    .dj-mode.on { background: var(--brand); border-color: var(--brand); color: #fff; font-weight: 600; }
+    .vw-cover { position: relative; display: block; width: 100%; max-height: 170px; overflow: hidden; border: none; padding: 0; margin: 0.4rem 0 0.6rem; border-radius: 12px; cursor: pointer; background: var(--surface2); }
+    .vw-cover.loading { opacity: 0.6; cursor: progress; }
+    .vw-cover img { display: block; width: 100%; height: 170px; object-fit: cover; }
+    .vw-cover-n { position: absolute; right: 0.5rem; bottom: 0.5rem; background: rgba(15,28,46,0.65); color: #fff; font-size: 0.72rem; padding: 0.15rem 0.55rem; border-radius: 999px; }
+    .dj-tidy { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem 0.8rem; font-size: 0.8rem; line-height: 1.5; background: rgba(245,158,11,0.14); border-left: 3px solid var(--accent); border-radius: 6px; padding: 0.5rem 0.7rem; margin-bottom: 0.7rem; }
+    .dj-tidy button { background: var(--brand); color: #fff; border: none; border-radius: 999px; font-weight: 700; padding: 0.3rem 0.9rem; cursor: pointer; }
+    .dj-tag.dj-warn { background: rgba(245,158,11,0.18); color: #9a5b00; font-weight: 600; }
+    .dj-missing { font-size: 0.78rem; line-height: 1.55; color: var(--text); background: rgba(245,158,11,0.14); border-left: 3px solid var(--accent); border-radius: 6px; padding: 0.4rem 0.6rem; margin: 0 0 0.4rem; }
     .dj-meta { font-size: 0.7rem; color: var(--muted); }
     .dj-more {
       align-self: flex-start; background: none; border: none; padding: 0.15rem 0; margin-top: 0.1rem;
@@ -1160,6 +1172,23 @@
     /* 有滑鼠先出箭嘴；觸控裝置直接掃就得，唔好阻住張相 */
     @media (hover: hover) { .lc-card:hover .lc-nav { display: flex; } }
     @media (hover: none) { .lc-photo[data-more="1"] .lc-nav-next { display: flex; } }   /* 觸控：淨得一張相但仲有，要有掣先知可以撳 */
+    /* 睇樓相片相簿（viewImgFull）：沿用放盤卡 carousel 嘅 .lc-strip／.lc-slot／.lc-dots／.lc-nav */
+    .vpv-overlay { position: fixed; inset: 0; z-index: 9999; background: var(--overlay, rgba(15,40,70,0.45)); backdrop-filter: blur(3px); display: flex; align-items: center; justify-content: center; padding: 1rem; }
+    /* glass：相後面墊返同一張相放大＋模糊，兩邊唔會見到黑邊；卡本身半透明＋backdrop blur */
+    .vpv-card { width: min(94vw, 780px); border-radius: var(--radius-lg, 20px); overflow: hidden; background: rgba(255,255,255,0.28); -webkit-backdrop-filter: blur(18px) saturate(1.4); backdrop-filter: blur(18px) saturate(1.4); box-shadow: 0 18px 60px rgba(15,28,46,0.3), inset 0 0 0 1px rgba(255,255,255,0.55); border: 1px solid rgba(255,255,255,0.45); }
+    .vpv-photo { aspect-ratio: auto; height: min(78vh, 78vw * 0.75 + 4rem, 600px); min-height: 280px; background: transparent; }
+    .vpv-photo .lc-slot { position: relative; overflow: hidden; }
+    .vpv-photo .lc-slot .vpv-bg { position: absolute; inset: -12%; width: 124%; height: 124%; object-fit: cover; filter: blur(26px) saturate(1.25) brightness(1.05); opacity: 0.85; pointer-events: none; }
+    .vpv-photo .lc-slot::after { content: ''; position: absolute; inset: 0; background: linear-gradient(180deg, rgba(255,255,255,0.18), rgba(255,255,255,0.05)); pointer-events: none; }
+    .vpv-photo .lc-slot .vpv-img { position: relative; z-index: 1; width: 100%; height: 100%; object-fit: contain; filter: drop-shadow(0 6px 22px rgba(15,28,46,0.28)); }
+    .vpv-photo .lc-nav, .vpv-photo .lc-dots, .vpv-close { z-index: 3; }
+    .vpv-photo .lc-nav { background: rgba(255,255,255,0.28); -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px); border: 1px solid rgba(255,255,255,0.5); color: #fff; text-shadow: 0 1px 4px rgba(15,28,46,0.5); }
+    .vpv-photo .lc-nav:hover { background: rgba(255,255,255,0.45); }
+    .vpv-photo .lc-nav { display: flex; width: 2.2rem; height: 2.2rem; font-size: 1.3rem; }
+    .vpv-photo .lc-dots { bottom: 0.7rem; background: rgba(15,28,46,0.38); -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px); }
+    .vpv-photo .lc-dots.lc-count { font-size: 0.78rem; padding: 0.3rem 0.7rem; }
+    .vpv-close { position: absolute; top: 0.6rem; right: 0.6rem; width: 2rem; height: 2rem; border-radius: 50%; border: 1px solid rgba(255,255,255,0.5); background: rgba(15,28,46,0.35); -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px); color: #fff; font-size: 1rem; line-height: 1; cursor: pointer; z-index: 2; }
+    .vpv-close:hover { background: rgba(0,0,0,0.65); }
     .lc-removed-overlay {
       position: absolute; inset: 0; background: rgba(0,0,0,0.45); color: #fff;
       display: flex; align-items: center; justify-content: center;
@@ -2017,7 +2046,7 @@
           <select id="settings-cfg-group" onchange="_cfgGroup=this.value;renderCfgOptions()"
             style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:0.85rem;padding:0.35rem 0.5rem;font-family:inherit"></select>
         </div>
-        <p style="font-size:0.78rem;color:var(--muted);margin:0.25rem 0 0.75rem">相對市價／抵買雷達／議價指數／email 用嘅數字，改完即時生效（有上下限自動修正）。用右上角揀分類，睇某個 tab／功能用嘅參數。</p>
+        <p style="font-size:0.78rem;color:var(--muted);margin:0.25rem 0 0.75rem">相對市價／議價指數／email 用嘅數字，改完即時生效（有上下限自動修正）。用右上角揀分類，睇某個 tab／功能用嘅參數。</p>
         <div id="settings-cfg-list" style="display:flex;flex-direction:column;gap:0.7rem"></div>
 
         <!-- 額度／安全參數同上面分析參數分開擺：呢啲係全局（影響所有用戶），
@@ -2061,13 +2090,13 @@
     <div class="modal-title">＋ 新增睇樓記錄</div>
     <div class="modal-sub" id="viewing-modal-estate-name"></div>
     <form id="viewingForm" onsubmit="submitViewing(event)">
-      <label class="vf-label" id="vf-deal-row" style="display:none">類型<span>*</span></label>
+      <label class="vf-label" id="vf-deal-row" style="display:none">類型</label>
       <div id="vf-deal-types" style="display:none;gap:0.4rem;margin-bottom:0.7rem">
         <button type="button" class="filter-chip" data-deal="S" onclick="setVfDeal('S')">🏠 買盤</button>
         <button type="button" class="filter-chip" data-deal="R" onclick="setVfDeal('R')">🔑 租盤</button>
       </div>
-      <label class="vf-label">睇樓日期<span>*</span></label>
-      <input class="vf-input" type="date" id="vf-date" required>
+      <label class="vf-label">睇樓日期</label>
+      <input class="vf-input" type="date" id="vf-date">
 
       <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:0.6rem">
         <div>
@@ -2086,8 +2115,8 @@
 
       <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:0.6rem">
         <div>
-          <label class="vf-label">實用呎數<span>*</span></label>
-          <input class="vf-input" type="number" id="vf-size" placeholder="呎" min="1" required>
+          <label class="vf-label">實用呎數</label>
+          <input class="vf-input" type="number" id="vf-size" placeholder="呎" min="1">
         </div>
         <div>
           <label class="vf-label">方向</label>
@@ -2098,8 +2127,9 @@
           </select>
         </div>
         <div>
-          <label class="vf-label">房數<span>*</span></label>
+          <label class="vf-label">房數</label>
           <select class="vf-select" id="vf-bedrooms">
+            <option value="">-- 未知 --</option>
             <option value="1">1房</option>
             <option value="2" selected>2房</option>
             <option value="3">3房</option>
@@ -2109,12 +2139,23 @@
 
       <div class="vf-row2">
         <div>
-          <label class="vf-label" id="vf-price-label">售價（萬）<span>*</span></label>
-          <input class="vf-input" type="number" id="vf-price" placeholder="例：880" min="1" step="0.01" required>
+          <label class="vf-label">廁所</label>
+          <select class="vf-select" id="vf-toilet">
+            <option value="">-- 不選 --</option>
+            <option value="明廁">明廁</option>
+            <option value="暗廁">暗廁</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="vf-row2">
+        <div>
+          <label class="vf-label" id="vf-price-label">售價（萬）</label>
+          <input class="vf-input" type="number" id="vf-price" placeholder="例：880" min="1" step="0.01">
         </div>
         <div>
-          <label class="vf-label" id="vf-mgmt-label">管理費/呎<span>*</span></label>
-          <input class="vf-input" type="number" id="vf-mgmt" placeholder="$" min="0" step="0.01" required>
+          <label class="vf-label" id="vf-mgmt-label">管理費/呎</label>
+          <input class="vf-input" type="number" id="vf-mgmt" placeholder="$" min="0" step="0.01">
         </div>
       </div>
 
@@ -2279,6 +2320,31 @@ const FILTER_DEFAULTS = { beds: "all", floor: "all", building: "all", unit: "all
 let filters = { ...FILTER_DEFAULTS };
 
 // ── Toast ──────────────────────────────────────────────────────
+function hkTodayStr() { return new Date(Date.now() + 8 * 3600000).toISOString().slice(0, 10); }
+
+// 取代原生 confirm()：Claude desktop 內置瀏覽器窗格（同部分嵌入式 webview）會即刻
+// 回 false、唔彈窗，令所有靠 confirm() 嘅刪除掣「撳咗冇反應」。呢個係頁內確認框，
+// 任何環境都彈得出。回 Promise<boolean>。
+function appConfirm(msg, okLabel = '確定', note = '') {
+  return new Promise((resolve) => {
+    const ov = document.createElement('div');
+    ov.style.cssText = 'position:fixed;inset:0;z-index:10050;background:var(--overlay, rgba(15,28,46,0.45));display:flex;align-items:center;justify-content:center;padding:1rem';
+    ov.innerHTML = `<div role="alertdialog" aria-modal="true" style="background:var(--surface,#fff);color:var(--text);border:1px solid var(--border-strong);border-radius:14px;max-width:340px;width:100%;padding:1.1rem 1.2rem;box-shadow:0 12px 40px rgba(15,28,46,0.3)">
+      <div style="font-size:0.92rem;line-height:1.6;margin-bottom:${note ? '0.35rem' : '1rem'};white-space:pre-line">${escHtml(msg)}</div>
+      ${note ? `<div style="font-size:0.8rem;line-height:1.6;color:var(--text);background:rgba(245,158,11,0.14);border-left:3px solid var(--accent);border-radius:6px;padding:0.5rem 0.65rem;margin-bottom:1rem">${Array.isArray(note) ? `${escHtml(note[0])}<b style="color:var(--accent)">${escHtml(note[1])}</b>${escHtml(note[2])}` : escHtml(note)}</div>` : ''}
+      <div style="display:flex;gap:0.6rem;justify-content:flex-end">
+        <button type="button" data-r="0" style="background:none;border:1px solid var(--border-strong);color:var(--text);border-radius:999px;padding:0.4rem 1rem;cursor:pointer">取消</button>
+        <button type="button" data-r="1" style="background:var(--brand);border:none;color:#fff;font-weight:700;border-radius:999px;padding:0.4rem 1.1rem;cursor:pointer">${escHtml(okLabel)}</button>
+      </div></div>`;
+    const done = (v) => { document.removeEventListener('keydown', onKey, true); ov.remove(); resolve(v); };
+    const onKey = (e) => { if (e.key === 'Escape') { e.stopPropagation(); done(false); } };
+    ov.addEventListener('click', (e) => { if (e.target === ov) done(false); const r = e.target.closest('button[data-r]'); if (r) done(r.dataset.r === '1'); });
+    document.addEventListener('keydown', onKey, true);
+    document.body.appendChild(ov);
+    ov.querySelector('button[data-r="1"]').focus();
+  });
+}
+
 function toast(msg, type = "info") {
   const el = document.createElement("div");
   el.className = `toast ${type}`;
@@ -2326,9 +2392,52 @@ const PAID_FEATURES = [
   ['📈', '放盤時間軸', '放咗幾多日、改過幾多次價、原價幾錢、幾時下架'],
   ['📉', '呎價走勢圖', '叫價／成交走勢 + 全組合大市對照線'],
   ['🔔', '主動推送', '每日 email + Telegram 減價提示，唔使自己日日入嚟撳'],
-  ['💎', '分析工具', '抵買雷達、相對市價分層、批量估值'],
+  ['💎', '分析工具', '相對市價分層、批量估值'],
   ['🏠', '無限追蹤', `唔限 ${'{n}'} 個屋苑，仲有「朋友屋企」資產監察`],
 ];
+
+// 免費版喺睇樓記錄卡直接顯示嘅示範（取代原本一粒鎖頭掣）：同真正「價格尺」（priceRulerHtml）
+// 一樣嘅 class 同版面，但數字全部寫死、同用戶任何數據無關，並且用大字 watermark
+// 標明係示範，免得誤會成佢自己嘅單位。
+function priceRulerSampleHtml() {
+  const lo = 14400, span = 3300;                       // 示範尺 $14.4k – $17.7k
+  const P = x => ((x - lo) / span);
+  const AT  = p => `calc(32px + (100% - 32px) * ${p.toFixed(4)})`;
+  const WID = w => `calc((100% - 32px) * ${w.toFixed(4)})`;
+  const band = (cls, a, m, b) => `<div class="pr-band pr-${cls}" style="left:${AT(P(a))};width:${WID(P(b) - P(a))}"></div>
+      <div class="pr-mid pr-${cls}" style="left:${AT(P(m))}"></div>`;
+  const ruler = `<div class="pr-ruler" style="width:100%;max-width:300px"><div class="pr-zone">
+      <div class="pr-row"><span class="pr-lbl">成交</span><div class="pr-track"></div>${band('sold', 15406, 16035, 16634)}</div>
+      <div class="pr-row"><span class="pr-lbl">在售</span><div class="pr-track"></div>${band('ask', 14827, 16293, 17408)}</div>
+      <div class="pr-needle pr-hs" style="left:${AT(P(15200))}"></div>
+      <div class="pr-needle pr-you" style="left:${AT(P(15400))}"></div>
+      <div class="pr-cap pr-hs" style="left:${AT(0.12)}">估值<span class="v">$15.2k</span></div>
+      <div class="pr-cap pr-you" style="left:${AT(0.42)}">叫價<span class="v">$15.4k</span></div>
+      <div class="pr-axis"><span>$14.4k</span><span>$17.7k</span></div>
+    </div></div>`;
+  const info = `<div class="pr-info" style="border-left:none;padding-left:0;border-top:1px solid var(--border);padding-top:0.5rem">
+      <div style="white-space:nowrap"><span class="up">成交</span> $15,406–$16,634 · 中位 <b>$16,035</b> · 6宗</div>
+      <div style="margin-top:0.3rem;color:var(--muted);white-space:nowrap">在售 $14,827–$17,408 · 中位 <b>$16,293</b> · 23個</div>
+      <div class="vw-verdict" style="background:rgba(52,211,153,0.14);border-left:3px solid var(--up)">
+        <span style="font-size:0.68rem;color:var(--muted);font-weight:600;display:block;margin-bottom:0.1rem">📊 分析</span>
+        <div><span class="gain-pos" style="font-size:0.88rem;font-weight:700">低叫價中位數 5.0%</span></div>
+        <div style="margin-top:0.15rem"><span class="gain-pos" style="font-size:0.88rem;font-weight:700">低市價中位數 3.5%</span></div>
+      </div>
+    </div>`;
+  return `<div onclick="showUpgrade('相對市價／類近在售')" role="button" tabindex="0" style="position:relative;border:2px dashed var(--brand);border-radius:var(--radius-lg, 10px);padding:0.7rem 0.8rem 0.8rem;margin-bottom:0.9rem;overflow:hidden;cursor:pointer">
+    <div style="display:flex;align-items:center;gap:0.5rem;margin-bottom:0.5rem">
+      <span style="background:var(--brand);color:#fff;font-weight:800;font-size:0.95rem;letter-spacing:0.12em;padding:0.1rem 0.6rem;border-radius:4px">SAMPLE 示範</span>
+      <span style="font-size:0.74rem;color:var(--muted)">示範數據，唔係你嘅單位</span>
+    </div>
+    <div style="opacity:0.92">
+      <div style="font-size:0.78rem;font-weight:700;margin-bottom:0.4rem">價格尺：一眼睇你嘅叫價貴定平</div>
+      <div class="pr-flex" style="flex-direction:column;gap:0.6rem">${ruler}${info}</div>
+    </div>
+    <div aria-hidden="true" style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;pointer-events:none;
+      font-size:3.4rem;font-weight:900;letter-spacing:0.2em;color:var(--brand);opacity:0.16;transform:rotate(-12deg);white-space:nowrap">SAMPLE</div>
+    <button type="button" style="margin-top:0.7rem;background:var(--brand);color:#fff;border:none;border-radius:999px;font-weight:700;font-size:0.88rem;padding:0.4rem 0.95rem;cursor:pointer">⭐ 升級收費版，睇你自己單位嘅價格尺</button>
+  </div>`;
+}
 
 function showUpgrade(feature, msg) {
   const list = PAID_FEATURES.map(([icon, title, desc]) => `
@@ -2665,7 +2774,8 @@ let _estateOverlay = null;       // 全組合 overlay（呎價指數，只喺 pr
 async function showDashboard(estates) {
   dashboardEstates = estates;
   // panels 重建晒做「載入中…」，flags 要一齊 reset，唔係 switch 返去會困死
-  _compsLoaded = false; _radarLoaded = false; _friendsLoaded = false;
+  _compsLoaded = false; _radarLoaded = false; _friendsLoaded = false; _todayLoaded = false;
+  if (_compsScope) { _compsScope = null; _compsScopeKey = null; _compsResetState(); }   // 由屋苑頁返主頁：清走屋苑頁嘅日記狀態
   const main = document.getElementById("main");
   main.innerHTML = `
     <div class="dashboard">
@@ -2674,8 +2784,8 @@ async function showDashboard(estates) {
       <div class="qa-row">
         <button class="qa-btn" onclick="openEstatePicker('add')">
           <span class="qa-icon">📝</span><span class="qa-label">新增睇樓</span></button>
-        <button class="qa-btn" onclick="openEstatePicker('view')">
-          <span class="qa-icon">📋</span><span class="qa-label">睇樓記錄</span></button>
+        <button class="qa-btn" onclick="goViewingDiary()">
+          <span class="qa-icon">📋</span><span class="qa-label">睇樓日記</span></button>
         <button class="qa-btn" onclick="openFriendModal()">
           <span class="qa-icon">➕</span><span class="qa-label">新增<br>朋友屋企</span></button>
         <button class="qa-btn" onclick="focusEstateSearch()">
@@ -2686,10 +2796,10 @@ async function showDashboard(estates) {
       <div class="highlights-section" id="highlights-section">
         <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:0.4rem;margin-bottom:0.75rem">
           <div style="display:flex;gap:0;border-bottom:2px solid var(--border)">
-            <button id="dash-tab-today" onclick="switchDashTab('today')" style="background:none;border:none;border-bottom:2px solid var(--brand);margin-bottom:-2px;color:var(--text);font-size:0.9rem;font-weight:600;padding:0.35rem 0.85rem;cursor:pointer">今日動態 <span id="highlights-date" style="font-weight:400;color:var(--muted);font-size:0.8rem"></span></button>
-            <button id="dash-tab-comps" onclick="switchDashTab('comps')" style="background:none;border:none;border-bottom:2px solid transparent;margin-bottom:-2px;color:var(--muted);font-size:0.9rem;padding:0.35rem 0.85rem;cursor:pointer">睇樓日記</button>
-            <button id="dash-tab-radar" onclick="switchDashTab('radar')" style="background:none;border:none;border-bottom:2px solid transparent;margin-bottom:-2px;color:var(--muted);font-size:0.9rem;padding:0.35rem 0.85rem;cursor:pointer">💎 抵買雷達</button>
+            <button id="dash-tab-comps" onclick="switchDashTab('comps')" style="background:none;border:none;border-bottom:2px solid var(--brand);margin-bottom:-2px;color:var(--text);font-weight:600;font-size:0.9rem;padding:0.35rem 0.85rem;cursor:pointer">睇樓日記</button>
+            <button id="dash-tab-radar" hidden onclick="switchDashTab('radar')" style="display:none;background:none;border:none;border-bottom:2px solid transparent;margin-bottom:-2px;color:var(--muted);font-size:0.9rem;padding:0.35rem 0.85rem;cursor:pointer">💎 抵買雷達</button>
             <button id="dash-tab-friends" onclick="switchDashTab('friends')" style="background:none;border:none;border-bottom:2px solid transparent;margin-bottom:-2px;color:var(--muted);font-size:0.9rem;padding:0.35rem 0.85rem;cursor:pointer">👥 朋友屋企</button>
+            <button id="dash-tab-today" onclick="switchDashTab('today')" style="background:none;border:none;border-bottom:2px solid transparent;margin-bottom:-2px;color:var(--muted);font-size:0.9rem;padding:0.35rem 0.85rem;cursor:pointer">今日動態 <span id="highlights-date" style="font-weight:400;color:var(--muted);font-size:0.8rem"></span></button>
           </div>
           <div id="dash-tab-actions" style="display:flex;align-items:center;gap:0.5rem">
             <button class="filter-chip hl-pref-toggle active" onclick="toggleHlPrefFilter()" title="用你嘅睇樓偏好（售價/房數/實呎）篩選下面嘅動態" style="display:none">🎯 偏好</button>
@@ -2703,13 +2813,20 @@ async function showDashboard(estates) {
       </div>
     </div>
   `;
-  loadTodayHighlights();
+  // 預設開「睇樓日記」；「今日動態」撳入去先載（慳 D1：今日動態一次讀幾萬 rows）
+  switchDashTab('comps');
 }
 
 // ── 快捷功能面板 ───────────────────────────────────────────────────────────
 // 「新增睇樓」同「睇樓記錄」都係 per-estate（openViewingModal 要 _viewingEstateId，
 // loadViewings 要 estate id），所以兩者都要先揀屋苑先做得嘢。
 let _qpMode = null;   // 'add' = 揀完開新增 modal；'view' = 揀完跳去睇樓記錄 tab
+
+// 快捷「睇樓日記」：直接跳去主頁嘅睇樓日記 tab（唔再先揀屋苑）。
+function goViewingDiary() {
+  switchDashTab('comps');
+  document.getElementById('highlights-section')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
 
 function openEstatePicker(mode) {
   _qpMode = mode;
@@ -2772,6 +2889,7 @@ function focusEstateSearch() {
 let _compsLoaded = false;
 let _radarLoaded = false;
 let _friendsLoaded = false;
+let _todayLoaded = false;
 function switchDashTab(tab) {
   const tabs = ['today', 'comps', 'radar', 'friends'];
   for (const id of tabs) {
@@ -2791,10 +2909,9 @@ function switchDashTab(tab) {
   if (actions) actions.style.display = (tab === 'today' || tab === 'radar') ? 'flex' : 'none';
   const histBtn = document.getElementById('dash-history-btn');
   if (histBtn) histBtn.style.display = tab === 'today' ? '' : 'none';
+  if (tab === 'today' && !_todayLoaded) loadTodayHighlights();
   // 免費版：分析／朋友屋企 tab 照見到（唔收埋），撳入去見個鎖 + 升級。
   const LOCKED_DASH_TABS = {
-    comps:  ['相對市價', '你睇過嘅單位貴過定平過同層／同苑成交中位數'],
-    radar:  ['抵買雷達', '全部追蹤屋苑之中，低過市價最多嘅筍盤同議價指數排行'],
     friends:['朋友屋企', '記低朋友／自己住邊個單位，自動追成交、估值、相對市價'],
   };
   if (!isPaid() && LOCKED_DASH_TABS[tab]) {
@@ -2803,7 +2920,8 @@ function switchDashTab(tab) {
     return;
   }
   if (tab === 'comps' && !_compsLoaded) { _compsLoaded = true; loadViewingComps(); }
-  if (tab === 'radar' && !_radarLoaded) { _radarLoaded = true; loadBargainRadar(); }
+  // 抵買雷達 tab 暫時隱藏（每次載入食 D1 額度）；想恢復：拿走 #dash-tab-radar 嘅 hidden／display:none 同下面呢行嘅 `false &&`。
+  if (false && tab === 'radar' && !_radarLoaded) { _radarLoaded = true; loadBargainRadar(); }
   if (tab === 'friends' && !_friendsLoaded) { _friendsLoaded = true; loadFriendHomes(); }
 }
 
@@ -3163,7 +3281,7 @@ async function submitFriendHome() {
 
 async function deleteFriendHome(fhId) {
   const h = _fhHomes.find(x => x.id === fhId);
-  if (!confirm(`刪除 ${h ? h.friend_name : ''} 嘅屋企記錄？`)) return;
+  if (!(await appConfirm(`刪除 ${h ? h.friend_name : ''} 嘅屋企記錄？`))) return;
   try { await api(`/api/friend-homes/${fhId}`, { method: 'DELETE' }); } catch (_) {}
   loadFriendHomes();
 }
@@ -3191,9 +3309,19 @@ const _unitTitle = v => {
 async function loadViewingComps() {
   const body = document.getElementById('comps-body');
   try {
-    const r = await api('/api/viewings/comps');
-    _compsData = r.items || [];
-    _compsEnriched = null;        // 詳細資料（/api/viewings/all）撳開第一張卡先攞；重新載入要作廢
+    let items;
+    if (isPaid()) {
+      items = (await api('/api/viewings/comps')).items || [];
+      _compsEnriched = null;      // 詳細資料（/api/viewings/all）撳開第一張卡先攞；重新載入要作廢
+    } else {
+      // 免費版：/api/viewings/comps（相對市價分析）係收費功能，日記清單改用免費嘅
+      // /api/viewings/all（已包埋詳細卡要用嘅欄位，所以唔使再攞第二次）。價格尺嗰格
+      // 見 priceRulerHtml：免費版顯示 SAMPLE 示範框。
+      items = (await api('/api/viewings/all')).viewings || [];
+      _compsEnriched = Promise.resolve();
+    }
+    _compsData = items;
+    if (_photoTodo === null) checkPhotoTidy();   // 一次：有冇相要整理
     _lastViewings = _compsData;   // 俾 ✓/✕ (confirm/dismiss) 搵返個 viewing
     window._viewingImgsMap = window._viewingImgsMap || {};
     window._matchListingsByEstate = window._matchListingsByEstate || {};
@@ -3242,6 +3370,52 @@ let _compsMonth = 0;             // 0 = 成年
 let _compsRangeOpen = false;
 const _compsOpen = new Set();    // 展開咗清單嘅日期（重畫之後照樣展開）
 const _compsOpenRows = new Set(); // 打開咗詳細卡嘅睇樓記錄 id
+// 同一套日記畫面兩個用途：主頁（跨屋苑，_compsScope = null）同屋苑頁「睇樓記錄」tab
+// （_compsScope = 屋苑 id：只顯示嗰個屋苑、唔顯示屋苑名、多一排買盤／租盤 chip）。
+// 兩個畫面唔會同時喺畫面上（開屋苑頁會換走主頁），所以共用同一組狀態同 #comps-body。
+let _compsScope = null;
+// 整理相片：邊啲記錄仲係舊格式／未有縮圖（photo-status）。主頁日記頂部提示用戶一鍵整理。
+let _photoTodo = null;
+async function checkPhotoTidy() {
+  try { _photoTodo = (await api('/api/viewings/photo-status')).todo || []; } catch (_) { _photoTodo = []; }
+  if (_photoTodo.length && !_compsScope) renderCompsPanel();
+}
+async function runPhotoTidy(btn) {
+  if (!(await appConfirm(`整理 ${_photoTodo.length} 個睇樓記錄嘅相片？`, '開始整理',
+    ['會將相壓縮到約 300KB 並做封面縮圖，整理後原圖唔會保留。', '', ' 需要幾分鐘，整理期間請唔好閂頁。']))) return;
+  let done = 0, failed = 0;
+  for (const it of _photoTodo.slice()) {
+    if (btn) btn.textContent = `整理緊 ${done + failed + 1}/${_photoTodo.length}…`;
+    try {
+      const imgs = await (async () => { const r = await api(`/api/viewings/${it.id}/images`); return r.images || []; })();
+      if (!imgs.length) { done++; continue; }
+      // 舊格式一律重新壓；新格式只係未有縮圖，相本身唔郁
+      const out = it.legacy ? [] : imgs;
+      if (it.legacy) for (const d of imgs) out.push(await compressImage(d));
+      const cover = await makeCoverThumb(out[0]);
+      await api(`/api/viewings/${it.id}/photos`, { method: 'PUT', body: JSON.stringify({ images: JSON.stringify(out), cover_thumb: cover }) });
+      if (window._viewingImgsMap) delete window._viewingImgsMap[it.id];
+      delete _coverCache[it.id];
+      done++;
+    } catch (e) { failed++; console.error('整理相片失敗', it.id, e); }
+  }
+  toast(failed ? `整理咗 ${done} 個，${failed} 個失敗（可再撳一次重試）` : `整理好 ${done} 個記錄嘅相片 ✓`, failed ? 'error' : 'success');
+  await checkPhotoTidy();
+}
+// 只睇模式：收埋 ✏️ 🗑 同對應放盤 ✓✕。記喺 localStorage（每部機各自），預設關。
+let _djViewOnly = false;
+try { _djViewOnly = localStorage.getItem('pw_dj_viewonly') === '1'; } catch (_) {}
+function toggleDjViewOnly() {
+  _djViewOnly = !_djViewOnly;
+  try { localStorage.setItem('pw_dj_viewonly', _djViewOnly ? '1' : '0'); } catch (_) {}
+  document.querySelectorAll('.dj').forEach(el => el.classList.toggle('viewonly', _djViewOnly));
+  document.querySelectorAll('.dj-mode').forEach(b => { b.classList.toggle('on', _djViewOnly); b.textContent = _djViewOnly ? '👁 只睇' : '✏️ 可編輯'; b.setAttribute('aria-pressed', _djViewOnly); });
+}
+let _compsScopeKey = null;
+function _compsResetState() {
+  _compsDateFrom = ''; _compsDateTo = ''; _compsYear = null; _compsMonth = 0; _compsRangeOpen = false;
+  _compsOpen.clear(); _compsOpenRows.clear();
+}
 
 const _inCompsRange = d => (!_compsDateFrom || d >= _compsDateFrom) && (!_compsDateTo || d <= _compsDateTo);
 function _compsDateBounds() {
@@ -3270,17 +3444,46 @@ function _compsPriceLabel(v) {
   return v.deal_type === 'R' ? `$${Math.round(v.price).toLocaleString()}/月`
     : `$${(v.price / 1e4).toFixed(v.price % 10000 === 0 ? 0 : 1)}萬`;
 }
+// 資料未填齊嘅項目（售價／呎數／房數；其餘係真正選填，唔計）。冇價錢／呎數存 0。
+function _compsMissing(v) {
+  const m = [];
+  if (!v.price) m.push(v.deal_type === 'R' ? '月租' : '售價');
+  if (!v.size_net) m.push('實用呎數');
+  if (!v.bedrooms) m.push('房數');
+  return m;
+}
 const _DJ_WEEKDAY = ['日', '一', '二', '三', '四', '五', '六'];
 
 // 詳細卡：用返「睇樓記錄」同一個 renderOneViewing（卡片版），屋苑名淨係喺呢度加返。
 // buildMatchCell 靠全局 allListings，跨屋苑要逐張卡換返啱嗰個屋苑先 render。
 function _compsCardHtml(v) {
+  const miss = _compsMissing(v);
+  const missHtml = miss.length ? `<div class="dj-missing">⚠ 提提你：仲有 <b>${escHtml(miss.join('、'))}</b> 未填，撳右上角 ✏️ 補返。</div>` : '';
+  // 屋苑頁：allListings 本身就係呢個屋苑，唔使換，亦唔使重覆寫屋苑名
+  if (_compsScope) return `<div style="margin-bottom:0.15rem">${missHtml}${renderOneViewing(v, _compsScope, true, wantsDeal('R'))}</div>`;
   const saved = allListings;
   allListings = (window._matchListingsByEstate || {})[v.estate_id] || [];
   try {
     return `<div style="margin-bottom:0.15rem"><div style="font-size:0.75rem;color:var(--accent2);font-weight:600;margin:0 0 0.15rem 0.15rem">${
-      escHtml(v.estate_name || '')}</div>${renderOneViewing(v, v.estate_id, true, true)}</div>`;
+      escHtml(v.estate_name || '')}</div>${missHtml}${renderOneViewing(v, v.estate_id, true, true)}</div>`;
   } finally { allListings = saved; }
+}
+
+// 封面縮圖：卡片打開先載（~20–40KB），每個記錄載一次就記住。冇縮圖（舊記錄未整理）就唔顯示，
+// 卡底嘅「N 張相」掣照用。撳封面開相簿。
+const _coverCache = {};
+async function loadViewingCover(vid, box) {
+  try {
+    if (!(vid in _coverCache)) _coverCache[vid] = (await api(`/api/viewings/${vid}/cover`)).thumb || null;
+    const src = _coverCache[vid];
+    if (!src || !box.isConnected) return;
+    const card = box.querySelector('.viewing-card');
+    const head = card?.querySelector('.viewing-card-header');
+    if (!card || !head || card.querySelector('.vw-cover')) return;
+    const n = Number((_compsData.find(x => x.id === vid) || {}).img_count) || 0;
+    head.insertAdjacentHTML('afterend', `<button type="button" class="vw-cover" onclick="openViewingPhotos(${Number(vid)}, this)" aria-label="睇相簿">
+      <img src="${safeImgSrc(src)}" alt=""><span class="vw-cover-n">📷 ${n} 張</span></button>`);
+  } catch (_) { /* 載唔到封面唔影響詳細卡 */ }
 }
 
 // 撳某一行先打開嗰個盤嘅詳細卡：先攞詳細資料同**嗰個屋苑**嘅 listings（唔係成日全部），再畫。
@@ -3291,10 +3494,13 @@ async function fillCompsDetail(vid) {
   await ensureCompsEnriched();
   const v = _compsData.find(x => x.id === vid);
   if (!v) return;
-  if (v.status !== 'sold' && v.estate_id) await ensureCompsListings([v.estate_id]);
+  if (!_compsScope && v.status !== 'sold' && v.estate_id) await ensureCompsListings([v.estate_id]);
   if (!box.isConnected) return;   // 期間重畫咗，呢個已經唔喺度
   box.innerHTML = _compsCardHtml(v);
   box.dataset.filled = '1';
+  // 屋苑頁：打開咗先查嗰個單位嘅「上手成交」（之前係一開頁逐個查，而家只查打開嘅）
+  if (_compsScope && v.deal_type !== 'R') fetchUnitTxn(v.id);
+  if (Number(v.img_count) > 0) loadViewingCover(v.id, box);
 }
 
 // 撳日期卡：展開／收起成日嘅睇樓清單（簡潔行，唔係詳細卡）
@@ -3326,15 +3532,33 @@ function toggleCompsViewing(vid) {
 function renderCompsPanel() {
   const body = document.getElementById('comps-body');
   if (!body) return;
-  if (!_compsData.length) {
-    body.innerHTML = '<div class="dj"><div class="dj-empty">未有睇樓記錄。喺屋苑頁「睇樓記錄」新增，呢度就會顯示。</div></div>';
+  // 屋苑頁：買盤／租盤 chip（偏好有揀租盤先出），清單跟 filter
+  const tidyHtml = (!_compsScope && _photoTodo && _photoTodo.length)
+    ? `<div class="dj-tidy"><span>📷 有 <b>${_photoTodo.length}</b> 個睇樓記錄嘅相仲未整理（舊格式／冇封面縮圖）。整理後打開卡會即刻見到封面，載入亦快好多。</span><button type="button" onclick="runPhotoTidy(this)">整理相片</button></div>` : '';
+  const filterBarHtml = tidyHtml + ((_compsScope && wantsDeal('R')) ? `
+    <div style="display:flex;gap:0.4rem;margin-bottom:0.6rem">
+      <button class="filter-chip ${_viewingTypeFilter==='all'?'active':''}" onclick="setViewingTypeFilter('all')">全部</button>
+      <button class="filter-chip ${_viewingTypeFilter==='S'?'active':''}" onclick="setViewingTypeFilter('S')">🏠 買盤</button>
+      <button class="filter-chip ${_viewingTypeFilter==='R'?'active':''}" onclick="setViewingTypeFilter('R')">🔑 租盤</button>
+    </div>` : '');
+  const srcRows = _compsScope
+    ? _compsData.filter(v => _viewingTypeFilter === 'all' || (v.deal_type || 'S') === _viewingTypeFilter)
+    : _compsData;
+  if (_compsScope) {
+    const tabBtn = document.getElementById('tab-btn-viewings');
+    if (tabBtn) tabBtn.textContent = `睇樓記錄(${_compsData.length})`;
+  }
+  if (!srcRows.length) {
+    body.innerHTML = filterBarHtml + (_compsScope
+      ? `<div class="dj"><div class="dj-empty">${_compsData.length ? '冇符合嘅睇樓記錄' : '未有睇樓記錄<br><small>按「新增睇樓」新增第一個記錄</small>'}</div></div>`
+      : '<div class="dj"><div class="dj-empty">未有睇樓記錄。喺屋苑頁「睇樓記錄」新增，呢度就會顯示。</div></div>');
     return;
   }
   const bounds = _compsDateBounds();
   const hasRange = !!(_compsDateFrom || _compsDateTo);
-  const inRange = _compsData.filter(v => _inCompsRange(v.view_date || ''));
+  const inRange = srcRows.filter(v => _inCompsRange(v.view_date || ''));
   // 年份永遠跟全部數據（唔受日期範圍影響），咁先唔會因為篩走晒而連年份都消失
-  const years = [...new Set(_compsData.map(v => (v.view_date || '').slice(0, 4)).filter(Boolean))].sort();
+  const years = [...new Set(srcRows.map(v => (v.view_date || '').slice(0, 4)).filter(Boolean))].sort();
   const year = years.includes(String(_compsYear)) ? String(_compsYear) : years[years.length - 1];
   _compsYear = year;
   const yearRows = inRange.filter(v => (v.view_date || '').startsWith(year));
@@ -3360,6 +3584,7 @@ function renderCompsPanel() {
         <span class="dj-year">${escHtml(year)} 年</span>
         <button type="button" class="dj-ynav" ${nextY ? `onclick="setCompsYear('${escJsAttr(nextY)}')"` : 'disabled'} aria-label="下一年">›</button>
         <span class="dj-total">${month ? `${month}月 ` : '全年 '}${rows.length} 個盤</span>
+        <button type="button" class="dj-mode${_djViewOnly ? ' on' : ''}" onclick="toggleDjViewOnly()" aria-pressed="${_djViewOnly}" title="只睇：收埋編輯／刪除掣，唔會㩒錯">${_djViewOnly ? '👁 只睇' : '✏️ 可編輯'}</button>
       </div>
       <div class="dj-months">${monthsHtml}</div>
       <button type="button" class="dj-handle${hasRange ? ' active' : ''}" onclick="toggleCompsRange()" aria-label="日期範圍"><span></span></button>
@@ -3371,7 +3596,7 @@ function renderCompsPanel() {
     </div>`;
 
   if (!rows.length) {
-      body.innerHTML = `<div class="dj">${topHtml}<div class="dj-empty">${hasRange ? '冇符合篩選嘅睇樓記錄。' : '呢段時間冇睇樓記錄。'}</div></div>`;
+      body.innerHTML = filterBarHtml + `<div class="dj${_djViewOnly ? ' viewonly' : ''}">${topHtml}<div class="dj-empty">${hasRange ? '冇符合篩選嘅睇樓記錄。' : '呢段時間冇睇樓記錄。'}</div></div>`;
     return;
   }
 
@@ -3392,10 +3617,11 @@ function renderCompsPanel() {
       const n = Number(v.img_count) || 0;
       const rowOpen = _compsOpenRows.has(v.id);
       return `<button type="button" class="dj-row${rowOpen ? ' open' : ''}" data-vid="${Number(v.id)}" data-extra="${k >= 3 ? 1 : 0}" aria-expanded="${rowOpen}" onclick="toggleCompsViewing(${Number(v.id)})">`
-        + `<span class="dj-estate">${escHtml(v.estate_name || '')}</span>`
+        + (_compsScope ? '' : `<span class="dj-estate">${escHtml(v.estate_name || '')}</span>`)
         + `<span class="dj-unit">${escHtml(_compsUnitLabel(v))}</span>`
         + (v.price ? `<span class="dj-price">${escHtml(_compsPriceLabel(v))}</span>` : '')
         + (v.status === 'sold' ? `<span class="dj-tag">已${v.deal_type === 'R' ? '租' : '沽'}</span>` : '')
+        + (_compsMissing(v).length ? `<span class="dj-tag dj-warn" title="仲有 ${escHtml(_compsMissing(v).join('、'))} 未填">⚠ 未填齊資料</span>` : '')
         + (r != null ? `<span class="dj-meta">⭐${r.toFixed(1)}</span>` : '')
         + (n ? `<span class="dj-meta">📷${n}</span>` : '') + `</button>`;
     }).join('');
@@ -3412,7 +3638,7 @@ function renderCompsPanel() {
         <div class="dj-body">${detailsHtml}</div>
       </div>`;
   }).join('');
-  body.innerHTML = `<div class="dj">${topHtml}<div class="dj-list">${cardsHtml}</div></div>`;
+  body.innerHTML = filterBarHtml + `<div class="dj${_djViewOnly ? ' viewonly' : ''}">${topHtml}<div class="dj-list">${cardsHtml}</div></div>`;
   for (const v of rows) if (_compsOpenRows.has(v.id)) fillCompsDetail(v.id);
 }
 
@@ -3461,6 +3687,7 @@ function openCompModal(id) {
 function closeCompModal() { document.getElementById('compModalOverlay').style.display = 'none'; }
 
 async function loadTodayHighlights() {
+  _todayLoaded = true;
   const body = document.getElementById("highlights-body");
   const dateEl = document.getElementById("highlights-date");
   if (!body) return;
@@ -4128,11 +4355,14 @@ async function loadAppConfig() {
     _cfgGroups = groups || [];
     _appCfg = Object.fromEntries(_cfgDefs.map(d => [d.key, d.value]));
     if (role) _userRole = role;
+    const tierChanged = !!tier && tier !== _tier;
     if (tier) _tier = tier;
     if (freeMaxEstates) _freeMaxEstates = freeMaxEstates;
     _maxViewingImgs = maxViewingImgs ?? null;
     applyRoleToSettings();
     applyTierToChrome();
+    // 主頁喺 tier 到之前已經畫咗（例如升級／降級後再載）就重畫，唔好卡住舊嘅示範／鎖頭
+    if (tierChanged && document.getElementById('dash-panel-comps') && dashboardEstates?.length) showDashboard(dashboardEstates);
   } catch { /* 用預設值照行 */ }
 }
 
@@ -4195,7 +4425,9 @@ function renderBillingSummary() {
 
 async function loadEstates() {
   const list = document.getElementById("estateList");
-  loadAppConfig();
+  // /api/config 帶住 tier（free／paid）。同 /api/estates 一齊飛，但畫主頁前一定要等到——
+  // 主頁預設 tab 係睇樓日記，免費版會見示範框；tier 未到就當 free，付費用戶會見到示範。
+  const cfgReady = loadAppConfig();
   try {
     const { estates } = await api("/api/estates");
     estatesById = {};
@@ -4205,6 +4437,7 @@ async function loadEstates() {
       document.getElementById("main").innerHTML = '<div class="welcome"><div class="welcome-icon">🏠</div><h2>追蹤香港樓市動態</h2><p>在左側搜尋屋苑名稱，系統每日自動更新售價，並顯示趨勢走勢。</p></div>';
       return;
     }
+    await cfgReady;
     if (!activeEstateId) showDashboard(estates);
     list.innerHTML = estates.map(e => e.paused ? `
       <!-- 暫停咗（降級時被擠走）：淡色顯示，唔畀撳入去（入去都係舊數據，
@@ -4309,7 +4542,7 @@ async function resumeEstate(e, id) {
 
 async function deleteEstate(e, id) {
   e.stopPropagation();
-  if (!confirm("確認移除此屋苑追蹤？")) return;
+  if (!(await appConfirm("確認移除此屋苑追蹤？"))) return;
   await api(`/api/estates/${id}`, { method: "DELETE" });
   if (activeEstateId === id) {
     activeEstateId = null;
@@ -4847,7 +5080,7 @@ function priceRulerHtml(v) {
   const hsBlock = `<div id="vhs-${v.id}" style="display:flex;align-items:baseline;gap:0.4rem;white-space:nowrap">${hsInner}</div>`;
 
   if (!isPaid()) {
-    return `<div class="pr-flex"><div class="pr-info">${hsBlock}<div style="margin-top:0.3rem">${lockChip('相對市價／類近在售')}</div></div></div>`;
+    return `<div class="pr-flex" style="flex-direction:column;gap:0.5rem"><div class="pr-info" style="border-left:none;padding-left:0">${hsBlock}</div>${priceRulerSampleHtml()}</div>`;
   }
   const band = _appCfg.verdict_band_pct ?? 3;
   const days = _appCfg.market_median_days ?? 60;
@@ -5727,22 +5960,6 @@ async function loadRentalTransactions(estateId) {
 let _viewingEstateId = null;
 let _lastViewings = [];
 let _viewingEstateName = '';
-// 手機用卡片、桌面用表格（loadViewings 判斷）。轉埋 breakpoint（例如手機
-// 轉橫向、拉闊瀏覽器窗）先重 render——resize 一直 fire 好密，用個 debounce
-// 擋住,唔會咁大陣象再 call API。
-let _viewingsIsMobile = null;
-let _viewingsResizeTimer = null;
-window.addEventListener('resize', () => {
-  clearTimeout(_viewingsResizeTimer);
-  _viewingsResizeTimer = setTimeout(() => {
-    const tab = document.getElementById('tab-viewings');
-    if (!tab || tab.style.display === 'none') return;   // 唔喺呢個 tab 唔使理
-    const nowMobile = window.matchMedia('(max-width: 768px)').matches;
-    if (_viewingsIsMobile != null && nowMobile !== _viewingsIsMobile && _viewingEstateId) {
-      loadViewings(_viewingEstateId);
-    }
-  }, 300);
-});
 let _viewingImages = []; // [{dataUrl, file}]
 let _viewingEditId = null;
 let _vfDeal = 'S';           // 呢次新增/更改嘅睇樓記錄係買盤定租盤，null＝未揀（多過一個偏好類型時強制揀）
@@ -5868,7 +6085,7 @@ function buildMatchCell(v) {
     if (!matchRefs.has(ref)) {
       html += `<div style="font-size:0.78rem;display:flex;align-items:center;gap:0.3rem">
         <span style="color:var(--muted)">已確認 (已下架)</span>
-        <button onclick="confirmViewingListing(${v.id},'${escJsAttr(ref)}')" style="font-size:0.75rem;background:none;border:none;color:var(--muted);cursor:pointer;padding:0" title="取消">✕ 取消</button>
+        <button class="vw-edit-only" onclick="confirmViewingListing(${v.id},'${escJsAttr(ref)}')" style="font-size:0.75rem;background:none;border:none;color:var(--muted);cursor:pointer;padding:0" title="取消">✕ 取消</button>
       </div>`;
     }
   }
@@ -5890,11 +6107,11 @@ function buildMatchCell(v) {
     const rowOpacity = srcBlocked ? '0.3' : '1';
     const xBtn = !isConfirmed && !srcBlocked
       ? isDismissed
-        ? `<button onclick="dismissViewingListing(${v.id},'${escJsAttr(l.ref_no||'')}',true)" style="font-size:0.75rem;background:none;border:none;color:var(--muted);cursor:pointer;padding:1px 3px" title="取消刪除線">✕</button>`
-        : `<button onclick="dismissViewingListing(${v.id},'${escJsAttr(l.ref_no||'')}')" style="font-size:0.75rem;background:none;border:none;color:var(--muted);cursor:pointer;padding:1px 3px" title="唔係呢個">✕</button>`
+        ? `<button class="vw-edit-only" onclick="dismissViewingListing(${v.id},'${escJsAttr(l.ref_no||'')}',true)" style="font-size:0.75rem;background:none;border:none;color:var(--muted);cursor:pointer;padding:1px 3px" title="取消刪除線">✕</button>`
+        : `<button class="vw-edit-only" onclick="dismissViewingListing(${v.id},'${escJsAttr(l.ref_no||'')}')" style="font-size:0.75rem;background:none;border:none;color:var(--muted);cursor:pointer;padding:1px 3px" title="唔係呢個">✕</button>`
       : '';
     return `<div style="font-size:0.78rem;display:flex;align-items:center;gap:0.3rem;opacity:${rowOpacity}">${link}
-      <button onclick="confirmViewingListing(${v.id},'${escJsAttr(l.ref_no||'')}')" style="${confirmStyle}" ${isConfirmed ? 'title="取消"' : ''}>✓</button>${xBtn}
+      <button class="vw-edit-only" onclick="confirmViewingListing(${v.id},'${escJsAttr(l.ref_no||'')}')" style="${confirmStyle}" ${isConfirmed ? 'title="取消"' : ''}>✓</button>${xBtn}
     </div>`;
   }).join('');
   return html;
@@ -6109,7 +6326,7 @@ async function abAction(action, accountId) {
     refund: '確定退返最近一筆款？Stripe 手續費退唔返，蝕咗就蝕咗。',
     cancel: '確定期末取消佢個訂閱？（佢仍然用到今期完）',
   };
-  if (confirms[action] && !confirm(confirms[action])) return;
+  if (confirms[action] && !(await appConfirm(confirms[action]))) return;
   try {
     const r = await api(`/api/admin/billing/${action}`, {
       method: 'POST', body: JSON.stringify({ account_id: accountId }),
@@ -6127,7 +6344,7 @@ async function abSetTier(email, tier, accountId) {
   if (!email) return toast('呢個帳戶冇 email，改唔到', 'error');
   const until = accountId != null ? (document.getElementById(`ab-until-${accountId}`)?.value || null) : null;
   const untilTxt = until ? `，到期 ${until}` : (tier === 'paid' ? '，長期' : '');
-  if (!confirm(`確定將 ${email} 改做 ${tier === 'paid' ? '收費版' : '免費版'}${untilTxt}？`)) return;
+  if (!(await appConfirm(`確定將 ${email} 改做 ${tier === 'paid' ? '收費版' : '免費版'}${untilTxt}？`))) return;
   try {
     await api('/api/admin/tiers', { method: 'POST', body: JSON.stringify({ email, tier, until }) });
     toast('已更新', 'success');
@@ -6740,7 +6957,7 @@ async function updateRatingCriterion(id, value) {
 }
 
 async function deleteRatingCriterion(id) {
-  if (!confirm('刪除呢個評分項目？已評過嘅分數會一齊唔見。')) return;
+  if (!(await appConfirm('刪除呢個評分項目？已評過嘅分數會一齊唔見。'))) return;
   await api('/api/system-params/' + id, { method: 'DELETE' });
   delete _vfRatings[id];
   await loadRatingCriteria();
@@ -6764,21 +6981,22 @@ function openViewingModal(viewing = null) {
   document.getElementById('vf-block').value = viewing ? (viewing.block || '') : '';
   document.getElementById('vf-floor').value = viewing ? viewing.floor : '';
   document.getElementById('vf-unit').value = viewing ? viewing.unit : '';
-  document.getElementById('vf-size').value = viewing ? viewing.size_net : '';
-  document.getElementById('vf-bedrooms').value = viewing ? (viewing.bedrooms || 2) : 2;
+  document.getElementById('vf-size').value = viewing ? (viewing.size_net || '') : '';
+  document.getElementById('vf-bedrooms').value = viewing ? (viewing.bedrooms ?? '') : 2;
   document.getElementById('vf-direction').value = viewing ? (viewing.direction || '') : '';
+  document.getElementById('vf-toilet').value = viewing ? (viewing.toilet || '') : '';
 
-  // 類型（買/租）：偏好淨係揀咗一樣就默認嗰樣；兩樣都揀就唔預設，強制用戶
-  // 自己揀（submitViewing 會擋冇揀就唔准儲）。改記錄一律跟返個記錄本身嘅類型。
+  // 類型（買/租）：偏好淨係揀咗一樣就默認嗰樣；兩樣都有就默認「買盤」（用戶可以自己轉租盤）。
+  // 改記錄一律跟返個記錄本身嘅類型。
   const prefDeals = (_userPrefs && Array.isArray(_userPrefs.deal_types) && _userPrefs.deal_types.length) ? _userPrefs.deal_types : ['S'];
   const showDealPicker = prefDeals.includes('R');
   document.getElementById('vf-deal-row').style.display = showDealPicker ? '' : 'none';
   document.getElementById('vf-deal-types').style.display = showDealPicker ? 'flex' : 'none';
-  _vfDeal = viewing ? (viewing.deal_type === 'R' ? 'R' : 'S') : (prefDeals.length === 1 ? prefDeals[0] : null);
+  _vfDeal = viewing ? (viewing.deal_type === 'R' ? 'R' : 'S') : (prefDeals.length === 1 ? prefDeals[0] : (prefDeals.includes('S') ? 'S' : prefDeals[0]));
   document.querySelectorAll('#vf-deal-types .filter-chip').forEach(b => b.classList.toggle('active', b.dataset.deal === _vfDeal));
   syncVfPriceLabels();
 
-  document.getElementById('vf-price').value = viewing ? (viewing.deal_type === 'R' ? viewing.price : viewing.price / 10000) : '';
+  document.getElementById('vf-price').value = viewing && viewing.price ? (viewing.deal_type === 'R' ? viewing.price : viewing.price / 10000) : '';
   document.getElementById('vf-mgmt').value = viewing ? (viewing.mgmt_fee || '') : '';
   populateNotesSelect(viewing ? (viewing.notes || '') : '');
   _vfRatings = viewing ? parseRatings(viewing) : {};
@@ -6820,11 +7038,11 @@ function setVfDeal(deal) {
 
 function syncVfPriceLabels() {
   const isRent = _vfDeal === 'R';
-  document.getElementById('vf-price-label').innerHTML = isRent ? '租金/月<span>*</span>' : '售價（萬）<span>*</span>';
+  document.getElementById('vf-price-label').innerHTML = isRent ? '租金/月' : '售價（萬）';
   document.getElementById('vf-price').placeholder = isRent ? '例：23000' : '例：880';
   const mgmt = document.getElementById('vf-mgmt');
   mgmt.disabled = isRent;
-  mgmt.required = !isRent;
+  mgmt.required = false;   // 管理費而家都係選填（冇填儲存時會列出嚟確認）
   mgmt.placeholder = isRent ? '租盤唔需要' : '$';
   if (isRent) mgmt.value = '';
   document.getElementById('vf-mgmt-label').style.opacity = isRent ? '0.4' : '1';
@@ -6839,7 +7057,8 @@ function closeViewingModal() {
   }
 }
 // 喺 dashboard「睇樓日記」改／刪咗記錄之後要重新攞（屋苑頁嗰邊有 loadViewings）
-function refreshComps() { if (document.getElementById('comps-body')) loadViewingComps(); }
+// 屋苑頁（_compsScope）：呼叫方本身已經 loadViewings(estateId)，唔使再重載主頁嗰份
+function refreshComps() { if (!_compsScope && document.getElementById('comps-body')) loadViewingComps(); }
 
 // ── 睇樓相片 ──────────────────────────────────────────────────────────
 // 手機原圖一張 2–5MB，之前原封不動 base64 塞入 DB，兩三張就爆
@@ -6857,7 +7076,7 @@ function setVfImgStatus(msg) {
 }
 
 // src：File/Blob、data URL，或者 <video>/<canvas>。回 JPEG data URL。
-async function compressImage(src) {
+async function compressImage(src, opts = {}) {
   let bitmap = null, w, h, draw;
   if (src instanceof HTMLVideoElement) {
     w = src.videoWidth; h = src.videoHeight;
@@ -6883,7 +7102,7 @@ async function compressImage(src) {
     draw = (ctx, dw, dh) => ctx.drawImage(bitmap, 0, 0, dw, dh);
   }
   if (!w || !h) throw new Error('讀唔到呢張相');
-  const scale = Math.min(1, VF_IMG_MAX_EDGE / Math.max(w, h));
+  const scale = Math.min(1, (opts.maxEdge || VF_IMG_MAX_EDGE) / Math.max(w, h));
   const dw = Math.round(w * scale), dh = Math.round(h * scale);
   const canvas = document.createElement('canvas');
   canvas.width = dw; canvas.height = dh;
@@ -6895,11 +7114,16 @@ async function compressImage(src) {
   // 細節多到離譜嘅相（樹葉、密字）1600px 都可以 >1MB，逐級降質素，
   // 確保遠低過後端每張上限（sec_viewing_img_max_kb 預設 1500KB）
   let out;
-  for (const q of [VF_IMG_QUALITY, 0.7, 0.55, 0.4]) {
+  for (const q of (opts.qualities || [VF_IMG_QUALITY, 0.7, 0.55, 0.4])) {
     out = canvas.toDataURL('image/jpeg', q);
-    if (out.length <= VF_IMG_TARGET_BYTES) break;
+    if (out.length <= (opts.targetBytes || VF_IMG_TARGET_BYTES)) break;
   }
   return out;
+}
+
+// 封面縮圖：第 1 張相縮到長邊 360px、~20–40KB。卡片打開時載呢張，唔使載原圖。
+function makeCoverThumb(dataUrl) {
+  return compressImage(dataUrl, { maxEdge: 360, qualities: [0.7, 0.55, 0.4], targetBytes: 60 * 1024 });
 }
 
 // 免費版每個睇樓記錄嘅相數上限（後端 sec_free_max_viewing_imgs 先係真相，
@@ -7018,8 +7242,29 @@ function closeBurstCamera() {
 let _vfPhotosLoading = false;
 async function submitViewing(e) {
   e.preventDefault();
-  if (!_vfDeal) { alert('請揀「買盤」定「租盤」'); return; }
   if (_vfPhotosLoading) { toast('相片載入緊，等一等再儲存', 'error'); return; }
+  // 只有 座數／樓層／室 必填（HTML required）。其餘冇填就列出嚟，等用戶確認先儲存。
+  const deal = _vfDeal || 'S';                                   // 冇揀類型當買盤
+  const val = id => document.getElementById(id).value.trim();
+  const missing = [];
+  if (!_vfDeal && document.getElementById('vf-deal-types')?.style.display !== 'none') missing.push('類型（會當買盤）');
+  if (!val('vf-date')) missing.push('睇樓日期（會用今日）');
+  if (!val('vf-size')) missing.push('實用呎數');
+  if (!val('vf-bedrooms')) missing.push('房數');
+  if (!val('vf-direction')) missing.push('方向');
+  if (!val('vf-toilet')) missing.push('明／暗廁');
+  if (!val('vf-price')) missing.push(deal === 'R' ? '月租' : '售價');
+  if (deal !== 'R' && !val('vf-mgmt')) missing.push('管理費');
+  if (missing.length) {
+    // 用戶可能淨填數字／字母（99、B），補返 座／樓／室，睇落先似個單位
+    const suf = (v, re, unit) => (v && re.test(v)) ? v + unit : v;
+    const unitLabel = [suf(val('vf-block'), /^[0-9A-Za-z]+$/, '座'), suf(val('vf-floor'), /^\d+$/, '樓'), suf(val('vf-unit'), /^[0-9A-Za-z]+$/, '室')].filter(Boolean).join(' ');
+    const ok = await appConfirm(
+      `${_viewingEditId ? '更改' : '新增'} ${_viewingEstateName || ''} ${unitLabel} 睇樓記錄`.replace(/\s+/g, ' '),
+      '儲存',
+      ['提提你：你仲有 ', missing.join('、'), ' 未填㗎，之後都可以補填返。']);
+    if (!ok) return;
+  }
   const btn = e.target.querySelector('.vf-submit');
   btn.disabled = true; btn.textContent = '儲存中…';
   try {
@@ -7031,22 +7276,27 @@ async function submitViewing(e) {
       }
     }
     const images = kept.map(i => i.dataUrl);
+    let coverThumb = null;
+    if (images.length) { try { coverThumb = await makeCoverThumb(images[0]); } catch (_) {} }
     const priceRaw = parseFloat(document.getElementById('vf-price').value);
-    // 買盤入面填緊「萬」要 ×10000；租盤直接係月租，原數存
-    const price = Math.round(_vfDeal === 'R' ? priceRaw : priceRaw * 10000);
+    // 買盤入面填緊「萬」要 ×10000；租盤直接係月租，原數存。冇填存 0（DB 欄位 NOT NULL，
+    // 畫面一律當 0＝冇資料，唔顯示）。
+    const price = Number.isFinite(priceRaw) ? Math.round(deal === 'R' ? priceRaw : priceRaw * 10000) : 0;
     const body = {
       estate_id: _viewingEstateId,
-      view_date: document.getElementById('vf-date').value,
+      view_date: val('vf-date') || hkTodayStr(),
       block: document.getElementById('vf-block').value.trim(),
       floor: document.getElementById('vf-floor').value.trim(),
       unit: document.getElementById('vf-unit').value.trim(),
-      size_net: parseInt(document.getElementById('vf-size').value),
-      bedrooms: parseInt(document.getElementById('vf-bedrooms').value) || 2,
+      size_net: parseInt(document.getElementById('vf-size').value) || 0,
+      bedrooms: parseInt(document.getElementById('vf-bedrooms').value) || null,
       direction: document.getElementById('vf-direction').value || null,
+      toilet: document.getElementById('vf-toilet').value || null,
       price,
-      deal_type: _vfDeal,
-      mgmt_fee: _vfDeal === 'R' ? null : (parseFloat(document.getElementById('vf-mgmt').value) || null),
+      deal_type: deal,
+      mgmt_fee: deal === 'R' ? null : (parseFloat(document.getElementById('vf-mgmt').value) || null),
       images: images.length ? JSON.stringify(images) : null,
+      cover_thumb: coverThumb,
       notes: getNotesValue(),
       ratings: _vfRatings,
     };
@@ -7066,7 +7316,7 @@ async function submitViewing(e) {
     }
     refreshComps();
     // Auto-fetch HS valuation in background（恒生估值係「買樓值幾錢」，租盤唔啱用）
-    if (_vfDeal !== 'R') fetchViewingHSVal(savedId, body.block, body.floor, body.unit, body.price, hsEstate);
+    if (deal !== 'R') fetchViewingHSVal(savedId, body.block, body.floor, body.unit, body.price, hsEstate);
   } catch(err) {
     // 402 已經彈咗升級 modal；400（例如相太多／太大）講返後端嗰句，唔好淨係「請再試」
     // 5xx 嘅 error 可能係內部 DB 訊息，唔好照出
@@ -7113,88 +7363,39 @@ async function manualFetchViewingHSVal(viewingId, estateId, block, floor, unit, 
   }
 }
 
-// 手機卡片版「睇樓記錄」按日期摺埋——撳個日期先 expand 出嗰日嘅卡。
-function toggleViewingDateGroup(gi) {
-  const body = document.getElementById(`vdg-body-${gi}`);
-  const chev = document.getElementById(`vdg-chev-${gi}`);
-  if (!body) return;
-  const show = body.style.display === 'none';
-  body.style.display = show ? '' : 'none';
-  if (chev) chev.textContent = show ? '▾' : '▸';
-  const header = body.previousElementSibling;
-  if (header) header.setAttribute('aria-expanded', show ? 'true' : 'false');
-}
-
 async function loadViewings(estateId) {
   const panel = document.getElementById('tab-viewings');
   if (!panel) return;
+  // 換咗屋苑就清走日記狀態（年份／月份／展開）；同一個屋苑重載（例如新增／刪除後）就保留
+  if (_compsScopeKey !== 'e' + estateId) { _compsResetState(); _viewingTypeFilter = 'all'; }
+  _compsScope = estateId; _compsScopeKey = 'e' + estateId;
   panel.innerHTML = '<div class="listings-section"><div class="loading"><div class="spinner"></div> 載入睇樓記錄…</div></div>';
   try {
     const { viewings } = await api(`/api/viewings?estate_id=${estateId}`);
-    _lastViewings = viewings;
+    _compsData = viewings || [];
+    _lastViewings = _compsData;
+    _compsEnriched = Promise.resolve();      // /api/viewings 已經包埋價格尺／成交／估值，唔使再攞
+    window._viewingImgsMap = {};
+    window._viewingMap = {};
     // 租盤睇樓記錄嘅「對應放盤」要用租盤在售資料搵——未開過「租盤」tab 就未有,
     // 呢度自己攞一次(冇租盤記錄就唔使嘥呢個 request)。
-    if ((viewings || []).some(v => v.deal_type === 'R') && !_rentalListings.length) {
+    if (_compsData.some(v => v.deal_type === 'R') && !_rentalListings.length) {
       try {
         const d = await api(`/api/estates/${estateId}/rental-listings`);
         _rentalListings = d.listings || [];
       } catch (_) {}
     }
-    await renderViewingsList(viewings, estateId, true);
+    panel.innerHTML = '<div id="comps-body"></div>';
+    renderCompsPanel();
   } catch {
     panel.innerHTML = '<div class="listings-section" style="padding:1.5rem;color:var(--muted);text-align:center">載入失敗</div>';
   }
 }
 
-// 買/租 filter chip：只做 client-side re-render（唔重新 fetch），跟返 _lastViewings。
+// 買/租 filter chip：只做 client-side re-render（唔重新 fetch）。
 function setViewingTypeFilter(t) {
   _viewingTypeFilter = t;
-  renderViewingsList(_lastViewings, _viewingEstateId, false);
-}
-
-// fetchExtras=true 先會 fire「查上手成交」（首次載入用；filter 切換淨係 client-side re-render，唔好再打一輪）。
-async function renderViewingsList(viewings0, estateId, fetchExtras) {
-  const panel = document.getElementById('tab-viewings');
-  if (!panel) return;
-  const showTypeFilter = wantsDeal('R');
-  const filterBarHtml = showTypeFilter ? `
-    <div style="display:flex;gap:0.4rem;margin-bottom:0.6rem">
-      <button class="filter-chip ${_viewingTypeFilter==='all'?'active':''}" onclick="setViewingTypeFilter('all')">全部</button>
-      <button class="filter-chip ${_viewingTypeFilter==='S'?'active':''}" onclick="setViewingTypeFilter('S')">🏠 買盤</button>
-      <button class="filter-chip ${_viewingTypeFilter==='R'?'active':''}" onclick="setViewingTypeFilter('R')">🔑 租盤</button>
-    </div>` : '';
-  const viewings = (viewings0 || []).filter(v => _viewingTypeFilter === 'all' || (v.deal_type || 'S') === _viewingTypeFilter);
-  const tabBtn = document.getElementById('tab-btn-viewings');
-  if (tabBtn) tabBtn.textContent = `睇樓記錄(${(viewings0 || []).length})`;
-  if (!viewings.length) {
-    panel.innerHTML = filterBarHtml + `<div class="listings-section" style="padding:1.5rem;color:var(--muted);text-align:center">${
-      (viewings0 || []).length ? '冇符合嘅睇樓記錄' : '未有睇樓記錄<br><small>按「新增睇樓」新增第一個記錄</small>'
-    }</div>`;
-    return;
-  }
-  try {
-    const fmt = p => p ? `$${(p/1e4).toFixed(p%10000===0?0:1)}萬` : '-';
-    const fmtRent = p => p ? `$${Math.round(p).toLocaleString()}/月` : '-';
-    window._viewingImgsMap = {};
-    window._viewingMap = {};
-    // 手機用卡片、桌面用表格——兩款版面互斥（同一時間得一款喺 DOM 度），
-    // 咁 id="vmatch-"/"vprev-"/"vhs-" 呢啲畀 async 更新用嘅 id 唔會撞。
-    const isMobile = window.matchMedia('(max-width: 768px)').matches;
-    _viewingsIsMobile = isMobile;
-    const rows = viewings.map(v => renderOneViewing(v, estateId, isMobile, showTypeFilter)).join('');
-    // 手機卡片版按「睇於」日期分組摺埋——一個記錄多，成頁卡片好長，
-    // 撳個日期先 expand 返嗰日嘅卡（保留返 viewings 本身嘅次序，即最新日期喺頭）。
-    const dateGroups = [];
-    const dateGroupIdx = new Map();
-    viewings.forEach(v => {
-      const d = v.view_date || '日期不詳';
-      if (!dateGroupIdx.has(d)) { dateGroupIdx.set(d, dateGroups.length); dateGroups.push({ date: d, html: '' }); }
-      dateGroups[dateGroupIdx.get(d)].html += renderOneViewing(v, estateId, isMobile, showTypeFilter);
-    });
-    _renderViewingsTail(panel, rows, filterBarHtml, isMobile, viewings, fetchExtras, dateGroups);
-  } catch {
-    panel.innerHTML = '<div class="listings-section" style="padding:1.5rem;color:var(--muted);text-align:center">載入失敗</div>';
-  }
+  renderCompsPanel();
 }
 
 // 一張睇樓記錄（手機＝卡片、桌面＝表格行）。抽咗出嚟做共用——dashboard
@@ -7220,7 +7421,7 @@ function renderOneViewing(v, estateId, isMobile, showTypeFilter) {
       const mgmtMonthly = v.mgmt_fee ? (v.mgmt_fee > 100 ? Math.round(v.mgmt_fee) : (v.size_net ? Math.round(v.mgmt_fee * v.size_net) : null)) : null;
       const psfStr = v.price && v.size_net ? `$${Math.round(v.price/v.size_net).toLocaleString()}/呎` : '-';
       const vData = encodeURIComponent(JSON.stringify(v));
-      const subLine = [v.direction ? `向${escHtml(v.direction)}` : '', v.bedrooms ? v.bedrooms+'房' : ''].filter(Boolean).join(' ');
+      const subLine = [v.direction ? `向${escHtml(v.direction)}` : '', v.bedrooms ? v.bedrooms+'房' : '', v.toilet ? escHtml(v.toilet) : ''].filter(Boolean).join(' ');
       const sizeStr = v.size_net ? v.size_net+'呎' : '-';
       // 放咗幾耐盤：由對應放盤（linked_ref_no）反推，跨 source 揀最長嗰個。
       // 冇對應放盤（未 tick 過）就留空，唔靠估。
@@ -7340,35 +7541,6 @@ function renderOneViewing(v, estateId, isMobile, showTypeFilter) {
       </tr>`;
 }
 
-async function _renderViewingsTail(panel, rows, filterBarHtml, isMobile, viewings, fetchExtras, dateGroups) {
-  if (isMobile) {
-    const groupsHtml = (dateGroups || []).map((g, gi) => `
-      <div class="viewing-date-group">
-        <button type="button" class="viewing-date-header" onclick="toggleViewingDateGroup(${gi})" aria-expanded="false">
-          <span class="viewing-date-header-date">📅 ${escHtml(g.date)}</span>
-          <span class="viewing-date-header-count">${(g.html.match(/class="viewing-card"/g) || []).length} 個記錄</span>
-          <span class="viewing-date-header-chevron" id="vdg-chev-${gi}">▸</span>
-        </button>
-        <div class="viewing-date-body" id="vdg-body-${gi}" style="display:none">${g.html}</div>
-      </div>`).join('');
-    panel.innerHTML = filterBarHtml + `<div class="viewings-list" id="viewingsCardsWrap">${groupsHtml}</div>`;
-  } else {
-    panel.innerHTML = filterBarHtml + `<div class="listings-section" id="viewingsTableWrap"></div>`;
-    renderFrozenTable(
-      document.getElementById('viewingsTableWrap'),
-      `<th>單位</th><th>叫價</th><th>成交</th><th>價格尺</th><th>對應放盤</th><th>放咗幾耐</th><th>叫價變動</th><th>備注</th><th></th>`,
-      rows, 10, 'history-table data-table'
-    );
-  }
-  if (fetchExtras) {
-    for (const v of viewings) {
-      if (v.deal_type === 'R') continue;   // 「上手購買」係買賣概念，租盤冇呢個 cell
-      fetchUnitTxn(v.id);
-      await new Promise(r => setTimeout(r, 300));
-    }
-  }
-}
-
 async function fetchUnitTxn(viewingId) {
   const v = window._viewingMap?.[viewingId];
   if (!v) return;
@@ -7397,7 +7569,7 @@ async function fetchUnitTxn(viewingId) {
 }
 
 async function deleteViewing(id, estateId) {
-  if (!confirm('確定刪除這個睇樓記錄？')) return;
+  if (!(await appConfirm('確定刪除這個睇樓記錄？'))) return;
   await api(`/api/viewings/${id}`, { method: 'DELETE' });
   loadViewings(estateId);
   refreshComps();
@@ -7413,53 +7585,69 @@ async function fetchViewingPhotos(viewingId) {
   return window._viewingImgsMap[viewingId];
 }
 async function openViewingPhotos(viewingId, btn) {
-  const label = btn?.textContent;
-  if (btn) { btn.disabled = true; btn.textContent = '載入相片…'; }
+  // 封面掣（.vw-cover）入面有 <img>，唔可以改 textContent（會連縮圖一齊洗走），改用 loading class。
+  const isCover = !!btn?.classList.contains('vw-cover');
+  const label = isCover ? null : btn?.textContent;
+  if (btn) { btn.disabled = true; if (isCover) btn.classList.add('loading'); else btn.textContent = '載入相片…'; }
   try { await fetchViewingPhotos(viewingId); viewImgFull(viewingId, 0); }
   catch (e) { toast(e.message || '載入相片失敗', 'error'); }
-  finally { if (btn) { btn.disabled = false; btn.textContent = label; } }
+  finally { if (btn) { btn.disabled = false; if (isCover) btn.classList.remove('loading'); else btn.textContent = label; } }
 }
 
+// 睇樓相片相簿：同放盤卡片個 carousel 同一套設計（橫向 scroll-snap、圓形 ‹ › 掣、
+// 點仔／「3 / 18」計數、圓角卡），放喺淺色 overlay 上面。相全部已經喺記憶體（data URL），
+// 唔使逐張載。
 function viewImgFull(viewingId, startIdx) {
   const images = window._viewingImgsMap[viewingId] || [];
   if (!images.length) return;
-  let cur = startIdx || 0;
+  document.getElementById('img-lightbox')?.remove();
 
   const ov = document.createElement('div');
   ov.id = 'img-lightbox';
-  ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.92);z-index:9999;display:flex;flex-direction:column;align-items:center;justify-content:center';
-
-  const render = () => {
-    const thumbs = images.map((src, i) => `<img src="${safeImgSrc(src)}" data-i="${i}" style="height:64px;width:64px;object-fit:cover;border-radius:4px;cursor:pointer;flex-shrink:0;border:2.5px solid ${i===cur?'#e53e3e':'transparent'};opacity:${i===cur?1:0.6};transition:border 0.15s,opacity 0.15s">`).join('');
-    ov.innerHTML = `
-      <button onclick="document.getElementById('img-lightbox').remove()" style="position:absolute;top:1rem;right:1.2rem;background:none;border:none;color:#fff;font-size:2rem;cursor:pointer;line-height:1;z-index:1">✕</button>
-      <div style="position:relative;display:flex;align-items:center;justify-content:center;width:100%;max-height:78vh">
-        ${images.length>1?`<button onclick="event.stopPropagation();_lbNav(-1)" style="position:absolute;left:1rem;background:rgba(255,255,255,0.15);border:none;color:#fff;font-size:2rem;padding:0.4rem 0.8rem;border-radius:6px;cursor:pointer;z-index:1">‹</button>`:''}
-        <img id="lb-main" src="${safeImgSrc(images[cur])}" style="max-width:88vw;max-height:76vh;border-radius:6px;box-shadow:0 8px 32px rgba(0,0,0,0.7);object-fit:contain">
-        ${images.length>1?`<button onclick="event.stopPropagation();_lbNav(1)" style="position:absolute;right:1rem;background:rgba(255,255,255,0.15);border:none;color:#fff;font-size:2rem;padding:0.4rem 0.8rem;border-radius:6px;cursor:pointer;z-index:1">›</button>`:''}
+  ov.className = 'vpv-overlay';
+  ov.innerHTML = `<div class="vpv-card" role="dialog" aria-modal="true" aria-label="睇樓相片">
+      <div class="vpv-photo lc-photo">
+        <div class="lc-strip">${images.map(src => `<div class="lc-slot"><img class="vpv-bg" src="${safeImgSrc(src)}" alt="" aria-hidden="true"><img class="vpv-img" src="${safeImgSrc(src)}" alt=""></div>`).join('')}</div>
+        ${images.length > 1 ? `<div class="lc-dots"></div>
+        <button type="button" class="lc-nav lc-nav-prev" aria-label="上一張">‹</button>
+        <button type="button" class="lc-nav lc-nav-next" aria-label="下一張">›</button>` : ''}
+        <button type="button" class="vpv-close" aria-label="關閉">✕</button>
       </div>
-      ${images.length>1?`<div id="lb-thumbs" style="display:flex;gap:0.5rem;margin-top:1rem;overflow-x:auto;max-width:92vw;padding:0.3rem 0.5rem">${thumbs}</div>`:''}
-      <div style="color:rgba(255,255,255,0.5);font-size:0.8rem;margin-top:0.5rem">${cur+1} / ${images.length}</div>`;
-    ov.querySelector('#lb-thumbs')?.querySelectorAll('img').forEach(el => {
-      el.addEventListener('click', e => { e.stopPropagation(); cur = +el.dataset.i; render(); });
-    });
+    </div>`;
+  const strip = ov.querySelector('.lc-strip');
+  const dots = ov.querySelector('.lc-dots');
+  const idx = () => Math.round(strip.scrollLeft / (strip.clientWidth || 1));
+  const paint = (i) => {
+    if (!dots) return;
+    const n = images.length;
+    if (n > 8) { dots.classList.add('lc-count'); dots.textContent = `${i + 1} / ${n}`; return; }
+    dots.classList.remove('lc-count');
+    dots.innerHTML = Array.from({ length: n }, (_, k) => `<span class="lc-dot${k === i ? ' active' : ''}"></span>`).join('');
   };
-
-  window._lbNav = (dir) => {
-    cur = (cur + dir + images.length) % images.length;
-    render();
+  const go = (dir) => {
+    const i = Math.max(0, Math.min(images.length - 1, idx() + dir));
+    strip.scrollTo({ left: i * strip.clientWidth, behavior: 'smooth' });
   };
-
-  ov.addEventListener('click', e => { if (e.target === ov) ov.remove(); });
-  document.addEventListener('keydown', function lbKey(e) {
-    if (!document.getElementById('img-lightbox')) { document.removeEventListener('keydown', lbKey); return; }
-    if (e.key === 'ArrowLeft') window._lbNav(-1);
-    if (e.key === 'ArrowRight') window._lbNav(1);
-    if (e.key === 'Escape') ov.remove();
-  });
-
+  const close = () => { document.removeEventListener('keydown', onKey, true); ov.remove(); };
+  const onKey = (e) => {
+    if (e.key === 'Escape') { e.stopPropagation(); close(); }
+    else if (e.key === 'ArrowLeft') go(-1);
+    else if (e.key === 'ArrowRight') go(1);
+  };
+  ov.addEventListener('click', (e) => { if (e.target === ov) close(); });
+  ov.querySelector('.vpv-close').onclick = (e) => { e.stopPropagation(); close(); };
+  ov.querySelector('.lc-nav-prev')?.addEventListener('click', (e) => { e.stopPropagation(); go(-1); });
+  ov.querySelector('.lc-nav-next')?.addEventListener('click', (e) => { e.stopPropagation(); go(1); });
+  let raf = 0;
+  strip.addEventListener('scroll', () => {
+    if (raf) return;
+    raf = requestAnimationFrame(() => { raf = 0; paint(idx()); });
+  }, { passive: true });
+  document.addEventListener('keydown', onKey, true);
   document.body.appendChild(ov);
-  render();
+  const start = Math.max(0, Math.min(images.length - 1, startIdx || 0));
+  strip.scrollLeft = start * strip.clientWidth;
+  paint(start);
 }
 
 

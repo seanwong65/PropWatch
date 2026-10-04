@@ -3087,6 +3087,14 @@ async function ensureViewingImages(db) {
     data TEXT NOT NULL
   )`).run();
   await db.prepare("CREATE INDEX IF NOT EXISTS idx_vimg_acct_viewing ON viewing_images(account_id, viewing_id, seq)").run();
+  // 封面縮圖（第 1 張相嘅小圖，~20–40KB，只喺 seq=0 嗰行有）：卡片打開時先載呢個，唔使載原圖。
+  await db.prepare("ALTER TABLE viewing_images ADD COLUMN thumb TEXT").run().catch(() => {});
+}
+
+// 封面縮圖：一定係細 JPEG data URL（客戶端生成，長邊 ~360px）。唔合格就當冇。
+const COVER_THUMB_MAX = 150 * 1024;
+function cleanCoverThumb(x) {
+  return (typeof x === "string" && x.length <= COVER_THUMB_MAX && /^data:image\/jpeg;base64,[A-Za-z0-9+/]+={0,2}$/.test(x)) ? x : null;
 }
 
 const VIEWING_IMG_RE = /^data:image\/(jpeg|png|webp|gif);base64,[A-Za-z0-9+/]+={0,2}$/;
@@ -3114,12 +3122,12 @@ function parseViewingImages(images, sec, paid) {
 // 一個睇樓記錄嘅相：先刪後插，連同 viewings.images 清 NULL（舊格式搬走）。
 // 回 statements 俾 caller 同其他寫入一齊 db.batch()——D1 batch 係一個
 // transaction，唔會出現「記錄改咗但相寫一半」。
-function viewingImageStatements(db, viewingId, accountId, list) {
+function viewingImageStatements(db, viewingId, accountId, list, coverThumb = null) {
   return [
     db.prepare("DELETE FROM viewing_images WHERE viewing_id = ? AND account_id = ?").bind(viewingId, accountId),
     ...list.map((data, i) => db.prepare(
-      "INSERT INTO viewing_images (viewing_id, account_id, seq, data) VALUES (?,?,?,?)"
-    ).bind(viewingId, accountId, i, data)),
+      "INSERT INTO viewing_images (viewing_id, account_id, seq, data, thumb) VALUES (?,?,?,?,?)"
+    ).bind(viewingId, accountId, i, data, i === 0 ? coverThumb : null)),
     db.prepare("UPDATE viewings SET images = NULL WHERE id = ? AND account_id = ?").bind(viewingId, accountId),
   ];
 }
@@ -3767,6 +3775,10 @@ async function sendAdminAlert(db, env, subject, taskName, lines, note) {
 // 睇樓記錄 linked_ref_no（逗號分隔）→ SQL `IN (...)` 用嘅 literal list。
 // 用 literal 唔用 bind：D1 一條 query 最多 100 個參數。每個 ref 一律先過
 // 白名單 regex，唔合格就丟，所以唔會有 injection。冇 ref 就回 "''"（IN ('') 乜都唔中）。
+// 睇樓記錄「明／暗廁」：白名單，其他一律當冇填。
+const VIEWING_TOILETS = new Set(["明廁", "暗廁"]);
+const cleanToilet = (x) => (VIEWING_TOILETS.has(x) ? x : null);
+
 function refInList(linkedStrs) {
   return [...new Set(linkedStrs.flatMap((x) => String(x || "").split(",")))]
     .map((r) => r.trim()).filter((r) => /^[A-Za-z0-9_-]{1,40}$/.test(r))
@@ -3893,42 +3905,41 @@ async function getTodayHighlights(db, accountId) {
         AND (e.is_disabled = 0 OR e.is_disabled IS NULL)
       ORDER BY l.price ASC`).bind(accountId, today, today, yesterday, yesterday).all(),
     db.prepare(`
+      -- 先逐個屋苑搵出「上上次 sync」嗰日（PP），只睇嗰日嘅盤（走 idx_listings_estate seek），
+      -- 再查呢個 ref 之後有冇再出現（NOT EXISTS，走 idx_listings_estate_ref）。
+      -- 舊寫法對成個帳戶所有屋苑嘅全部歷史 snapshot 逐行算「呢個 ref 最後出現日」，
+      -- 一次 ~22 萬 rows read；結果一樣（ref 最後出現 ＝ PP ⇔ PP 有嗰行而且之後冇）。
+      WITH pp AS (
+        SELECT ae.estate_id,
+          (SELECT MAX(snapshot_date) FROM listings
+            WHERE estate_id = ae.estate_id AND snapshot_date < (
+              SELECT MAX(snapshot_date) FROM listings
+              WHERE estate_id = ae.estate_id AND snapshot_date < ?2)) AS d
+        FROM account_estates ae WHERE ae.account_id = ?1 AND ae.added_at <= ?3
+      )
       SELECT l.ref_no, l.building_name, l.floor, l.unit, l.bedrooms, l.price,
              l.size_net, l.price_per_ft, l.detail_url, l.source, e.name as estate_name,
              ${LIST_START_SQL} AS list_start
-      FROM listings l
+      FROM pp
+      JOIN listings l ON l.estate_id = pp.estate_id AND l.snapshot_date = pp.d
       JOIN estates e ON e.id = l.estate_id
-      JOIN account_estates ae ON ae.estate_id = e.id AND ae.account_id = ?
-      WHERE l.ref_no IS NOT NULL
-        -- 呢行係呢個 ref 喺呢個屋苑最後一次出現嘅 snapshot
-        AND l.snapshot_date = (
-          SELECT MAX(snapshot_date) FROM listings x
-          WHERE x.estate_id = l.estate_id AND x.ref_no = l.ref_no
-        )
-        -- 而且嗰個 snapshot 啱啱好係「上上次」(今日 T 之前係 P,再之前係 PP)。
-        -- 即係呢個 ref 連續兩個 sync(P 同今日 T)都冇再出現,先當確認下架;
+      WHERE pp.d IS NOT NULL
+        AND l.ref_no IS NOT NULL
+        -- 一個 ref 連續兩個 sync(P 同今日 T)都冇再出現,先當確認下架;
         -- 一次 scrape 甩漏(利嘉閣分頁偶爾甩一頁,~10幾個盤一日唔見)唔會即報。
-        -- 代價:真下架會遲一個 sync 先出,但假下架 alert 比遲報更煩。
-        AND l.snapshot_date = (
-          SELECT MAX(snapshot_date) FROM listings
-          WHERE estate_id = l.estate_id AND snapshot_date < (
-            SELECT MAX(snapshot_date) FROM listings
-            WHERE estate_id = l.estate_id AND snapshot_date < ?
-          )
+        AND NOT EXISTS (
+          SELECT 1 FROM listings x
+          WHERE x.estate_id = l.estate_id AND x.ref_no = l.ref_no AND x.snapshot_date > l.snapshot_date
         )
-        -- Scrape-health guard: only trust a "removed" if this source pulled a
-        -- healthy count today (>=70% of the ref's last-seen snapshot). A
-        -- truncated scrape drops many live listings; ignore its absences on an
-        -- under-delivering day.
+        -- Scrape-health guard: 今日呢個 source 要攞夠（>= PP 嗰日 70%），否則唔信「下架」。
         AND (
           (SELECT COUNT(*) FROM listings tt
-             WHERE tt.estate_id = l.estate_id AND tt.source = l.source AND tt.snapshot_date = ?)
-          >= 0.7 * (SELECT COUNT(*) FROM listings pp
-             WHERE pp.estate_id = l.estate_id AND pp.source = l.source AND pp.snapshot_date = l.snapshot_date)
+             WHERE tt.estate_id = l.estate_id AND tt.source = l.source AND tt.snapshot_date = ?2)
+          >= 0.7 * (SELECT COUNT(*) FROM listings pp2
+             WHERE pp2.estate_id = l.estate_id AND pp2.source = l.source AND pp2.snapshot_date = l.snapshot_date)
         )
-        AND ae.added_at <= ?
-        AND date(e.first_seen) <= ?
-        AND (e.is_disabled = 0 OR e.is_disabled IS NULL)`).bind(accountId, today, today, yesterday, yesterday).all(),
+        AND date(e.first_seen) <= ?3
+        AND (e.is_disabled = 0 OR e.is_disabled IS NULL)`).bind(accountId, today, yesterday).all(),
     db.prepare(`
       SELECT t.building, t.floor, t.unit, t.price AS txn_price, t.size_net, t.price_per_ft, t.reg_date,
              v.price AS view_price, v.view_date, v.id AS viewing_id,
@@ -6552,8 +6563,10 @@ export default {
                (SELECT COUNT(DISTINCT h.price) FROM listing_price_history h
                  WHERE h.ref_no = l.ref_no AND h.snapshot_date >= ?2) AS price_variants,
                mr.created_at AS manual_removed_at
-             FROM listings l
-             JOIN per_listing pl ON pl.listing_id = l.listing_id
+             FROM per_listing pl
+             -- CROSS JOIN 逼 SQLite 由 listing_span 出發、逐個盤用 UNIQUE(listing_id, snapshot_date)
+             -- seek 返最後一行；唔逼嘅話佢會掃晒屋苑全部歷史（~1.8 萬行）再 join。
+             CROSS JOIN listings l ON l.listing_id = pl.listing_id AND l.snapshot_date = pl.last_seen
              JOIN src_latest sl ON sl.source = l.source
              LEFT JOIN src_prev_ok sp ON sp.source = l.source
              LEFT JOIN listing_manual_removed mr
@@ -6622,8 +6635,8 @@ export default {
              prev.price AS prev_price,
              (SELECT COUNT(DISTINCT h.price) FROM rental_price_history h
                WHERE h.ref_no = l.ref_no AND h.snapshot_date >= ?2) AS price_variants
-           FROM rental_listings l
-           JOIN per_listing pl ON pl.listing_id = l.listing_id
+           FROM per_listing pl
+           CROSS JOIN rental_listings l ON l.listing_id = pl.listing_id AND l.snapshot_date = pl.last_seen
            JOIN src_latest sl ON sl.source = l.source
            LEFT JOIN src_prev_ok sp ON sp.source = l.source
            LEFT JOIN rental_price_history prev
@@ -7003,9 +7016,14 @@ export default {
         // （同 /api/estates 個 today_count 一致嘅邏輯）覆蓋最後一點。
         if (trends.length) {
           const { results: latestRows } = await db.prepare(
-            `SELECT bedrooms FROM listings l WHERE l.estate_id = ?
-               AND l.snapshot_date = (SELECT MAX(snapshot_date) FROM listings WHERE estate_id = ? AND source = l.source)`
-          ).bind(estateId, estateId).all();
+            // 每個 source 先攞自己最新一日，再用 idx_listings_estate_src_date 逐個 source seek；
+            // 舊寫法逐行掃晒屋苑全部歷史再比對 MAX（每次 ~1.7 萬 rows read）。
+            `SELECT l.bedrooms FROM (
+               SELECT s.id AS source, (SELECT MAX(snapshot_date) FROM listings WHERE estate_id = ?1 AND source = s.id) AS d
+               FROM (${SOURCES.map((x) => `SELECT '${x.id}' AS id`).join(" UNION ALL ")}) s
+             ) m
+             CROSS JOIN listings l ON l.estate_id = ?1 AND l.source = m.source AND l.snapshot_date = m.d AND m.d IS NOT NULL`
+          ).bind(estateId).all();
           trends[trends.length - 1].listing_count = latestRows.filter((r) => _bedMatch(beds, r.bedrooms)).length;
         }
 
@@ -7807,32 +7825,34 @@ export default {
         // 掃晒屋苑全部歷史 snapshot（每次 ~10 萬 rows read），限咗行 idx_*_estate_ref
         // 逐個 ref seek（見 refInList）。
         const refLit = refInList(results.map((v) => v.linked_ref_no));
+        // estate_id 一律強制轉整數先內嵌（唔係數字就丟），所以唔會有 injection。
+        const eidLit = estateIds.map(Number).filter(Number.isInteger).join(",") || "-1";
         const { results: refRows } = await db.prepare(`
           WITH src_latest AS (
             SELECT estate_id, source, MAX(snapshot_date) AS d FROM listings
-            WHERE estate_id IN (${eidPh}) GROUP BY estate_id, source
+            WHERE estate_id IN (${eidLit}) GROUP BY estate_id, source
           ),
           per_ref AS (
             SELECT estate_id, ref_no, source, MIN(snapshot_date) AS first_seen, MAX(snapshot_date) AS last_seen,
                    MIN(NULLIF(publish_date, '')) AS publish_date
-            FROM listings WHERE estate_id IN (${eidPh}) AND ref_no IN (${refLit}) GROUP BY estate_id, ref_no, source
+            FROM listings WHERE estate_id IN (${eidLit}) AND ref_no IN (${refLit}) GROUP BY estate_id, ref_no, source
           ),
           price_bounds AS (
             SELECT ref_no, MIN(snapshot_date) AS min_d, MAX(snapshot_date) AS max_d
-            FROM listing_price_history WHERE estate_id IN (${eidPh}) AND ref_no IN (${refLit}) GROUP BY ref_no
+            FROM listing_price_history WHERE estate_id IN (${eidLit}) AND ref_no IN (${refLit}) GROUP BY ref_no
           ),
           rsrc_latest AS (
             SELECT estate_id, source, MAX(snapshot_date) AS d FROM rental_listings
-            WHERE estate_id IN (${eidPh}) GROUP BY estate_id, source
+            WHERE estate_id IN (${eidLit}) GROUP BY estate_id, source
           ),
           rper_ref AS (
             SELECT estate_id, ref_no, source, MIN(snapshot_date) AS first_seen, MAX(snapshot_date) AS last_seen,
                    MIN(NULLIF(publish_date, '')) AS publish_date
-            FROM rental_listings WHERE estate_id IN (${eidPh}) AND ref_no IN (${refLit}) GROUP BY estate_id, ref_no, source
+            FROM rental_listings WHERE estate_id IN (${eidLit}) AND ref_no IN (${refLit}) GROUP BY estate_id, ref_no, source
           ),
           rprice_bounds AS (
             SELECT ref_no, MIN(snapshot_date) AS min_d, MAX(snapshot_date) AS max_d
-            FROM rental_price_history WHERE estate_id IN (${eidPh}) AND ref_no IN (${refLit}) GROUP BY ref_no
+            FROM rental_price_history WHERE estate_id IN (${eidLit}) AND ref_no IN (${refLit}) GROUP BY ref_no
           )
           SELECT v.id AS viewing_id, pr.ref_no,
             -- 上盤日 = source 公佈日 同 我哋第一次見到 之間較早嗰個，同
@@ -7850,7 +7870,7 @@ export default {
           LEFT JOIN price_bounds pb ON pb.ref_no = pr.ref_no
           LEFT JOIN listing_price_history fp ON fp.ref_no = pr.ref_no AND fp.snapshot_date = pb.min_d
           LEFT JOIN listing_price_history lp ON lp.ref_no = pr.ref_no AND lp.snapshot_date = pb.max_d
-          WHERE v.account_id = ? AND v.estate_id IN (${eidPh})
+          WHERE v.account_id = ? AND v.estate_id IN (${eidLit})
             AND v.linked_ref_no IS NOT NULL AND COALESCE(v.deal_type,'S') = 'S'
 
           UNION ALL
@@ -7868,18 +7888,13 @@ export default {
           LEFT JOIN rprice_bounds pb ON pb.ref_no = pr.ref_no
           LEFT JOIN rental_price_history fp ON fp.ref_no = pr.ref_no AND fp.snapshot_date = pb.min_d
           LEFT JOIN rental_price_history lp ON lp.ref_no = pr.ref_no AND lp.snapshot_date = pb.max_d
-          WHERE v.account_id = ? AND v.estate_id IN (${eidPh})
+          WHERE v.account_id = ? AND v.estate_id IN (${eidLit})
             AND v.linked_ref_no IS NOT NULL AND v.deal_type = 'R'
         `).bind(
-          // 全部用位置參數，順序一定要同上面 SQL 出現次序一樣：
-          ...estateIds,                    // src_latest
-          ...estateIds,                    // per_ref
-          ...estateIds,                    // price_bounds（只掃呢幾個屋苑嘅改價歷史）
-          ...estateIds,                    // rsrc_latest
-          ...estateIds,                    // rper_ref
-          ...estateIds,                    // rprice_bounds
-          session.account_id, ...estateIds, // 買盤分支
-          session.account_id, ...estateIds, // 租盤分支
+          // estate id 已經內嵌（eidLit），所以得兩個參數。以前用 ?×estateIds 重複 8 次，
+          // 16 個屋苑就 130 個參數，超過 D1 單條 query 100 個參數上限（會 500）。
+          session.account_id, // 買盤分支
+          session.account_id, // 租盤分支
         ).all();
         const todayStr = hkDateStr();
         const domByViewing = new Map();    // viewing_id -> 最長 dom_days
@@ -7943,6 +7958,32 @@ export default {
         return json(200, { images });
       }
 
+      // 封面縮圖（卡片打開時載，~20–40KB）。冇縮圖（舊記錄未整理）回 null。
+      if (method === "GET" && /^\/api\/viewings\/\d+\/cover$/.test(path)) {
+        const viewingId = Number(path.split("/")[3]);
+        await ensureViewingImages(db);
+        const row = await db.prepare(
+          "SELECT thumb FROM viewing_images WHERE viewing_id = ? AND account_id = ? AND seq = 0"
+        ).bind(viewingId, session.account_id).first();
+        return json(200, { thumb: row?.thumb || null });
+      }
+
+      // 整理相片（壓縮＋縮圖）用：邊啲記錄仲係舊格式（相喺 viewings.images JSON），或者未有縮圖。
+      // 唔會讀 images 內容，淨係睇有冇。
+      if (method === "GET" && path === "/api/viewings/photo-status") {
+        await ensureViewingImages(db);
+        const { results } = await db.prepare(
+          `SELECT v.id, v.block, v.floor, v.unit,
+                  (v.images IS NOT NULL AND v.images != '') AS legacy,
+                  (SELECT COUNT(*) FROM viewing_images vi WHERE vi.viewing_id = v.id AND vi.account_id = v.account_id) AS n,
+                  (SELECT COUNT(*) FROM viewing_images vi WHERE vi.viewing_id = v.id AND vi.account_id = v.account_id AND vi.seq = 0 AND vi.thumb IS NOT NULL) AS has_thumb
+           FROM viewings v WHERE v.account_id = ?`
+        ).bind(session.account_id).all();
+        const todo = results.filter((r) => r.legacy || (r.n > 0 && !r.has_thumb))
+          .map((r) => ({ id: r.id, label: [r.block, r.floor, r.unit].filter(Boolean).join(" "), legacy: !!r.legacy }));
+        return json(200, { todo });
+      }
+
       if (method === "GET" && path === "/api/viewings/unsold") {
         const { results } = await db.prepare(`
           SELECT v.*, e.name AS estate_name,
@@ -7998,9 +8039,15 @@ export default {
       if (method === "POST" && path === "/api/viewings") {
         const body = await request.json();
         const { estate_id, view_date, block, floor, unit, size_net, direction, price, mgmt_fee, images, notes, bedrooms, ratings } = body;
+        const toilet = cleanToilet(body.toilet);
         const dealType = body.deal_type === 'R' ? 'R' : 'S';
-        if (!estate_id || !view_date || !floor || !unit || !size_net || !price)
+        // 必填只有屋苑／樓層／室；日期、呎數、售價都可以冇填（DB 欄位 NOT NULL，
+        // 所以日期補今日、呎數／售價補 0——畫面一律當 0＝冇資料）。
+        if (!estate_id || !floor || !unit)
           return json(400, { error: "Missing required fields" });
+        const vDate = view_date || hkDateStr();
+        const vSize = Number(size_net) > 0 ? Math.round(Number(size_net)) : 0;
+        const vPrice = Number(price) > 0 ? Math.round(Number(price)) : 0;
         // 睇樓記錄上限：收費版無限，免費版封頂。淨係擋「新增」——改／刪
         // 唔受限，否則已經撞頂嘅免費用戶連改錯字都做唔到。
         if (!isPaidSession(session)) {
@@ -8020,14 +8067,15 @@ export default {
         await db.prepare("ALTER TABLE viewings ADD COLUMN bedrooms INTEGER").run().catch(() => {});
         await db.prepare("ALTER TABLE viewings ADD COLUMN ratings TEXT").run().catch(() => {});
         await db.prepare("ALTER TABLE viewings ADD COLUMN deal_type TEXT DEFAULT 'S'").run().catch(() => {});
+        await db.prepare("ALTER TABLE viewings ADD COLUMN toilet TEXT").run().catch(() => {});
         await ensureViewingImages(db);
         const result = await db.prepare(
-          "INSERT INTO viewings (estate_id, view_date, block, floor, unit, size_net, direction, price, mgmt_fee, images, notes, bedrooms, ratings, account_id, deal_type) VALUES (?,?,?,?,?,?,?,?,?,NULL,?,?,?,?,?)"
-        ).bind(estate_id, view_date, block||null, floor, unit, size_net, direction||null, price, dealType === 'R' ? null : (mgmt_fee||null), notes||null, bedrooms||2, sanitizeRatings(ratings), session.account_id, dealType).run();
+          "INSERT INTO viewings (estate_id, view_date, block, floor, unit, size_net, direction, price, mgmt_fee, images, notes, bedrooms, ratings, account_id, deal_type, toilet) VALUES (?,?,?,?,?,?,?,?,?,NULL,?,?,?,?,?,?)"
+        ).bind(estate_id, vDate, block||null, floor, unit, vSize, direction||null, vPrice, dealType === 'R' ? null : (mgmt_fee||null), notes||null, bedrooms||null, sanitizeRatings(ratings), session.account_id, dealType, toilet).run();
         const newId = result.meta.last_row_id;
         if (imgs.list.length) {
           try {
-            await db.batch(viewingImageStatements(db, newId, session.account_id, imgs.list));
+            await db.batch(viewingImageStatements(db, newId, session.account_id, imgs.list, cleanCoverThumb(body.cover_thumb)));
           } catch (e) {
             // 相寫唔落就連記錄一齊撤回，唔好留低一個「冇相」嘅半成品俾用戶以為存咗
             await db.prepare("DELETE FROM viewings WHERE id = ? AND account_id = ?").bind(newId, session.account_id).run();
@@ -8037,17 +8085,38 @@ export default {
         return json(200, { ok: true, id: newId });
       }
 
+      // 只換相（整理相片用）：唔掂其他欄位（generic PUT 會順手 reset 恒生估值）。
+      if (method === "PUT" && /^\/api\/viewings\/\d+\/photos$/.test(path)) {
+        const viewingId = Number(path.split("/")[3]);
+        const body = await request.json();
+        const imgs = parseViewingImages(body.images, await getSecCfg(db), isPaidSession(session));
+        if (imgs.error) return json(imgs.upgrade ? 402 : 400, imgs.upgrade ? { error: imgs.error, upgrade: true, feature: imgs.feature } : { error: imgs.error });
+        await ensureViewingImages(db);
+        const own = await db.prepare("SELECT 1 FROM viewings WHERE id = ? AND account_id = ?")
+          .bind(viewingId, session.account_id).first();
+        if (!own) return json(404, { error: "搵唔到呢個睇樓記錄" });
+        await db.batch(viewingImageStatements(db, viewingId, session.account_id, imgs.list, cleanCoverThumb(body.cover_thumb)));
+        return json(200, { ok: true });
+      }
+
       // 改/刪都帶 account_id 條件——一個 account 掂唔到另一個 account 嘅記錄。
       if (method === "PUT" && path.startsWith("/api/viewings/")) {
         const viewingId = path.split("/").pop();
         const body = await request.json();
         const { view_date, block, floor, unit, size_net, direction, price, mgmt_fee, images, notes, bedrooms, ratings } = body;
+        const toilet = cleanToilet(body.toilet);
         const dealType = body.deal_type === 'R' ? 'R' : 'S';
+        // 同新增一樣：必填只有樓層／室；日期補今日、呎數／售價補 0（DB 欄位 NOT NULL）
+        if (!floor || !unit) return json(400, { error: "Missing required fields" });
+        const vDate = view_date || hkDateStr();
+        const vSize = Number(size_net) > 0 ? Math.round(Number(size_net)) : 0;
+        const vPrice = Number(price) > 0 ? Math.round(Number(price)) : 0;
         const imgs = parseViewingImages(images, await getSecCfg(db), isPaidSession(session));
         if (imgs.error) return json(imgs.upgrade ? 402 : 400, imgs.upgrade ? { error: imgs.error, upgrade: true, feature: imgs.feature } : { error: imgs.error });
         await db.prepare("ALTER TABLE viewings ADD COLUMN bedrooms INTEGER").run().catch(() => {});
         await db.prepare("ALTER TABLE viewings ADD COLUMN ratings TEXT").run().catch(() => {});
         await db.prepare("ALTER TABLE viewings ADD COLUMN deal_type TEXT DEFAULT 'S'").run().catch(() => {});
+        await db.prepare("ALTER TABLE viewings ADD COLUMN toilet TEXT").run().catch(() => {});
         await ensureViewingImages(db);
         // 先確認係自己嘅記錄：viewing_images 嘅 INSERT 冇 WHERE 可以擋，
         // 唔驗就可以對住人哋嘅 viewing_id 寫相（雖然讀嗰邊有 scope，都唔好留）。
@@ -8056,9 +8125,9 @@ export default {
         if (!own) return json(404, { error: "搵唔到呢個睇樓記錄" });
         await db.batch([
           db.prepare(
-            "UPDATE viewings SET view_date=?, block=?, floor=?, unit=?, size_net=?, direction=?, price=?, mgmt_fee=?, notes=?, bedrooms=?, ratings=?, deal_type=?, hs_price=NULL WHERE id=? AND account_id=?"
-          ).bind(view_date, block||null, floor, unit, size_net, direction||null, price, dealType === 'R' ? null : (mgmt_fee||null), notes||null, bedrooms||2, sanitizeRatings(ratings), dealType, viewingId, session.account_id),
-          ...viewingImageStatements(db, viewingId, session.account_id, imgs.list),
+            "UPDATE viewings SET view_date=?, block=?, floor=?, unit=?, size_net=?, direction=?, price=?, mgmt_fee=?, notes=?, bedrooms=?, ratings=?, deal_type=?, toilet=?, hs_price=NULL WHERE id=? AND account_id=?"
+          ).bind(vDate, block||null, floor, unit, vSize, direction||null, vPrice, dealType === 'R' ? null : (mgmt_fee||null), notes||null, bedrooms||null, sanitizeRatings(ratings), dealType, toilet, viewingId, session.account_id),
+          ...viewingImageStatements(db, viewingId, session.account_id, imgs.list, cleanCoverThumb(body.cover_thumb)),
         ]);
         return json(200, { ok: true });
       }
