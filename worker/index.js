@@ -1264,6 +1264,9 @@ async function ensureListingSpan(db) {
       estate_id INTEGER NOT NULL, listing_id TEXT NOT NULL,
       first_seen TEXT NOT NULL, last_seen TEXT NOT NULL,
       PRIMARY KEY (estate_id, listing_id))`),
+    // 今日動態「下架」：直接 seek「最後出現 ＝ 上上次 sync」嗰批盤（getTodayHighlights）
+    db.prepare("CREATE INDEX IF NOT EXISTS idx_lspan_estate_last ON listing_span(estate_id, last_seen)"),
+    db.prepare("CREATE INDEX IF NOT EXISTS idx_rlspan_estate_last ON rental_listing_span(estate_id, last_seen)"),
   ]);
   if (await getSetting(db, "listing_span_backfilled")) return;
   await db.batch([
@@ -3829,6 +3832,7 @@ async function attachPriceHistorySegments(db, rows, table) {
 
 async function getTodayHighlights(db, accountId) {
   await ensureRentalTables(db);
+  await ensureListingSpan(db);
   const today = hkDateStr();
   const yesterday = hkDateStr(-1);
   // 「新成交」淨計登記日夠新嘅（sec 唔關事，係分析 config）。防止新 source
@@ -3905,41 +3909,51 @@ async function getTodayHighlights(db, accountId) {
         AND (e.is_disabled = 0 OR e.is_disabled IS NULL)
       ORDER BY l.price ASC`).bind(accountId, today, today, yesterday, yesterday).all(),
     db.prepare(`
-      -- 先逐個屋苑搵出「上上次 sync」嗰日（PP），只睇嗰日嘅盤（走 idx_listings_estate seek），
-      -- 再查呢個 ref 之後有冇再出現（NOT EXISTS，走 idx_listings_estate_ref）。
-      -- 舊寫法對成個帳戶所有屋苑嘅全部歷史 snapshot 逐行算「呢個 ref 最後出現日」，
-      -- 一次 ~22 萬 rows read；結果一樣（ref 最後出現 ＝ PP ⇔ PP 有嗰行而且之後冇）。
-      WITH pp AS (
+      -- 先逐個屋苑搵出「上上次 sync」嗰日（PP），再由 listing_span 直接 seek
+      -- 「最後出現 ＝ PP」嗰批盤（idx_lspan_estate_last），即係連續兩個 sync（P 同今日 T）
+      -- 都冇再出現先當確認下架；一次 scrape 甩漏（利嘉閣分頁偶爾甩一頁）唔會即報。
+      -- 同一屋苑 listing_id ↔ ref_no 一對一，span 同 listings 同一個 batch 寫，所以
+      -- 結果同「讀晒 PP 嗰日全部盤＋逐個 NOT EXISTS」一樣（實測 8 日逐行相同），
+      -- 但唔使讀晒成日嘅盤：本機 dump 實測 rows read 由 ~6,500 跌到 ~800。
+      -- pp／cand／healthy 一定要 MATERIALIZED：唔係 SQLite 會將 70% 檢查逐個候選盤
+      -- 重計（每次數成個 source 嘅盤，一個 source 一日甩幾百個盤就爆）。
+      WITH pp AS MATERIALIZED (
         SELECT ae.estate_id,
           (SELECT MAX(snapshot_date) FROM listings
             WHERE estate_id = ae.estate_id AND snapshot_date < (
               SELECT MAX(snapshot_date) FROM listings
               WHERE estate_id = ae.estate_id AND snapshot_date < ?2)) AS d
         FROM account_estates ae WHERE ae.account_id = ?1 AND ae.added_at <= ?3
+      ),
+      cand AS MATERIALIZED (
+        SELECT l.ref_no, l.building_name, l.floor, l.unit, l.bedrooms, l.price,
+               l.size_net, l.price_per_ft, l.detail_url, l.source, e.name AS estate_name,
+               l.estate_id, l.snapshot_date
+        FROM pp
+        JOIN estates e ON e.id = pp.estate_id
+        JOIN listing_span s ON s.estate_id = pp.estate_id AND s.last_seen = pp.d
+        CROSS JOIN listings l ON l.listing_id = s.listing_id AND l.snapshot_date = s.last_seen
+        WHERE pp.d IS NOT NULL
+          AND l.estate_id = s.estate_id
+          AND l.ref_no IS NOT NULL
+          AND date(e.first_seen) <= ?3
+          AND (e.is_disabled = 0 OR e.is_disabled IS NULL)
+      ),
+      -- Scrape-health guard：今日呢個 source 要攞夠（>= PP 嗰日 70%），否則唔信「下架」。
+      -- 每個 屋苑×source 計一次。
+      healthy AS MATERIALIZED (
+        SELECT g.estate_id, g.source
+        FROM (SELECT DISTINCT estate_id, source, snapshot_date FROM cand) g
+        WHERE (SELECT COUNT(*) FROM listings tt
+                 WHERE tt.estate_id = g.estate_id AND tt.source = g.source AND tt.snapshot_date = ?2)
+          >= 0.7 * (SELECT COUNT(*) FROM listings p2
+                 WHERE p2.estate_id = g.estate_id AND p2.source = g.source AND p2.snapshot_date = g.snapshot_date)
       )
       SELECT l.ref_no, l.building_name, l.floor, l.unit, l.bedrooms, l.price,
-             l.size_net, l.price_per_ft, l.detail_url, l.source, e.name as estate_name,
+             l.size_net, l.price_per_ft, l.detail_url, l.source, l.estate_name,
              ${LIST_START_SQL} AS list_start
-      FROM pp
-      JOIN listings l ON l.estate_id = pp.estate_id AND l.snapshot_date = pp.d
-      JOIN estates e ON e.id = l.estate_id
-      WHERE pp.d IS NOT NULL
-        AND l.ref_no IS NOT NULL
-        -- 一個 ref 連續兩個 sync(P 同今日 T)都冇再出現,先當確認下架;
-        -- 一次 scrape 甩漏(利嘉閣分頁偶爾甩一頁,~10幾個盤一日唔見)唔會即報。
-        AND NOT EXISTS (
-          SELECT 1 FROM listings x
-          WHERE x.estate_id = l.estate_id AND x.ref_no = l.ref_no AND x.snapshot_date > l.snapshot_date
-        )
-        -- Scrape-health guard: 今日呢個 source 要攞夠（>= PP 嗰日 70%），否則唔信「下架」。
-        AND (
-          (SELECT COUNT(*) FROM listings tt
-             WHERE tt.estate_id = l.estate_id AND tt.source = l.source AND tt.snapshot_date = ?2)
-          >= 0.7 * (SELECT COUNT(*) FROM listings pp2
-             WHERE pp2.estate_id = l.estate_id AND pp2.source = l.source AND pp2.snapshot_date = l.snapshot_date)
-        )
-        AND date(e.first_seen) <= ?3
-        AND (e.is_disabled = 0 OR e.is_disabled IS NULL)`).bind(accountId, today, yesterday).all(),
+      FROM cand l
+      JOIN healthy h ON h.estate_id = l.estate_id AND h.source = l.source`).bind(accountId, today, yesterday).all(),
     db.prepare(`
       SELECT t.building, t.floor, t.unit, t.price AS txn_price, t.size_net, t.price_per_ft, t.reg_date,
              v.price AS view_price, v.view_date, v.id AS viewing_id,
@@ -4084,36 +4098,44 @@ async function getTodayHighlights(db, accountId) {
           AND (e.is_disabled = 0 OR e.is_disabled IS NULL)
         ORDER BY l.price ASC`).bind(accountId, today, today, yesterday, yesterday).all(),
       db.prepare(`
+        -- 租盤按日輪流一個 source sync，「上一次」要跟返呢個 source 自己
+        -- 嘅 sync 節奏比較，唔可以攞屋苑層面「全部 source 最新」——否則
+        -- 第二日輪去另一個 source sync 就會誤判呢個 ref 做「下架」。
+        -- 所以 pp 係逐個 屋苑×source 嘅「上上次 sync」日；下架 ＝ 呢個盤最後出現
+        -- 正正係嗰日（rental_listing_span.last_seen，idx_rlspan_estate_last seek）。
+        -- 舊寫法逐行掃晒屋苑全部租盤歷史再逐行算兩個 MAX（每次 ~1.5 萬 rows
+        -- read）；同一屋苑 listing_id ↔ ref_no 一對一、span 同 rental_listings
+        -- 同一個 batch 寫，所以結果一樣（本機 dump 13 個屋苑 × 61 日逐行相同），
+        -- rows read 跌到 ~350。
+        WITH pp AS MATERIALIZED (
+          SELECT ae.estate_id, s.id AS source,
+            (SELECT MAX(snapshot_date) FROM rental_listings
+              WHERE estate_id = ae.estate_id AND source = s.id AND snapshot_date < (
+                SELECT MAX(snapshot_date) FROM rental_listings
+                WHERE estate_id = ae.estate_id AND source = s.id AND snapshot_date < ?2)) AS d
+          FROM account_estates ae
+          CROSS JOIN (${SOURCES.map((x) => `SELECT '${x.id}' AS id`).join(" UNION ALL ")}) s
+          WHERE ae.account_id = ?1 AND ae.added_at <= ?3
+        )
         SELECT l.ref_no, l.building_name, l.floor, l.unit, l.bedrooms, l.price,
                l.size_net, l.price_per_ft, l.detail_url, l.source, e.name as estate_name,
                ${RENTAL_LIST_START_SQL} AS list_start
-        FROM rental_listings l
-        JOIN estates e ON e.id = l.estate_id
-        JOIN account_estates ae ON ae.estate_id = e.id AND ae.account_id = ?
-        WHERE l.ref_no IS NOT NULL
-          AND l.snapshot_date = (
-            SELECT MAX(snapshot_date) FROM rental_listings x
-            WHERE x.estate_id = l.estate_id AND x.ref_no = l.ref_no
-          )
-          -- 租盤按日輪流一個 source sync，「上一次」要跟返呢個 source 自己
-          -- 嘅 sync 節奏比較，唔可以攞屋苑層面「全部 source 最新」——否則
-          -- 第二日輪去另一個 source sync 就會誤判呢個 ref 做「下架」。
-          AND l.snapshot_date = (
-            SELECT MAX(snapshot_date) FROM rental_listings
-            WHERE estate_id = l.estate_id AND source = l.source AND snapshot_date < (
-              SELECT MAX(snapshot_date) FROM rental_listings
-              WHERE estate_id = l.estate_id AND source = l.source AND snapshot_date < ?
-            )
-          )
-          AND ae.added_at <= ?
-          AND date(e.first_seen) <= ?
+        FROM pp
+        JOIN estates e ON e.id = pp.estate_id
+        JOIN rental_listing_span sp ON sp.estate_id = pp.estate_id AND sp.last_seen = pp.d
+        CROSS JOIN rental_listings l ON l.listing_id = sp.listing_id AND l.snapshot_date = sp.last_seen
+        WHERE pp.d IS NOT NULL
+          AND l.estate_id = sp.estate_id
+          AND l.source = pp.source
+          AND l.ref_no IS NOT NULL
+          AND date(e.first_seen) <= ?3
           AND (e.is_disabled = 0 OR e.is_disabled IS NULL)
           -- 只提一次：呢個帳戶已經見過呢個 ref 下架就唔再顯示（同一個 ref
           -- 可能因為 source 幾日先輪一次而連續幾日都命中上面嗰個判斷）。
           AND NOT EXISTS (
             SELECT 1 FROM removed_rent_notified rn
-            WHERE rn.account_id = ae.account_id AND rn.ref_no = l.ref_no
-          )`).bind(accountId, today, yesterday, yesterday).all(),
+            WHERE rn.account_id = ?1 AND rn.ref_no = l.ref_no
+          )`).bind(accountId, today, yesterday).all(),
       db.prepare(`
         SELECT t.building, t.floor, t.unit, t.price AS txn_price, t.size_net, t.price_per_ft, t.reg_date,
                v.price AS view_price, v.view_date, v.id AS viewing_id,
