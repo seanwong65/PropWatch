@@ -934,6 +934,12 @@
       padding: 0.55rem; font-size: 0.88rem; font-weight: 600; cursor: pointer;
     }
     .vf-submit:hover { background: var(--btn-hover); }
+    /* 查看模式（👁）：同一個 modal 唯讀。表單整個 inert（撳唔到、Tab 唔到），再收埋所有編輯入口 */
+    #viewingForm.vf-readonly .vf-submit, #viewingForm.vf-readonly .vf-upload-row,
+    #viewingForm.vf-readonly .vf-img-rm, #viewingForm.vf-readonly span[onclick*="Editor"],
+    #viewingForm.vf-readonly #vf-deal-row, #viewingForm.vf-readonly #vf-deal-types { display: none !important; }
+    #viewingForm.vf-readonly .vf-input, #viewingForm.vf-readonly .vf-select { background: var(--surface2); }
+    .vf-switch-edit { display: none; }
     /* 訂閱計劃卡（升級 modal） */
     .plan-card {
       position: relative; flex: 1; text-align: center; cursor: pointer;
@@ -1036,7 +1042,7 @@
     .dj-price { color: #1270ac; font-weight: 700; }
     .dj-tag { font-size: 0.66rem; padding: 0.05rem 0.45rem; border-radius: 999px; background: var(--brand-soft); color: #1270ac; }
     /* 只睇模式：收埋編輯／刪除同「對應放盤」✓✕，唔會㩒錯 */
-    .dj.viewonly .viewing-del-btn, .dj.viewonly .vw-edit-only { display: none !important; }
+    .dj.viewonly .viewing-del-btn:not(.vw-view-btn), .dj.viewonly .vw-edit-only { display: none !important; }
     .dj-mode { margin-left: 0.6rem; font-size: 0.72rem; padding: 0.15rem 0.6rem; border-radius: 999px; border: 1px solid var(--border-strong); background: var(--surface); color: var(--text); cursor: pointer; }
     .dj-mode.on { background: var(--brand); border-color: var(--brand); color: #fff; font-weight: 600; }
     .vw-cover { position: relative; display: block; width: 100%; max-height: 170px; overflow: hidden; border: none; padding: 0; margin: 0.4rem 0 0.6rem; border-radius: 12px; cursor: pointer; background: var(--surface2); }
@@ -2189,6 +2195,7 @@
 
       <button type="submit" class="vf-submit">儲存記錄</button>
     </form>
+    <button type="button" class="vf-submit vf-switch-edit" id="vf-switch-edit" onclick="switchViewingToEdit()">✏️ 更改</button>
   </div>
 </div>
 <!-- 連拍相機：in-page getUserMedia，撳一下影一張、唔使每張重開系統相機 -->
@@ -6965,7 +6972,7 @@ async function deleteRatingCriterion(id) {
 }
 
 let _vfBorrowedEstate = null;   // 由 dashboard（冇開屋苑頁）開編輯時，暫借記錄本身嘅屋苑，閂窗還原
-function openViewingModal(viewing = null) {
+function openViewingModal(viewing = null, readOnly = false) {
   if (!_viewingEstateId) {
     if (!viewing?.estate_id) return;
     _vfBorrowedEstate = { id: _viewingEstateId, name: _viewingEstateName };
@@ -6975,7 +6982,7 @@ function openViewingModal(viewing = null) {
   _viewingEditId = viewing ? viewing.id : null;
   document.getElementById('viewingModalOverlay').style.display = 'flex';
   document.getElementById('viewing-modal-estate-name').textContent = _viewingEstateName;
-  document.querySelector('#viewingModalOverlay .modal-title').textContent = viewing ? '✏️ 更改睇樓記錄' : '＋ 新增睇樓記錄';
+  document.querySelector('#viewingModalOverlay .modal-title').textContent = viewing ? (readOnly ? '👁 查看睇樓記錄' : '✏️ 更改睇樓記錄') : '＋ 新增睇樓記錄';
   const today = new Date(Date.now() + 8*3600000).toISOString().slice(0,10);
   document.getElementById('vf-date').value = viewing ? viewing.view_date : today;
   document.getElementById('vf-block').value = viewing ? (viewing.block || '') : '';
@@ -7028,6 +7035,20 @@ function openViewingModal(viewing = null) {
       if (r?.mgmt_fee) document.getElementById('vf-mgmt').value = r.mgmt_fee;
     }).catch(() => {});
   }
+  setVfReadOnly(!!viewing && readOnly);
+}
+
+// 查看模式：同一個 modal，但整個表單 inert（撳唔到、Tab 唔到、Enter 都唔會 submit），
+// 收埋儲存／上傳／編輯選項，淨係睇。底部「✏️ 更改」掣先轉去編輯（唔使重載相片）。
+function setVfReadOnly(on) {
+  const form = document.getElementById('viewingForm');
+  form.inert = on;
+  form.classList.toggle('vf-readonly', on);
+  document.getElementById('vf-switch-edit').style.display = on ? 'block' : 'none';
+}
+function switchViewingToEdit() {
+  setVfReadOnly(false);
+  document.querySelector('#viewingModalOverlay .modal-title').textContent = '✏️ 更改睇樓記錄';
 }
 
 function setVfDeal(deal) {
@@ -7494,6 +7515,7 @@ function renderOneViewing(v, estateId, isMobile, showTypeFilter) {
         rateBreak,
         imgHtml ? `<div style="margin-top:0.25rem">${imgHtml}</div>` : '',
       ].filter(Boolean).join('') || '-';
+      const viewBtn = `<button class="viewing-del-btn vw-view-btn" onclick='openViewingModal(JSON.parse(decodeURIComponent("${vData}")), true)' title="查看" style="background:var(--btn2-bg);border:1px solid var(--btn2-border);margin-right:0.3rem">👁</button>`;
       const editBtn = `<button class="viewing-del-btn" onclick='openViewingModal(JSON.parse(decodeURIComponent("${vData}")))' title="更改" style="background:var(--btn2-bg);border:1px solid var(--btn2-border);margin-right:0.3rem">✏️</button>`;
       const delBtn = `<button class="viewing-del-btn" onclick="deleteViewing(${v.id},${estateId})" title="刪除">🗑</button>`;
 
@@ -7506,7 +7528,7 @@ function renderOneViewing(v, estateId, isMobile, showTypeFilter) {
               <div class="viewing-card-title">${unitStr}${rateBadge}</div>
               <div class="viewing-card-date">${unitSub ? unitSub + ' · ' : ''}睇於 ${v.view_date}</div>
             </div>
-            <div style="white-space:nowrap;flex-shrink:0">${editBtn}${delBtn}</div>
+            <div style="white-space:nowrap;flex-shrink:0">${viewBtn}${editBtn}${delBtn}</div>
           </div>
           <div class="viewing-card-grid" style="grid-template-columns:repeat(2,1fr);margin-bottom:0.7rem">
             <div class="viewing-card-kv">
@@ -7537,7 +7559,7 @@ function renderOneViewing(v, estateId, isMobile, showTypeFilter) {
         <td>${domCell}</td>
         <td>${priceChangedCell}</td>
         <td>${notesHtml}</td>
-        <td style="white-space:nowrap">${editBtn}${delBtn}</td>
+        <td style="white-space:nowrap">${viewBtn}${editBtn}${delBtn}</td>
       </tr>`;
 }
 
