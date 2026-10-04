@@ -3787,6 +3787,20 @@ function refInList(linkedStrs) {
     .map((r) => r.trim()).filter((r) => /^[A-Za-z0-9_-]{1,40}$/.test(r))
     .map((r) => `'${r}'`).join(",") || "''";
 }
+// 每個 屋苑×source 嘅最新 snapshot 日：(estate_id, source, d)。逐個組合用
+// idx_*_estate_src_date seek 一行 MAX；`GROUP BY estate_id, source` 寫法 SQLite
+// 會讀晒全部歷史（睇樓日記一次 ~9 萬 rows read）。source 清單跟 SOURCES。
+// eidLit：已經轉好整數、逗號分隔嘅 estate id（同 refInList 一樣係內嵌，唔係參數）。
+function srcLatestSql(table, eidLit) {
+  const eids = String(eidLit).split(",").map(Number).filter(Number.isInteger);
+  const vals = (eids.length ? eids : [-1]).map((x) => `(${x})`).join(",");
+  return `SELECT * FROM (
+      SELECT e.column1 AS estate_id, s.id AS source,
+        (SELECT MAX(snapshot_date) FROM ${table} WHERE estate_id = e.column1 AND source = s.id) AS d
+      FROM (VALUES ${vals}) e
+      CROSS JOIN (${SOURCES.map((x) => `SELECT '${x.id}' AS id`).join(" UNION ALL ")}) s
+    ) WHERE d IS NOT NULL`;
+}
 const LIST_START_SQL = `(SELECT MIN(CASE
     WHEN NULLIF(x.publish_date,'') IS NOT NULL AND x.publish_date < x.snapshot_date
     THEN x.publish_date ELSE x.snapshot_date END)
@@ -6568,24 +6582,28 @@ export default {
             // 唔可以同屋苑整體最新比。否則某個 source（例如 HKP）落後一日
             // 未 sync，佢全部盤都會被誤判下架（last_seen < 其他 source 嘅
             // 今日 snapshot），成個 source 消失。
-            `WITH src_latest AS (
-               SELECT source, MAX(snapshot_date) AS d FROM listings WHERE estate_id = ?1 GROUP BY source
-             ),
+            `WITH src_latest AS MATERIALIZED (${srcLatestSql("listings", estateId)}),
              -- 「下架」只可以攞**成功完成**嘅 sync 做證據（sync_log.ok = 1）。
              -- 用 MAX(snapshot_date) 唔得：今日 sync 一開始寫低部分數據，
              -- 個 source 個 latest 就即刻跳去今日，跟住所有仲未 scrape 到嘅
              -- 盤 last_seen < d 就被標「下架」——用戶 10:00–10:20 sync 途中
              -- 睇就會見到一堆假下架。
-             src_ok AS (
+             src_ok AS MATERIALIZED (
                SELECT DISTINCT source, sync_date AS d FROM sync_log
                WHERE estate_id = ?1 AND kind = 'listings' AND ok = 1
              ),
              -- 上一次成功 sync：要連續兩次成功 sync 都唔見先當下架，同
              -- 「今日動態」嗰邊嘅兩次判斷一致（一次 scrape 甩漏唔會即報）。
+             -- 先計每個 source 最新一次成功 sync（src_max），再攞佢之前最近嗰次。
+             -- 舊寫法逐行 correlated MAX，src_ok 有幾百行就變幾萬次 lookup。
+             src_max AS MATERIALIZED (
+               SELECT source, MAX(d) AS d FROM src_ok GROUP BY source
+             ),
              src_prev_ok AS (
-               SELECT source, MAX(d) AS d FROM src_ok o
-               WHERE d < (SELECT MAX(x.d) FROM src_ok x WHERE x.source = o.source)
-               GROUP BY source
+               SELECT o.source, MAX(o.d) AS d FROM src_ok o
+               JOIN src_max m ON m.source = o.source
+               WHERE o.d < m.d
+               GROUP BY o.source
              ),
              per_listing AS (
                SELECT listing_id, first_seen, last_seen
@@ -6648,21 +6666,24 @@ export default {
           .bind(session.account_id, estateId).first();
         const addedAt = sub?.added_at ?? "9999-12-31";
         const { results } = await db.prepare(
-          `WITH src_latest AS (
-             SELECT source, MAX(snapshot_date) AS d FROM rental_listings
-             WHERE estate_id = ?1 GROUP BY source
-           ),
+          `WITH src_latest AS MATERIALIZED (${srcLatestSql("rental_listings", estateId)}),
            -- 同買盤嗰邊一樣：「下架」只認成功完成嘅 sync（sync_log.ok = 1），
            -- 而且要連續兩次成功 sync 都唔見。租盤 source 幾日先輪一次，
            -- 所以呢個保護更加重要。
-           src_ok AS (
+           src_ok AS MATERIALIZED (
              SELECT DISTINCT source, sync_date AS d FROM sync_log
              WHERE estate_id = ?1 AND kind = 'rent_listings' AND ok = 1
            ),
+           -- 先計每個 source 最新一次成功 sync（src_max），再攞佢之前最近嗰次。
+           -- 舊寫法逐行 correlated MAX，src_ok 有幾百行就變幾萬次 lookup。
+           src_max AS MATERIALIZED (
+             SELECT source, MAX(d) AS d FROM src_ok GROUP BY source
+           ),
            src_prev_ok AS (
-             SELECT source, MAX(d) AS d FROM src_ok o
-             WHERE d < (SELECT MAX(x.d) FROM src_ok x WHERE x.source = o.source)
-             GROUP BY source
+             SELECT o.source, MAX(o.d) AS d FROM src_ok o
+             JOIN src_max m ON m.source = o.source
+             WHERE o.d < m.d
+             GROUP BY o.source
            ),
            per_listing AS (
              SELECT listing_id, first_seen, last_seen
@@ -7867,10 +7888,7 @@ export default {
         // estate_id 一律強制轉整數先內嵌（唔係數字就丟），所以唔會有 injection。
         const eidLit = estateIds.map(Number).filter(Number.isInteger).join(",") || "-1";
         const { results: refRows } = await db.prepare(`
-          WITH src_latest AS (
-            SELECT estate_id, source, MAX(snapshot_date) AS d FROM listings
-            WHERE estate_id IN (${eidLit}) GROUP BY estate_id, source
-          ),
+          WITH src_latest AS (${srcLatestSql("listings", eidLit)}),
           per_ref AS (
             SELECT estate_id, ref_no, source, MIN(snapshot_date) AS first_seen, MAX(snapshot_date) AS last_seen,
                    MIN(NULLIF(publish_date, '')) AS publish_date
@@ -7880,10 +7898,7 @@ export default {
             SELECT ref_no, MIN(snapshot_date) AS min_d, MAX(snapshot_date) AS max_d
             FROM listing_price_history WHERE estate_id IN (${eidLit}) AND ref_no IN (${refLit}) GROUP BY ref_no
           ),
-          rsrc_latest AS (
-            SELECT estate_id, source, MAX(snapshot_date) AS d FROM rental_listings
-            WHERE estate_id IN (${eidLit}) GROUP BY estate_id, source
-          ),
+          rsrc_latest AS (${srcLatestSql("rental_listings", eidLit)}),
           rper_ref AS (
             SELECT estate_id, ref_no, source, MIN(snapshot_date) AS first_seen, MAX(snapshot_date) AS last_seen,
                    MIN(NULLIF(publish_date, '')) AS publish_date
