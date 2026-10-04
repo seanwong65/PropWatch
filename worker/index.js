@@ -3844,9 +3844,16 @@ async function getTodayHighlights(db, accountId) {
   // 冇得行 index，要逐行掃屋苑全部歷史 snapshot（一次 ~9 萬 rows read）。
   // 先限 ref_no IN (...) 就變成逐個 ref 用 index seek。
   const { results: hlViewings } = await db.prepare(
-    "SELECT linked_ref_no FROM viewings WHERE account_id = ? AND linked_ref_no IS NOT NULL"
+    "SELECT id, estate_id, linked_ref_no FROM viewings WHERE account_id = ? AND linked_ref_no IS NOT NULL"
   ).bind(accountId).all();
   const hlRefs = refInList(hlViewings.map((v) => v.linked_ref_no));
+  // 「睇過嘅放盤下架」用：喺 JS 拆好 (viewing_id, estate_id, ref) 一對對，SQL 每對只
+  // seek 最後一行；唔使喺 SQL 度用 LIKE 逐對 viewings × ref 配（ref 一多就幾萬次 lookup）。
+  // ref 同 refInList 一樣要過白名單（拆唔 trim：同舊 LIKE ',ref,' 一樣，有空格就配唔到）。
+  const hlPairs = [...new Set(hlViewings.flatMap((v) =>
+    String(v.linked_ref_no || "").split(",")
+      .filter((r) => /^[A-Za-z0-9_-]{1,40}$/.test(r))
+      .map((r) => `(${Number(v.id)},${Number(v.estate_id)},'${r}')`)))].join(",");
 
   const [newTxns, priceChanges, newListings, removedListings, viewedTxns, linkedPriceChanges, linkedRemoved] = await Promise.all([
     db.prepare(`
@@ -3994,37 +4001,47 @@ async function getTodayHighlights(db, accountId) {
     // 睇過嘅放盤下架：同上面 removedListings 一模一樣嘅「連續兩次 sync 都唔見」
     // + 70% scrape-health 判斷，但只計用戶自己喺睇樓記錄 tick 咗「對應放盤」嗰啲。
     // 下架比改價更值得知（盤冇咗＝可能已售或者收返），所以獨立一段擺 email 頂。
-    db.prepare(`
+    // lr：每對用 idx_listings_estate_ref 倒序 seek 呢個 ref 最後一行（舊寫法讀晒每個 ref
+    // 全部歷史 snapshot 再逐行算 MAX）；cand：最後出現 ＝ 屋苑「上上次 sync」日先留低；
+    // 70% 檢查放最後，淨係對真正下架嘅候選計。本機 dump 61 日逐行相同，rows read
+    // 3,400 → ~235（455 個 ref 壓力測試 10.5 萬 → 4,700）。
+    hlPairs ? db.prepare(`
+      WITH lv(viewing_id, estate_id, ref_no) AS (VALUES ${hlPairs}),
+      lr AS MATERIALIZED (
+        SELECT lv.viewing_id, lv.estate_id,
+          (SELECT x.rowid FROM listings x WHERE x.estate_id = lv.estate_id AND x.ref_no = lv.ref_no
+            ORDER BY x.snapshot_date DESC LIMIT 1) AS last_rowid
+        FROM lv
+      ),
+      pp AS MATERIALIZED (
+        SELECT g.estate_id,
+          (SELECT MAX(snapshot_date) FROM listings WHERE estate_id = g.estate_id AND snapshot_date < (
+            SELECT MAX(snapshot_date) FROM listings WHERE estate_id = g.estate_id AND snapshot_date < ?2)) AS d
+        FROM (SELECT DISTINCT estate_id FROM lr) g
+      ),
+      cand AS MATERIALIZED (
+        SELECT lr.viewing_id, lr.last_rowid
+        FROM lr
+        JOIN listings l ON l.rowid = lr.last_rowid
+        JOIN pp ON pp.estate_id = lr.estate_id AND l.snapshot_date = pp.d
+        WHERE l.ref_no IS NOT NULL
+      )
       SELECT v.id AS viewing_id, v.price AS view_price, v.view_date,
              l.ref_no, l.building_name, l.floor, l.unit AS l_unit, l.price,
              l.size_net, l.price_per_ft, l.source, e.name AS estate_name,
              ${LIST_START_SQL} AS list_start
-      FROM viewings v
-      JOIN listings l ON l.ref_no IN (${hlRefs}) AND (',' || v.linked_ref_no || ',') LIKE ('%,' || l.ref_no || ',%')
-        AND l.estate_id = v.estate_id
-      JOIN estates e ON e.id = v.estate_id
-      WHERE v.linked_ref_no IS NOT NULL
-        AND v.account_id = ?
-        AND l.ref_no IS NOT NULL
-        AND l.snapshot_date = (
-          SELECT MAX(snapshot_date) FROM listings x
-          WHERE x.estate_id = l.estate_id AND x.ref_no = l.ref_no
-        )
-        AND l.snapshot_date = (
-          SELECT MAX(snapshot_date) FROM listings
-          WHERE estate_id = l.estate_id AND snapshot_date < (
-            SELECT MAX(snapshot_date) FROM listings
-            WHERE estate_id = l.estate_id AND snapshot_date < ?
-          )
-        )
-        AND (
+      FROM cand
+      JOIN viewings v ON v.id = cand.viewing_id AND v.account_id = ?1
+      JOIN listings l ON l.rowid = cand.last_rowid
+      JOIN estates e ON e.id = l.estate_id
+      WHERE (
           (SELECT COUNT(*) FROM listings tt
-             WHERE tt.estate_id = l.estate_id AND tt.source = l.source AND tt.snapshot_date = ?)
-          >= 0.7 * (SELECT COUNT(*) FROM listings pp
-             WHERE pp.estate_id = l.estate_id AND pp.source = l.source AND pp.snapshot_date = l.snapshot_date)
+             WHERE tt.estate_id = l.estate_id AND tt.source = l.source AND tt.snapshot_date = ?2)
+          >= 0.7 * (SELECT COUNT(*) FROM listings p2
+             WHERE p2.estate_id = l.estate_id AND p2.source = l.source AND p2.snapshot_date = l.snapshot_date)
         )
         AND (e.is_disabled = 0 OR e.is_disabled IS NULL)
-      ORDER BY e.name, l.price DESC`).bind(accountId, today, today).all(),
+      ORDER BY e.name, l.price DESC`).bind(accountId, today).all() : { results: [] },
   ]);
 
   // 租盤動態：淨係揀咗「租盤」偏好嘅帳戶先計，買盤淨用戶唔嘥呢輪 query。
