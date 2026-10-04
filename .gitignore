@@ -18,3 +18,6 @@ memory/
 
 # production DB dump（含用戶資料／密碼雜湊，絕對唔入 git）
 worker/.local-dump/
+
+# 每日對話記憶 backup／新對話接手包（入面有其他 project 筆記，唔入 git）
+00memory/
