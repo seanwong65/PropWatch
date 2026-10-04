@@ -1249,6 +1249,65 @@ function parseRentalListing(item) {
   };
 }
 
+// ── 每個盤「每個價錢最後見過嗰日」（listing_price_seen）──────────────────────
+// 放盤列表嗰句「改價 N 次」＝ 由你加入屋苑嗰日起，呢個 ref 出現過幾多個唔同價。
+// 舊寫法逐個盤 COUNT(DISTINCT price) 掃晒佢每日一行嘅價錢歷史（大屋苑一次 ~1.6 萬 rows read）。
+// 「由 D 日起有幾多個唔同價」＝「最後見過日 >= D 嘅唔同價有幾多個」（一個價喺 D 之後出現過
+// ⇔ 佢最後見過日 >= D），所以只要記低 (ref_no, price) → 最後見過日，每個盤 1–5 行
+// （10.8 萬行歷史 → 5 千行）。結果同舊寫法必然一樣（本機 47 萬個 ref×日期組合 0 差異）。
+// 由 trigger 維護：三個 sync 寫入位全部都係 INSERT ... ON CONFLICT(ref_no, snapshot_date)
+// DO UPDATE，trigger 會涵蓋佢哋同將來任何新寫入位，唔使逐個改；同日改價（UPDATE）、
+// 刪除都處理（重算舊價嘅最後見過日／冇咗就刪行），亂序／重覆寫都冇事。
+// 讀嗰邊用 ensurePriceSeen() 嘅回傳值：失敗（例如 trigger 建唔到）就照用舊寫法，唔會出錯數。
+let _priceSeenReady = false;
+async function ensurePriceSeen(db) {
+  if (_priceSeenReady) return true;
+  try {
+    await db.batch([
+      db.prepare(`CREATE TABLE IF NOT EXISTS listing_price_seen (
+        ref_no TEXT NOT NULL, price REAL NOT NULL, last_date TEXT NOT NULL,
+        PRIMARY KEY (ref_no, price)) WITHOUT ROWID`),
+      db.prepare(`CREATE TRIGGER IF NOT EXISTS trg_lph_seen_ins AFTER INSERT ON listing_price_history
+        BEGIN
+          INSERT INTO listing_price_seen (ref_no, price, last_date) VALUES (NEW.ref_no, NEW.price, NEW.snapshot_date)
+          ON CONFLICT(ref_no, price) DO UPDATE SET last_date = MAX(last_date, excluded.last_date);
+        END`),
+      db.prepare(`CREATE TRIGGER IF NOT EXISTS trg_lph_seen_upd AFTER UPDATE ON listing_price_history
+        WHEN OLD.price IS NOT NEW.price OR OLD.ref_no IS NOT NEW.ref_no OR OLD.snapshot_date IS NOT NEW.snapshot_date
+        BEGIN
+          UPDATE listing_price_seen SET last_date = (SELECT MAX(snapshot_date) FROM listing_price_history WHERE ref_no = OLD.ref_no AND price = OLD.price)
+            WHERE ref_no = OLD.ref_no AND price = OLD.price
+              AND EXISTS (SELECT 1 FROM listing_price_history WHERE ref_no = OLD.ref_no AND price = OLD.price);
+          DELETE FROM listing_price_seen WHERE ref_no = OLD.ref_no AND price = OLD.price
+            AND NOT EXISTS (SELECT 1 FROM listing_price_history WHERE ref_no = OLD.ref_no AND price = OLD.price);
+          INSERT INTO listing_price_seen (ref_no, price, last_date) VALUES (NEW.ref_no, NEW.price, NEW.snapshot_date)
+          ON CONFLICT(ref_no, price) DO UPDATE SET last_date = MAX(last_date, excluded.last_date);
+        END`),
+      db.prepare(`CREATE TRIGGER IF NOT EXISTS trg_lph_seen_del AFTER DELETE ON listing_price_history
+        BEGIN
+          UPDATE listing_price_seen SET last_date = (SELECT MAX(snapshot_date) FROM listing_price_history WHERE ref_no = OLD.ref_no AND price = OLD.price)
+            WHERE ref_no = OLD.ref_no AND price = OLD.price
+              AND EXISTS (SELECT 1 FROM listing_price_history WHERE ref_no = OLD.ref_no AND price = OLD.price);
+          DELETE FROM listing_price_seen WHERE ref_no = OLD.ref_no AND price = OLD.price
+            AND NOT EXISTS (SELECT 1 FROM listing_price_history WHERE ref_no = OLD.ref_no AND price = OLD.price);
+        END`),
+    ]);
+    // 先建 trigger、後 backfill：之後寫入由 trigger 接手，backfill 用 MAX 合併，
+    // 兩邊交疊嘅日子重覆算都冇事（idempotent）。
+    if (!(await getSetting(db, "price_seen_backfilled"))) {
+      await db.prepare(`INSERT INTO listing_price_seen (ref_no, price, last_date)
+        SELECT ref_no, price, MAX(snapshot_date) FROM listing_price_history GROUP BY ref_no, price
+        ON CONFLICT(ref_no, price) DO UPDATE SET last_date = MAX(last_date, excluded.last_date)`).run();
+      await setSetting(db, "price_seen_backfilled", "1");
+    }
+    _priceSeenReady = true;
+    return true;
+  } catch (e) {
+    console.error("ensurePriceSeen failed, falling back to price history scan:", e?.message || e);
+    return false;
+  }
+}
+
 // ── 放盤「首次／最後出現」日期（listing_span / rental_listing_span）────────
 // /api/estates/:id/listings 要知每個盤第一次同最後一次出現喺邊日，舊寫法
 // GROUP BY listing_id 掃晒屋苑全部歷史 snapshot（每次開屋苑 ~4.7 萬 rows read）。
@@ -1268,6 +1327,7 @@ async function ensureListingSpan(db) {
     db.prepare("CREATE INDEX IF NOT EXISTS idx_lspan_estate_last ON listing_span(estate_id, last_seen)"),
     db.prepare("CREATE INDEX IF NOT EXISTS idx_rlspan_estate_last ON rental_listing_span(estate_id, last_seen)"),
   ]);
+  await ensurePriceSeen(db);   // 寫入 listing_price_history 之前一定要有 trigger
   if (await getSetting(db, "listing_span_backfilled")) return;
   await db.batch([
     db.prepare(`INSERT INTO listing_span (estate_id, listing_id, first_seen, last_seen)
@@ -6571,6 +6631,7 @@ export default {
       if (method === "GET" && path.match(/^\/api\/estates\/\d+\/listings$/)) {
         await ensureManualRemoved(db);
         await ensureListingSpan(db);
+        const seenOk = await ensurePriceSeen(db);
         const estateId = path.split("/")[3];
         // 「改價 N 次」/「原價」都係售價歷史嘅衍生——由加入自選日開始計。
         const lSub = await db.prepare("SELECT added_at FROM account_estates WHERE account_id = ? AND estate_id = ?")
@@ -6617,8 +6678,9 @@ export default {
                     THEN pl.last_seen ELSE NULL END AS removed_date,
                prev.price AS prev_price,
                prev.price_per_ft AS prev_price_per_ft,
-               (SELECT COUNT(DISTINCT h.price) FROM listing_price_history h
-                 WHERE h.ref_no = l.ref_no AND h.snapshot_date >= ?2) AS price_variants,
+               ${seenOk
+                 ? "(SELECT COUNT(*) FROM listing_price_seen s WHERE s.ref_no = l.ref_no AND s.last_date >= ?2)"
+                 : "(SELECT COUNT(DISTINCT h.price) FROM listing_price_history h WHERE h.ref_no = l.ref_no AND h.snapshot_date >= ?2)"} AS price_variants,
                mr.created_at AS manual_removed_at
              FROM per_listing pl
              -- CROSS JOIN 逼 SQLite 由 listing_span 出發、逐個盤用 UNIQUE(listing_id, snapshot_date)
@@ -7872,6 +7934,7 @@ export default {
         // 只查「睇樓記錄真係 link 咗」嗰幾個 ref：per_ref／price_bounds 唔限 ref 就要
         // 掃晒屋苑全部歷史 snapshot（每次 ~10 萬 rows read），限咗行 idx_*_estate_ref
         // 逐個 ref seek（見 refInList）。
+        const seenOk = await ensurePriceSeen(db);
         const refLit = refInList(results.map((v) => v.linked_ref_no));
         // estate_id 一律強制轉整數先內嵌（唔係數字就丟），所以唔會有 injection。
         const eidLit = estateIds.map(Number).filter(Number.isInteger).join(",") || "-1";
@@ -7903,7 +7966,9 @@ export default {
             CASE WHEN pr.publish_date IS NOT NULL AND pr.publish_date < pr.first_seen
                  THEN pr.publish_date ELSE pr.first_seen END AS list_start,
             CASE WHEN pr.last_seen < sl.d THEN pr.last_seen ELSE NULL END AS removed_date,
-            (SELECT COUNT(DISTINCT price) FROM listing_price_history h WHERE h.ref_no = pr.ref_no) AS price_variants,
+            ${seenOk
+              ? "(SELECT COUNT(*) FROM listing_price_seen s WHERE s.ref_no = pr.ref_no)"
+              : "(SELECT COUNT(DISTINCT price) FROM listing_price_history h WHERE h.ref_no = pr.ref_no)"} AS price_variants,
             fp.price AS old_price, lp.price AS new_price, pb.max_d AS change_date
           FROM viewings v
           JOIN per_ref pr ON pr.estate_id = v.estate_id
