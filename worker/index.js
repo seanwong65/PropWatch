@@ -7357,6 +7357,7 @@ export default {
 
       if (method === "GET" && path === "/api/history-highlights") {
         if (!isPaidSession(session)) return paywall("歷史動態");
+        await ensureListingSpan(db);
         const months = Math.min(12, Math.max(1, parseInt(url.searchParams.get("months") || "1")));
         const cutoff = new Date(Date.now() + 8*3600000);
         cutoff.setMonth(cutoff.getMonth() - months);
@@ -7378,111 +7379,98 @@ export default {
             ORDER BY t.first_seen DESC, t.price DESC
           `).bind(hAid, cutoffStr, today, cutoffStr).all(),
 
-          // ⚠️ 2026-09-29：舊版 `JOIN listings l ON l.ref_no = lph.ref_no
-          // AND l.estate_id = lph.estate_id` 冇夾埋 snapshot_date——listings
-          // 同 listing_price_history 都係一日一行，兩個表咁樣 join 會做成
-          // 笛卡兒積（一個 ref_no 追蹤 200 日 = 200×200 行先至 GROUP BY 縮
-          // 返），跟優化 priceChanges 嗰條 query 之後改到呢度先再撞
-          // SQLITE_NOMEM，就係呢個 bug。改法：first_seen_date 淨係喺
-          // listing_price_history 度計，計完先用「最新一日」精準 join 返
-          // listings 攞單位資料（同下面 priceChanges 果條 query 一致嘅手法）。
+          // ⚠️ 新盤／改價／下架三條都由 listing_span 出發（2026-10-04）：舊寫法要讀晒
+          // 訂閱屋苑窗口內（甚至全部）嘅 listing_price_history／listings，一次歷史動態
+          // ~57 萬 rows read（Free plan 每日額度 11%）。而家只睇「窗口內仲有出現過」嘅盤
+          // （idx_lspan_estate_last 範圍 seek），每個盤用 index seek 攞需要嗰一兩行。
+          // 前提：同一屋苑 listing_id ↔ ref_no 一對一；span／listings／listing_price_history
+          // 同一個 batch 寫，冇地方刪 listings。驗證：本機 dump（連截到過去日子嘅副本）
+          // 2 個帳戶 × 多個日子 × 1／3 個月，三條 query 新舊逐行相同。
+          // 更早嘅坑：舊版 listings × listing_price_history 冇夾 snapshot_date 做成笛卡兒積
+          // （SQLITE_NOMEM）、全表 derived table 撞 CPU limit——呢版全部係逐盤 seek，冇呢類問題。
+
+          // 新盤：呢個 ref 第一次有價錢記錄（MIN，用 idx_lph_estate_ref seek 一行）喺窗口內。
           db.prepare(`
+            WITH acc AS MATERIALIZED (
+              SELECT ae.estate_id, ae.added_at, date(e.first_seen) AS efs, e.name AS estate_name
+              FROM account_estates ae JOIN estates e ON e.id = ae.estate_id
+              WHERE ae.account_id = ?1 AND (e.is_disabled = 0 OR e.is_disabled IS NULL)
+            ),
+            cand AS MATERIALIZED (
+              SELECT acc.added_at, acc.efs, acc.estate_name, l.rowid AS lrow,
+                (SELECT MIN(h.snapshot_date) FROM listing_price_history h
+                  WHERE h.estate_id = acc.estate_id AND h.ref_no = l.ref_no) AS first_seen_date
+              FROM acc
+              JOIN listing_span s ON s.estate_id = acc.estate_id AND s.last_seen >= ?2
+              CROSS JOIN listings l ON l.listing_id = s.listing_id AND l.snapshot_date = s.last_seen
+              WHERE l.estate_id = s.estate_id AND l.ref_no IS NOT NULL
+            )
             SELECT l.building_name, l.floor, l.unit, l.bedrooms, l.price, l.price_per_ft, l.size_net,
-                   l.detail_url, e.name as estate_name, fs.first_seen_date
-            FROM (
-              SELECT lph.ref_no, lph.estate_id, MIN(lph.snapshot_date) as first_seen_date
-              FROM listing_price_history lph
-              JOIN account_estates ae ON ae.estate_id = lph.estate_id AND ae.account_id = ?
-              GROUP BY lph.ref_no, lph.estate_id
-              HAVING MIN(lph.snapshot_date) >= ?
-                AND MIN(lph.snapshot_date) >= ae.added_at
-                AND MIN(lph.snapshot_date) > (SELECT date(e2.first_seen) FROM estates e2 WHERE e2.id = lph.estate_id)
-            ) fs
-            JOIN listings l
-              ON l.ref_no = fs.ref_no AND l.estate_id = fs.estate_id
-              AND l.snapshot_date = (
-                SELECT MAX(l2.snapshot_date) FROM listings l2
-                WHERE l2.ref_no = fs.ref_no AND l2.estate_id = fs.estate_id
-              )
-            JOIN estates e ON e.id = fs.estate_id
-            WHERE (e.is_disabled = 0 OR e.is_disabled IS NULL)
-            ORDER BY fs.first_seen_date DESC, l.price ASC
+                   l.detail_url, c.estate_name, c.first_seen_date
+            FROM cand c
+            JOIN listings l ON l.rowid = c.lrow
+            WHERE c.first_seen_date >= ?2
+              AND c.first_seen_date >= c.added_at
+              AND c.first_seen_date > c.efs
+            ORDER BY c.first_seen_date DESC, l.price ASC
           `).bind(hAid, cutoffStr).all(),
 
-          // ⚠️ 2026-09-29：呢條 query 之前用 3 個 unbounded 嘅
-          // 「SELECT DISTINCT ... FROM listing_price_history」／
-          // 「... FROM listings GROUP BY」全表 derived table（跨晒全部帳戶
-          // 全部屋苑，唔止呢個 account 訂閱緊嗰幾個），listing_price_history
-          // 儲夠幾個月幾十個屋苑嘅數之後掃到爆 D1 CPU time limit，
-          // 令「歷史動態」成頁「載入失敗」。改法：一開始就用 account_estates
-          // 篩實得返呢個帳戶訂閱嗰幾個屋苑（`changed` 個 CTE 入面），
-          // first_p／last_p／l 嗰三個 join 都改做直接查返 indexed 嘅
-          // listing_price_history／listings（唔使再 DISTINCT 全表——
-          // listing_price_history 本身有 UNIQUE(ref_no, snapshot_date)，
-          // 唔可能有重複）。
+          // 改價：窗口內第一個價 ≠ 最後一個價（舊版 COUNT(DISTINCT)>1 同 MIN≠MAX 都係
+          // 呢個條件嘅必要條件），所以每個盤只 seek 窗口內頭尾兩行價格記錄。
           db.prepare(`
-            SELECT l.building_name, l.floor, l.unit, l.detail_url, e.name as estate_name,
+            WITH acc AS MATERIALIZED (
+              SELECT ae.estate_id, ae.added_at, e.name AS estate_name
+              FROM account_estates ae JOIN estates e ON e.id = ae.estate_id
+              WHERE ae.account_id = ?1 AND (e.is_disabled = 0 OR e.is_disabled IS NULL)
+            ),
+            cand AS MATERIALIZED (
+              SELECT acc.added_at, acc.estate_name, l.rowid AS lrow,
+                (SELECT h.rowid FROM listing_price_history h
+                  WHERE h.estate_id = acc.estate_id AND h.ref_no = l.ref_no AND h.snapshot_date >= ?2
+                  ORDER BY h.snapshot_date ASC LIMIT 1) AS first_h,
+                (SELECT h.rowid FROM listing_price_history h
+                  WHERE h.estate_id = acc.estate_id AND h.ref_no = l.ref_no AND h.snapshot_date >= ?2
+                  ORDER BY h.snapshot_date DESC LIMIT 1) AS last_h
+              FROM acc
+              JOIN listing_span s ON s.estate_id = acc.estate_id AND s.last_seen >= ?2
+              CROSS JOIN listings l ON l.listing_id = s.listing_id AND l.snapshot_date = s.last_seen
+              WHERE l.estate_id = s.estate_id AND l.ref_no IS NOT NULL
+            )
+            SELECT l.building_name, l.floor, l.unit, l.detail_url, c.estate_name,
                    first_p.price as old_price, last_p.price as new_price,
                    first_p.snapshot_date as old_date, last_p.snapshot_date as new_date
-            FROM (
-              SELECT lph.ref_no, lph.estate_id, MIN(lph.snapshot_date) as min_d, MAX(lph.snapshot_date) as max_d
-              FROM listing_price_history lph
-              JOIN account_estates ae0 ON ae0.estate_id = lph.estate_id AND ae0.account_id = ?
-              WHERE lph.snapshot_date >= ?
-              GROUP BY lph.ref_no, lph.estate_id
-              HAVING COUNT(DISTINCT lph.price) > 1 AND MIN(lph.price) != MAX(lph.price)
-            ) changed
-            JOIN account_estates ae ON ae.estate_id = changed.estate_id AND ae.account_id = ?
-            JOIN listing_price_history first_p
-              ON first_p.ref_no = changed.ref_no AND first_p.estate_id = changed.estate_id AND first_p.snapshot_date = changed.min_d
-            JOIN listing_price_history last_p
-              ON last_p.ref_no = changed.ref_no AND last_p.estate_id = changed.estate_id AND last_p.snapshot_date = changed.max_d
-            JOIN listings l
-              ON l.ref_no = changed.ref_no AND l.estate_id = changed.estate_id
-              AND l.snapshot_date = (
-                SELECT MAX(l2.snapshot_date) FROM listings l2
-                WHERE l2.ref_no = changed.ref_no AND l2.estate_id = changed.estate_id
-              )
-            JOIN estates e ON e.id = changed.estate_id
+            FROM cand c
+            JOIN listing_price_history first_p ON first_p.rowid = c.first_h
+            JOIN listing_price_history last_p ON last_p.rowid = c.last_h
+            JOIN listings l ON l.rowid = c.lrow
             WHERE first_p.price != last_p.price
-              AND changed.max_d >= ae.added_at
-              AND (e.is_disabled = 0 OR e.is_disabled IS NULL)
+              AND last_p.snapshot_date >= c.added_at
             ORDER BY ABS(last_p.price - first_p.price) DESC
-          `).bind(hAid, cutoffStr, hAid).all(),
+          `).bind(hAid, cutoffStr).all(),
 
-          // ⚠️ 2026-09-29：舊版兩個 correlated 「NOT IN (SELECT ... WHERE
-          // estate_id = l.estate_id AND snapshot_date = ...)」逐個 outer
-          // row 都要重新行一次 subquery，outer 集合（一個月 × 全部訂閱
-          // 屋苑嘅 listings）大到會撞 D1 CPU time limit。改用 LEFT JOIN
-          // 精準夾住「今日」／「上一個 sync 日」嗰兩個快照，再用
-          // IS NULL 判斷「冇再出現」——同一個邏輯，但改行 indexed join
-          // （idx_listings_estate_ref）， 唔使逐行重複 subquery。
+          // 下架：窗口內出現過、但今日（T）同上一次 sync（P）都冇再出現
+          // ⇔ 最後出現日喺 [cutoff, P) 之間。連續兩個 sync 都唔見先當下架，
+          // 避免一次 scrape 甩漏（利嘉閣分頁）造成嘅假下架喺歷史度閃出閃入。
           db.prepare(`
+            WITH acc AS MATERIALIZED (
+              SELECT ae.estate_id, ae.added_at, date(e.first_seen) AS efs, e.name AS estate_name,
+                (SELECT MAX(snapshot_date) FROM listings
+                  WHERE estate_id = ae.estate_id AND snapshot_date < ?3) AS prev_date
+              FROM account_estates ae JOIN estates e ON e.id = ae.estate_id
+              WHERE ae.account_id = ?1 AND (e.is_disabled = 0 OR e.is_disabled IS NULL)
+            )
             SELECT l.building_name, l.floor, l.unit, l.bedrooms, l.price,
-                   l.detail_url, e.name as estate_name, l.snapshot_date as last_seen_date
-            FROM listings l
-            JOIN estates e ON e.id = l.estate_id
-            JOIN account_estates ae ON ae.estate_id = e.id AND ae.account_id = ?
-            LEFT JOIN listings today_l
-              ON today_l.estate_id = l.estate_id AND today_l.ref_no = l.ref_no AND today_l.snapshot_date = ?
-            LEFT JOIN (
-              SELECT estate_id, MAX(snapshot_date) as prev_date FROM listings WHERE snapshot_date < ? GROUP BY estate_id
-            ) prev ON prev.estate_id = l.estate_id
-            LEFT JOIN listings prev_l
-              ON prev_l.estate_id = l.estate_id AND prev_l.ref_no = l.ref_no AND prev_l.snapshot_date = prev.prev_date
-            WHERE l.snapshot_date >= ?
-              AND l.snapshot_date < ?
-              AND l.snapshot_date >= ae.added_at
+                   l.detail_url, acc.estate_name, l.snapshot_date as last_seen_date
+            FROM acc
+            JOIN listing_span s ON s.estate_id = acc.estate_id
+              AND s.last_seen >= ?2 AND s.last_seen < acc.prev_date
+            CROSS JOIN listings l ON l.listing_id = s.listing_id AND l.snapshot_date = s.last_seen
+            WHERE l.estate_id = s.estate_id
               AND l.ref_no IS NOT NULL
-              -- 連續兩個 sync(今日 T 同前一個 P)都冇再出現先當下架,
-              -- 避免一次 scrape 甩漏(利嘉閣分頁)造成嘅假下架喺歷史度閃出閃入。
-              AND today_l.ref_no IS NULL
-              AND prev_l.ref_no IS NULL
-              AND date(e.first_seen) <= l.snapshot_date
-              AND (e.is_disabled = 0 OR e.is_disabled IS NULL)
-            GROUP BY l.ref_no, l.estate_id
+              AND s.last_seen >= acc.added_at
+              AND s.last_seen >= acc.efs
             ORDER BY l.snapshot_date DESC
-          `).bind(hAid, today, today, cutoffStr, today).all(),
+          `).bind(hAid, cutoffStr, today).all(),
 
           db.prepare(`
             SELECT t.building, t.floor, t.unit, t.price AS txn_price, t.size_net, t.reg_date, t.first_seen,
