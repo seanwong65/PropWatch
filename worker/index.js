@@ -8091,30 +8091,6 @@ export default {
         return json(200, { todo });
       }
 
-      if (method === "GET" && path === "/api/viewings/unsold") {
-        const { results } = await db.prepare(`
-          SELECT v.*, e.name AS estate_name,
-            t.price AS txn_price,
-            t.reg_date AS txn_reg_date
-          FROM viewings v
-          JOIN estates e ON e.id = v.estate_id
-          LEFT JOIN (
-            SELECT estate_id, building, floor, unit, price, reg_date,
-                   ROW_NUMBER() OVER (PARTITION BY estate_id, building, floor, unit ORDER BY reg_date DESC) AS rn
-            FROM transactions
-          ) t ON t.estate_id = v.estate_id
-            AND t.building = CASE WHEN v.block LIKE '%座' THEN v.block ELSE v.block || '座' END
-            AND t.floor = CASE WHEN v.floor LIKE '%樓' OR v.floor LIKE '%層' THEN v.floor ELSE v.floor || '樓' END
-            AND t.unit = CASE WHEN v.unit LIKE '%室' OR v.unit LIKE '%號' THEN v.unit ELSE v.unit || '室' END
-            AND t.rn = 1
-          WHERE (e.is_disabled = 0 OR e.is_disabled IS NULL)
-            AND v.account_id = ?
-            AND (t.price IS NULL OR t.reg_date < v.view_date)
-          ORDER BY v.view_date DESC, v.created_at DESC
-        `).bind(session.account_id).all();
-        return json(200, { viewings: results });
-      }
-
       if (method === "GET" && path === "/api/viewings/unit-txn") {
         const estateName = url.searchParams.get("estate");
         const building   = url.searchParams.get("building");
