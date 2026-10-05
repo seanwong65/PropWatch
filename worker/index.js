@@ -1349,7 +1349,11 @@ async function ensurePriceSeen(db) {
 // GROUP BY listing_id 掃晒屋苑全部歷史 snapshot（每次開屋苑 ~4.7 萬 rows read）。
 // 而家 sync 入庫時順手 upsert 呢兩個日期（MIN/MAX 合併，所以重覆寫、亂序寫都冇事），
 // 讀嗰邊淨係讀「盤數」咁多行。第一次會由現有 listings 一次過 backfill。
+// DDL／backfill 全部一次性：每個 isolate 成功行完就記低，之後唔再碰 D1。
+// （之前每個請求都行 CREATE INDEX IF NOT EXISTS，D1 insights 實測每次讀 ~3,200 rows，一日 93 次 ≈ 29.5 萬。）
+let _listingSpanReady = false;
 async function ensureListingSpan(db) {
+  if (_listingSpanReady) return;
   await db.batch([
     db.prepare(`CREATE TABLE IF NOT EXISTS listing_span (
       estate_id INTEGER NOT NULL, listing_id TEXT NOT NULL,
@@ -1364,7 +1368,7 @@ async function ensureListingSpan(db) {
     db.prepare("CREATE INDEX IF NOT EXISTS idx_rlspan_estate_last ON rental_listing_span(estate_id, last_seen)"),
   ]);
   await ensurePriceSeen(db);   // 寫入 listing_price_history 之前一定要有 trigger
-  if (await getSetting(db, "listing_span_backfilled")) return;
+  if (await getSetting(db, "listing_span_backfilled")) { _listingSpanReady = true; return; }
   await db.batch([
     db.prepare(`INSERT INTO listing_span (estate_id, listing_id, first_seen, last_seen)
       SELECT estate_id, listing_id, MIN(snapshot_date), MAX(snapshot_date) FROM listings
@@ -1378,6 +1382,7 @@ async function ensureListingSpan(db) {
         first_seen = MIN(first_seen, excluded.first_seen), last_seen = MAX(last_seen, excluded.last_seen)`),
   ]);
   await setSetting(db, "listing_span_backfilled", "1");
+  _listingSpanReady = true;
 }
 const spanStmt = (db, table, estateId, listingId, date) => db.prepare(
   `INSERT INTO ${table} (estate_id, listing_id, first_seen, last_seen) VALUES (?,?,?,?)
