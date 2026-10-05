@@ -1041,10 +1041,6 @@
     .dj-unit { color: var(--muted); }
     .dj-price { color: #1270ac; font-weight: 700; }
     .dj-tag { font-size: 0.66rem; padding: 0.05rem 0.45rem; border-radius: 999px; background: var(--brand-soft); color: #1270ac; }
-    /* 只睇模式：收埋編輯／刪除同「對應放盤」✓✕，唔會㩒錯 */
-    .dj.viewonly .viewing-del-btn:not(.vw-view-btn), .dj.viewonly .vw-edit-only { display: none !important; }
-    .dj-mode { margin-left: 0.6rem; font-size: 0.72rem; padding: 0.15rem 0.6rem; border-radius: 999px; border: 1px solid var(--border-strong); background: var(--surface); color: var(--text); cursor: pointer; }
-    .dj-mode.on { background: var(--brand); border-color: var(--brand); color: #fff; font-weight: 600; }
     .vw-cover { position: relative; display: block; width: 100%; max-height: 170px; overflow: hidden; border: none; padding: 0; margin: 0.4rem 0 0.6rem; border-radius: 12px; cursor: pointer; background: var(--surface2); }
     .vw-cover.loading { opacity: 0.6; cursor: progress; }
     .vw-cover img { display: block; width: 100%; height: 170px; object-fit: cover; }
@@ -3409,15 +3405,6 @@ async function runPhotoTidy(btn) {
   toast(failed ? `整理咗 ${done} 個，${failed} 個失敗（可再撳一次重試）` : `整理好 ${done} 個記錄嘅相片 ✓`, failed ? 'error' : 'success');
   await checkPhotoTidy();
 }
-// 只睇模式：收埋 ✏️ 🗑 同對應放盤 ✓✕。記喺 localStorage（每部機各自），預設關。
-let _djViewOnly = false;
-try { _djViewOnly = localStorage.getItem('pw_dj_viewonly') === '1'; } catch (_) {}
-function toggleDjViewOnly() {
-  _djViewOnly = !_djViewOnly;
-  try { localStorage.setItem('pw_dj_viewonly', _djViewOnly ? '1' : '0'); } catch (_) {}
-  document.querySelectorAll('.dj').forEach(el => el.classList.toggle('viewonly', _djViewOnly));
-  document.querySelectorAll('.dj-mode').forEach(b => { b.classList.toggle('on', _djViewOnly); b.textContent = _djViewOnly ? '👁 只睇' : '✏️ 可編輯'; b.setAttribute('aria-pressed', _djViewOnly); });
-}
 let _compsScopeKey = null;
 function _compsResetState() {
   _compsDateFrom = ''; _compsDateTo = ''; _compsYear = null; _compsMonth = 0; _compsRangeOpen = false;
@@ -3591,7 +3578,6 @@ function renderCompsPanel() {
         <span class="dj-year">${escHtml(year)} 年</span>
         <button type="button" class="dj-ynav" ${nextY ? `onclick="setCompsYear('${escJsAttr(nextY)}')"` : 'disabled'} aria-label="下一年">›</button>
         <span class="dj-total">${month ? `${month}月 ` : '全年 '}${rows.length} 個盤</span>
-        <button type="button" class="dj-mode${_djViewOnly ? ' on' : ''}" onclick="toggleDjViewOnly()" aria-pressed="${_djViewOnly}" title="只睇：收埋編輯／刪除掣，唔會㩒錯">${_djViewOnly ? '👁 只睇' : '✏️ 可編輯'}</button>
       </div>
       <div class="dj-months">${monthsHtml}</div>
       <button type="button" class="dj-handle${hasRange ? ' active' : ''}" onclick="toggleCompsRange()" aria-label="日期範圍"><span></span></button>
@@ -3603,7 +3589,7 @@ function renderCompsPanel() {
     </div>`;
 
   if (!rows.length) {
-      body.innerHTML = filterBarHtml + `<div class="dj${_djViewOnly ? ' viewonly' : ''}">${topHtml}<div class="dj-empty">${hasRange ? '冇符合篩選嘅睇樓記錄。' : '呢段時間冇睇樓記錄。'}</div></div>`;
+      body.innerHTML = filterBarHtml + `<div class="dj">${topHtml}<div class="dj-empty">${hasRange ? '冇符合篩選嘅睇樓記錄。' : '呢段時間冇睇樓記錄。'}</div></div>`;
     return;
   }
 
@@ -3645,7 +3631,7 @@ function renderCompsPanel() {
         <div class="dj-body">${detailsHtml}</div>
       </div>`;
   }).join('');
-  body.innerHTML = filterBarHtml + `<div class="dj${_djViewOnly ? ' viewonly' : ''}">${topHtml}<div class="dj-list">${cardsHtml}</div></div>`;
+  body.innerHTML = filterBarHtml + `<div class="dj">${topHtml}<div class="dj-list">${cardsHtml}</div></div>`;
   for (const v of rows) if (_compsOpenRows.has(v.id)) fillCompsDetail(v.id);
 }
 
