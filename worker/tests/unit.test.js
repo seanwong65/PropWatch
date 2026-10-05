@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { scrapeRicacorpListings, scrapeHkpListings, hsUnitParts, hsBlockKey, pickRotationEstates } from "../index.js";
+import { scrapeRicacorpListings, scrapeHkpListings, hsUnitParts, hsBlockKey, hsNameVariants, pickRotationEstates } from "../index.js";
 import { readFileSync } from "node:fs";
 
 // ── Pure helpers extracted inline (no DB/fetch deps) ──────────────────────
@@ -414,5 +414,25 @@ describe("pickRotationEstates（非最愛屋苑輪住 sync，每個最多隔 7 �
       for (let i = 1; i < h.length; i++) expect(h[i] - h[i - 1]).toBeLessThanOrEqual(7);
       expect(h.length).toBeGreaterThan(3);
     }
+  });
+});
+
+describe("hsNameVariants（恒生屋苑名配對變體）", () => {
+  it("原名永遠排第一，唔係 strict", () => {
+    const v = hsNameVariants("越秀廣場");
+    expect(v).toEqual([{ kw: "越秀廣場", phase: null, strict: false }]);
+  });
+  it("「N期」尾綴拆出期數（浪翠園 4期 → 浪翠園 + 4）", () => {
+    const v = hsNameVariants("浪翠園 4期");
+    expect(v[1]).toEqual({ kw: "浪翠園", phase: "4", strict: true });
+    expect(hsNameVariants("某苑第2期")[1]).toEqual({ kw: "某苑", phase: "2", strict: true });
+  });
+  it("英文項目名別名（Wetland Seasons Park → Wetland），大細楷唔影響", () => {
+    expect(hsNameVariants("WETLAND SEASONS PARK")[1]).toEqual({ kw: "Wetland", phase: null, strict: true });
+    expect(hsNameVariants("Wetland Seasons Park")[1]?.kw).toBe("Wetland");
+  });
+  it("變體一律 strict（防模糊搜尋配錯屋苑），冇「期」字嘅唔會多出變體", () => {
+    for (const v of hsNameVariants("浪翠園 4期").slice(1)) expect(v.strict).toBe(true);
+    expect(hsNameVariants("海逸豪園")).toHaveLength(1);
   });
 });

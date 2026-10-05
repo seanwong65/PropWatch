@@ -216,14 +216,38 @@ const syncWindowOpen = () => hkHour() >= SYNC_START_HOUR;
 let hsBlockListCache = null;
 const hsEstateCache = new Map();
 
+// 恒生只認發展項目名，唔認我哋屋苑名入面嘅「N期」或者英文項目名：
+//  · 「浪翠園 4期」→ 恒生係「浪翠園」，4 期只係座名前綴（4期 --第11–13座）
+//  · 「WETLAND SEASONS PARK」→ 恒生項目名係「Wetland Lot No.34 Development」，
+//    座名先寫 Wetland Seasons Park（2026-10-05 核對過 20 個座）
+// 變體一律要求恒生回嚟嘅項目名包含搜尋字，防止模糊搜尋靜靜配去另一個屋苑（錯單位估值）。
+const HS_ESTATE_ALIAS = { "WETLAND SEASONS PARK": "Wetland" };
+export function hsNameVariants(name) {
+  const out = [{ kw: name, phase: null, strict: false }];
+  const alias = HS_ESTATE_ALIAS[String(name).trim().toUpperCase()];
+  if (alias) out.push({ kw: alias, phase: null, strict: true });
+  const m = String(name).match(/^(.*?)\s*第?(\d+)期\s*$/);
+  if (m && m[1]) out.push({ kw: m[1].trim(), phase: m[2], strict: true });
+  return out;
+}
 async function hsKeywordSearch(estateName) {
   if (hsEstateCache.has(estateName)) return hsEstateCache.get(estateName);
-  const res = await fetch(`${HS_API}/keywordsearch?keyword=${encodeURIComponent(estateName)}`, { headers: HS_HEADERS });
-  if (!res.ok) return null;
-  const data = await res.json();
-  const match = Array.isArray(data) ? data[0] : null;
-  if (match) hsEstateCache.set(estateName, match);
-  return match;
+  for (const v of hsNameVariants(estateName)) {
+    const res = await fetch(`${HS_API}/keywordsearch?keyword=${encodeURIComponent(v.kw)}`, { headers: HS_HEADERS });
+    if (!res.ok) continue;
+    const data = await res.json();
+    const match = Array.isArray(data) ? data[0] : null;
+    if (!match) continue;
+    if (v.strict) {
+      const kw = v.kw.toLowerCase();
+      const hit = [match.estateChinesename, match.estateName].some((n) => String(n || "").toLowerCase().includes(kw));
+      if (!hit) continue;
+    }
+    const m = { ...match, phase: v.phase };
+    hsEstateCache.set(estateName, m);
+    return m;
+  }
+  return null;
 }
 
 async function hsBlockList() {
@@ -234,7 +258,7 @@ async function hsBlockList() {
   return hsBlockListCache;
 }
 
-async function findBlockCode(estateCode, blockNum) {
+async function findBlockCode(estateCode, blockNum, phase = null) {
   const list = await hsBlockList();
   if (!list) return null;
   const isNumeric = /^\d+$/.test(blockNum);
@@ -242,7 +266,12 @@ async function findBlockCode(estateCode, blockNum) {
     for (const dist of area.districts || []) {
       for (const estate of dist.estates || []) {
         if (estate.estateCode === String(estateCode)) {
-          const blocks = estate.blocks || [];
+          let blocks = estate.blocks || [];
+          // 「N期」屋苑：座名前綴係「N期--」，先收窄去嗰一期（冇對應前綴就唔收窄）
+          if (phase) {
+            const scoped = blocks.filter((b) => String(b.blockChinesename || "").startsWith(`${phase}期`));
+            if (scoped.length) blocks = scoped;
+          }
           const block = isNumeric
             ? blocks.find(b =>
                 b.blockChinesename === `第${blockNum}座` ||
@@ -261,7 +290,7 @@ async function findBlockCode(estateCode, blockNum) {
                 if (cnLast === blockNum + '座' || cnLast.replace(/座$/, '') === blockNum) return true;
                 if (enLast === `Block/Tower ${blockNum}` || enLast === blockNum) return true;
                 return false;
-              }) || (blocks.length === 1 ? blocks[0] : null);
+              }) || ((estate.blocks || []).length === 1 ? estate.blocks[0] : null);
           return block ? { blockCode: block.blockCode, carpark: block.coveredCarpark || "0" } : null;
         }
       }
@@ -270,11 +299,13 @@ async function findBlockCode(estateCode, blockNum) {
   return null;
 }
 
-async function getHangSengValuation(estateName, blockNum, floorNum, flatLetter) {
+// 回傳 { v, reason }：reason = no_estate（恒生冇呢個屋苑）／no_block（搵唔到座）／
+// no_unit（冇呢個單位估值）。朋友屋企用嚟顯示「點解查唔到」。
+async function hsLookup(estateName, blockNum, floorNum, flatLetter) {
   const estate = await hsKeywordSearch(estateName);
-  if (!estate) return null;
-  const blockInfo = await findBlockCode(estate.estateCode, blockNum);
-  if (!blockInfo) return null;
+  if (!estate) return { v: null, reason: "no_estate" };
+  const blockInfo = await findBlockCode(estate.estateCode, blockNum, estate.phase);
+  if (!blockInfo) return { v: null, reason: "no_block" };
   const body = {
     area: String(estate.areaCode),
     district: String(estate.districtCode),
@@ -287,11 +318,14 @@ async function getHangSengValuation(estateName, blockNum, floorNum, flatLetter) 
     openCarpark: 0,
   };
   const res = await fetch(`${HS_API}/valuation`, { method: "POST", headers: HS_HEADERS, body: JSON.stringify(body) });
-  if (!res.ok) return null;
+  if (!res.ok) return { v: null, reason: "no_unit" };
   const data = await res.json();
   const result = Array.isArray(data) ? data[0] : data;
-  if (result?.errorCode || result?.fieldName) return null;
-  return { price: result.price, saleableArea: result.saleableArea, valuationDate: result.valuationDate };
+  if (result?.errorCode || result?.fieldName || !result?.price) return { v: null, reason: "no_unit" };
+  return { v: { price: result.price, saleableArea: result.saleableArea, valuationDate: result.valuationDate }, reason: null };
+}
+async function getHangSengValuation(estateName, blockNum, floorNum, flatLetter) {
+  return (await hsLookup(estateName, blockNum, floorNum, flatLetter)).v;
 }
 
 // 寫入恒生估值：最新值（hangseng_valuations）＋ 每日最多一筆歷史
@@ -966,7 +1000,9 @@ async function ensureMultiAccount(db) {
     )`).run();
     // 過往成交/估值抓一次就存落 DB，之後 load 唔使再外抓（見 enrichFriendHome）。
     // past_txns NULL = 未抓過（顯示「抓取中」）；'[]' = 抓過但冇記錄。
-    for (const col of ["past_txns TEXT", "est_url TEXT", "hs_price INTEGER", "hs_area REAL", "hs_date TEXT", "enriched_at TEXT"]) {
+    // hs_status：恒生查唔到嘅原因（no_estate／no_block／no_unit，ok＝查到）。
+    // meta_at：幾時由中原攞過實呎／房數（NULL＝未攞，前端會喺背景補抓）。
+    for (const col of ["past_txns TEXT", "est_url TEXT", "hs_price INTEGER", "hs_area REAL", "hs_date TEXT", "enriched_at TEXT", "hs_status TEXT", "meta_at TEXT"]) {
       try { await db.prepare(`ALTER TABLE friend_homes ADD COLUMN ${col}`).run(); } catch (_) {}
     }
     await db.prepare("CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT)").run();
@@ -2982,16 +3018,20 @@ async function fetchUnitTxns(db, { estateName, building, floor, unit, viewDate =
     prev_price: t.prevTransactionPrice || null,
     held_days: t.heldDay || null,
   });
+  // 順手攞單位實用面積（nArea）同房數（成交搜尋 row 嘅 bedroomCount）——朋友屋企 enrich 用，
+  // 其他 caller 照舊只讀 txns/txn/estateUrl（加欄位唔影響佢哋）。
+  const extra = { nArea: null, bedrooms: null };
   const fromDetail = async (cuntcode, estateUrl) => {
     const detailRes = await fetch(`${CENTANET_DETAIL}?cuntcode=${cuntcode}`, { ...CF_OPTIONS });
     if (!detailRes.ok) return null;
     const detail = await detailRes.json();
+    if (Number(detail.nArea) > 0) extra.nArea = Number(detail.nArea);
     const txns = (detail.recentTransactions || [])
       .filter(t => t.transactionType === "Sale" || !t.transactionType)
       .sort((a, b) => b.regDate?.localeCompare(a.regDate));
-    if (wantAll) return { txns: txns.map(mapTxn), estateUrl };
+    if (wantAll) return { txns: txns.map(mapTxn), estateUrl, ...extra };
     const target = viewDate ? txns.find(t => t.regDate?.slice(0, 10) < viewDate) : txns[0];
-    return { txn: target ? mapTxn(target) : null, estateUrl };
+    return { txn: target ? mapTxn(target) : null, estateUrl, ...extra };
   };
 
   // Fast path: static cuntcode map
@@ -3000,7 +3040,7 @@ async function fetchUnitTxns(db, { estateName, building, floor, unit, viewDate =
     const cuntcode = staticData.units[`${floor}_${unit}`];
     const estateUrl = `https://hk.centanet.com/CentaEstimate/estate-${encodeURIComponent(estateName)}-${encodeURIComponent(building)}_${staticData.typeCode}?tab=history`;
     if (cuntcode) { const r = await fromDetail(cuntcode, estateUrl); if (r) return r; }
-    return wantAll ? { txns: [], estateUrl } : { txn: null, estateUrl };
+    return wantAll ? { txns: [], estateUrl, ...extra } : { txn: null, estateUrl, ...extra };
   }
 
   // Building-level search → typeCode + shallow recent txns
@@ -3014,12 +3054,26 @@ async function fetchUnitTxns(db, { estateName, building, floor, unit, viewDate =
   const allData = (await searchRes.json()).data || [];
 
   const nbTarget = _normBldg(building);
-  const matchBuilding = b => _normBldg(b) === nbTarget;
+  // 中原有啲座名帶括號：「秀華苑 (2座)」（越秀廣場）→ 括號入面先係「2座」，都要配得到
+  const bracketOf = b => String(b || "").match(/[（(]\s*([^）)]+?)\s*[）)]\s*$/)?.[1] ?? null;
+  const matchBuilding = b => _normBldg(b) === nbTarget || (bracketOf(b) != null && _normBldg(bracketOf(b)) === nbTarget);
   const estMatch = t => t.estateName === estateName || t.bigEstateName === estateName;
   let bldgRows = allData.filter(t => estMatch(t) && matchBuilding(t.buildingName));
   if (!bldgRows.length) bldgRows = allData.filter(t => matchBuilding(t.buildingName));
   const anyResult = bldgRows.find(t => t.typeCode);
   const matchedBuilding = anyResult?.buildingName || building;
+  // 房數：同座同室（stack）成交 row 嘅 bedroomCount，同層同室優先；取眾數。冇就留 null。
+  {
+    const stack = _normUnit(unit);
+    const withBed = bldgRows.filter(t => _normUnit(t.xAxis) === stack && Number(t.bedroomCount) > 0);
+    const sameFloor = withBed.filter(t => _floorNum(t.yAxis) === _floorNum(floor));
+    const pool = sameFloor.length ? sameFloor : withBed;
+    if (pool.length) {
+      const cnt = new Map();
+      for (const t of pool) cnt.set(Number(t.bedroomCount), (cnt.get(Number(t.bedroomCount)) || 0) + 1);
+      extra.bedrooms = [...cnt.entries()].sort((a, b) => b[1] - a[1] || b[0] - a[0])[0][0];
+    }
+  }
   let typeCode = anyResult?.typeCode;
   // 成交疏嘅座唔喺最近100宗：用 centadata 座 dropdown 解 code
   if (!typeCode) {
@@ -3035,32 +3089,43 @@ async function fetchUnitTxns(db, { estateName, building, floor, unit, viewDate =
   const sorted = bldgRows
     .filter(t => _floorNum(t.yAxis) === _floorNum(floor) && _floorNum(floor) != null && _normUnit(t.xAxis) === _normUnit(unit))
     .sort((a, b) => b.regDate?.localeCompare(a.regDate));
+  if (!extra.nArea && Number(sorted[0]?.nArea) > 0) extra.nArea = Number(sorted[0].nArea);
   const shallow = wantAll
     ? { txns: sorted.map(mapTxn), estateUrl }
     : { txn: (viewDate ? sorted.find(t => t.regDate?.slice(0, 10) < viewDate) : sorted[0]) ? mapTxn(viewDate ? sorted.find(t => t.regDate?.slice(0, 10) < viewDate) : sorted[0]) : null, estateUrl };
 
   // Deep path: BuildingValuation → cuntcode → full history
-  if (typeCode) {
+  // 同名座喺中原可以有幾個 typeCode（例：天晉 3座 分幾期），逐個試直至搵到呢個單位：
+  // 同層同室成交 row 嘅 typeCode 優先，最多試 4 個。
+  const typeCodes = [...new Set([...sorted.map(t => t.typeCode), typeCode, ...bldgRows.map(t => t.typeCode)].filter(Boolean))].slice(0, 4);
+  for (const tc of typeCodes) {
     try {
-      const bvRes = await fetch(`https://hk.centanet.com/CentaEstimate/api/PropertyValuation/BuildingValuation?typecode=${typeCode}`, CF_OPTIONS);
-      if (bvRes.ok) {
-        const bvData = await bvRes.json();
-        const floorNum = _floorNum(floor);
-        const unitNorm = unit.replace(/[室號]/g, "");
-        let cuntcode = null;
-        for (const f of bvData.floors || []) {
-          if (f.valuationFloorType !== "Floor") continue;
-          if (floorNum == null || _floorNum(f.yAxis.split("\n")[0].trim()) !== floorNum) continue;
-          for (const u of f.units || []) {
-            if ((u.xAxis || "").replace(/[室號]/g, "") === unitNorm && u.cuntcode && u.valuationUnitState !== "NotExist") { cuntcode = u.cuntcode; break; }
+      const bvRes = await fetch(`https://hk.centanet.com/CentaEstimate/api/PropertyValuation/BuildingValuation?typecode=${tc}`, CF_OPTIONS);
+      if (!bvRes.ok) continue;
+      const bvData = await bvRes.json();
+      const floorNum = _floorNum(floor);
+      const unitNorm = unit.replace(/[室號]/g, "");
+      let cuntcode = null;
+      for (const f of bvData.floors || []) {
+        if (f.valuationFloorType !== "Floor") continue;
+        if (floorNum == null || _floorNum(f.yAxis.split("\n")[0].trim()) !== floorNum) continue;
+        for (const u of f.units || []) {
+          if ((u.xAxis || "").replace(/[室號]/g, "") === unitNorm && u.cuntcode && u.valuationUnitState !== "NotExist") {
+            cuntcode = u.cuntcode;
+            if (Number(u.nArea) > 0) extra.nArea = Number(u.nArea);   // 估價樓面表本身有實用面積
+            break;
           }
-          if (cuntcode) break;
         }
-        if (cuntcode) { const r = await fromDetail(cuntcode, estateUrl); if (r) return r; }
+        if (cuntcode) break;
+      }
+      if (cuntcode) {
+        const tcUrl = `https://hk.centanet.com/CentaEstimate/estate-${encodeURIComponent(estateName)}-${encodeURIComponent(matchedBuilding)}_${tc}?tab=history`;
+        const r = await fromDetail(cuntcode, tcUrl);
+        if (r) return r;
       }
     } catch (_) {}
   }
-  return shallow;
+  return { ...shallow, nArea: extra.nArea, bedrooms: extra.bedrooms };
 }
 
 // 抓一次過往成交（centadata 全歷史）+ 恆生估值，存落 friend_homes row。
@@ -3072,7 +3137,7 @@ async function enrichFriendHome(db, home) {
   const floorParam = /[樓層]$/.test(home.floor) ? home.floor : home.floor + "樓";
   const unitParam = /[室號]$/.test(home.unit) ? home.unit : home.unit + "室";
 
-  let past_txns = "[]", est_url = null;
+  let past_txns = "[]", est_url = null, size_net = null, bedrooms = null;
   try {
     const r = await fetchUnitTxns(db, {
       estateName: home.estate_name, building, floor: floorParam, unit: unitParam,
@@ -3080,25 +3145,29 @@ async function enrichFriendHome(db, home) {
     });
     past_txns = JSON.stringify(r.txns || []);
     est_url = r.estateUrl || null;
+    size_net = r.nArea > 0 ? Math.round(r.nArea) : null;   // 中原實用面積
+    bedrooms = r.bedrooms > 0 ? r.bedrooms : null;          // 中原成交 row 嘅房數（同座同室）
   } catch (_) { past_txns = "[]"; }
 
   // 恆生估值：座號抽數字（單幢用屋苑名）；順便寫入共用 cache + history 俾「歷史」掣用
   const blockNum = (home.block || "").match(/\d+/)?.[0] || blk || home.estate_name;
   const floorNumHs = (home.floor || "").match(/\d+/)?.[0] || "";
   const flat = (home.unit || "").replace(/[室號樓層座]/g, "").trim();
-  let hs_price = null, hs_area = null, hs_date = null;
+  let hs_price = null, hs_area = null, hs_date = null, hs_status = "no_unit";
   if (floorNumHs && flat) {
     try {
-      const v = await getHangSengValuation(home.estate_name, blockNum, floorNumHs, flat);
+      const { v, reason } = await hsLookup(home.estate_name, blockNum, floorNumHs, flat);
       if (v?.price) {
-        hs_price = Number(v.price); hs_area = Number(v.saleableArea); hs_date = v.valuationDate;
+        hs_price = Number(v.price); hs_area = Number(v.saleableArea); hs_date = v.valuationDate; hs_status = "ok";
         await saveHangSengValuation(db, home.estate_id, blockNum, floorNumHs, flat, v);
-      }
-    } catch (_) {}
+      } else hs_status = reason || "no_unit";
+    } catch (_) { hs_status = null; }   // 暫時出錯：唔記原因，前端顯示一般「查唔到」
   }
-  await db.prepare("UPDATE friend_homes SET past_txns=?, est_url=?, hs_price=?, hs_area=?, hs_date=?, enriched_at=datetime('now') WHERE id=?")
-    .bind(past_txns, est_url, hs_price, hs_area, hs_date, home.id).run();
-  return { past_txns, est_url, hs_price, hs_area, hs_date };
+  // 中原攞到嘅實呎／房數優先（朋友屋企冇輸入欄位，size_net／bedrooms 全部靠呢度）；攞唔到就保留原值
+  await db.prepare(`UPDATE friend_homes SET past_txns=?, est_url=?, hs_price=?, hs_area=?, hs_date=?, hs_status=?,
+      size_net=COALESCE(?, size_net), bedrooms=COALESCE(?, bedrooms), meta_at=datetime('now'), enriched_at=datetime('now') WHERE id=?`)
+    .bind(past_txns, est_url, hs_price, hs_area, hs_date, hs_status, size_net, bedrooms, home.id).run();
+  return { past_txns, est_url, hs_price, hs_area, hs_date, hs_status, size_net, bedrooms };
 }
 
 // ── 睇過嘅盤 · 參考成交 (comps) ──────────────────────────────────────────────
@@ -8612,7 +8681,7 @@ export default {
         // 座/樓/室可能改咗 → 清走 cache（past_txns=NULL）等前端叫 enrich 重抓
         await db.prepare(`
           UPDATE friend_homes SET friend_name = ?, block = ?, floor = ?, unit = ?, size_net = ?, bedrooms = ?,
-            past_txns = NULL, est_url = NULL, hs_price = NULL, hs_area = NULL, hs_date = NULL, enriched_at = NULL
+            past_txns = NULL, est_url = NULL, hs_price = NULL, hs_area = NULL, hs_date = NULL, hs_status = NULL, meta_at = NULL, enriched_at = NULL
           WHERE id = ? AND account_id = ?
         `).bind(String(b.friend_name || "").trim(), String(b.block || "").trim(),
                 String(b.floor || "").trim(), String(b.unit || "").trim(),
