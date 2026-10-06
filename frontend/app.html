@@ -1060,6 +1060,13 @@
     .dj-detail { display: none; }
     .dj-detail.show { display: block; }
     .dj-body .viewing-card { max-width: 100%; overflow-x: auto; }
+    /* 展開卡入面嘅屋苑標題：色塊 + 左邊品牌線 + 較大粗體，一眼睇到係邊個屋苑 */
+    .dj-detail-estate {
+      display: inline-block; margin: 0 0 0.35rem 0; padding: 0.2rem 0.7rem 0.2rem 0.6rem;
+      font-size: 0.95rem; font-weight: 700; letter-spacing: 0.02em; color: var(--accent2);
+      background: rgba(96,165,250,0.16); border-left: 4px solid var(--accent2); border-radius: 0 999px 999px 0;
+    }
+    :root[data-theme="light"] .dj-detail-estate { color: #0f5f9c; background: rgba(18,112,172,0.10); border-left-color: #1270ac; }
     .dj-empty { padding: 1.2rem; color: var(--muted); font-size: 0.85rem; text-align: center; }
     .viewing-card {
       background: var(--glass-bg); border: 1px solid var(--border);
@@ -3478,7 +3485,7 @@ function _compsCardHtml(v) {
   const saved = allListings;
   allListings = (window._matchListingsByEstate || {})[v.estate_id] || [];
   try {
-    return `<div style="margin-bottom:0.15rem"><div style="font-size:0.75rem;color:var(--accent2);font-weight:600;margin:0 0 0.15rem 0.15rem">${
+    return `<div style="margin-bottom:0.15rem"><div class="dj-detail-estate">${
       escHtml(v.estate_name || '')}</div>${missHtml}${renderOneViewing(v, v.estate_id, true, true)}</div>`;
   } finally { allListings = saved; }
 }
