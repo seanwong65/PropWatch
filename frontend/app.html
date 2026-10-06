@@ -1291,6 +1291,7 @@
     /* 分析 box 入面「估值／叫價／市價」幾個字跟返價格尺嘅顏色（估值藍、叫價橙、成交綠），
        用淡色塊襯住，就算同句子同色（例如綠色「低市價…」）都分得出 */
     .vw-kw { padding: 0 0.22em; border-radius: 4px; }
+    .vw-hs-ref { color: var(--muted); font-weight: 600; font-size: 0.85em; }
     .vw-kw-hs { color: var(--accent2); background: color-mix(in srgb, var(--accent2) 14%, transparent); }
     .vw-kw-you { color: var(--accent); background: color-mix(in srgb, var(--accent) 14%, transparent); }
     .vw-kw-sold { color: var(--up); background: color-mix(in srgb, var(--up) 16%, transparent); }
@@ -5028,11 +5029,12 @@ function hsDiffHtml(hsPrice, txnPrice) {
 // 叫價比估值低＝抵（綠），高＝貴（紅）；冇叫價就只出估值。
 const vwKw = (word, tone) => `<span class="vw-kw vw-kw-${tone}">${word}</span>`;
 function vhsLineHtml(hsPrice, price) {
-  const val = `${vwKw('估值', 'hs')} $${(hsPrice / 1e4).toFixed(0)}萬`;
-  if (!price) return `<span class="vw-hs-line">${val}</span>`;
+  const wan = `$${(hsPrice / 1e4).toFixed(0)}萬`;
+  if (!price) return `<span class="vw-hs-line">${vwKw('估值', 'hs')} ${wan}</span>`;
+  // 同上面「低市價中位數 4.2%」同一句式：「高估值 1.6%（估值$787萬）」，第一個「估值」藍色塊
   const pct = (hsPrice - price) / price * 100;
   const cls = pct >= 0 ? 'gain-pos' : 'gain-neg';
-  return `<span class="vw-hs-line ${cls}">${val}：${pct >= 0 ? '比估值低' : '比估值高'} ${Math.abs(pct).toFixed(1)}%</span>`;
+  return `<span class="vw-hs-line ${cls}">${pct >= 0 ? '低' : '高'}${vwKw('估值', 'hs')} ${Math.abs(pct).toFixed(1)}% <span class="vw-hs-ref">(估值${wan})</span></span>`;
 }
 
 // 相對同苑近60日成交中位呎價平定貴（同抵買雷達同一把尺,由 /api/viewings 計好）。
