@@ -1288,6 +1288,12 @@
        「約叫價中位數」嗰句同一級數——覆蓋返 .price-cell／.gain-pos／
        .gain-neg 呢幾個全站共用嘅 class 原本嘅細字。 */
     .vw-hs-line { font-size: 0.88rem; font-weight: 700; }   /* 同「低叫價中位數 x%」一樣大細 */
+    /* 分析 box 入面「估值／叫價／市價」幾個字跟返價格尺嘅顏色（估值藍、叫價橙、成交綠），
+       用淡色塊襯住，就算同句子同色（例如綠色「低市價…」）都分得出 */
+    .vw-kw { padding: 0 0.22em; border-radius: 4px; }
+    .vw-kw-hs { color: var(--accent2); background: color-mix(in srgb, var(--accent2) 14%, transparent); }
+    .vw-kw-you { color: var(--accent); background: color-mix(in srgb, var(--accent) 14%, transparent); }
+    .vw-kw-sold { color: var(--up); background: color-mix(in srgb, var(--up) 16%, transparent); }
     /* 睇樓記錄「未沽出/已沽出」狀態——放大做 pill，一眼睇到邊啲已經有
        結果。已沽出＝綠底（有落實嘅市價數據），未沽出＝灰底（仲未知）。 */
     .vw-status { display: inline-flex; align-items: center; gap: 0.3rem; font-weight: 700; border-radius: 6px; padding: 0.15rem 0.55rem; }
@@ -2424,8 +2430,8 @@ function priceRulerSampleHtml() {
       <div style="margin-top:0.3rem;color:var(--muted);white-space:nowrap">在售 $14,827–$17,408 · 中位 <b>$16,293</b> · 23個</div>
       <div class="vw-verdict" style="background:rgba(52,211,153,0.14);border-left:3px solid var(--up)">
         <span style="font-size:0.68rem;color:var(--muted);font-weight:600;display:block;margin-bottom:0.1rem">📊 分析</span>
-        <div><span class="gain-pos" style="font-size:0.88rem;font-weight:700">低叫價中位數 5.0%</span></div>
-        <div style="margin-top:0.15rem"><span class="gain-pos" style="font-size:0.88rem;font-weight:700">低市價中位數 3.5%</span></div>
+        <div><span class="gain-pos" style="font-size:0.88rem;font-weight:700">低<span class="vw-kw vw-kw-you">叫價</span>中位數 5.0%</span></div>
+        <div style="margin-top:0.15rem"><span class="gain-pos" style="font-size:0.88rem;font-weight:700">低<span class="vw-kw vw-kw-sold">市價</span>中位數 3.5%</span></div>
       </div>
     </div>`;
   return `<div onclick="showUpgrade('相對市價／類近在售')" role="button" tabindex="0" style="position:relative;border:2px dashed var(--brand);border-radius:var(--radius-lg, 10px);padding:0.7rem 0.8rem 0.8rem;margin-bottom:0.9rem;overflow:hidden;cursor:pointer">
@@ -5020,8 +5026,9 @@ function hsDiffHtml(hsPrice, txnPrice) {
 // 睇樓卡「分析」box 入面嘅估值行：同上面「低叫價中位數 5.1%」一樣一句講晒、
 // 同字體同粗度、顏色跟貴／平（hsValHtml/hsDiffHtml 全站共用，所以唔喺度改，另起呢個）。
 // 叫價比估值低＝抵（綠），高＝貴（紅）；冇叫價就只出估值。
+const vwKw = (word, tone) => `<span class="vw-kw vw-kw-${tone}">${word}</span>`;
 function vhsLineHtml(hsPrice, price) {
-  const val = `估值 $${(hsPrice / 1e4).toFixed(0)}萬`;
+  const val = `${vwKw('估值', 'hs')} $${(hsPrice / 1e4).toFixed(0)}萬`;
   if (!price) return `<span class="vw-hs-line">${val}</span>`;
   const pct = (hsPrice - price) / price * 100;
   const cls = pct >= 0 ? 'gain-pos' : 'gain-neg';
@@ -5214,8 +5221,8 @@ function priceRulerHtml(v) {
     return `<span style="color:var(--muted);font-size:0.82rem;font-weight:600">${midLabel} ${vs > 0 ? '+' : ''}${vs.toFixed(1)}%</span>`;
   };
   const askVs = (hasAsk && ownPsf) ? (ownPsf - askMed) / askMed * 100 : null;
-  const askBadge = badgeFor(askVs, '貴叫價中位數', '低叫價中位數', '約叫價中位數');
-  const soldBadge = hasSold ? badgeFor(v.vs_med_pct, '貴市價中位數', '低市價中位數', '約市價中位數') : '';
+  const askBadge = badgeFor(askVs, `貴${vwKw('叫價', 'you')}中位數`, `低${vwKw('叫價', 'you')}中位數`, `約${vwKw('叫價', 'you')}中位數`);
+  const soldBadge = hasSold ? badgeFor(v.vs_med_pct, `貴${vwKw('市價', 'sold')}中位數`, `低${vwKw('市價', 'sold')}中位數`, `約${vwKw('市價', 'sold')}中位數`) : '';
   // 貴／平以邊個做基準：有成交中位數（實際市價）就以佢為準，冇先睇叫價中位
   const primaryVs = hasSold ? v.vs_med_pct : askVs;
   const verdictTone = primaryVs == null ? 'neutral' : primaryVs <= -band ? 'cheap' : primaryVs >= band ? 'expensive' : 'neutral';
