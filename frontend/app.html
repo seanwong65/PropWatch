@@ -2426,12 +2426,12 @@ function priceRulerSampleHtml() {
       <div class="pr-axis"><span>$14.4k</span><span>$17.7k</span></div>
     </div></div>`;
   const info = `<div class="pr-info" style="border-left:none;padding-left:0;border-top:1px solid var(--border);padding-top:0.5rem">
-      <div style="white-space:nowrap"><span class="up">成交</span> $15,406–$16,634 · 中位 <b>$16,035</b> · 6宗</div>
+      <div style="white-space:nowrap"><span class="vw-kw vw-kw-sold" style="font-weight:600">成交</span> $15,406–$16,634 · 中位 <b>$16,035</b> · 6宗</div>
       <div style="margin-top:0.3rem;color:var(--muted);white-space:nowrap">在售 $14,827–$17,408 · 中位 <b>$16,293</b> · 23個</div>
       <div class="vw-verdict" style="background:rgba(52,211,153,0.14);border-left:3px solid var(--up)">
         <span style="font-size:0.68rem;color:var(--muted);font-weight:600;display:block;margin-bottom:0.1rem">📊 分析</span>
-        <div><span class="gain-pos" style="font-size:0.88rem;font-weight:700">低<span class="vw-kw vw-kw-you">叫價</span>中位數 5.0%</span></div>
-        <div style="margin-top:0.15rem"><span class="gain-pos" style="font-size:0.88rem;font-weight:700">低<span class="vw-kw vw-kw-sold">市價</span>中位數 3.5%</span></div>
+        <div><span class="gain-pos" style="font-size:0.88rem;font-weight:700">低<span class="vw-kw vw-kw-sold">市價</span>中位數 3.5%</span></div>
+        <div style="margin-top:0.15rem"><span class="gain-pos" style="font-size:0.88rem;font-weight:700">低<span class="vw-kw vw-kw-you">叫價</span>中位數 5.0%</span></div>
       </div>
     </div>`;
   return `<div onclick="showUpgrade('相對市價／類近在售')" role="button" tabindex="0" style="position:relative;border:2px dashed var(--brand);border-radius:var(--radius-lg, 10px);padding:0.7rem 0.8rem 0.8rem;margin-bottom:0.9rem;overflow:hidden;cursor:pointer">
@@ -5198,7 +5198,7 @@ function priceRulerHtml(v) {
     ? `同層帶近${days}日成交中位數（以該座成交最高層 ${v.tier_max_floor} 樓三等分）`
     : `全苑近${days}日成交中位數`;
   const soldLine = hasSold
-    ? `<div style="white-space:nowrap"><span class="up">成交</span> $${v.sold_p10.toLocaleString()}–$${v.sold_p90.toLocaleString()}
+    ? `<div style="white-space:nowrap"><span class="vw-kw vw-kw-sold" style="font-weight:600">成交</span> $${v.sold_p10.toLocaleString()}–$${v.sold_p90.toLocaleString()}
         · 中位 <b>$${v.sold_med_psf.toLocaleString()}</b> · <span class="pr-lnk" onclick="openEstateComps(${v.estate_id},'${v.market_basis||'estate'}','${v.floor_tier||''}','${escJsAttr(v.block||'')}','${escJsAttr(v.floor||'')}','${escJsAttr(v.unit||'')}')"
         title="${escHtml(soldConf.weak ? soldConf.tip : soldTip)}" style="${soldConf.weak ? `color:${soldConf.color};font-weight:600` : ''}">${v.market_n_sold}宗${soldConf.mark}</span></div>`
     : `<div class="sub">成交：${v.floor_tier == null ? '未有樓層帶' : `近${days}日唔夠${minSold}宗`}</div>`;
@@ -5241,8 +5241,8 @@ function priceRulerHtml(v) {
   const verdictLine = hasVerdictBox
     ? `<div class="vw-verdict" style="background:${verdictBg};border-left:3px solid ${verdictBorder}">
         <span style="font-size:0.68rem;color:var(--muted);font-weight:600;display:block;margin-bottom:0.1rem">📊 分析</span>
-        ${askBadge ? `<div>${askBadge}</div>` : ''}
-        ${soldBadge ? `<div${askBadge ? ' style="margin-top:0.15rem"' : ''}>${soldBadge}</div>` : ''}
+        ${soldBadge ? `<div>${soldBadge}</div>` : ''}
+        ${askBadge ? `<div${soldBadge ? ' style="margin-top:0.15rem"' : ''}>${askBadge}</div>` : ''}
         <div style="margin-top:0.15rem">${hsBlock}</div>
       </div>` : '';
   const hsStandalone = hasVerdictBox ? '' : `<div style="margin-top:0.3rem">${hsBlock}</div>`;
