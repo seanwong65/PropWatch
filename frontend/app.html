@@ -1287,10 +1287,7 @@
     /* 估值嗰句（$757萬 / 比估值高 2.9%）擺入「分析」box 之後要同
        「約叫價中位數」嗰句同一級數——覆蓋返 .price-cell／.gain-pos／
        .gain-neg 呢幾個全站共用嘅 class 原本嘅細字。 */
-    .vw-hs-diff { display: inline-flex; align-items: baseline; gap: 0.4rem; }
-    .vw-hs-diff .price-cell { font-size: 0.88rem; }
-    .vw-hs-diff .gain-pos, .vw-hs-diff .gain-neg { font-size: 0.88rem; font-weight: 700; }
-    .vw-hs-diff .unit-price { margin-top: 0; }
+    .vw-hs-line { font-size: 0.88rem; font-weight: 700; }   /* 同「低叫價中位數 x%」一樣大細 */
     /* 睇樓記錄「未沽出/已沽出」狀態——放大做 pill，一眼睇到邊啲已經有
        結果。已沽出＝綠底（有落實嘅市價數據），未沽出＝灰底（仲未知）。 */
     .vw-status { display: inline-flex; align-items: center; gap: 0.3rem; font-weight: 700; border-radius: 6px; padding: 0.15rem 0.55rem; }
@@ -5020,6 +5017,17 @@ function hsDiffHtml(hsPrice, txnPrice) {
   return `<div class="unit-price"><span class="gain-neg">比估值高 ${absPct}%</span></div>`;
 }
 
+// 睇樓卡「分析」box 入面嘅估值行：同上面「低叫價中位數 5.1%」一樣一句講晒、
+// 同字體同粗度、顏色跟貴／平（hsValHtml/hsDiffHtml 全站共用，所以唔喺度改，另起呢個）。
+// 叫價比估值低＝抵（綠），高＝貴（紅）；冇叫價就只出估值。
+function vhsLineHtml(hsPrice, price) {
+  const val = `估值 $${(hsPrice / 1e4).toFixed(0)}萬`;
+  if (!price) return `<span class="vw-hs-line">${val}</span>`;
+  const pct = (hsPrice - price) / price * 100;
+  const cls = pct >= 0 ? 'gain-pos' : 'gain-neg';
+  return `<span class="vw-hs-line ${cls}">${val}：${pct >= 0 ? '比估值低' : '比估值高'} ${Math.abs(pct).toFixed(1)}%</span>`;
+}
+
 // 相對同苑近60日成交中位呎價平定貴（同抵買雷達同一把尺,由 /api/viewings 計好）。
 // basis='tier' 時基準係同層帶(高/中/低層,以該座成交最高層三等分)嘅中位數,
 // 同層唔夠5宗會 fallback 返全苑中位數。
@@ -5091,13 +5099,13 @@ function priceRulerHtml(v) {
   // 查估值）共用緊，唔可以喺 function 本身度改（會累埋其他位一齊變大）。
   // 靠加多一層 class 用 CSS 特異性覆蓋返，淨係呢個位大。
   const hsInner = v.hs_price
-    ? `<span class="vw-hs-diff"><span style="color:var(--muted);font-size:0.75rem">估值</span>${hsValHtml(v.hs_price)}${hsDiffHtml(v.hs_price, v.price)}</span>`
+    ? vhsLineHtml(v.hs_price, v.price)
     // 屋苑 id 跟返張卡自己嗰個（v.estate_id），唔可以淨靠 _viewingEstateId——
     // dashboard「睇過嘅盤」係跨屋苑，嗰度個全局係 null／上一個屋苑，會查錯苑。
     : `<button class="hs-val-btn" onclick="manualFetchViewingHSVal(${v.id},${v.estate_id || _viewingEstateId},'${escJsAttr(v.block||'')}','${escJsAttr(v.floor||'')}','${escJsAttr(v.unit||'')}',${v.price||0})">查估值</button>`;
   // wrapper 用 flex 逼 hsValHtml/hsDiffHtml 兩個 block-level 元素企埋同一行；
   // 呢個 style 喺 fetchViewingHSVal 之後唔會俾人覆蓋（佢哋淨係更新內容）。
-  const hsBlock = `<div id="vhs-${v.id}" style="display:flex;align-items:baseline;gap:0.4rem;white-space:nowrap">${hsInner}</div>`;
+  const hsBlock = `<div id="vhs-${v.id}">${hsInner}</div>`;
 
   if (!isPaid()) {
     return `<div class="pr-flex" style="flex-direction:column;gap:0.5rem"><div class="pr-info" style="border-left:none;padding-left:0">${hsBlock}</div>${priceRulerSampleHtml()}</div>`;
@@ -7373,7 +7381,7 @@ async function fetchViewingHSVal(viewingId, block, floor, unit, price, estate = 
       const v = window._viewingMap?.[viewingId];
       if (v) v.hs_price = Number(data.price);   // 個 map 都要更新——條尺個估值針下次 render 先會啱
       const cell = document.getElementById(`vhs-${viewingId}`);
-      if (cell) cell.innerHTML = `<span style="color:var(--muted);font-size:0.75rem">估值</span>` + hsValHtml(Number(data.price)) + hsDiffHtml(Number(data.price), price);
+      if (cell) cell.innerHTML = vhsLineHtml(Number(data.price), price);
     }
   } catch {}
 }
