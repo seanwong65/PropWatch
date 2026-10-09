@@ -201,7 +201,12 @@ See `CLAUDE.md` for the enforced conventions. Quick facts:
   `fetch` exit; `json()` no longer sets `Access-Control-Allow-Origin` itself.
 - **Rate limits**: in-memory fixed-window per isolate. Global (NOT per-account)
   settings keys with code defaults: `sec_auth_rpm` (login/register per-IP,
-  default 10/min), `sec_api_rpm` (per-token/IP, default 240/min). Change via D1:
+  default 10/min), `sec_ip_rpm` (every /api/* request per IP regardless of
+  token, default 600/min — stops rotating fake tokens), `sec_api_rpm`
+  (additionally per Bearer token, default 240/min). Checked **before** the
+  `ensure*` D1 calls so a 429 costs no D1 reads. Because counters are per
+  isolate, a client spread over many isolates can exceed the nominal limit.
+  Change via D1:
   `INSERT INTO settings (key,value) VALUES ('sec_api_rpm','500') ON CONFLICT(key) DO UPDATE SET value=excluded.value;`
 - **Frontend escaping helpers** (bottom of app.html): `escHtml` (HTML text),
   `safeUrl` (hrefs — blocks `javascript:`), `safeImgSrc` (img src — http(s)/data:image
