@@ -597,6 +597,9 @@ async function sha256(text) {
 const SEC_DEFS = [
   { key: "sec_api_rpm", def: 240, min: 30, max: 6000, label: "API 每分鐘上限",
     desc: "已登入 API：每個帳戶（或 IP）每分鐘 request 上限。太低會誤殺正常使用。" },
+  { key: "sec_ip_rpm", def: 600, min: 60, max: 20000, label: "API 每個 IP 每分鐘總上限",
+    desc: "所有 /api/* request 一律計落 IP（唔睇 Authorization header），擋「每次換一個假 token 逐個 token 重新計數」嘅繞法。"
+        + "要夠鬆俾同一個 IP 後面幾個真用戶（辦公室／學校），所以預設係單個用戶上限（sec_api_rpm）嘅 2.5 倍。" },
   { key: "sec_auth_rpm", def: 10, min: 3, max: 120, label: "登入／註冊每分鐘上限",
     desc: "login/register/忘記密碼：每個 IP 每分鐘試嘅次數，擋暴力試密碼。" },
   { key: "sec_free_max_estates", def: 3, min: 1, max: 50, label: "免費版：最多追蹤屋苑",
@@ -641,7 +644,7 @@ async function getSecCfg(db) {
 // In-memory fixed-window counter（per isolate）。isolate 回收會重置——擋高速
 // 暴力/scraping 夠用；真正嘅帳戶鎖靠 login 嘅 failed_attempts（durable，喺 D1）。
 const RATE_BUCKETS = new Map(); // key -> { windowStart, count }
-function rateLimited(key, limit, windowMs = 60000) {
+export function rateLimited(key, limit, windowMs = 60000) {
   const now = Date.now();
   let b = RATE_BUCKETS.get(key);
   if (!b || now - b.windowStart >= windowMs) {
@@ -655,6 +658,15 @@ function rateLimited(key, limit, windowMs = 60000) {
     }
   }
   return b.count > limit;
+}
+
+// 一般 /api/* 嘅限速 key：IP 一定計（假 token 輪換都避唔到），有 Bearer token 先再加一層 per-token。
+// 之前淨係用 Authorization header 頭 16 個字做 key——header 未驗證，每個 request 換一個
+// 亂作嘅 token 就次次拎新 bucket，per-IP 嗰層完全唔會行。
+export function apiRateKeys(authHdr, clientIp) {
+  const h = String(authHdr || "");
+  const tok = h.startsWith("Bearer ") ? h.slice(7, 23) : "";
+  return { ip: `ip:${clientIp}`, tok: tok ? `tok:${tok}` : null };
 }
 
 // settings 表嘅細 helper（sec_* / cfg_* 各自有自己嗰套讀法，呢兩個係俾
@@ -5958,11 +5970,9 @@ export default {
     if (method === "OPTIONS") return new Response(null, { headers: CORS });
 
     try {
-      await ensureAuthTables(db);
-      await ensureSourceColumns(db);
-      await ensureMultiAccount(db);
-
       // ── Rate limiting ──
+      // 喺 ensure*（會掃 accounts、讀 settings）之前做：被擋嘅 request 唔應該仲要食 D1。
+      // getSecCfg 有 60 秒 cache，settings 表未存在就回 default，所以排喺最前面安全。
       const clientIp = request.headers.get("CF-Connecting-IP") || "unknown";
       const sec = await getSecCfg(db);
       if (path === "/api/login" || path === "/api/register" || path === "/api/register-otp"
@@ -5972,13 +5982,16 @@ export default {
           return json(429, { error: "請求太頻密，請一分鐘後再試" });
         }
       } else if (path.startsWith("/api/")) {
-        // 一般 API：per-token（未帶 token 就 per-IP），擋高速抽數據
-        const authHdr = request.headers.get("Authorization") || "";
-        const rlKey = authHdr ? `tok:${authHdr.slice(7, 23)}` : `ip:${clientIp}`;
-        if (rateLimited(rlKey, sec.sec_api_rpm)) {
+        // 一般 API：先 per-IP 總上限（無論帶唔帶、帶乜 token），再 per-token（擋高速抽數據）
+        const k = apiRateKeys(request.headers.get("Authorization"), clientIp);
+        if (rateLimited(k.ip, sec.sec_ip_rpm) || (k.tok && rateLimited(k.tok, sec.sec_api_rpm))) {
           return json(429, { error: "請求太頻密，請稍後再試" });
         }
       }
+
+      await ensureAuthTables(db);
+      await ensureSourceColumns(db);
+      await ensureMultiAccount(db);
 
       // ── Stripe webhook — 唯一新增嘅公開 route ──────────────────────────────
       // 冇得行 auth guard：Stripe server 直接 POST 埋嚟，冇我哋嘅 token。

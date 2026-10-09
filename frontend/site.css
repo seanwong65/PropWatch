@@ -7,7 +7,7 @@
   --border: rgba(30,80,130,0.12); --border-strong: rgba(30,80,130,0.22); --td-border: rgba(30,80,130,0.08);
   --text: #0f1c2e; --muted: #4f647a;
   --accent: #b45309; --accent2: #0f5f9c; --on-accent2: #ffffff;
-  --down: #cf2020;
+  --up: #15803d; --down: #cf2020;   /* 升／平＝綠（白底 4.9:1），跟 app.html 淺色主題；landing 嘅 ✓ 用呢個 */
   --brand: #1270ac; --brand-hover: #0f5f9c; --brand-ink: #ffffff; --brand-soft: rgba(28,158,232,0.12);
   --btn-bg: #1270ac; --btn-hover: #0f5f9c;
   --btn2-bg: rgba(255,255,255,0.85); --btn2-border: rgba(30,80,130,0.16);

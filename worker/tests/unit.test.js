@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { scrapeRicacorpListings, scrapeHkpListings, hsUnitParts, hsBlockKey, hsNameVariants, pickRotationEstates } from "../index.js";
+import { scrapeRicacorpListings, scrapeHkpListings, hsUnitParts, hsBlockKey, hsNameVariants, pickRotationEstates, apiRateKeys, rateLimited } from "../index.js";
 import { readFileSync } from "node:fs";
 
 // ── Pure helpers extracted inline (no DB/fetch deps) ──────────────────────
@@ -434,5 +434,31 @@ describe("hsNameVariants（恒生屋苑名配對變體）", () => {
   it("變體一律 strict（防模糊搜尋配錯屋苑），冇「期」字嘅唔會多出變體", () => {
     for (const v of hsNameVariants("浪翠園 4期").slice(1)) expect(v.strict).toBe(true);
     expect(hsNameVariants("海逸豪園")).toHaveLength(1);
+  });
+});
+
+describe("apiRateKeys／限速（假 token 輪換繞唔過）", () => {
+  it("每個請求一定有 IP key；Bearer token 先另有 token key", () => {
+    expect(apiRateKeys("Bearer abcdefghijklmnopqrstuvwxyz", "1.1.1.1")).toEqual({ ip: "ip:1.1.1.1", tok: "tok:abcdefghijklmnop" });
+    expect(apiRateKeys(null, "1.1.1.1")).toEqual({ ip: "ip:1.1.1.1", tok: null });
+    expect(apiRateKeys("Basic xxx", "1.1.1.1").tok).toBeNull();   // 非 Bearer 唔當 token
+  });
+  it("同一個 IP 每次換新假 token：token bucket 次次都新，但 IP bucket 照樣封頂", () => {
+    const ip = "9.9.9.9-test", ipLimit = 600, tokLimit = 240;
+    let ipHits = 0, tokHits = 0;
+    for (let i = 0; i < 700; i++) {
+      const k = apiRateKeys(`Bearer fake-token-${i}-xxxxxxxxxxxx`, ip);
+      if (rateLimited(k.ip, ipLimit)) { ipHits++; continue; }     // 同 handleRequest 一樣：IP 先擋
+      if (k.tok && rateLimited(k.tok, tokLimit)) tokHits++;
+    }
+    expect(tokHits).toBe(0);      // 舊寫法：次次新 bucket，一個都擋唔到
+    expect(ipHits).toBe(100);     // 第 601–700 個 request 被 IP 層擋
+  });
+  it("真 token 照舊受 per-token 上限（同 IP 嘅另一個 token 唔受影響）", () => {
+    const a = apiRateKeys("Bearer real-token-AAAAAAAAAAAA", "8.8.8.8-test"), b = apiRateKeys("Bearer real-token-BBBBBBBBBBBB", "8.8.8.8-test");
+    let limited = 0;
+    for (let i = 0; i < 300; i++) if (rateLimited(a.tok, 240)) limited++;
+    expect(limited).toBe(60);
+    expect(rateLimited(b.tok, 240)).toBe(false);
   });
 });
