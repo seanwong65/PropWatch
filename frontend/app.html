@@ -6473,6 +6473,36 @@ async function checkFirstLoginPrefs() {
   // 唔 await（同 prefs popup 冇關係），render 表嗰陣先用到。
   loadVisitedRefs();
   if (_userPrefs === null) openPrefsModal();
+  runTrackNameHandoff();
+}
+
+// 公開搜尋頁（/search）撳「🔔 追蹤加減價」→ /app?track_name=<屋苑>#register。
+// 登入／註冊完：喺屋苑搜尋框填好個名、出返搜尋結果，等用戶自己揀啱嗰個先追蹤
+// （唔自動加：同名屋苑／分期好多，揀錯會食咗免費名額）。
+// 個名先擺 sessionStorage：用戶喺登入卡轉 mode、撳錯 refresh 都唔會甩。
+const TRACK_NAME_KEY = "pw_track_name";
+function stashTrackName() {
+  const n = (new URLSearchParams(location.search).get("track_name") || "").trim().slice(0, 30);
+  if (n) { try { sessionStorage.setItem(TRACK_NAME_KEY, n); } catch (_) {} }
+  return n;
+}
+async function runTrackNameHandoff() {
+  stashTrackName();
+  let name = "";
+  try { name = sessionStorage.getItem(TRACK_NAME_KEY) || ""; sessionStorage.removeItem(TRACK_NAME_KEY); } catch (_) {}
+  const q = new URLSearchParams(location.search);
+  if (q.has("track_name")) {
+    q.delete("track_name");
+    history.replaceState(null, "", location.pathname + (q.toString() ? "?" + q : "") + location.hash);
+  }
+  if (name.length < 2) return;
+  // 新用戶會先彈偏好設定；等佢閂咗先出搜尋結果，否則被遮住（最多等 10 分鐘）
+  const prefsOpen = () => document.getElementById("prefsModalOverlay")?.style.display === "flex";
+  for (let i = 0; i < 1200 && prefsOpen(); i++) await new Promise((r) => setTimeout(r, 500));
+  if (window.matchMedia("(max-width: 768px)").matches && !document.querySelector(".sidebar").classList.contains("open")) toggleSidebar();
+  searchInput.value = name;
+  await doSearch(name);
+  toast(`揀返「${name}」就會開始每日追蹤加減價`);
 }
 
 function openPrefsModal(prefill) {
@@ -9519,6 +9549,12 @@ if (getToken()) {
     if (wan > 0) {
       const err = document.getElementById("login-error");
       if (err) { err.textContent = `註冊咗先可以將 $${wan}萬 儲做你嘅買盤預算（免費）`; err.style.display = "block"; }
+    }
+    // 喺 /search 撳咗「🔔 追蹤加減價」
+    const trackName = stashTrackName();
+    if (trackName) {
+      const err = document.getElementById("login-error");
+      if (err) { err.textContent = `註冊咗就可以每日追蹤「${trackName}」嘅加減價（免費）`; err.style.display = "block"; }
     }
   } else {
     showLanding();

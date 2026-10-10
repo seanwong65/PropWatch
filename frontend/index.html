@@ -235,6 +235,30 @@
     .ld-feat-card-body p { color: var(--muted); font-size: 0.88rem; line-height: 1.75; margin: 0; }
     .ld-feat-card-body p b { color: var(--text); }
     .ld-final { text-align: center; padding: 3.2rem 0 1rem; }
+    /* 首頁搜尋框：純 GET form 去 /search（唔使 JS），結果頁先至即時問四大地產網。
+       價錢／面積喺結果頁先揀——首頁保持似 Google 咁簡單。 */
+    .ld-search {
+      background: var(--glass-bg); border: 1px solid var(--glass-border); border-radius: var(--radius-lg);
+      box-shadow: var(--glass-inner), var(--shadow); padding: 1.3rem 1.4rem 1.2rem; margin: 0.5rem 0 1rem;
+    }
+    .ld-search-h { font-size: 1.15rem; font-weight: 800; margin: 0 0 0.25rem; }
+    .ld-search-sub { margin: 0 0 0.9rem; color: var(--muted); font-size: 0.88rem; }
+    .ld-search-form { display: grid; grid-template-columns: auto minmax(0, 1fr) minmax(0, 9rem) auto; gap: 0.6rem; align-items: center; }
+    .ld-seg { display: inline-flex; background: var(--surface2); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 3px; }
+    .ld-seg label { position: relative; }
+    .ld-seg input { position: absolute; opacity: 0; inset: 0; margin: 0; cursor: pointer; }
+    .ld-seg span { display: block; padding: 0.42rem 0.9rem; border-radius: 8px; font-size: 0.9rem; color: var(--muted); }
+    .ld-seg input:checked + span { background: var(--surface); color: var(--brand); font-weight: 700; box-shadow: var(--shadow-sm); }
+    .ld-seg input:focus-visible + span { outline: 2px solid var(--brand); outline-offset: 1px; }
+    .ld-search-in { width: 100%; min-width: 0; border: 1px solid var(--border-strong); background: var(--surface); border-radius: var(--radius-sm); padding: 0.62rem 0.8rem; font-size: 0.95rem; font-family: inherit; color: var(--text); }
+    .ld-search-form .ld-cta { padding: 0.62rem 1.5rem; font-size: 0.95rem; }
+    .ld-search-hot { margin-top: 0.8rem; display: flex; flex-wrap: wrap; gap: 0.35rem 0.5rem; font-size: 0.82rem; color: var(--muted); align-items: center; }
+    .ld-search-hot a { color: var(--brand); text-decoration: none; border: 1px solid var(--border); background: var(--surface); border-radius: 999px; padding: 0.15rem 0.65rem; }
+    @media (max-width: 640px) {
+      .ld-search-form { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+      .ld-search-form .ld-seg, .ld-search-form .ld-kw { grid-column: 1 / -1; }
+      .ld-search-form .ld-seg { justify-self: start; }
+    }
     .ld-foot { text-align: center; font-size: 0.75rem; color: var(--muted); line-height: 1.8; padding-top: 2.5rem; }
   </style>
 </head>
@@ -306,6 +330,30 @@
         </div>
       </div>
     </div>
+
+    <section class="ld-search" aria-labelledby="ld-search-h">
+      <h2 class="ld-search-h" id="ld-search-h">🔍 一次過搵晒四大地產網</h2>
+      <p class="ld-search-sub">中原、美聯、香港置業、利嘉閣嘅放盤，一個搜尋睇晒。免登入。</p>
+      <form class="ld-search-form" action="/search" method="get" role="search">
+        <div class="ld-seg" role="radiogroup" aria-label="買盤定租盤">
+          <label><input type="radio" name="deal" value="S" checked><span>買盤</span></label>
+          <label><input type="radio" name="deal" value="R"><span>租盤</span></label>
+        </div>
+        <input class="ld-search-in ld-kw" name="kw" type="search" maxlength="30" placeholder="屋苑名，例如：天晉、太古城（可留空）" aria-label="屋苑" autocomplete="off">
+        <select class="ld-search-in" name="beds" aria-label="房數">
+          <option value="">房數不限</option><option value="1">1 房</option><option value="2">2 房</option>
+          <option value="3">3 房</option><option value="4">4 房或以上</option>
+        </select>
+        <button type="submit" class="ld-cta">搜尋</button>
+      </form>
+      <div class="ld-search-hot">熱門：
+        <a href="/search?kw=%E5%A4%AA%E5%8F%A4%E5%9F%8E">太古城</a>
+        <a href="/search?kw=%E6%97%A5%E5%87%BA%E5%BA%B7%E5%9F%8E">日出康城</a>
+        <a href="/search?kw=%E5%98%89%E6%B9%96%E5%B1%B1%E8%8E%8A">嘉湖山莊</a>
+        <a href="/search?kw=%E7%BE%8E%E5%AD%9A%E6%96%B0%E9%82%A8">美孚新邨</a>
+        <a href="/search?kw=%E5%A4%A9%E6%99%89">天晉</a>
+      </div>
+    </section>
 
     <h2 class="ld-h2">功能介紹</h2>
     <div class="ld-h2sub">以下係系統畫面（示範數據）</div>
@@ -438,6 +486,7 @@
 <footer class="site-foot">
   <nav aria-label="網站連結">
     <a href="/">搵樓日記</a>
+    <a href="/search">搵樓</a>
     <a href="/mortgage-calculator">按揭計算機</a>
     <a href="/guides/">買樓教學</a>
     <a href="/about">關於我們</a>
