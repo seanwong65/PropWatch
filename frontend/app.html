@@ -2336,12 +2336,14 @@ function hkTodayStr() { return new Date(Date.now() + 8 * 3600000).toISOString().
 // 取代原生 confirm()：Claude desktop 內置瀏覽器窗格（同部分嵌入式 webview）會即刻
 // 回 false、唔彈窗，令所有靠 confirm() 嘅刪除掣「撳咗冇反應」。呢個係頁內確認框，
 // 任何環境都彈得出。回 Promise<boolean>。
-// hl：msg 入面要特別標出嚟嘅字串（例如屋苑名），會用品牌色 + 粗體 + 大啲
+// hl：msg 入面要特別標出嚟嘅字串（例如屋苑名）。用同睇樓記錄詳細卡一樣嘅屋苑 pill
+// （.dj-detail-estate），擺喺最頂獨立一行，其餘字喺下面。
 function appConfirm(msg, okLabel = '確定', note = '', hl = '') {
   const msgHtml = (() => {
     const i = hl ? String(msg).indexOf(hl) : -1;
     if (i < 0) return escHtml(msg);
-    return `${escHtml(msg.slice(0, i))}<b style="color:var(--brand);font-size:1.08em">${escHtml(hl)}</b>${escHtml(msg.slice(i + hl.length))}`;
+    const rest = (msg.slice(0, i).trimEnd() + ' ' + msg.slice(i + hl.length).trimStart()).replace(/^ +/, '');
+    return `<div class="dj-detail-estate" style="margin-bottom:0.5rem">${escHtml(hl)}</div><br>${escHtml(rest)}`;
   })();
   return new Promise((resolve) => {
     const ov = document.createElement('div');
