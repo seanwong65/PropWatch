@@ -2099,6 +2099,8 @@
     <button class="modal-close" onclick="closeViewingModal()">✕</button>
     <div class="modal-title">＋ 新增睇樓記錄</div>
     <div class="modal-sub" id="viewing-modal-estate-name"></div>
+    <!-- 改記錄先出：可以揀返另一個自己追蹤緊嘅屋苑（新增時屋苑固定，唔出呢個） -->
+    <select class="vf-input" id="vf-estate-select" style="display:none;margin:-0.4rem 0 1rem" aria-label="屋苑"></select>
     <form id="viewingForm" onsubmit="submitViewing(event)">
       <label class="vf-label" id="vf-deal-row" style="display:none">類型</label>
       <div id="vf-deal-types" style="display:none;gap:0.4rem;margin-bottom:0.7rem">
@@ -7104,6 +7106,7 @@ function openViewingModal(viewing = null, readOnly = false) {
     }).catch(() => {});
   }
   setVfReadOnly(!!viewing && readOnly);
+  setVfEstateEditable(!!viewing && !readOnly);
 }
 
 // 查看模式：同一個 modal，但整個表單 inert（撳唔到、Tab 唔到、Enter 都唔會 submit），
@@ -7114,8 +7117,23 @@ function setVfReadOnly(on) {
   form.classList.toggle('vf-readonly', on);
   document.getElementById('vf-switch-edit').style.display = on ? 'block' : 'none';
 }
+// 改記錄時，屋苑名變下拉（揀錯屋苑可以改）；新增／只讀就係純文字
+function setVfEstateEditable(on) {
+  const sel = document.getElementById('vf-estate-select');
+  const txt = document.getElementById('viewing-modal-estate-name');
+  sel.style.display = on ? '' : 'none';
+  txt.style.display = on ? 'none' : '';
+  if (!on) return;
+  const list = Object.values(estatesById || {}).map(e => ({ id: e.id, name: e.name }));
+  // 記錄本身嘅屋苑可能已經取消追蹤（睇樓記錄會留低）→ 都要有呢個選項，唔可以郁到就變咗
+  if (!list.some(e => e.id === _viewingEstateId)) list.unshift({ id: _viewingEstateId, name: _viewingEstateName || ('屋苑 ' + _viewingEstateId) });
+  list.sort((a, b) => (a.id === _viewingEstateId ? -1 : b.id === _viewingEstateId ? 1 : String(a.name).localeCompare(String(b.name), 'zh-HK')));
+  sel.innerHTML = list.map(e => `<option value="${Number(e.id)}">${escHtml(e.name)}</option>`).join('');
+  sel.value = String(_viewingEstateId);
+}
 function switchViewingToEdit() {
   setVfReadOnly(false);
+  setVfEstateEditable(true);
   document.querySelector('#viewingModalOverlay .modal-title').textContent = '✏️ 更改睇樓記錄';
 }
 
@@ -7335,6 +7353,10 @@ async function submitViewing(e) {
   // 只有 座數／樓層／室 必填（HTML required）。其餘冇填就列出嚟，等用戶確認先儲存。
   const deal = _vfDeal || 'S';                                   // 冇揀類型當買盤
   const val = id => document.getElementById(id).value.trim();
+  // 改記錄時可能揀咗另一個屋苑
+  const estSel = document.getElementById('vf-estate-select');
+  const vfEstId = (estSel && estSel.style.display !== 'none' && Number(estSel.value)) || _viewingEstateId;
+  const vfEstName = (estSel && estSel.style.display !== 'none' && estSel.selectedOptions[0]?.textContent) || _viewingEstateName;
   const missing = [];
   if (!_vfDeal && document.getElementById('vf-deal-types')?.style.display !== 'none') missing.push('類型（會當買盤）');
   if (!val('vf-date')) missing.push('睇樓日期（會用今日）');
@@ -7356,10 +7378,10 @@ async function submitViewing(e) {
       priceV ? (deal === 'R' ? `月租 $${priceV}` : `售價 $${priceV}萬`) : '',
     ].filter(Boolean).join('　·　');
     const ok = await appConfirm(
-      `${_viewingEditId ? '更改' : '新增'} ${_viewingEstateName || ''} ${unitLabel} 睇樓記錄`.replace(/\s+/g, ' ') + (facts ? '\n' + facts : ''),
+      `${_viewingEditId ? '更改' : '新增'} ${vfEstName || ''} ${unitLabel} 睇樓記錄`.replace(/\s+/g, ' ') + (facts ? '\n' + facts : ''),
       '儲存',
       missing.length ? ['提提你：你仲有 ', missing.join('、'), ' 未填㗎，之後都可以補填返。'] : '',
-      _viewingEstateName || '');
+      vfEstName || '');
     if (!ok) return;
   }
   const btn = e.target.querySelector('.vf-submit');
@@ -7380,7 +7402,7 @@ async function submitViewing(e) {
     // 畫面一律當 0＝冇資料，唔顯示）。
     const price = Number.isFinite(priceRaw) ? Math.round(deal === 'R' ? priceRaw : priceRaw * 10000) : 0;
     const body = {
-      estate_id: _viewingEstateId,
+      estate_id: vfEstId,
       view_date: val('vf-date') || hkTodayStr(),
       block: document.getElementById('vf-block').value.trim(),
       floor: document.getElementById('vf-floor').value.trim(),
@@ -7406,7 +7428,7 @@ async function submitViewing(e) {
       savedId = res.id;
     }
     if (window._viewingImgsMap) delete window._viewingImgsMap[savedId];   // 相可能改咗，cache 作廢
-    const hsEstate = { id: _viewingEstateId, name: _viewingEstateName };   // closeViewingModal 可能會還原返借嘅屋苑
+    const hsEstate = { id: vfEstId, name: vfEstName };   // closeViewingModal 可能會還原返借嘅屋苑
     closeViewingModal();
     if (document.getElementById('tab-viewings')?.style.display !== 'none') {
       await loadViewings(_viewingEstateId);
