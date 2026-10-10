@@ -6007,20 +6007,35 @@ export function normRicacorp(x) {
     img: pubUrl(x?.thumbnail, ["resourcecdn.ricacorp.com"]),
   };
 }
+// ⚠️ 呢個 JSON API 有 per-IP 限流（2026-10-10 經 Cloudflare 出口實測：隔 10 秒次次得；
+// 隔 4 秒 5 次有 4 次 429「The request is blocked」）。HTML 列表頁冇呢個限制（每日 sync 用 HTML），
+// 但每頁 ~1MB、2–6 秒（試過 62 秒），唔啱即時搜尋。
+// 做法：被擋一次，呢個 isolate 停 RICA_BACKOFF_MS 唔再撩佢（唔好越撩越封），回 retryAfter 俾前端遲啲自己再試一次。
+const RICA_BACKOFF_MS = 10000;
+let _ricaBlockedUntil = 0;
+const pubRetry = (sec) => Object.assign(new Error("rate-limited upstream"), { retryAfter: sec });
 async function pubRicacorp(q) {
-  if (q.deal === "R") return { total: null, items: [], unsupported: true };
-  const sp = new URLSearchParams({ page: String(q.page) });
+  if (Date.now() < _ricaBlockedUntil) throw pubRetry(Math.ceil((_ricaBlockedUntil - Date.now()) / 1000));
+  // orderBy：最新先（同其他三網一致）；agreementType 5 = 租盤（3 = 買盤，即預設）
+  const sp = new URLSearchParams({ page: String(q.page), orderBy: "overallDateModified desc" });
+  if (q.deal === "R") sp.set("agreementType", "5");
   if (q.kw) sp.set("displayText", q.kw);
   if (q.beds) { sp.set("roomFrom", String(q.beds)); sp.set("roomTo", String(q.beds >= 4 ? 99 : q.beds)); }
+  // 租盤都係用 priceFrom/priceTo（月租，實測有效）
   if (q.pmin != null) sp.set("priceFrom", String(q.pmin));
   if (q.pmax != null) sp.set("priceTo", String(q.pmax));
   if (q.smin != null) sp.set("saleableAreaFrom", String(q.smin));
   if (q.smax != null) sp.set("saleableAreaTo", String(q.smax));
   const res = await fetch(`https://www.ricacorp.com/zh-hk/property/api/post?${sp}`, {
     headers: { "User-Agent": RICA_UA, Accept: "application/json, text/plain, */*", "Accept-Language": "zh-HK,zh;q=0.9",
-      "x-custom-header": "www.ricacorp.com/zh-hk/property", Referer: "https://www.ricacorp.com/zh-hk/property/list/buy" },
+      "x-custom-header": "www.ricacorp.com/zh-hk/property",
+      Referer: `https://www.ricacorp.com/zh-hk/property/list/${q.deal === "R" ? "rent" : "buy"}` },
     signal: AbortSignal.timeout(9000),
   });
+  if (res.status === 429 || res.status === 403) {
+    _ricaBlockedUntil = Date.now() + RICA_BACKOFF_MS;
+    throw pubRetry(RICA_BACKOFF_MS / 1000);
+  }
   if (!res.ok) throw new Error(`ricacorp ${res.status}`);
   const j = await res.json();
   return { total: Number(j?.total) || 0, items: (j?.results || []).map(normRicacorp) };
@@ -6226,7 +6241,8 @@ export default {
           return resp;
         } catch (e) {
           console.error("[pubsearch]", q.src, e?.message || e);
-          return json(502, { error: "呢個網站暫時搵唔到", src: q.src });
+          // retry：地產網限流（利嘉閣），叫前端過幾秒自己再試一次
+          return json(502, { error: "呢個網站暫時搵唔到", src: q.src, ...(e?.retryAfter ? { retry: e.retryAfter } : {}) });
         }
       }
 

@@ -89,7 +89,15 @@ HKP 行 `search/v1`、美聯行 `search/v2`）。實測分別：
 | 中原 | `POST hk.centanet.com/findproperty/api/Post/Search` | `sort: PublishDate, order: Descending` | `bedroomCount` 要 array；3+ 房 = `[4..8]` |
 | 美聯 | `GET data.midland.com.hk/search/v2/properties` | `sort=latest` | 租盤都係用 `price=`（`rent=` 冇效）；kw → `autocomplete/estates` 攞 `est_ids` |
 | 香港置業 | `GET data.hkp.com.hk/search/v1/properties` | `sort=latest` | 同美聯同一個後台；token 30 分鐘 cache |
-| 利嘉閣 | `GET www.ricacorp.com/zh-hk/property/api/post` + header `x-custom-header` | 預設 | **會擋部分 IP（WAF）**，本機打唔到，Cloudflare 出口正常；每頁固定 10 個；**租盤參數未搵到**，暫時回 `unsupported` |
+| 利嘉閣 | `GET www.ricacorp.com/zh-hk/property/api/post` + header `x-custom-header` | `orderBy=overallDateModified desc` | 租盤 `agreementType=5`（`marketPrice`＝月租，`priceFrom/To` 照用）；每頁固定 10 個；**本機 IP 被 WAF 擋**，要經 Cloudflare 試 |
+
+- ⚠️ **利嘉閣 JSON API 有 per-IP 限流**（2026-10-10 實測：隔 10 秒次次得，隔 4 秒 5 次有 4 次
+  429「The request is blocked」；Cloudflare 出口 IP 會變，所以有時連續幾次都得）。HTML 列表頁
+  （每日 sync 用嗰種）**冇**呢個限制，但每頁 ~1MB、2–6 秒（試過 62 秒）。所以：
+  - 公開搜尋：被擋一次，isolate 停 10 秒唔再撩（`_ricaBlockedUntil`），回 `502 {retry:10}`；
+    前端每頁自動再試一次，再唔得就出「去利嘉閣網站搵 ↗」（`/list/buy|rent/<屋苑>`）。
+  - **每日 sync 唔好轉用 JSON API**：一個屋苑十幾頁連續打一定被擋；每頁一樣係 10 個盤、
+    0.4–1.1MB，請求數唔會少，D1 寫入量亦一樣（同點樣抓冇關）。
 
 - 相：全部直接 `<img>` 熱連結（實測冇 referer 檢查），唔經 worker proxy；縮圖：
   中原 hkais `?w=400`、hkvrdata `?x-oss-process=image/resize,w_400`；美聯
@@ -100,7 +108,7 @@ HKP 行 `search/v1`、美聯行 `search/v2`）。實測分別：
   揀錯會食咗免費名額）。新用戶會等偏好 popup 閂咗先出。
 - 搜尋記錄：只係 Workers Logs（`{"pubsearch":…}`），唔寫 D1。
 - 未做：地區篩選（中原 4／55／178 區 ↔ 美聯置業 `subregion_ids`／`dist_ids` ↔ 利嘉閣
-  `locationId` 要砌對照表）、利嘉閣租盤、跨網同一單位合併、「有歷史記錄」標記。
+  `locationId` 要砌對照表）、跨網同一單位合併、「有歷史記錄」標記。
 
 ## 按揭計算機
 
