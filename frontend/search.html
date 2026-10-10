@@ -1,0 +1,230 @@
+<!DOCTYPE html>
+<html lang="zh-HK" data-theme="light">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <title>搵樓｜中原、美聯、香港置業、利嘉閣一次過搜尋 — 搵樓日記</title>
+  <meta name="description" content="一個搜尋同時搵中原、美聯、香港置業、利嘉閣嘅二手放盤：按屋苑、價錢、實用面積、房數篩選，即時睇晒四大地產網，啱心水直接去原網站睇。免登入。">
+  <link rel="canonical" href="https://home.ws-techs.com/search">
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="搵樓日記">
+  <meta property="og:locale" content="zh_HK">
+  <meta property="og:url" content="https://home.ws-techs.com/search">
+  <meta property="og:title" content="搵樓：中原、美聯、香港置業、利嘉閣一次過搜尋">
+  <meta property="og:description" content="按屋苑、價錢、面積、房數，即時搵晒四大地產網嘅放盤。免登入。">
+  <meta property="og:image" content="https://home.ws-techs.com/images/hero-1-overview.jpg">
+  <meta name="twitter:card" content="summary_large_image">
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <meta name="theme-color" content="#1270ac">
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@graph": [
+      {
+        "@type": "WebApplication",
+        "name": "四大地產網樓盤搜尋（搵樓日記）",
+        "url": "https://home.ws-techs.com/search",
+        "applicationCategory": "UtilitiesApplication",
+        "operatingSystem": "Web",
+        "inLanguage": "zh-HK",
+        "isAccessibleForFree": true,
+        "offers": { "@type": "Offer", "price": "0", "priceCurrency": "HKD" },
+        "description": "一個搜尋同時搵中原、美聯、香港置業、利嘉閣嘅二手樓放盤，按屋苑、價錢、實用面積同房數篩選。"
+      },
+      {
+        "@type": "BreadcrumbList",
+        "itemListElement": [
+          { "@type": "ListItem", "position": 1, "name": "搵樓日記", "item": "https://home.ws-techs.com/" },
+          { "@type": "ListItem", "position": 2, "name": "搵樓", "item": "https://home.ws-techs.com/search" }
+        ]
+      }
+    ]
+  }
+  </script>
+  <link rel="stylesheet" href="/site.css">
+  <style>
+    /* 搜尋頁專用。顏色全部用 site.css token；地產網用各自嘅品牌色做小標籤，方便一眼分。 */
+    :root {
+      --glass-bg: rgba(255,255,255,0.92); --glass-border: rgba(30,80,130,0.10);
+      --shadow-sm: 0 2px 10px rgba(30,90,140,0.08); --shadow: 0 6px 18px rgba(30,90,140,0.10);
+      --radius-lg: 20px; --faint: #7b8ea2; --up-soft: #dcfce7;
+      --src-centanet: #c8102e; --src-centanet-bg: #fde8eb;
+      --src-midland: #1d4f91; --src-midland-bg: #e3ecf8;
+      --src-hkp: #0f7a4a; --src-hkp-bg: #e1f4ea;
+      --src-ricacorp: #6b4fa0; --src-ricacorp-bg: #efe9f8;
+    }
+    .ps-wrap { max-width: 1120px; margin: 0 auto; padding: 1.2rem 1rem 3rem; }
+    .ps-wrap h1 { text-align: center; text-wrap: balance; }
+    .ps-wrap .lead { text-align: center; max-width: 640px; margin-left: auto; margin-right: auto; }
+    .num { font-variant-numeric: tabular-nums; }
+    .ps-panel { background: var(--glass-bg); border: 1px solid var(--glass-border); border-radius: var(--radius-lg); box-shadow: var(--shadow); padding: 1.1rem 1.2rem 1.2rem; display: grid; gap: 0.85rem; }
+    .ps-row1 { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 0.75rem; align-items: end; }
+    .ps-row2 { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr) minmax(0, 1fr); gap: 0.75rem; align-items: end; }
+    .ps-field { display: grid; gap: 0.3rem; min-width: 0; }
+    .ps-label { font-size: 0.75rem; color: var(--muted); font-weight: 600; }
+    .ps-seg { display: inline-flex; background: var(--surface2); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 3px; }
+    .ps-seg label { position: relative; }
+    .ps-seg input { position: absolute; opacity: 0; inset: 0; margin: 0; cursor: pointer; }
+    .ps-seg span { display: block; padding: 0.42rem 0.95rem; border-radius: 8px; font-size: 0.9rem; color: var(--muted); }
+    .ps-seg input:checked + span { background: var(--surface); color: var(--brand); font-weight: 700; box-shadow: var(--shadow-sm); }
+    .ps-seg input:focus-visible + span { outline: 2px solid var(--brand); outline-offset: 1px; }
+    .ps-input, .ps-select { width: 100%; border: 1px solid var(--border-strong); background: var(--surface); border-radius: var(--radius-sm); padding: 0.55rem 0.75rem; font-size: 0.95rem; min-width: 0; font-family: inherit; color: var(--text); }
+    .ps-range { display: grid; grid-template-columns: minmax(0,1fr) auto minmax(0,1fr); gap: 0.35rem; align-items: center; }
+    .ps-range span { color: var(--faint); font-size: 0.8rem; }
+    .ps-go { border: 0; background: var(--brand); color: var(--brand-ink); border-radius: var(--radius-sm); padding: 0.62rem 1.4rem; font-weight: 700; font-size: 0.95rem; cursor: pointer; font-family: inherit; }
+    .ps-go:hover { background: var(--brand-hover); }
+    .ps-srcs { display: flex; flex-wrap: wrap; gap: 0.4rem 0.9rem; font-size: 0.86rem; }
+    .ps-srcs label { display: inline-flex; gap: 0.3rem; align-items: center; cursor: pointer; }
+
+    .ps-srcbar { display: flex; flex-wrap: wrap; gap: 0.5rem; margin: 1.3rem 0 0.4rem; }
+    .ps-stat { display: flex; align-items: center; gap: 0.45rem; background: var(--surface); border: 1px solid var(--border); border-radius: 999px; padding: 0.3rem 0.8rem 0.3rem 0.35rem; font-size: 0.84rem; }
+    .ps-stat small { color: var(--muted); }
+    .ps-stat small a { color: var(--brand); font-weight: 600; text-decoration: none; margin-left: 0.25rem; }
+    .ps-badge { font-size: 0.74rem; font-weight: 700; border-radius: 6px; padding: 0.08rem 0.5rem; white-space: nowrap; }
+    .b-centanet { color: var(--src-centanet); background: var(--src-centanet-bg); }
+    .b-midland { color: var(--src-midland); background: var(--src-midland-bg); }
+    .b-hkp { color: var(--src-hkp); background: var(--src-hkp-bg); }
+    .b-ricacorp { color: var(--src-ricacorp); background: var(--src-ricacorp-bg); }
+    .ps-head { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 0.5rem 1rem; margin: 0.6rem 0 0.8rem; }
+    .ps-head h2 { font-size: 1.1rem; margin: 0; }
+    .ps-sort { display: flex; gap: 0.35rem; flex-wrap: wrap; }
+    .ps-chip { border: 1px solid var(--border-strong); background: var(--surface); border-radius: 999px; padding: 0.26rem 0.75rem; font-size: 0.84rem; cursor: pointer; font-family: inherit; color: var(--text); }
+    .ps-chip[aria-pressed="true"] { background: var(--brand-soft); border-color: var(--brand); color: var(--brand); font-weight: 700; }
+
+    .ps-hook { display: flex; flex-wrap: wrap; gap: 0.6rem 1rem; align-items: center; justify-content: space-between; background: var(--brand-soft); border: 1px solid rgba(18,112,172,0.25); border-radius: var(--radius); padding: 0.75rem 1rem; margin-bottom: 0.9rem; }
+    .ps-hook p { margin: 0; font-size: 0.9rem; min-width: 0; flex: 1 1 320px; }
+    .ps-btn { border: 0; background: var(--brand); color: var(--brand-ink); border-radius: var(--radius-sm); padding: 0.5rem 0.95rem; font-weight: 700; font-size: 0.86rem; text-decoration: none; display: inline-block; cursor: pointer; font-family: inherit; }
+    .ps-btn:hover { background: var(--brand-hover); }
+    .ps-btn.ghost { background: var(--btn2-bg); color: var(--text); border: 1px solid var(--btn2-border); font-weight: 600; }
+
+    .ps-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0.9rem; }
+    .ps-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: var(--shadow-sm); overflow: hidden; display: grid; align-content: start; min-width: 0; }
+    .ps-photo { aspect-ratio: 4 / 3; max-width: 100%; background: var(--surface2); display: grid; place-items: center; color: var(--faint); font-size: 1.6rem; overflow: hidden; }
+    .ps-photo img { width: 100%; height: 100%; object-fit: cover; display: block; }
+    .ps-body { padding: 0.75rem 0.95rem 0.9rem; display: grid; gap: 0.45rem; }
+    .ps-top { display: flex; justify-content: space-between; align-items: center; gap: 0.5rem; }
+    .ps-date { font-size: 0.74rem; color: var(--muted); }
+    .ps-title { font-weight: 800; line-height: 1.35; overflow-wrap: anywhere; }
+    .ps-title small { display: block; font-weight: 400; color: var(--muted); font-size: 0.8rem; }
+    .ps-facts { display: flex; gap: 0.9rem; font-size: 0.86rem; }
+    .ps-facts b { font-size: 1rem; }
+    .ps-money { display: flex; justify-content: space-between; align-items: baseline; border-top: 1px solid var(--td-border); padding-top: 0.45rem; gap: 0.5rem; }
+    .ps-price { font-size: 1.4rem; font-weight: 800; }
+    .ps-price small { font-size: 0.8rem; font-weight: 600; }
+    .ps-psf { font-size: 0.82rem; color: var(--muted); }
+    .ps-cta { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 0.45rem; align-items: center; }
+    .ps-out { text-decoration: none; text-align: center; border-radius: var(--radius-sm); padding: 0.45rem 0.6rem; font-weight: 700; font-size: 0.84rem; border: 1px solid; }
+    .ps-out.centanet { color: var(--src-centanet); border-color: var(--src-centanet); }
+    .ps-out.midland { color: var(--src-midland); border-color: var(--src-midland); }
+    .ps-out.hkp { color: var(--src-hkp); border-color: var(--src-hkp); }
+    .ps-out.ricacorp { color: var(--src-ricacorp); border-color: var(--src-ricacorp); }
+    .ps-track { border: 1px dashed var(--border-strong); background: var(--surface2); border-radius: var(--radius-sm); padding: 0.42rem 0.55rem; font-size: 0.8rem; color: var(--text); white-space: nowrap; text-decoration: none; }
+    .ps-msg { color: var(--muted); padding: 1rem 0; text-align: center; }
+    .ps-more { text-align: center; margin-top: 1.1rem; }
+    .ps-note { margin-top: 1.4rem; font-size: 0.76rem; color: var(--muted); text-align: center; line-height: 1.7; }
+    @media (max-width: 960px) { .ps-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+    @media (max-width: 720px) {
+      .ps-row1, .ps-row2 { grid-template-columns: minmax(0, 1fr); }
+      .ps-grid { grid-template-columns: minmax(0, 1fr); }
+      .ps-photo { aspect-ratio: 16 / 10; }
+      .ps-go { width: 100%; }
+    }
+  </style>
+</head>
+<body>
+
+<header class="top">
+  <a class="top-logo" href="/">🏙️ 搵樓日記</a>
+  <nav class="top-actions">
+    <a class="top-btn" href="/app#login">登入</a>
+    <a class="top-btn primary" href="/app#register">免費註冊</a>
+  </nav>
+</header>
+
+<main class="ps-wrap">
+  <nav class="crumb" aria-label="麵包屑"><a href="/">搵樓日記</a> › 搵樓</nav>
+  <h1>中原、美聯、香港置業、利嘉閣，一次過搵晒</h1>
+  <p class="lead">揀屋苑、價錢、面積、房數，即時睇晒四大地產網嘅放盤；啱心水就直接去原網站睇。唔使登入。</p>
+
+  <form class="ps-panel" id="ps-form" action="/search" method="get" aria-label="樓盤搜尋">
+    <div class="ps-row1">
+      <div class="ps-field"><span class="ps-label">類型</span>
+        <div class="ps-seg" role="radiogroup" aria-label="類型">
+          <label><input type="radio" name="deal" value="S" checked><span>買盤</span></label>
+          <label><input type="radio" name="deal" value="R"><span>租盤</span></label>
+        </div>
+      </div>
+      <label class="ps-field" for="ps-kw"><span class="ps-label">屋苑（可留空）</span>
+        <input class="ps-input" id="ps-kw" name="kw" type="search" maxlength="30" placeholder="例如：天晉、太古城、嘉湖山莊" autocomplete="off">
+      </label>
+      <button type="submit" class="ps-go">搜尋</button>
+    </div>
+    <div class="ps-row2">
+      <label class="ps-field" for="ps-beds"><span class="ps-label">房數</span>
+        <select class="ps-select" id="ps-beds" name="beds">
+          <option value="">唔限</option><option value="1">1 房</option><option value="2">2 房</option>
+          <option value="3">3 房</option><option value="4">4 房或以上</option>
+        </select>
+      </label>
+      <div class="ps-field"><span class="ps-label" id="ps-price-label">售價（萬）</span>
+        <div class="ps-range">
+          <input class="ps-input num" id="ps-pmin" name="pmin" type="number" inputmode="numeric" min="0" placeholder="最低" aria-label="最低價">
+          <span>至</span>
+          <input class="ps-input num" id="ps-pmax" name="pmax" type="number" inputmode="numeric" min="0" placeholder="最高" aria-label="最高價">
+        </div>
+      </div>
+      <div class="ps-field"><span class="ps-label">實用面積（呎）</span>
+        <div class="ps-range">
+          <input class="ps-input num" id="ps-smin" name="smin" type="number" inputmode="numeric" min="0" placeholder="最細" aria-label="最細面積">
+          <span>至</span>
+          <input class="ps-input num" id="ps-smax" name="smax" type="number" inputmode="numeric" min="0" placeholder="最大" aria-label="最大面積">
+        </div>
+      </div>
+    </div>
+    <div class="ps-srcs" role="group" aria-label="地產網">
+      <span class="ps-label">搜尋：</span>
+      <label><input type="checkbox" name="src" value="centanet" checked> 中原</label>
+      <label><input type="checkbox" name="src" value="midland" checked> 美聯</label>
+      <label><input type="checkbox" name="src" value="hkp" checked> 香港置業</label>
+      <label><input type="checkbox" name="src" value="ricacorp" checked> 利嘉閣</label>
+    </div>
+  </form>
+
+  <div class="ps-srcbar" id="ps-srcbar" aria-live="polite"></div>
+  <div class="ps-head">
+    <h2 id="ps-title">最新放盤</h2>
+    <div class="ps-sort" role="group" aria-label="排序" id="ps-sort">
+      <button type="button" class="ps-chip" data-v="mix" aria-pressed="true">四網輪流</button>
+      <button type="button" class="ps-chip" data-v="new" aria-pressed="false">最新</button>
+      <button type="button" class="ps-chip" data-v="price" aria-pressed="false">價錢低至高</button>
+      <button type="button" class="ps-chip" data-v="psf" aria-pressed="false">呎價低至高</button>
+    </div>
+  </div>
+
+  <div class="ps-hook">
+    <p><b>地產網唔會話你個盤放咗幾耐、減過幾多次價。</b>免費登記追蹤屋苑，搵樓日記由今日開始每日幫你記錄。</p>
+    <a class="ps-btn" href="/app#register">免費登記</a>
+  </div>
+
+  <div class="ps-grid" id="ps-grid"></div>
+  <p class="ps-msg" id="ps-msg" hidden></p>
+  <div class="ps-more" id="ps-more" hidden><button type="button" class="ps-btn ghost" id="ps-more-btn">載入更多</button></div>
+
+  <p class="ps-note">放盤資料即時來自各地產代理網站，由第三方提供，搵樓日記唔保證準確，實際情況請向代理核實。<br>搵樓日記唔係地產代理，唔儲存搜尋結果。</p>
+</main>
+
+<footer class="site-foot">
+  <nav aria-label="網站連結">
+    <a href="/">搵樓日記</a>
+    <a href="/search">搵樓</a>
+    <a href="/mortgage-calculator">按揭計算機</a>
+    <a href="/guides/">買樓教學</a>
+    <a href="/about">關於我們</a>
+    <a href="/privacy">私隱政策</a>
+  </nav>
+  <div>搵樓日記唔係地產代理，亦唔係銀行。數據收集自公開地產網站，只供參考。</div>
+</footer>
+
+<script src="/public-search.js"></script>
+</body>
+</html>
