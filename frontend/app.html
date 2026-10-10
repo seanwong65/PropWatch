@@ -3395,12 +3395,25 @@ function ensureCompsEnriched() {
   }
   return _compsEnriched;
 }
+const _compsListingsInflight = {};   // 屋苑 id → 進行緊嘅 request（hover 預載同撳開唔會打兩次）
 async function ensureCompsListings(estateIds) {
   window._matchListingsByEstate = window._matchListingsByEstate || {};
-  await Promise.all(estateIds.filter(id => !(id in window._matchListingsByEstate)).map(async id => {
-    try { const { listings } = await api(`/api/estates/${id}/listings`); window._matchListingsByEstate[id] = listings || []; }
-    catch (_) { /* 唔記失敗，下次撳開再試；呢次卡片「對應放盤」暫時空 */ }
+  await Promise.all(estateIds.filter(id => !(id in window._matchListingsByEstate)).map(id => {
+    if (_compsListingsInflight[id]) return _compsListingsInflight[id];
+    return (_compsListingsInflight[id] = (async () => {
+      try { const { listings } = await api(`/api/estates/${id}/listings`); window._matchListingsByEstate[id] = listings || []; }
+      catch (_) { /* 唔記失敗，下次撳開再試；呢次卡片「對應放盤」暫時空 */ }
+      finally { delete _compsListingsInflight[id]; }
+    })());
   }));
+}
+// 手指／滑鼠一到嗰行（撳之前）就預載詳細卡要用嘅兩樣嘢，撳落去通常已經有。
+// 只預載呢一行嗰個屋苑；攞過嘅有 cache，唔會重複攞。
+function prefetchCompsRow(vid) {
+  const v = _compsData.find(x => x.id === vid);
+  if (!v) return;
+  ensureCompsEnriched();
+  if (!_compsScope && v.status !== 'sold' && v.estate_id) ensureCompsListings([v.estate_id]);
 }
 
 // ── 「睇樓日記」（舊名「睇過嘅盤」）：月份圈圈 strip ＋ 日期卡 ──────────────────
@@ -3526,10 +3539,15 @@ async function fillCompsDetail(vid) {
   const box = document.querySelector(`#comps-body .dj-detail[data-vid="${vid}"]`);
   if (!box || box.dataset.filled === '1') return;
   box.innerHTML = '<div class="loading"><div class="spinner"></div> 載入詳情…</div>';
-  await ensureCompsEnriched();
-  const v = _compsData.find(x => x.id === vid);
+  // 兩樣互不依賴（屋苑 id 同 status 基本資料本身已經有）→ 並行攞，之前係一個等完先攞第二個
+  const v0 = _compsData.find(x => x.id === vid);
+  if (!v0) return;
+  await Promise.all([
+    ensureCompsEnriched(),
+    (!_compsScope && v0.status !== 'sold' && v0.estate_id) ? ensureCompsListings([v0.estate_id]) : null,
+  ]);
+  const v = _compsData.find(x => x.id === vid);   // enriched 之後 _compsData 換咗新 object
   if (!v) return;
-  if (!_compsScope && v.status !== 'sold' && v.estate_id) await ensureCompsListings([v.estate_id]);
   if (!box.isConnected) return;   // 期間重畫咗，呢個已經唔喺度
   box.innerHTML = _compsCardHtml(v);
   box.dataset.filled = '1';
@@ -3662,7 +3680,7 @@ function renderCompsPanel() {
       const r = ratingAvg(parseRatings(v));
       const n = Number(v.img_count) || 0;
       const rowOpen = _compsOpenRows.has(v.id);
-      return `<button type="button" class="dj-row${rowOpen ? ' open' : ''}" data-vid="${Number(v.id)}" data-extra="${k >= 3 ? 1 : 0}" aria-expanded="${rowOpen}" onclick="toggleCompsViewing(${Number(v.id)})">`
+      return `<button type="button" class="dj-row${rowOpen ? ' open' : ''}" data-vid="${Number(v.id)}" data-extra="${k >= 3 ? 1 : 0}" aria-expanded="${rowOpen}" onpointerenter="prefetchCompsRow(${Number(v.id)})" onclick="toggleCompsViewing(${Number(v.id)})">`
         + (_compsScope ? '' : `<span class="dj-estate">${escHtml(v.estate_name || '')}</span>`)
         + `<span class="dj-unit">${escHtml(_compsUnitLabel(v))}</span>`
         + (v.price ? `<span class="dj-price">${escHtml(_compsPriceLabel(v))}</span>` : '')
