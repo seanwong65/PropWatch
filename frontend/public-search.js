@@ -18,6 +18,12 @@ const SRC = {
   ricacorp: { name: "利嘉閣" },
 };
 const SRC_KEYS = Object.keys(SRC);
+// 地區 id＝美聯／香港置業 subregion_ids；要同 worker 嘅 PUB_AREAS 同 search.html／index.html 嘅 <select> 對得上
+const AREAS = {
+  1001: "中西區", 1002: "灣仔", 1003: "南區", 1004: "東區",
+  2005: "油尖旺", 2006: "深水埗", 2007: "觀塘", 2008: "黃大仙", 2009: "九龍城", 2010: "將軍澳",
+  3010: "西貢", 3011: "荃灣", 3012: "葵青", 3013: "屯門", 3014: "元朗", 3015: "北區", 3016: "大埔", 3017: "沙田", 3018: "離島",
+};
 const MAX_PAGE = 10;                 // worker 都係最多 10 頁
 
 const $ = (id) => document.getElementById(id);
@@ -40,6 +46,7 @@ function readCond(sp) {
   return {
     deal: sp.get("deal") === "R" ? "R" : "S",
     kw: String(sp.get("kw") || "").trim().slice(0, 30),
+    area: AREAS[sp.get("area")] ? sp.get("area") : null,
     beds: beds >= 1 && beds <= 4 ? beds : null,
     pmin: n("pmin"), pmax: n("pmax"), smin: n("smin"), smax: n("smax"),
     srcs: srcs.length ? [...new Set(srcs)] : SRC_KEYS.slice(),
@@ -49,6 +56,7 @@ function condToQuery(c) {
   const sp = new URLSearchParams();
   if (c.deal === "R") sp.set("deal", "R");
   if (c.kw) sp.set("kw", c.kw);
+  if (c.area) sp.set("area", c.area);
   for (const k of ["beds", "pmin", "pmax", "smin", "smax"]) if (c[k] != null) sp.set(k, c[k]);
   if (c.srcs.length < SRC_KEYS.length) for (const s of c.srcs) sp.append("src", s);
   return sp.toString();
@@ -56,6 +64,7 @@ function condToQuery(c) {
 function fillForm(c) {
   form.querySelector(`input[name="deal"][value="${c.deal}"]`).checked = true;
   $("ps-kw").value = c.kw;
+  $("ps-area").value = c.area || "";
   $("ps-beds").value = c.beds ?? "";
   for (const k of ["pmin", "pmax", "smin", "smax"]) $("ps-" + k).value = c[k] ?? "";
   for (const el of form.querySelectorAll('input[name="src"]')) el.checked = c.srcs.includes(el.value);
@@ -72,6 +81,7 @@ function syncPriceLabel() {
 function apiUrl(c, src, page) {
   const sp = new URLSearchParams({ src, deal: c.deal });
   if (c.kw) sp.set("kw", c.kw);
+  if (c.area) sp.set("area", c.area);
   if (c.beds != null) sp.set("beds", c.beds);
   const mul = c.deal === "R" ? 1 : 10000;          // 買盤表單係萬
   if (c.pmin != null) sp.set("pmin", c.pmin * mul);
@@ -168,6 +178,7 @@ function renderAll() {
 function renderTitle() {
   const c = state.cond;
   const bits = [];
+  if (c.area) bits.push(AREAS[c.area]);
   if (c.kw) bits.push(`「${c.kw}」`);
   if (c.beds) bits.push(c.beds >= 4 ? "4房或以上" : `${c.beds}房`);
   if (c.pmin != null || c.pmax != null) {

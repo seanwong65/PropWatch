@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { scrapeRicacorpListings, scrapeHkpListings, hsUnitParts, hsBlockKey, hsNameVariants, pickRotationEstates, apiRateKeys, rateLimited,
-  parsePublicSearch, pubCacheKey, centanetThumb, normCentanet, midlandThumb, normMidHkp, normRicacorp } from "../index.js";
+  parsePublicSearch, PUB_AREAS, pubCacheKey, centanetThumb, normCentanet, midlandThumb, normMidHkp, normRicacorp } from "../index.js";
 import { readFileSync } from "node:fs";
 
 // ── Pure helpers extracted inline (no DB/fetch deps) ──────────────────────
@@ -480,12 +480,36 @@ describe("公開搜尋 /api/public/search（地產網資料當唔可信）", () 
 
   it("正常條件：deal 預設買盤、page 預設 1、kw 收埋多餘空格", () => {
     const { q } = P("src=midland&kw=" + encodeURIComponent("  太古城   ") + "&beds=2&pmin=5000000&pmax=8000000&smin=400");
-    expect(q).toEqual({ src: "midland", deal: "S", kw: "太古城", beds: 2, pmin: 5000000, pmax: 8000000, smin: 400, smax: null, page: 1 });
+    expect(q).toEqual({ src: "midland", deal: "S", kw: "太古城", area: null, beds: 2, pmin: 5000000, pmax: 8000000, smin: 400, smax: null, page: 1 });
     expect(P("src=hkp&deal=R").q.deal).toBe("R");
     expect(P("src=hkp&deal=X").q.deal).toBe("S");
   });
 
-  it("cache key：同一組條件同一個 key，參數次序無關", () => {
+  it("地區：只准表內嘅 id；每區中原／利嘉閣代碼齊全、冇重覆或者未知格式", () => {
+    expect(P("src=centanet&area=1001").q.area).toBe("1001");
+    expect(P("src=centanet").q.area).toBeNull();
+    expect(P("src=centanet&area=9999").error).toBe("area");
+    expect(P("src=centanet&area=__proto__").error).toBe("area");
+    expect(P("src=centanet&area=constructor").error).toBe("area");
+    const ids = Object.keys(PUB_AREAS);
+    expect(ids).toHaveLength(19);
+    const seenCenta = new Set();
+    for (const [id, a] of Object.entries(PUB_AREAS)) {
+      expect(id).toMatch(/^(10|20|30)\d{2}$/);
+      const codes = a.centa.split(",");
+      expect(codes.length).toBeGreaterThan(0);
+      for (const c of codes) {
+        expect(c).toMatch(/^HMA\d+$/);
+        expect(seenCenta.has(c), `${c} 喺兩個區出現`).toBe(false);   // 中原 leaf 一個 leaf 只屬一區
+        seenCenta.add(c);
+      }
+      for (const u of a.rica.split(",")) expect(u).toMatch(/^hkp\d{3}$/);
+    }
+    expect(seenCenta.size).toBe(178);                   // GetHmaPlaces 嘅 178 個 leaf 全部有歸屬
+  });
+
+  it("cache key：同一組條件同一個 key，參數次序無關；地區唔同就唔同 key", () => {
+    expect(pubCacheKey(P("src=hkp&area=1001").q)).not.toBe(pubCacheKey(P("src=hkp&area=1002").q));
     const a = P("src=centanet&beds=2&kw=abc").q, b = P("kw=abc&src=centanet&beds=2").q;
     expect(pubCacheKey(a)).toBe(pubCacheKey(b));
     expect(pubCacheKey(a)).not.toBe(pubCacheKey(P("src=centanet&beds=3&kw=abc").q));

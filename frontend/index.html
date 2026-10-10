@@ -243,7 +243,7 @@
     }
     .ld-search-h { font-size: 1.15rem; font-weight: 800; margin: 0 0 0.25rem; }
     .ld-search-sub { margin: 0 0 0.9rem; color: var(--muted); font-size: 0.88rem; }
-    .ld-search-form { display: grid; grid-template-columns: auto minmax(0, 1fr) minmax(0, 9rem) auto; gap: 0.6rem; align-items: center; }
+    .ld-search-form { display: grid; grid-template-columns: auto minmax(0, 1fr) minmax(0, 7.5rem) minmax(0, 7.5rem) auto; gap: 0.6rem; align-items: center; }
     .ld-seg { display: inline-flex; background: var(--surface2); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 3px; }
     .ld-seg label { position: relative; }
     .ld-seg input { position: absolute; opacity: 0; inset: 0; margin: 0; cursor: pointer; }
@@ -258,6 +258,7 @@
       .ld-search-form { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
       .ld-search-form .ld-seg, .ld-search-form .ld-kw { grid-column: 1 / -1; }
       .ld-search-form .ld-seg { justify-self: start; }
+      .ld-search-form .ld-cta { grid-column: 1 / -1; }
     }
     .ld-foot { text-align: center; font-size: 0.75rem; color: var(--muted); line-height: 1.8; padding-top: 2.5rem; }
   </style>
@@ -340,6 +341,12 @@
           <label><input type="radio" name="deal" value="R"><span>租盤</span></label>
         </div>
         <input class="ld-search-in ld-kw" name="kw" type="search" maxlength="30" placeholder="屋苑名，例如：天晉、太古城（可留空）" aria-label="屋苑" autocomplete="off">
+        <select class="ld-search-in" name="area" aria-label="地區">
+          <option value="">全港</option>
+          <optgroup label="港島"><option value="1001">中西區</option><option value="1002">灣仔</option><option value="1003">南區</option><option value="1004">東區</option></optgroup>
+          <optgroup label="九龍"><option value="2005">油尖旺</option><option value="2006">深水埗</option><option value="2007">觀塘</option><option value="2008">黃大仙</option><option value="2009">九龍城</option><option value="2010">將軍澳</option></optgroup>
+          <optgroup label="新界"><option value="3010">西貢</option><option value="3011">荃灣</option><option value="3012">葵青</option><option value="3013">屯門</option><option value="3014">元朗</option><option value="3015">北區</option><option value="3016">大埔</option><option value="3017">沙田</option><option value="3018">離島</option></optgroup>
+        </select>
         <select class="ld-search-in" name="beds" aria-label="房數">
           <option value="">房數不限</option><option value="1">1 房</option><option value="2">2 房</option>
           <option value="3">3 房</option><option value="4">4 房或以上</option>

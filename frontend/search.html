@@ -59,7 +59,7 @@
     .num { font-variant-numeric: tabular-nums; }
     .ps-panel { background: var(--glass-bg); border: 1px solid var(--glass-border); border-radius: var(--radius-lg); box-shadow: var(--shadow); padding: 1.1rem 1.2rem 1.2rem; display: grid; gap: 0.85rem; }
     .ps-row1 { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 0.75rem; align-items: end; }
-    .ps-row2 { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr) minmax(0, 1fr); gap: 0.75rem; align-items: end; }
+    .ps-row2 { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 0.9fr) minmax(0, 1.3fr) minmax(0, 1.3fr); gap: 0.75rem; align-items: end; }
     .ps-field { display: grid; gap: 0.3rem; min-width: 0; }
     .ps-label { font-size: 0.75rem; color: var(--muted); font-weight: 600; }
     .ps-seg { display: inline-flex; background: var(--surface2); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 3px; }
@@ -159,6 +159,14 @@
       <button type="submit" class="ps-go">搜尋</button>
     </div>
     <div class="ps-row2">
+      <label class="ps-field" for="ps-area"><span class="ps-label">地區</span>
+        <select class="ps-select" id="ps-area" name="area">
+          <option value="">全港</option>
+          <optgroup label="港島"><option value="1001">中西區</option><option value="1002">灣仔</option><option value="1003">南區</option><option value="1004">東區</option></optgroup>
+          <optgroup label="九龍"><option value="2005">油尖旺</option><option value="2006">深水埗</option><option value="2007">觀塘</option><option value="2008">黃大仙</option><option value="2009">九龍城</option><option value="2010">將軍澳</option></optgroup>
+          <optgroup label="新界"><option value="3010">西貢</option><option value="3011">荃灣</option><option value="3012">葵青</option><option value="3013">屯門</option><option value="3014">元朗</option><option value="3015">北區</option><option value="3016">大埔</option><option value="3017">沙田</option><option value="3018">離島</option></optgroup>
+        </select>
+      </label>
       <label class="ps-field" for="ps-beds"><span class="ps-label">房數</span>
         <select class="ps-select" id="ps-beds" name="beds">
           <option value="">唔限</option><option value="1">1 房</option><option value="2">2 房</option>

@@ -5848,6 +5848,73 @@ export const PUB_SOURCES = ["centanet", "midland", "hkp", "ricacorp"];
 const PUB_PAGE = 12;                         // 每網每頁幾多個（利嘉閣固定 10）
 const PUB_KW_RE = /^[\p{L}\p{N}\s.,'&()\-]{0,30}$/u;   // 屋苑／關鍵字：淨係字、數字、少量標點
 
+// 地區篩選：19 區，id＝美聯／香港置業嘅 subregion_ids（四位，10 港島／20 九龍／30 新界）。
+// 其他兩網用自己嘅分區砌返嚟（2026-10-10 對照，改分區要重做）：
+//   centa：中原 `hmas` 細區代碼（GetHmaPlaces 嘅 leaf，已去走 "19-" 前綴），按地名人手分區，
+//          178 個 leaf 全部有歸屬；
+//   rica ：利嘉閣 `locationId`（GET api/location?locationId=<區>&limit=100 嘅 55 個 group，id 形如 hkp019），逗號分隔得，
+//          3 個跨區 group（鑽石山|黃大仙|九龍城、深井|青山公路）兩邊區都包，所以利嘉閣結果會略多少少。
+// ⚠️ 前端 search.html／index.html 嘅 <select> 要同呢度 id 對得上。
+export const PUB_AREAS = {
+  "1001": { name: "中西區",
+    centa: "HMA111,HMA047,HMA056,HMA012,HMA028,HMA053,HMA076,HMA026,HMA025",
+    rica: "hkp019,hkp023,hkp025" },
+  "1002": { name: "灣仔",
+    centa: "HMA130,HMA070,HMA071,HMA126,HMA160,HMA144,HMA014",
+    rica: "hkp026,hkp027" },
+  "1003": { name: "南區",
+    centa: "HMA063,HMA200,HMA155,HMA127,HMA045,HMA093,HMA151,HMA082,HMA122,HMA132,HMA141,HMA121,HMA118,HMA123,HMA105,HMA064,HMA018,HMA048",
+    rica: "hkp024,hkp022,hkp020,hkp021" },
+  "1004": { name: "東區",
+    centa: "HMA041,HMA032,HMA042,HMA110,HMA113,HMA034,HMA057,HMA195,HMA163,HMA094,HMA020,HMA061",
+    rica: "hkp028,hkp032,hkp030,hkp029,hkp031,hkp033" },
+  "2005": { name: "油尖旺",
+    centa: "HMA074,HMA068,HMA015,HMA033,HMA134,HMA003,HMA172,HMA052,HMA059,HMA065",
+    rica: "hkp034,hkp035,hkp036,hkp037" },
+  "2006": { name: "深水埗",
+    centa: "HMA128,HMA099,HMA098,HMA092,HMA089,HMA043,HMA081,HMA171,HMA049,HMA077,HMA010,HMA152",
+    rica: "hkp041,hkp038,hkp040,hkp039,hkp042" },
+  "2007": { name: "觀塘",
+    centa: "HMA005,HMA040,HMA161,HMA051,HMA156,HMA075",
+    rica: "hkp052,hkp050,hkp051" },
+  "2008": { name: "黃大仙",
+    centa: "HMA147,HMA066,HMA131,HMA135,HMA137,HMA162,HMA115,HMA039",
+    rica: "hkp049" },
+  "2009": { name: "九龍城",
+    centa: "HMA004,HMA058,HMA090,HMA091,HMA133,HMA095,HMA117,HMA013,HMA108,HMA002",
+    rica: "hkp047,hkp044,hkp049,hkp046,hkp043,hkp048,hkp045" },
+  "2010": { name: "將軍澳",
+    centa: "HMA148,HMA112,HMA060,HMA159,HMA114",
+    rica: "hkp053" },
+  "3010": { name: "西貢",
+    centa: "HMA055,HMA046,HMA054,HMA119,HMA017",
+    rica: "hkp061" },
+  "3011": { name: "荃灣",
+    centa: "HMA016,HMA143,HMA103,HMA104,HMA193,HMA100,HMA101,HMA102,HMA158,HMA120,HMA080,HMA073,HMA109",
+    rica: "hkp068,hkp067,hkp071" },
+  "3012": { name: "葵青",
+    centa: "HMA140,HMA192,HMA079",
+    rica: "hkp070,hkp069" },
+  "3013": { name: "屯門",
+    centa: "HMA138,HMA139,HMA037,HMA038,HMA153,HMA036,HMA035,HMA050,HMA157,HMA023,HMA116,HMA011",
+    rica: "hkp063,hkp067" },
+  "3014": { name: "元朗",
+    centa: "HMA085,HMA086,HMA031,HMA084,HMA191,HMA087,HMA083,HMA190,HMA030,HMA029,HMA009,HMA008,HMA007,HMA006,HMA149,HMA150,HMA136",
+    rica: "hkp066,hkp065,hkp064,hkp062" },
+  "3015": { name: "北區",
+    centa: "HMA179,HMA168,HMA166,HMA165,HMA164,HMA189",
+    rica: "hkp054" },
+  "3016": { name: "大埔",
+    centa: "HMA207,HMA180,HMA999,HMA185,HMA184,HMA998",
+    rica: "hkp055,hkp056" },
+  "3017": { name: "沙田",
+    centa: "HMA187,HMA001,HMA170,HMA062,HMA176,HMA021,HMA106,HMA188,HMA107,HMA996,HMA994,HMA995",
+    rica: "hkp058,hkp060,hkp059,hkp057" },
+  "3018": { name: "離島",
+    centa: "HMA174,HMA183,HMA125,HMA019,HMA078,HMA067,HMA178",
+    rica: "hkp072,hkp073" },
+};
+
 // 驗證 + 正規化 query。回 { q } 或者 { error }（唔啱就 400，唔靜靜改）。
 export function parsePublicSearch(sp) {
   const src = sp.get("src");
@@ -5861,14 +5928,16 @@ export function parsePublicSearch(sp) {
     const n = Math.round(Number(v));
     return Number.isFinite(n) && n >= lo && n <= hi ? n : undefined;
   };
-  const q = { src, deal, kw, beds: int("beds", 1, 4), pmin: int("pmin", 0, 2e9), pmax: int("pmax", 0, 2e9),
+  const area = sp.get("area") || null;
+  if (area && !Object.hasOwn(PUB_AREAS, area)) return { error: "area" };
+  const q = { src, deal, kw, area, beds: int("beds", 1, 4), pmin: int("pmin", 0, 2e9), pmax: int("pmax", 0, 2e9),
     smin: int("smin", 0, 20000), smax: int("smax", 0, 20000), page: int("page", 1, 10) };
   for (const k of ["beds", "pmin", "pmax", "smin", "smax", "page"]) if (q[k] === undefined) return { error: k };
   if (q.page == null) q.page = 1;
   return { q };
 }
 // cache key：同一組條件（次序無關）＝同一個 key
-export const pubCacheKey = (q) => JSON.stringify([q.src, q.deal, q.kw, q.beds, q.pmin, q.pmax, q.smin, q.smax, q.page]);
+export const pubCacheKey = (q) => JSON.stringify([q.src, q.deal, q.kw, q.area, q.beds, q.pmin, q.pmax, q.smin, q.smax, q.page]);
 
 const pubDay = (v) => {
   if (v == null || v === "") return null;
@@ -5914,6 +5983,7 @@ async function pubCentanet(q) {
   const body = { postType: q.deal === "R" ? "Rent" : "Sale", sort: "PublishDate", order: "Descending",
     size: PUB_PAGE, offset: (q.page - 1) * PUB_PAGE, displayTextStyle: "WebResultList", pageSource: "search", bigPhotoMode: false };
   if (q.kw) body.keyword = q.kw;
+  if (q.area) body.hmas = PUB_AREAS[q.area].centa.split(",");
   if (q.beds) body.bedroomCount = bedsList(q.beds);
   if (q.pmin != null || q.pmax != null) body.amountRange = { min: q.pmin ?? 0, max: q.pmax ?? 2e9 };
   if (q.smin != null || q.smax != null) body.nSizeRange = { min: q.smin ?? 0, max: q.smax ?? 20000 };
@@ -5977,6 +6047,7 @@ async function pubMidHkp(site, q) {
     if (!estId) return { total: 0, items: [] };            // 呢個網站冇呢個屋苑
     sp.set("est_ids", String(estId));
   }
+  if (q.area) sp.set("subregion_ids", q.area);
   if (q.beds) sp.set("bedroom", bedsList(q.beds).join(","));
   // 租盤都係用 price（實測 rent= 冇效）
   if (q.pmin != null || q.pmax != null) sp.set("price", `${q.pmin ?? 0}-${q.pmax ?? 2e9}`);
@@ -6020,6 +6091,7 @@ async function pubRicacorp(q) {
   const sp = new URLSearchParams({ page: String(q.page), orderBy: "overallDateModified desc" });
   if (q.deal === "R") sp.set("agreementType", "5");
   if (q.kw) sp.set("displayText", q.kw);
+  if (q.area) sp.set("locationId", PUB_AREAS[q.area].rica);   // 逗號分隔多個 group（實測 = 各 group 總和）
   if (q.beds) { sp.set("roomFrom", String(q.beds)); sp.set("roomTo", String(q.beds >= 4 ? 99 : q.beds)); }
   // 租盤都係用 priceFrom/priceTo（月租，實測有效）
   if (q.pmin != null) sp.set("priceFrom", String(q.pmin));
@@ -6235,7 +6307,7 @@ export default {
         if (edge) { const hit = await edge.match(ck); if (hit) return new Response(hit.body, hit); }
         try {
           const out = await runPublicSearch(q);
-          console.log(JSON.stringify({ pubsearch: { src: q.src, deal: q.deal, kw: q.kw, beds: q.beds, pmin: q.pmin, pmax: q.pmax, smin: q.smin, smax: q.smax, page: q.page, n: out.items.length, cached: !!out.cached } }));
+          console.log(JSON.stringify({ pubsearch: { src: q.src, deal: q.deal, kw: q.kw, area: q.area, beds: q.beds, pmin: q.pmin, pmax: q.pmax, smin: q.smin, smax: q.smax, page: q.page, n: out.items.length, cached: !!out.cached } }));
           const resp = new Response(JSON.stringify(out), { headers: { "Content-Type": "application/json; charset=utf-8", "Cache-Control": "public, max-age=300" } });
           if (edge) ctx.waitUntil(edge.put(ck, resp.clone()));
           return resp;
