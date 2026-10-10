@@ -3356,7 +3356,10 @@ async function loadViewingComps() {
     let items;
     if (isPaid()) {
       items = (await api('/api/viewings/comps')).items || [];
-      _compsEnriched = null;      // 詳細資料（/api/viewings/all）撳開第一張卡先攞；重新載入要作廢
+      _compsEnriched = null;      // 詳細資料撳開卡先逐個屋苑攞；重新載入要作廢
+      for (const k in _compsEnrichedByEstate) delete _compsEnrichedByEstate[k];
+      for (const k in _matchUnitsLoaded) delete _matchUnitsLoaded[k];
+      window._matchListingsByEstate = {};
     } else {
       // 免費版：/api/viewings/comps（相對市價分析）係收費功能，日記清單改用免費嘅
       // /api/viewings/all（已包埋詳細卡要用嘅欄位，所以唔使再攞第二次）。價格尺嗰格
@@ -3379,41 +3382,61 @@ async function loadViewingComps() {
 // 而「對應放盤」要逐個屋苑嘅 /api/estates/:id/listings。呢兩樣都好重（一個屋苑
 // listings ≈ 11 萬行 D1 讀取，十幾個屋苑一齊拉一次就成 140 萬行），所以唔再開 tab 就
 // 預先拉晒，改為撳開某日嗰張卡先攞嗰日用到嘅，攞過就記住（唔會重複攞）。
-let _compsEnriched = null;
-function ensureCompsEnriched() {
-  if (!_compsEnriched) {
-    _compsEnriched = (async () => {
+// 2026-10-11：由「第一次撳就攞晒全部屋苑」(/api/viewings/all) 改做「撳邊個屋苑就攞嗰個屋苑」
+// (/api/viewings?estate_id=，同一個 handler、同一套 enrichment)，第一次撳快好多。
+let _compsEnriched = null;          // Promise.resolve() = 已經全部有（免費版／屋苑頁）；null = 逐個屋苑攞
+const _compsEnrichedByEstate = {};  // 屋苑 id → promise（攞過唔再攞）
+function ensureCompsEnriched(estateId) {
+  if (_compsEnriched) return _compsEnriched;
+  if (!estateId) return Promise.resolve();
+  if (!_compsEnrichedByEstate[estateId]) {
+    _compsEnrichedByEstate[estateId] = (async () => {
       try {
-        const { viewings } = await api('/api/viewings/all');
+        const { viewings } = await api(`/api/viewings?estate_id=${encodeURIComponent(estateId)}`);
         const byId = {};
         for (const ev of (viewings || [])) byId[ev.id] = ev;
         // comps 專有嘅欄位（status/sold/range/verdict/comp_count）要留返，所以 enriched 打底、comps 蓋上去。
-        _compsData = _compsData.map(v => ({ ...(byId[v.id] || {}), ...v }));
+        _compsData = _compsData.map(v => (byId[v.id] ? { ...byId[v.id], ...v } : v));
         _lastViewings = _compsData;
-      } catch (_) { _compsEnriched = null; /* 攞唔到下次撳開再試，卡片暫時用 comps 本身嗰份 */ }
+      } catch (_) { delete _compsEnrichedByEstate[estateId]; /* 攞唔到下次撳開再試 */ }
     })();
   }
-  return _compsEnriched;
+  return _compsEnrichedByEstate[estateId];
 }
-const _compsListingsInflight = {};   // 屋苑 id → 進行緊嘅 request（hover 預載同撳開唔會打兩次）
-async function ensureCompsListings(estateIds) {
+// 「對應放盤」只係按 座＋室（＋房數）配對（findMatchingListings），唔使成個屋苑幾千個盤：
+// 用 ?match_unit= 淨係攞同一個室號嘅盤，併入 _matchListingsByEstate[屋苑]（同一屋苑唔同室號會疊埋，
+// findMatchingListings 本身會再篩）。_matchUnitsLoaded 記住邊個室號攞過。
+const _compsListingsInflight = {};   // "屋苑|室" → 進行緊嘅 request（hover 預載同撳開唔會打兩次）
+const _matchUnitsLoaded = {};        // 屋苑 id → Set(室號)
+const _normMatchUnit = (u) => String(u || '').replace(/[室號]/g, '').trim().toUpperCase();
+function ensureCompsListings(estateId, unit) {
   window._matchListingsByEstate = window._matchListingsByEstate || {};
-  await Promise.all(estateIds.filter(id => !(id in window._matchListingsByEstate)).map(id => {
-    if (_compsListingsInflight[id]) return _compsListingsInflight[id];
-    return (_compsListingsInflight[id] = (async () => {
-      try { const { listings } = await api(`/api/estates/${id}/listings`); window._matchListingsByEstate[id] = listings || []; }
-      catch (_) { /* 唔記失敗，下次撳開再試；呢次卡片「對應放盤」暫時空 */ }
-      finally { delete _compsListingsInflight[id]; }
-    })());
-  }));
+  const u = _normMatchUnit(unit);
+  if (!estateId || !u) return Promise.resolve();
+  const loaded = (_matchUnitsLoaded[estateId] = _matchUnitsLoaded[estateId] || new Set());
+  if (loaded.has(u)) return Promise.resolve();
+  const key = `${estateId}|${u}`;
+  if (_compsListingsInflight[key]) return _compsListingsInflight[key];
+  return (_compsListingsInflight[key] = (async () => {
+    try {
+      const { listings } = await api(`/api/estates/${estateId}/listings?match_unit=${encodeURIComponent(u)}`);
+      const pool = window._matchListingsByEstate[estateId] || [];
+      const seen = new Set(pool.map(l => `${l.source}|${l.ref_no}|${l.listing_id}`));
+      for (const l of (listings || [])) if (!seen.has(`${l.source}|${l.ref_no}|${l.listing_id}`)) pool.push(l);
+      window._matchListingsByEstate[estateId] = pool;
+      loaded.add(u);
+    } catch (_) { /* 唔記失敗，下次撳開再試；呢次卡片「對應放盤」暫時空 */ }
+    finally { delete _compsListingsInflight[key]; }
+  })());
 }
 // 手指／滑鼠一到嗰行（撳之前）就預載詳細卡要用嘅兩樣嘢，撳落去通常已經有。
 // 只預載呢一行嗰個屋苑；攞過嘅有 cache，唔會重複攞。
+const _compsNeedsMatch = (v) => !_compsScope && v.status !== 'sold' && v.estate_id && v.block && v.unit;
 function prefetchCompsRow(vid) {
   const v = _compsData.find(x => x.id === vid);
   if (!v) return;
-  ensureCompsEnriched();
-  if (!_compsScope && v.status !== 'sold' && v.estate_id) ensureCompsListings([v.estate_id]);
+  ensureCompsEnriched(v.estate_id);
+  if (_compsNeedsMatch(v)) ensureCompsListings(v.estate_id, v.unit);
 }
 
 // ── 「睇樓日記」（舊名「睇過嘅盤」）：月份圈圈 strip ＋ 日期卡 ──────────────────
@@ -3543,8 +3566,8 @@ async function fillCompsDetail(vid) {
   const v0 = _compsData.find(x => x.id === vid);
   if (!v0) return;
   await Promise.all([
-    ensureCompsEnriched(),
-    (!_compsScope && v0.status !== 'sold' && v0.estate_id) ? ensureCompsListings([v0.estate_id]) : null,
+    ensureCompsEnriched(v0.estate_id),
+    _compsNeedsMatch(v0) ? ensureCompsListings(v0.estate_id, v0.unit) : null,
   ]);
   const v = _compsData.find(x => x.id === vid);   // enriched 之後 _compsData 換咗新 object
   if (!v) return;

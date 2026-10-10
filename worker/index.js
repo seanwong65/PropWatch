@@ -7077,6 +7077,10 @@ export default {
         const lSub = await db.prepare("SELECT added_at FROM account_estates WHERE account_id = ? AND estate_id = ?")
           .bind(session.account_id, estateId).first();
         const lAddedAt = lSub?.added_at ?? '9999-12-31';
+        // ?match_unit=E：睇樓記錄「對應放盤」用，淨係要同一個室號嘅盤（前端再按座數／房數篩）。
+        // 唔使成個屋苑幾千個盤逐個計改價次數／原價，D1 讀取同 response 大細都細好多。
+        // 正規化同前端 findMatchingListings 一致：去「室／號」、trim、大楷。
+        const matchUnit = String(url.searchParams.get("match_unit") || "").replace(/[室號]/g, "").trim().toUpperCase().slice(0, 10);
         const { results } = await db
           .prepare(
             // 「已下架」判斷要 per-source：同自己 source 嘅最新 snapshot 比，
@@ -7137,9 +7141,10 @@ export default {
                  WHERE ref_no = l.ref_no AND snapshot_date >= ?2
                )
              WHERE l.estate_id = ?1 AND l.snapshot_date = pl.last_seen
+               ${matchUnit ? "AND UPPER(TRIM(REPLACE(REPLACE(COALESCE(l.unit, ''), '室', ''), '號', ''))) = ?4" : ""}
              ORDER BY removed_date IS NOT NULL ASC, l.price ASC`
           )
-          .bind(estateId, lAddedAt, session.account_id)
+          .bind(...(matchUnit ? [estateId, lAddedAt, session.account_id, matchUnit] : [estateId, lAddedAt, session.account_id]))
           .all();
         // 免費版 = 今日 snapshot：只見而家仲喺度嘅盤，見唔到時間軸
         // （first_seen 放盤日數／改價次數／原價／自動下架記錄）。呢啲係
