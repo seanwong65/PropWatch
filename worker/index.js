@@ -8652,9 +8652,21 @@ export default {
         await ensureViewingImages(db);
         // 先確認係自己嘅記錄：viewing_images 嘅 INSERT 冇 WHERE 可以擋，
         // 唔驗就可以對住人哋嘅 viewing_id 寫相（雖然讀嗰邊有 scope，都唔好留）。
-        const own = await db.prepare("SELECT 1 FROM viewings WHERE id = ? AND account_id = ?")
+        const own = await db.prepare("SELECT estate_id FROM viewings WHERE id = ? AND account_id = ?")
           .bind(viewingId, session.account_id).first();
         if (!own) return json(404, { error: "搵唔到呢個睇樓記錄" });
+        // 改屋苑（用戶揀錯屋苑）：新屋苑一定要係自己追蹤緊嘅。連住舊屋苑放盤嘅 linked_ref_no／
+        // dismissed_refs 要清走，否則會指住另一個屋苑嘅放盤。
+        const newEstateId = Number(body.estate_id);
+        if (Number.isInteger(newEstateId) && newEstateId > 0 && newEstateId !== Number(own.estate_id)) {
+          const subd = await db.prepare("SELECT 1 FROM account_estates WHERE account_id = ? AND estate_id = ?")
+            .bind(session.account_id, newEstateId).first();
+          if (!subd) return json(400, { error: "只可以改去你追蹤緊嘅屋苑" });
+          await db.prepare("UPDATE viewings SET estate_id = ? WHERE id = ? AND account_id = ?")
+            .bind(newEstateId, viewingId, session.account_id).run();
+          await db.prepare("UPDATE viewings SET linked_ref_no = NULL, dismissed_refs = NULL WHERE id = ? AND account_id = ?")
+            .bind(viewingId, session.account_id).run().catch(() => {});   // 欄位係 lazy ALTER 出嚟，未必存在
+        }
         await db.batch([
           db.prepare(
             "UPDATE viewings SET view_date=?, block=?, floor=?, unit=?, size_net=?, direction=?, price=?, mgmt_fee=?, notes=?, bedrooms=?, ratings=?, deal_type=?, toilet=?, hs_price=NULL WHERE id=? AND account_id=?"
