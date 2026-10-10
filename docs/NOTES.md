@@ -108,8 +108,17 @@ HKP 行 `search/v1`、美聯行 `search/v2`）。實測分別：
   `runTrackNameHandoff()` 喺屋苑搜尋框填好個名出結果，**唔自動追蹤**（同名／分期多，
   揀錯會食咗免費名額）。新用戶會等偏好 popup 閂咗先出。
 - 搜尋記錄：只係 Workers Logs（`{"pubsearch":…}`），唔寫 D1。
-- 未做：地區篩選（中原 4／55／178 區 ↔ 美聯置業 `subregion_ids`／`dist_ids` ↔ 利嘉閣
-  `locationId` 要砌對照表）、跨網同一單位合併、「有歷史記錄」標記。
+- **地區篩選**（`area`，19 區）：id＝美聯／置業 `subregion_ids`（10xx 港島／20xx 九龍／30xx 新界；
+  將軍澳係獨立一區 2010，西貢 3010）。對照表 `PUB_AREAS`（worker）：
+  - 中原：`hmas` 填返該區嘅細區 leaf code（178 個 leaf 全部人手歸區，一個 leaf 只屬一區，unit test 守住）；
+  - 美聯／置業：直接 `subregion_ids=<id>`；
+  - 利嘉閣：`locationId=hkp019,hkp020…`（逗號分隔 = 各 group 總和，實測 觀塘 179 + 九龍灣 310 = 489）。
+    佢嘅 group 同中原差唔多（55 個），但 3 個 group 跨區（鑽石山|黃大仙|九龍城、深井|青山公路）→ 兩區都包，
+    所以利嘉閣結果會略多少少。改分區（地產網加／改 group）要重做對照表：
+    `GET api/location?locationId=cc5d58f7-5de0-43ab-9724-e99203ebdffa`（住宅）→ 4 個大區 →
+    `?locationId=<大區>&limit=100`（每頁預設 10，要加 limit）。
+  - 前端 `<select>`（search.html／index.html）＋ `public-search.js` 嘅 `AREAS` 要同 worker 對得上。
+- 未做：跨網同一單位合併、「有歷史記錄」標記。
 
 ## 按揭計算機
 
