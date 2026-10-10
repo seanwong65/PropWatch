@@ -2438,7 +2438,7 @@ function priceRulerSampleHtml() {
     </div></div>`;
   const info = `<div class="pr-info" style="border-left:none;padding-left:0;border-top:1px solid var(--border);padding-top:0.5rem">
       <div style="white-space:nowrap"><span class="vw-kw vw-kw-sold" style="font-weight:600">成交</span> $15,406–$16,634 · 中位 <b>$16,035</b> · 6宗</div>
-      <div style="margin-top:0.3rem;color:var(--muted);white-space:nowrap">叫價 $14,827–$17,408 · 中位 <b>$16,293</b> · 23個</div>
+      <div style="margin-top:0.3rem;white-space:nowrap"><span class="vw-kw vw-kw-you" style="font-weight:600">叫價</span> $14,827–$17,408 · 中位 <b>$16,293</b> · 23個</div>
       <div class="vw-verdict" style="background:rgba(52,211,153,0.14);border-left:3px solid var(--up)">
         <span style="font-size:0.68rem;color:var(--muted);font-weight:600;display:block;margin-bottom:0.1rem">📊 分析</span>
         <div><span class="gain-pos" style="font-size:0.88rem;font-weight:700">低<span class="vw-kw vw-kw-sold">成交</span>中位數 3.5%</span></div>
@@ -5269,10 +5269,10 @@ function priceRulerHtml(v) {
     : `<div class="sub">成交：${v.floor_tier == null ? '未有樓層帶' : `近${days}日唔夠${minSold}宗`}</div>`;
   const askTip = `${v.bedrooms}房 ${v.floor_tier||''} 在售盤`;
   const askLine = hasAsk
-    ? `<div style="margin-top:0.3rem;color:var(--muted);white-space:nowrap">叫價 $${askP10.toLocaleString()}–$${askP90.toLocaleString()}
+    ? `<div style="margin-top:0.3rem;white-space:nowrap"><span class="vw-kw vw-kw-you" style="font-weight:600">叫價</span> $${askP10.toLocaleString()}–$${askP90.toLocaleString()}
         · 中位 <b>$${askMed.toLocaleString()}</b> · <span class="pr-lnk" onclick="openSimilarListings(${v.id})"
         title="${escHtml(askConf.weak ? askConf.tip : askTip)}" style="${askConf.weak ? `color:${askConf.color};font-weight:600` : ''}">${sim.length}個${askConf.mark}</span></div>`
-    : `<div class="sub" style="margin-top:0.3rem">在售：${(v.floor_tier == null || v.bedrooms == null) ? '未有房數/樓層帶' : '冇同類在售盤'}</div>`;
+    : `<div class="sub" style="margin-top:0.3rem">叫價：${(v.floor_tier == null || v.bedrooms == null) ? '未有房數/樓層帶' : '冇同類在售盤'}</div>`;
 
   // 分析結論——一版嘢入面最多資料嘅一格，但先前同其他細字擠喺一齊，
   // 用戶反映「好難睇到有咩嘢要注意」。改做獨立一個有底色嘅 box：字加大
