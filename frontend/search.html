@@ -90,6 +90,7 @@
     .ps-chip { border: 1px solid var(--border-strong); background: var(--surface); border-radius: 999px; padding: 0.26rem 0.75rem; font-size: 0.84rem; cursor: pointer; font-family: inherit; color: var(--text); }
     .ps-chip[aria-pressed="true"] { background: var(--brand-soft); border-color: var(--brand); color: var(--brand); font-weight: 700; }
 
+    .is-member .ps-hook { display: none !important; }
     .ps-hook { display: flex; flex-wrap: wrap; gap: 0.6rem 1rem; align-items: center; justify-content: space-between; background: var(--brand-soft); border: 1px solid rgba(18,112,172,0.25); border-radius: var(--radius); padding: 0.75rem 1rem; margin-bottom: 0.9rem; }
     .ps-hook p { margin: 0; font-size: 0.9rem; min-width: 0; flex: 1 1 320px; }
     .ps-btn { border: 0; background: var(--brand); color: var(--brand-ink); border-radius: var(--radius-sm); padding: 0.5rem 0.95rem; font-weight: 700; font-size: 0.86rem; text-decoration: none; display: inline-block; cursor: pointer; font-family: inherit; }
@@ -134,11 +135,21 @@
 
 <header class="top">
   <a class="top-logo" href="/">🏙️ 搵樓日記</a>
-  <nav class="top-actions">
+  <nav class="top-actions" id="ps-top-actions">
     <a class="top-btn" href="/app#login">登入</a>
     <a class="top-btn primary" href="/app#register">免費註冊</a>
   </nav>
 </header>
+<script>
+  // 已登入嘅人（例如由 app 撳「搵樓」過嚟）：頂部改做「返我嘅日記」，唔再叫人登入／註冊，
+  // 「免費登記」橫額都收埋。淨係改畫面，驗身一律喺後端。
+  try {
+    if (localStorage.getItem("propwatch_token")) {
+      document.getElementById("ps-top-actions").innerHTML = '<a class="top-btn primary" href="/app">返去我嘅日記</a>';
+      document.documentElement.classList.add("is-member");
+    }
+  } catch (_) {}
+</script>
 
 <main class="ps-wrap">
   <nav class="crumb" aria-label="麵包屑"><a href="/">搵樓日記</a> › 搵樓</nav>
