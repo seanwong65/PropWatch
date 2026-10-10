@@ -600,6 +600,9 @@ const SEC_DEFS = [
   { key: "sec_ip_rpm", def: 600, min: 60, max: 20000, label: "API 每個 IP 每分鐘總上限",
     desc: "所有 /api/* request 一律計落 IP（唔睇 Authorization header），擋「每次換一個假 token 逐個 token 重新計數」嘅繞法。"
         + "要夠鬆俾同一個 IP 後面幾個真用戶（辦公室／學校），所以預設係單個用戶上限（sec_api_rpm）嘅 2.5 倍。" },
+  { key: "sec_public_search_rpm", def: 20, min: 5, max: 600, label: "公開搜尋：每個 IP 每分鐘幾多次",
+    desc: "未登入首頁／search 頁搜尋地產網：每個 IP、每個網站每分鐘上限。每次搜尋即時問地產網，"
+        + "太鬆會令我哋問地產網嘅次數暴增（有被佢哋限流、連累每日 sync 嘅風險）。" },
   { key: "sec_auth_rpm", def: 10, min: 3, max: 120, label: "登入／註冊每分鐘上限",
     desc: "login/register/忘記密碼：每個 IP 每分鐘試嘅次數，擋暴力試密碼。" },
   { key: "sec_free_max_estates", def: 3, min: 1, max: 50, label: "免費版：最多追蹤屋苑",
@@ -5836,6 +5839,217 @@ async function runDailyEmailTask(env) {
   }
 }
 
+// ── 公開搜尋（未登入，首頁／search 頁）：即時問地產網，唔掂 D1 ─────────────────
+// 用戶決定（2026-10-10）：未登入嘅搜尋搜嘅係地產網本身，唔係我哋 DB；結果連返原網站。
+// 每個網站一個請求（前端並行打 4 次 /api/public/search?src=…）：利嘉閣每頁 0.4–1.1MB，
+// 分開先唔會四個網站嘅 JSON 擠埋一個 invocation 爆 CPU，亦可以邊個快邊個先出。
+// 唔准喺呢度讀寫 D1、唔准回任何帳戶資料；只出放盤基本欄位 + 原網站連結 + 縮圖網址。
+export const PUB_SOURCES = ["centanet", "midland", "hkp", "ricacorp"];
+const PUB_PAGE = 12;                         // 每網每頁幾多個（利嘉閣固定 10）
+const PUB_KW_RE = /^[\p{L}\p{N}\s.,'&()\-]{0,30}$/u;   // 屋苑／關鍵字：淨係字、數字、少量標點
+
+// 驗證 + 正規化 query。回 { q } 或者 { error }（唔啱就 400，唔靜靜改）。
+export function parsePublicSearch(sp) {
+  const src = sp.get("src");
+  if (!PUB_SOURCES.includes(src)) return { error: "src" };
+  const deal = sp.get("deal") === "R" ? "R" : "S";
+  const kw = String(sp.get("kw") || "").trim().replace(/\s+/g, " ");
+  if (!PUB_KW_RE.test(kw)) return { error: "kw" };
+  const int = (k, lo, hi) => {
+    const v = sp.get(k);
+    if (v == null || v === "") return null;
+    const n = Math.round(Number(v));
+    return Number.isFinite(n) && n >= lo && n <= hi ? n : undefined;
+  };
+  const q = { src, deal, kw, beds: int("beds", 1, 4), pmin: int("pmin", 0, 2e9), pmax: int("pmax", 0, 2e9),
+    smin: int("smin", 0, 20000), smax: int("smax", 0, 20000), page: int("page", 1, 10) };
+  for (const k of ["beds", "pmin", "pmax", "smin", "smax", "page"]) if (q[k] === undefined) return { error: k };
+  if (q.page == null) q.page = 1;
+  return { q };
+}
+// cache key：同一組條件（次序無關）＝同一個 key
+export const pubCacheKey = (q) => JSON.stringify([q.src, q.deal, q.kw, q.beds, q.pmin, q.pmax, q.smin, q.smax, q.page]);
+
+const pubDay = (v) => {
+  if (v == null || v === "") return null;
+  const d = typeof v === "number" ? new Date(v) : new Date(String(v));
+  return Number.isNaN(d.getTime()) ? null : new Date(d.getTime() + 8 * 3600000).toISOString().slice(0, 10);
+};
+const pubNum = (v) => (Number.isFinite(Number(v)) && Number(v) > 0 ? Math.round(Number(v)) : null);
+// 連結／相片只准指返嗰個網站自己嘅 host（地產網回嚟嘅字串當唔可信）
+const pubUrl = (u, hosts) => {
+  try { const x = new URL(String(u)); return x.protocol === "https:" && hosts.includes(x.hostname) ? x.toString() : null; }
+  catch { return null; }
+};
+const bedsList = (b) => (b >= 4 ? [4, 5, 6, 7, 8] : [b]);
+
+// 中原：POST Post/Search（同每日 sync 同一個 API）
+// 縮圖：hkais 原圖 ~300KB → w=400（~75KB）；hkvrdata（VR 封面）→ OSS resize（~25KB）；hkcdn imgresize 本身已經細
+export function centanetThumb(t) {
+  const u = pubUrl(t, ["hkcdn.centanet.com", "hkais.centanet.com", "hkvrdata.centanet.com"]);
+  if (!u) return null;
+  const x = new URL(u);
+  if (x.hostname === "hkais.centanet.com") x.searchParams.set("w", "400");
+  else if (x.hostname === "hkvrdata.centanet.com") x.search = "?x-oss-process=image/resize,w_400";
+  return x.toString();
+}
+export function normCentanet(x, deal) {
+  const line1 = String(x?.displayText?.addr?.line1 || "").replace(/^(\S+)\s+\1(?=\s|$)/, "$1");
+  return {
+    src: "centanet",
+    estate: x?.bigEstateName || x?.estateName || "",
+    title: line1 || x?.estateName || "",
+    floor: x?.yAxis || "",
+    district: x?.districtName || "",
+    beds: Number.isFinite(x?.bedroomCount) ? x.bedroomCount : null,
+    size: pubNum(x?.nSize ?? x?.areaInfo?.nSize),
+    price: pubNum(deal === "R" ? (x?.rentPrice ?? x?.priceInfo?.rent) : (x?.salePrice ?? x?.priceInfo?.price)),
+    psf: pubNum(deal === "R" ? x?.unitPriceInfo?.nUnitRent : x?.nUnitPrice),
+    date: pubDay(x?.publishDate),
+    url: pubUrl(x?.detailUrl, ["hk.centanet.com"]),
+    img: centanetThumb(x?.thumbnail),
+  };
+}
+async function pubCentanet(q) {
+  const body = { postType: q.deal === "R" ? "Rent" : "Sale", sort: "PublishDate", order: "Descending",
+    size: PUB_PAGE, offset: (q.page - 1) * PUB_PAGE, displayTextStyle: "WebResultList", pageSource: "search", bigPhotoMode: false };
+  if (q.kw) body.keyword = q.kw;
+  if (q.beds) body.bedroomCount = bedsList(q.beds);
+  if (q.pmin != null || q.pmax != null) body.amountRange = { min: q.pmin ?? 0, max: q.pmax ?? 2e9 };
+  if (q.smin != null || q.smax != null) body.nSizeRange = { min: q.smin ?? 0, max: q.smax ?? 20000 };
+  const res = await fetch(CENTANET_SEARCH, { method: "POST", headers: FETCH_HEADERS, body: JSON.stringify(body), ...CF_OPTIONS, signal: AbortSignal.timeout(8000) });
+  if (!res.ok) throw new Error(`centanet ${res.status}`);
+  const j = await res.json();
+  return { total: Number(j?.count) || 0, items: (j?.data || []).map((x) => normCentanet(x, q.deal)) };
+}
+
+// 美聯／香港置業：同一個後台（data.midland.com.hk/search/v2 ／ data.hkp.com.hk/search/v1）
+let _hkpTokenCache = { tok: null, at: 0 };
+async function hkpGetTokenCached() {
+  if (_hkpTokenCache.tok && Date.now() - _hkpTokenCache.at < 30 * 60000) return _hkpTokenCache.tok;
+  const tok = await hkpGetToken();
+  if (tok) _hkpTokenCache = { tok, at: Date.now() };
+  return tok;
+}
+export function midlandThumb(p) {
+  const s3 = p?.s3_outlook_wan_doc_path;
+  if (s3?.s3_url && /^[a-z0-9]+$/i.test(s3.hash_name || "")) {
+    const u = pubUrl(`${s3.s3_url}/300/webp/${s3.hash_name}.webp`, ["res.midland.com.hk"]);
+    if (u) return u;
+  }
+  const raw = pubUrl(p?.outlook_wan_doc_path, ["wm-cdn.midland.com.hk", "wm.midland.com.hk"]);
+  // 原圖 600KB 以上；同美聯自己網站一樣加 h=300（wm-cdn 先支援）
+  return raw ? raw.replace("://wm.midland.com.hk/", "://wm-cdn.midland.com.hk/") + "&h=300" : null;
+}
+export function normMidHkp(p, deal, site) {
+  const estate = String(p?.estate?.name || "").replace(/\s*\([^)]*\)\s*$/, "");
+  const photo = site === "hkp" ? pubUrl((p?.photos || [])[0], ["wm.hkp.com.hk"]) : null;
+  return {
+    src: site,
+    estate,
+    // 期數名好多時已經包埋屋苑名（「Yoho West Parkside」），唔好砌成「Yoho West Yoho West Parkside」
+    title: (() => {
+      const ph = String(p?.phase?.name || "");
+      const parts = ph && ph.startsWith(estate) ? [ph] : [estate, ph];
+      return [...parts, p?.building?.name].filter(Boolean).join(" ");
+    })(),
+    floor: p?.floor_level?.name || "",
+    district: p?.district?.name || "",
+    beds: Number.isFinite(p?.bedroom) ? p.bedroom : null,
+    size: pubNum(p?.net_area),
+    price: pubNum(deal === "R" ? (p?.rent_hkd ?? p?.rent) : (p?.price_hkd ?? p?.price)),
+    psf: pubNum(deal === "R" ? p?.rent_over_net_area : p?.price_over_net_area),
+    date: pubDay(p?.post_date || p?.first_pub_date || p?.update_date),
+    url: pubUrl(p?.url_desc, [site === "hkp" ? "www.hkp.com.hk" : "www.midland.com.hk"]),
+    img: site === "hkp" ? (photo ? photo + "&h=300" : null) : midlandThumb(p),
+  };
+}
+async function pubMidHkp(site, q) {
+  const tok = site === "hkp" ? await hkpGetTokenCached() : await midlandGetToken();
+  if (!tok) throw new Error(`${site} token`);
+  const base = site === "hkp" ? "https://data.hkp.com.hk/search/v1" : "https://data.midland.com.hk/search/v2";
+  const H = { headers: { "User-Agent": HKP_UA, Authorization: `Bearer ${tok}`, Accept: "application/json" }, signal: AbortSignal.timeout(8000) };
+  // sort=latest：最新放盤先（同中原 PublishDate Descending 一致；唔加係佢哋自己嘅「推介」次序）
+  const sp = new URLSearchParams({ tx_type: q.deal === "R" ? "L" : "S", limit: String(PUB_PAGE), page: String(q.page), sort: "latest" });
+  if (q.kw) {
+    const ac = await fetch(`${base}/autocomplete/estates?text=${encodeURIComponent(q.kw)}`, H).then((r) => (r.ok ? r.json() : null)).catch(() => null);
+    const estId = ac?.[0]?.result?.[0]?.search?.id;
+    if (!estId) return { total: 0, items: [] };            // 呢個網站冇呢個屋苑
+    sp.set("est_ids", String(estId));
+  }
+  if (q.beds) sp.set("bedroom", bedsList(q.beds).join(","));
+  // 租盤都係用 price（實測 rent= 冇效）
+  if (q.pmin != null || q.pmax != null) sp.set("price", `${q.pmin ?? 0}-${q.pmax ?? 2e9}`);
+  if (q.smin != null || q.smax != null) sp.set("net_area", `${q.smin ?? 0}-${q.smax ?? 20000}`);
+  const res = await fetch(`${base}/properties?${sp}`, H);
+  if (!res.ok) throw new Error(`${site} ${res.status}`);
+  const j = await res.json();
+  return { total: Number(j?.count) || 0, items: (j?.result || []).map((p) => normMidHkp(p, q.deal, site)) };
+}
+
+// 利嘉閣：佢網站自己用嘅 JSON API（www.ricacorp.com/zh-hk/property/api/post）。
+// ⚠️ 會擋部分 IP（WAF），經 Cloudflare 出口實測正常。租盤參數未搵到 → 暫時淨係買盤。
+export function normRicacorp(x) {
+  const names = Array.isArray(x?.publicLocationNamesHk) ? x.publicLocationNamesHk : [];
+  const slug = x?.aliasesV4?.hk;
+  return {
+    src: "ricacorp",
+    estate: names[4] || "",
+    title: String(x?.displayTextHk || x?.displayText || "").replace(/\s{2,}/g, " "),
+    floor: x?.floorZoneText || "",
+    district: names[3] || "",
+    beds: Number.isFinite(x?.room) ? x.room : null,
+    size: pubNum(x?.saleableArea),
+    price: pubNum(x?.marketPrice),
+    psf: pubNum(x?.unitPrice),
+    date: pubDay(x?.overallDateModified),
+    url: slug ? pubUrl(`https://www.ricacorp.com/zh-hk/property/detail/${encodeURIComponent(slug)}`, ["www.ricacorp.com"]) : null,
+    img: pubUrl(x?.thumbnail, ["resourcecdn.ricacorp.com"]),
+  };
+}
+async function pubRicacorp(q) {
+  if (q.deal === "R") return { total: null, items: [], unsupported: true };
+  const sp = new URLSearchParams({ page: String(q.page) });
+  if (q.kw) sp.set("displayText", q.kw);
+  if (q.beds) { sp.set("roomFrom", String(q.beds)); sp.set("roomTo", String(q.beds >= 4 ? 99 : q.beds)); }
+  if (q.pmin != null) sp.set("priceFrom", String(q.pmin));
+  if (q.pmax != null) sp.set("priceTo", String(q.pmax));
+  if (q.smin != null) sp.set("saleableAreaFrom", String(q.smin));
+  if (q.smax != null) sp.set("saleableAreaTo", String(q.smax));
+  const res = await fetch(`https://www.ricacorp.com/zh-hk/property/api/post?${sp}`, {
+    headers: { "User-Agent": RICA_UA, Accept: "application/json, text/plain, */*", "Accept-Language": "zh-HK,zh;q=0.9",
+      "x-custom-header": "www.ricacorp.com/zh-hk/property", Referer: "https://www.ricacorp.com/zh-hk/property/list/buy" },
+    signal: AbortSignal.timeout(9000),
+  });
+  if (!res.ok) throw new Error(`ricacorp ${res.status}`);
+  const j = await res.json();
+  return { total: Number(j?.total) || 0, items: (j?.results || []).map(normRicacorp) };
+}
+
+// 緊急開關：settings.public_search_off = "1" 即刻停公開搜尋（被地產網限流時用）。60 秒 cache。
+let _pubOff = { at: 0, v: false };
+async function publicSearchOff(db) {
+  if (Date.now() - _pubOff.at < 60000) return _pubOff.v;
+  const v = (await getSetting(db, "public_search_off")) === "1";
+  _pubOff = { at: Date.now(), v };
+  return v;
+}
+
+// 每個 isolate 嘅小 cache（workers.dev 用唔到 Cache API；api.ws-techs.com 另外有 edge cache）
+const PUB_MEM = new Map();
+const PUB_TTL_MS = 10 * 60000;
+export async function runPublicSearch(q) {
+  const key = pubCacheKey(q);
+  const hit = PUB_MEM.get(key);
+  if (hit && Date.now() - hit.at < PUB_TTL_MS) return { ...hit.data, cached: true };
+  const fn = { centanet: pubCentanet, midland: (x) => pubMidHkp("midland", x), hkp: (x) => pubMidHkp("hkp", x), ricacorp: pubRicacorp }[q.src];
+  const data = await fn(q);
+  const out = { src: q.src, page: q.page, pageSize: q.src === "ricacorp" ? 10 : PUB_PAGE, ...data };
+  PUB_MEM.set(key, { at: Date.now(), data: out });
+  if (PUB_MEM.size > 300) for (const [k, v] of PUB_MEM) if (Date.now() - v.at >= PUB_TTL_MS || PUB_MEM.size > 300) PUB_MEM.delete(k);
+  return out;
+}
+
 export default {
   async scheduled(event, env, ctx) {
     // "0 1 * * *" = 09:00 HKT → email only (own fresh subrequest budget).
@@ -5955,7 +6169,9 @@ export default {
     // Cron watchdog 搭順風車：擺 waitUntil 入面，唔阻住 response。
     // 淨係 /api/* 先查（避開 OPTIONS preflight 同靜態嘢），入面仲有
     // cooldown，所以實際 DB 讀寫好疏。
-    if (request.method !== "OPTIONS" && new URL(request.url).pathname.startsWith("/api/")) {
+    // 公開搜尋（/api/public/*）唔行：未登入流量唔應該食 D1。
+    const reqPath = new URL(request.url).pathname;
+    if (request.method !== "OPTIONS" && reqPath.startsWith("/api/") && !reqPath.startsWith("/api/public/")) {
       ctx.waitUntil(checkCronWatchdog(env.DB, env).catch(() => {}));
     }
     return applyCors(resp, request);
@@ -5986,6 +6202,31 @@ export default {
         const k = apiRateKeys(request.headers.get("Authorization"), clientIp);
         if (rateLimited(k.ip, sec.sec_ip_rpm) || (k.tok && rateLimited(k.tok, sec.sec_api_rpm))) {
           return json(429, { error: "請求太頻密，請稍後再試" });
+        }
+      }
+
+      // ── 公開搜尋（未登入）：即時問地產網，唔掂 D1、唔回任何帳戶資料 ──────────────
+      // CLAUDE.md 嘅「公開 route」例外之一（2026-10-10 用戶批准）。排喺 ensure* 之前。
+      if (method === "GET" && path === "/api/public/search") {
+        if (await publicSearchOff(db)) return json(503, { error: "搜尋暫停中，請稍後再試" });
+        const { q, error } = parsePublicSearch(url.searchParams);
+        if (error) return json(400, { error: "搜尋條件唔啱" });
+        if (rateLimited(`pub:${q.src}:${clientIp}`, sec.sec_public_search_rpm)) {
+          return json(429, { error: "搜尋太頻密，請一分鐘後再試" });
+        }
+        // api.ws-techs.com 先有 edge cache（workers.dev 嘅 Cache API 係 no-op）
+        const edge = url.hostname.endsWith(".workers.dev") ? null : caches.default;
+        const ck = new Request(`https://cache.local/pub?k=${encodeURIComponent(pubCacheKey(q))}`);
+        if (edge) { const hit = await edge.match(ck); if (hit) return new Response(hit.body, hit); }
+        try {
+          const out = await runPublicSearch(q);
+          console.log(JSON.stringify({ pubsearch: { src: q.src, deal: q.deal, kw: q.kw, beds: q.beds, pmin: q.pmin, pmax: q.pmax, smin: q.smin, smax: q.smax, page: q.page, n: out.items.length, cached: !!out.cached } }));
+          const resp = new Response(JSON.stringify(out), { headers: { "Content-Type": "application/json; charset=utf-8", "Cache-Control": "public, max-age=300" } });
+          if (edge) ctx.waitUntil(edge.put(ck, resp.clone()));
+          return resp;
+        } catch (e) {
+          console.error("[pubsearch]", q.src, e?.message || e);
+          return json(502, { error: "呢個網站暫時搵唔到", src: q.src });
         }
       }
 

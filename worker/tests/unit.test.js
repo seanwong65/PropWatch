@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { scrapeRicacorpListings, scrapeHkpListings, hsUnitParts, hsBlockKey, hsNameVariants, pickRotationEstates, apiRateKeys, rateLimited } from "../index.js";
+import { scrapeRicacorpListings, scrapeHkpListings, hsUnitParts, hsBlockKey, hsNameVariants, pickRotationEstates, apiRateKeys, rateLimited,
+  parsePublicSearch, pubCacheKey, centanetThumb, normCentanet, midlandThumb, normMidHkp, normRicacorp } from "../index.js";
 import { readFileSync } from "node:fs";
 
 // ── Pure helpers extracted inline (no DB/fetch deps) ──────────────────────
@@ -460,5 +461,84 @@ describe("apiRateKeys／限速（假 token 輪換繞唔過）", () => {
     for (let i = 0; i < 300; i++) if (rateLimited(a.tok, 240)) limited++;
     expect(limited).toBe(60);
     expect(rateLimited(b.tok, 240)).toBe(false);
+  });
+});
+
+describe("公開搜尋 /api/public/search（地產網資料當唔可信）", () => {
+  const P = (qs) => parsePublicSearch(new URLSearchParams(qs));
+
+  it("src 一定要喺白名單；唔啱嘅條件回 error（唔靜靜改）", () => {
+    expect(P("").error).toBe("src");
+    expect(P("src=evil").error).toBe("src");
+    expect(P("src=centanet&beds=9").error).toBe("beds");
+    expect(P("src=centanet&page=11").error).toBe("page");
+    expect(P("src=centanet&pmin=-1").error).toBe("pmin");
+    expect(P("src=centanet&smax=abc").error).toBe("smax");
+    expect(P("src=centanet&kw=" + encodeURIComponent("<script>")).error).toBe("kw");
+    expect(P("src=centanet&kw=" + "a".repeat(31)).error).toBe("kw");
+  });
+
+  it("正常條件：deal 預設買盤、page 預設 1、kw 收埋多餘空格", () => {
+    const { q } = P("src=midland&kw=" + encodeURIComponent("  太古城   ") + "&beds=2&pmin=5000000&pmax=8000000&smin=400");
+    expect(q).toEqual({ src: "midland", deal: "S", kw: "太古城", beds: 2, pmin: 5000000, pmax: 8000000, smin: 400, smax: null, page: 1 });
+    expect(P("src=hkp&deal=R").q.deal).toBe("R");
+    expect(P("src=hkp&deal=X").q.deal).toBe("S");
+  });
+
+  it("cache key：同一組條件同一個 key，參數次序無關", () => {
+    const a = P("src=centanet&beds=2&kw=abc").q, b = P("kw=abc&src=centanet&beds=2").q;
+    expect(pubCacheKey(a)).toBe(pubCacheKey(b));
+    expect(pubCacheKey(a)).not.toBe(pubCacheKey(P("src=centanet&beds=3&kw=abc").q));
+  });
+
+  it("中原：連結／相只准中原自己 host，縮圖加 resize", () => {
+    expect(centanetThumb("https://hkais.centanet.com/a.jpg")).toBe("https://hkais.centanet.com/a.jpg?w=400");
+    expect(centanetThumb("https://hkvrdata.centanet.com/x/Cover.jpg?foo=1")).toBe("https://hkvrdata.centanet.com/x/Cover.jpg?x-oss-process=image/resize,w_400");
+    expect(centanetThumb("https://evil.com/a.jpg")).toBeNull();
+    expect(centanetThumb("javascript:alert(1)")).toBeNull();
+    const it1 = normCentanet({ bigEstateName: "天晉", displayText: { addr: { line1: "天晉 天晉 3A座" } }, yAxis: "高層", bedroomCount: 2,
+      nSize: 500, salePrice: 9800000, nUnitPrice: 19600, publishDate: "2026-10-09T20:00:00Z",
+      detailUrl: "javascript:alert(1)", thumbnail: "http://hkais.centanet.com/a.jpg" }, "S");
+    expect(it1.title).toBe("天晉 3A座");
+    expect(it1.price).toBe(9800000);
+    expect(it1.date).toBe("2026-10-10");               // 轉香港時間
+    expect(it1.url).toBeNull();                         // javascript: 唔准
+    expect(it1.img).toBeNull();                         // http（唔係 https）唔准
+    const r = normCentanet({ rentPrice: 23000, unitPriceInfo: { nUnitRent: 41.6 }, detailUrl: "https://hk.centanet.com/findproperty/detail/x" }, "R");
+    expect(r.price).toBe(23000);
+    expect(r.psf).toBe(42);
+    expect(r.url).toBe("https://hk.centanet.com/findproperty/detail/x");
+  });
+
+  it("美聯／置業：s3 縮圖、wm 換 wm-cdn、期數名唔重覆屋苑名、host 白名單", () => {
+    expect(midlandThumb({ s3_outlook_wan_doc_path: { s3_url: "https://res.midland.com.hk/a", hash_name: "abc123" } }))
+      .toBe("https://res.midland.com.hk/a/300/webp/abc123.webp");
+    expect(midlandThumb({ s3_outlook_wan_doc_path: { s3_url: "https://res.midland.com.hk/a", hash_name: "../x" },
+      outlook_wan_doc_path: "https://wm.midland.com.hk/img_wm_revamp.php?src=x" }))
+      .toBe("https://wm-cdn.midland.com.hk/img_wm_revamp.php?src=x&h=300");
+    expect(midlandThumb({ outlook_wan_doc_path: "https://evil.com/x" })).toBeNull();
+    const m = normMidHkp({ estate: { name: "Yoho West (天水圍)" }, phase: { name: "Yoho West Parkside" }, building: { name: "1B座" },
+      price_hkd: 4480000, url_desc: "https://www.hkp.com.hk/x" }, "S", "midland");
+    expect(m.estate).toBe("Yoho West");
+    expect(m.title).toBe("Yoho West Parkside 1B座");
+    expect(m.url).toBeNull();                           // 美聯結果唔准指去置業 host
+    const h = normMidHkp({ estate: { name: "天晉" }, phase: { name: "2期" }, rent_hkd: 25000, photos: ["https://wm.hkp.com.hk/img.php?a=1"],
+      url_desc: "https://www.hkp.com.hk/zh-hk/x" }, "R", "hkp");
+    expect(h.title).toBe("天晉 2期");
+    expect(h.price).toBe(25000);
+    expect(h.img).toBe("https://wm.hkp.com.hk/img.php?a=1&h=300");
+    expect(h.url).toBe("https://www.hkp.com.hk/zh-hk/x");
+  });
+
+  it("利嘉閣：地區／屋苑由 publicLocationNamesHk 攞，detail slug 會 encode", () => {
+    const r = normRicacorp({ publicLocationNamesHk: ["利嘉閣", "住宅", "九龍", "將軍澳", "天晉"], displayTextHk: "天晉  3A座",
+      room: 2, saleableArea: 480, marketPrice: 9000000, unitPrice: 18750, aliasesV4: { hk: "abc/../x" },
+      thumbnail: "https://resourcecdn.ricacorp.com/p.jpg?width=256", overallDateModified: 1791600000000 });
+    expect(r.estate).toBe("天晉");
+    expect(r.district).toBe("將軍澳");
+    expect(r.title).toBe("天晉 3A座");
+    expect(r.url).toBe("https://www.ricacorp.com/zh-hk/property/detail/abc%2F..%2Fx");
+    expect(r.img).toBe("https://resourcecdn.ricacorp.com/p.jpg?width=256");
+    expect(normRicacorp({ thumbnail: "https://evil.com/p.jpg" }).img).toBeNull();
   });
 });
