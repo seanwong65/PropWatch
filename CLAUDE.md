@@ -9,7 +9,8 @@ XSS/HTML injection、API 被人狂抽數據去做類似嘅系統。**每個新 f
 
 1. **新 endpoint 一律放喺 auth guard 後面**（`const session = await authenticate(...)` 之後）。
    唯一例外係 `/api/login`、`/api/logout`、`/api/register`、`/api/stripe-webhook`、
-   `/api/unsubscribe` — 唔准再加新嘅公開 route。
+   `/api/unsubscribe`，同埋公開「讀第三方」嘅 `GET /api/public/search`（見下）
+   — 唔准再加新嘅公開 route。
    如果某功能「好似」要公開（例如 debug、email trigger），都要行 auth：
    之前 `/api/send-today-email` 同 `/api/debug-ricacorp-pages` 公開過，係漏洞，已搬入 guard 內。
 
@@ -32,6 +33,22 @@ XSS/HTML injection、API 被人狂抽數據去做類似嘅系統。**每個新 f
    - `List-Unsubscribe-Post: List-Unsubscribe=One-Click` 一定要配 POST（同上同一個理由）。
    - 加 email header 一律經 `sendEmail(..., extraHeaders)`，個 helper 會剝走 CR/LF
      防 header injection；唔准自己拼 MIME 字串。
+
+   `GET /api/public/search`（2026-10-10 用戶批准；未登入嘅 `/search` 頁用）係唯一
+   **公開讀取** route：即時代問四大地產網（中原／美聯／香港置業／利嘉閣），**唔係讀我哋
+   DB**。上面「只准寫狀態」嗰條唔適用，改為跟以下硬規矩：
+   - **唔准讀／寫任何 D1 數據表**（estates／listings／accounts…一律唔掂）；淨係准
+     `getSecCfg` 同 `public_search_off` 緊急開關（兩個都有 60 秒 isolate cache）。
+     路由放喺 `ensure*` 之前、限速之後；`checkCronWatchdog` 對 `/api/public/*` 唔行。
+     將來想加「有歷史記錄」標記之類要查 DB 嘅嘢，要先問用戶。
+   - **唔准回任何帳戶數據**；回嘅只係地產網公開放盤嘅基本欄位。
+   - 輸入**白名單驗證**（`parsePublicSearch`：src 白名單、數字有上下限、kw 淨係字／數字／
+     少量標點、最多 10 頁），唔啱即 400，唔靜靜改。
+   - 輸出 URL（連結／相）一律經 `pubUrl(u, hosts)` —— 只准 https + 嗰個網站自己嘅 host。
+   - 限速：每 IP 每網站 `sec_public_search_rpm`（預設 20／分鐘）；cache 兩層：isolate
+     記憶體 10 分鐘 + Cache API 5 分鐘（淨係自訂域名 `api.ws-techs.com` 有效，workers.dev 冇，
+     所以 `/search` 頁喺正式站打 `api.ws-techs.com`）；被地產網封就喺 settings 寫
+     `public_search_off = "1"` 即刻停。
 2. **CORS 係 allow-list**（`isAllowedOrigin()` / `applyCors()`，喺 fetch 出口統一 reflect）。
    加新 origin 前要諗清楚；唔准改返做 `*`。
 3. **安全數字參數用全局 `sec_*` settings key + code default**（`SEC_DEFAULTS`）。
@@ -54,7 +71,7 @@ XSS/HTML injection、API 被人狂抽數據去做類似嘅系統。**每個新 f
 2026-09-25 起 landing 同 app 分咗家：`/` 係靜態宣傳頁（同 `/mortgage-calculator`、
 `/guides/*`、`/about`、`/privacy` 一樣用 `/site.css`），app 喺 `/app`（`noindex`）。
 已登入用戶開 `/` 會即刻 `location.replace("/app" + search + hash)`，所以 worker／
-Stripe／email 指去 `/?...` 嘅連結照用得。動態內容 escape 規矩主要適用 `app.html`。
+Stripe／email 指去 `/?...` 嘅連結照用得。動態內容 escape 規矩主要適用 `app.html` 同 `public-search.js`（`/search` 頁，地產網資料）。
 
 所有動態內容入 HTML 前必須 escape，用檔案底部嘅 helpers：
 

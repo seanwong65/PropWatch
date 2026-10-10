@@ -71,6 +71,37 @@ HKP 行 `search/v1`、美聯行 `search/v2`）。實測分別：
 - Days-on-market uses the **earlier** of the portal's publish date and our
   `first_seen`, so a "refreshed" fake-fresh date can't hide a stale listing.
 
+## 公開搜尋（`/search`，2026-10-10 起）
+
+未登入都用得嘅「四大地產網一次過搜尋」，做網站入口吸會員（跟 SEEHSE 搵樓街做法）。
+**搜嘅係地產網本身，唔係我哋 DB**——規矩見 `CLAUDE.md`「`GET /api/public/search`」。
+
+- 前端：`frontend/search.html` + `frontend/public-search.js`；首頁 hero 下面有個
+  GET form 去 `/search`（純 HTML，唔使 JS）。條件全部喺 URL，可以分享。
+  每個網站一個 request（`?src=centanet|midland|hkp|ricacorp`）並行，邊個返先出邊個；
+  分開 request 亦等於分開 CPU 預算（Workers Free 每次 10ms）。
+- 單位：URL／表單 `pmin`／`pmax` 買盤係**萬**、租盤係**元**；`public-search.js`
+  send 去 worker 先換做 HK$。
+- 各網 API（全部只讀，同每日 sync 同一批）：
+
+| 網站 | API | 排序 | 備註 |
+|---|---|---|---|
+| 中原 | `POST hk.centanet.com/findproperty/api/Post/Search` | `sort: PublishDate, order: Descending` | `bedroomCount` 要 array；3+ 房 = `[4..8]` |
+| 美聯 | `GET data.midland.com.hk/search/v2/properties` | `sort=latest` | 租盤都係用 `price=`（`rent=` 冇效）；kw → `autocomplete/estates` 攞 `est_ids` |
+| 香港置業 | `GET data.hkp.com.hk/search/v1/properties` | `sort=latest` | 同美聯同一個後台；token 30 分鐘 cache |
+| 利嘉閣 | `GET www.ricacorp.com/zh-hk/property/api/post` + header `x-custom-header` | 預設 | **會擋部分 IP（WAF）**，本機打唔到，Cloudflare 出口正常；每頁固定 10 個；**租盤參數未搵到**，暫時回 `unsupported` |
+
+- 相：全部直接 `<img>` 熱連結（實測冇 referer 檢查），唔經 worker proxy；縮圖：
+  中原 hkais `?w=400`、hkvrdata `?x-oss-process=image/resize,w_400`；美聯
+  `{s3_url}/300/webp/{hash}.webp`（冇就 `wm-cdn…&h=300`）；置業 `photos[0]&h=300`
+  （會 302 去 `wmc.hkp.com.hk`）；利嘉閣 `?width=256`。新 host 要加 `_headers` CSP `img-src`。
+- 「🔔 追蹤加減價」→ `/app?track_name=<屋苑>#register`：登記頁出提示；登入後
+  `runTrackNameHandoff()` 喺屋苑搜尋框填好個名出結果，**唔自動追蹤**（同名／分期多，
+  揀錯會食咗免費名額）。新用戶會等偏好 popup 閂咗先出。
+- 搜尋記錄：只係 Workers Logs（`{"pubsearch":…}`），唔寫 D1。
+- 未做：地區篩選（中原 4／55／178 區 ↔ 美聯置業 `subregion_ids`／`dist_ids` ↔ 利嘉閣
+  `locationId` 要砌對照表）、利嘉閣租盤、跨網同一單位合併、「有歷史記錄」標記。
+
 ## 按揭計算機
 
 前端 pure function（`stampDuty` / `maxLoanFor` / `mipPremium` /
