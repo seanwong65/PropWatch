@@ -7347,8 +7347,14 @@ async function submitViewing(e) {
     // 用戶可能淨填數字／字母（99、B），補返 座／樓／室，睇落先似個單位
     const suf = (v, re, unit) => (v && re.test(v)) ? v + unit : v;
     const unitLabel = [suf(val('vf-block'), /^[0-9A-Za-z]+$/, '座'), suf(val('vf-floor'), /^\d+$/, '樓'), suf(val('vf-unit'), /^[0-9A-Za-z]+$/, '室')].filter(Boolean).join(' ');
+    // 確認框順便列出實用呎數同售價／月租（填咗先出），等用戶儲存前再睇多次最易打錯嘅兩個數
+    const sizeV = val('vf-size'), priceV = val('vf-price');
+    const facts = [
+      sizeV ? `實用 ${sizeV} 呎` : '',
+      priceV ? (deal === 'R' ? `月租 $${priceV}` : `售價 $${priceV}萬`) : '',
+    ].filter(Boolean).join('　·　');
     const ok = await appConfirm(
-      `${_viewingEditId ? '更改' : '新增'} ${_viewingEstateName || ''} ${unitLabel} 睇樓記錄`.replace(/\s+/g, ' '),
+      `${_viewingEditId ? '更改' : '新增'} ${_viewingEstateName || ''} ${unitLabel} 睇樓記錄`.replace(/\s+/g, ' ') + (facts ? '\n' + facts : ''),
       '儲存',
       missing.length ? ['提提你：你仲有 ', missing.join('、'), ' 未填㗎，之後都可以補填返。'] : '',
       _viewingEstateName || '');
