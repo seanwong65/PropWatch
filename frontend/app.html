@@ -2336,12 +2336,18 @@ function hkTodayStr() { return new Date(Date.now() + 8 * 3600000).toISOString().
 // 取代原生 confirm()：Claude desktop 內置瀏覽器窗格（同部分嵌入式 webview）會即刻
 // 回 false、唔彈窗，令所有靠 confirm() 嘅刪除掣「撳咗冇反應」。呢個係頁內確認框，
 // 任何環境都彈得出。回 Promise<boolean>。
-function appConfirm(msg, okLabel = '確定', note = '') {
+// hl：msg 入面要特別標出嚟嘅字串（例如屋苑名），會用品牌色 + 粗體 + 大啲
+function appConfirm(msg, okLabel = '確定', note = '', hl = '') {
+  const msgHtml = (() => {
+    const i = hl ? String(msg).indexOf(hl) : -1;
+    if (i < 0) return escHtml(msg);
+    return `${escHtml(msg.slice(0, i))}<b style="color:var(--brand);font-size:1.08em">${escHtml(hl)}</b>${escHtml(msg.slice(i + hl.length))}`;
+  })();
   return new Promise((resolve) => {
     const ov = document.createElement('div');
     ov.style.cssText = 'position:fixed;inset:0;z-index:10050;background:var(--overlay, rgba(15,28,46,0.45));display:flex;align-items:center;justify-content:center;padding:1rem';
     ov.innerHTML = `<div role="alertdialog" aria-modal="true" style="background:var(--surface,#fff);color:var(--text);border:1px solid var(--border-strong);border-radius:14px;max-width:340px;width:100%;padding:1.1rem 1.2rem;box-shadow:0 12px 40px rgba(15,28,46,0.3)">
-      <div style="font-size:0.92rem;line-height:1.6;margin-bottom:${note ? '0.35rem' : '1rem'};white-space:pre-line">${escHtml(msg)}</div>
+      <div style="font-size:0.92rem;line-height:1.6;margin-bottom:${note ? '0.35rem' : '1rem'};white-space:pre-line">${msgHtml}</div>
       ${note ? `<div style="font-size:0.8rem;line-height:1.6;color:var(--text);background:rgba(245,158,11,0.14);border-left:3px solid var(--accent);border-radius:6px;padding:0.5rem 0.65rem;margin-bottom:1rem">${Array.isArray(note) ? `${escHtml(note[0])}<b style="color:var(--accent)">${escHtml(note[1])}</b>${escHtml(note[2])}` : escHtml(note)}</div>` : ''}
       <div style="display:flex;gap:0.6rem;justify-content:flex-end">
         <button type="button" data-r="0" style="background:none;border:1px solid var(--border-strong);color:var(--text);border-radius:999px;padding:0.4rem 1rem;cursor:pointer">取消</button>
@@ -7343,7 +7349,8 @@ async function submitViewing(e) {
     const ok = await appConfirm(
       `${_viewingEditId ? '更改' : '新增'} ${_viewingEstateName || ''} ${unitLabel} 睇樓記錄`.replace(/\s+/g, ' '),
       '儲存',
-      ['提提你：你仲有 ', missing.join('、'), ' 未填㗎，之後都可以補填返。']);
+      ['提提你：你仲有 ', missing.join('、'), ' 未填㗎，之後都可以補填返。'],
+      _viewingEstateName || '');
     if (!ok) return;
   }
   const btn = e.target.querySelector('.vf-submit');
