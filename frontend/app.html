@@ -2236,9 +2236,11 @@
         <button class="search-btn" id="searchBtn" onclick="handleSearchBtn()">搜尋</button>
         <div class="autocomplete hidden" id="autocomplete"></div>
       </div>
-      <button onclick="openAdvSearch()"
-        style="background:none;border:none;color:var(--accent2);font-size:0.78rem;padding:0.35rem 0 0;cursor:pointer;text-align:left;font-family:inherit">
-        ⚙ 進階搜尋（跨屋苑搵盤）</button>
+      <!-- 2026-10-11：由「進階搜尋（跨屋苑搵盤，搜自己追蹤嘅屋苑）」改做首頁嗰個搜尋：即時搵四大地產網，
+           有地區／房數／價錢／面積篩選。舊嘅 openAdvSearch() 彈窗 code 仲喺度（想還原只係呢個掣改返）。 -->
+      <a href="/search" target="_blank" rel="noopener"
+        style="display:inline-block;color:var(--accent2);font-size:0.78rem;padding:0.35rem 0 0;text-decoration:none;font-family:inherit">
+        🔍 搵樓（四大地產網一次過搜尋）↗</a>
     </div>
     <div class="estate-list" id="estateList">
       <div class="sidebar-empty">載入中…</div>
