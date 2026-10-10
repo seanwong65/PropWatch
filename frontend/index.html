@@ -271,6 +271,36 @@
   </div>
   <div class="ld-wrap">
 
+    <section class="ld-search" aria-labelledby="ld-search-h">
+      <h2 class="ld-search-h" id="ld-search-h">🔍 一次過搵晒四大地產網</h2>
+      <p class="ld-search-sub">中原、美聯、香港置業、利嘉閣嘅放盤，一個搜尋睇晒。免登入。</p>
+      <form class="ld-search-form" action="/search" method="get" role="search">
+        <div class="ld-seg" role="radiogroup" aria-label="買盤定租盤">
+          <label><input type="radio" name="deal" value="S" checked><span>買盤</span></label>
+          <label><input type="radio" name="deal" value="R"><span>租盤</span></label>
+        </div>
+        <input class="ld-search-in ld-kw" name="kw" type="search" maxlength="30" placeholder="屋苑名，例如：天晉、太古城（可留空）" aria-label="屋苑" autocomplete="off">
+        <select class="ld-search-in" name="area" aria-label="地區">
+          <option value="">全港</option>
+          <optgroup label="港島"><option value="1001">中西區</option><option value="1002">灣仔</option><option value="1003">南區</option><option value="1004">東區</option></optgroup>
+          <optgroup label="九龍"><option value="2005">油尖旺</option><option value="2006">深水埗</option><option value="2007">觀塘</option><option value="2008">黃大仙</option><option value="2009">九龍城</option><option value="2010">將軍澳</option></optgroup>
+          <optgroup label="新界"><option value="3010">西貢</option><option value="3011">荃灣</option><option value="3012">葵青</option><option value="3013">屯門</option><option value="3014">元朗</option><option value="3015">北區</option><option value="3016">大埔</option><option value="3017">沙田</option><option value="3018">離島</option></optgroup>
+        </select>
+        <select class="ld-search-in" name="beds" aria-label="房數">
+          <option value="">房數不限</option><option value="1">1 房</option><option value="2">2 房</option>
+          <option value="3">3 房</option><option value="4">4 房或以上</option>
+        </select>
+        <button type="submit" class="ld-cta">搜尋</button>
+      </form>
+      <div class="ld-search-hot">熱門：
+        <a href="/search?kw=%E5%A4%AA%E5%8F%A4%E5%9F%8E">太古城</a>
+        <a href="/search?kw=%E6%97%A5%E5%87%BA%E5%BA%B7%E5%9F%8E">日出康城</a>
+        <a href="/search?kw=%E5%98%89%E6%B9%96%E5%B1%B1%E8%8E%8A">嘉湖山莊</a>
+        <a href="/search?kw=%E7%BE%8E%E5%AD%9A%E6%96%B0%E9%82%A8">美孚新邨</a>
+        <a href="/search?kw=%E5%A4%A9%E6%99%89">天晉</a>
+      </div>
+    </section>
+
     <div class="ld-hero-row">
       <div class="ld-hero">
         <div class="ld-eyebrow">香港樓市追蹤</div>
@@ -331,36 +361,6 @@
         </div>
       </div>
     </div>
-
-    <section class="ld-search" aria-labelledby="ld-search-h">
-      <h2 class="ld-search-h" id="ld-search-h">🔍 一次過搵晒四大地產網</h2>
-      <p class="ld-search-sub">中原、美聯、香港置業、利嘉閣嘅放盤，一個搜尋睇晒。免登入。</p>
-      <form class="ld-search-form" action="/search" method="get" role="search">
-        <div class="ld-seg" role="radiogroup" aria-label="買盤定租盤">
-          <label><input type="radio" name="deal" value="S" checked><span>買盤</span></label>
-          <label><input type="radio" name="deal" value="R"><span>租盤</span></label>
-        </div>
-        <input class="ld-search-in ld-kw" name="kw" type="search" maxlength="30" placeholder="屋苑名，例如：天晉、太古城（可留空）" aria-label="屋苑" autocomplete="off">
-        <select class="ld-search-in" name="area" aria-label="地區">
-          <option value="">全港</option>
-          <optgroup label="港島"><option value="1001">中西區</option><option value="1002">灣仔</option><option value="1003">南區</option><option value="1004">東區</option></optgroup>
-          <optgroup label="九龍"><option value="2005">油尖旺</option><option value="2006">深水埗</option><option value="2007">觀塘</option><option value="2008">黃大仙</option><option value="2009">九龍城</option><option value="2010">將軍澳</option></optgroup>
-          <optgroup label="新界"><option value="3010">西貢</option><option value="3011">荃灣</option><option value="3012">葵青</option><option value="3013">屯門</option><option value="3014">元朗</option><option value="3015">北區</option><option value="3016">大埔</option><option value="3017">沙田</option><option value="3018">離島</option></optgroup>
-        </select>
-        <select class="ld-search-in" name="beds" aria-label="房數">
-          <option value="">房數不限</option><option value="1">1 房</option><option value="2">2 房</option>
-          <option value="3">3 房</option><option value="4">4 房或以上</option>
-        </select>
-        <button type="submit" class="ld-cta">搜尋</button>
-      </form>
-      <div class="ld-search-hot">熱門：
-        <a href="/search?kw=%E5%A4%AA%E5%8F%A4%E5%9F%8E">太古城</a>
-        <a href="/search?kw=%E6%97%A5%E5%87%BA%E5%BA%B7%E5%9F%8E">日出康城</a>
-        <a href="/search?kw=%E5%98%89%E6%B9%96%E5%B1%B1%E8%8E%8A">嘉湖山莊</a>
-        <a href="/search?kw=%E7%BE%8E%E5%AD%9A%E6%96%B0%E9%82%A8">美孚新邨</a>
-        <a href="/search?kw=%E5%A4%A9%E6%99%89">天晉</a>
-      </div>
-    </section>
 
     <h2 class="ld-h2">功能介紹</h2>
     <div class="ld-h2sub">以下係系統畫面（示範數據）</div>
