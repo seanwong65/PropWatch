@@ -7342,14 +7342,15 @@ async function submitViewing(e) {
   if (!val('vf-toilet')) missing.push('明／暗廁');
   if (!val('vf-price')) missing.push(deal === 'R' ? '月租' : '售價');
   if (deal !== 'R' && !val('vf-mgmt')) missing.push('管理費');
-  if (missing.length) {
+  {
+    // 儲存前一律要用戶確認（填齊都彈）；有欄位未填就喺確認框入面列出嚟。
     // 用戶可能淨填數字／字母（99、B），補返 座／樓／室，睇落先似個單位
     const suf = (v, re, unit) => (v && re.test(v)) ? v + unit : v;
     const unitLabel = [suf(val('vf-block'), /^[0-9A-Za-z]+$/, '座'), suf(val('vf-floor'), /^\d+$/, '樓'), suf(val('vf-unit'), /^[0-9A-Za-z]+$/, '室')].filter(Boolean).join(' ');
     const ok = await appConfirm(
       `${_viewingEditId ? '更改' : '新增'} ${_viewingEstateName || ''} ${unitLabel} 睇樓記錄`.replace(/\s+/g, ' '),
       '儲存',
-      ['提提你：你仲有 ', missing.join('、'), ' 未填㗎，之後都可以補填返。'],
+      missing.length ? ['提提你：你仲有 ', missing.join('、'), ' 未填㗎，之後都可以補填返。'] : '',
       _viewingEstateName || '');
     if (!ok) return;
   }
