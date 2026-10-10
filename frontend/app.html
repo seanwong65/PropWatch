@@ -3557,6 +3557,18 @@ function toggleCompsViewing(vid) {
   const card = row && row.closest('.dj-card');
   if (!row || !detail || !card) return;
   const open = !row.classList.contains('open');
+  // 同一日（同一張卡）入面一次只開一個：撳另一行 = 切換落面嗰張詳細卡，唔係疊埋一齊開
+  if (open) {
+    card.querySelectorAll('.dj-row.open[data-vid]').forEach(r => {
+      const ov = r.dataset.vid;
+      if (String(ov) === String(vid)) return;
+      r.classList.remove('open');
+      r.setAttribute('aria-expanded', 'false');
+      card.querySelector(`.dj-detail[data-vid="${ov}"]`)?.classList.remove('show');
+      _compsOpenRows.delete(Number(ov));
+      _compsOpenRows.delete(ov);
+    });
+  }
   row.classList.toggle('open', open);
   row.setAttribute('aria-expanded', open ? 'true' : 'false');
   detail.classList.toggle('show', open);
