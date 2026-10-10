@@ -254,14 +254,17 @@
     .ld-search-form .ld-cta { padding: 0.85rem 1.7rem; font-size: 1.05rem; white-space: nowrap; }
     .ld-search-hot { margin-top: 1rem; display: flex; flex-wrap: wrap; gap: 0.35rem 0.5rem; font-size: 0.82rem; color: var(--muted); align-items: center; }
     .ld-search-hot a { color: var(--brand); text-decoration: none; border: 1px solid var(--border); background: var(--surface); border-radius: 999px; padding: 0.15rem 0.65rem; }
-    @media (max-width: 640px) {
-      .ld-search { padding: 1.4rem 1.1rem 1.2rem; }
-      /* 手機：地區 | 房數 | 搜尋 同一行，掣唔好跌落下一行 */
+    /* ≤900px 一行放唔晒 5 樣嘢（屋苑輸入框會被壓到得幾十 px），改做：買租／屋苑各佔一行，
+       地區 | 房數 | 搜尋 同一行 */
+    @media (max-width: 900px) {
       .ld-search-form { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto; gap: 0.6rem; }
       .ld-search-form .ld-seg, .ld-search-form .ld-kw { grid-column: 1 / -1; }
       .ld-search-form .ld-seg { justify-self: start; }
       .ld-search-in { padding: 0.8rem 0.6rem; }
       .ld-search-form .ld-cta { padding: 0.8rem 1.1rem; }
+    }
+    @media (max-width: 640px) {
+      .ld-search { padding: 1.4rem 1.1rem 1.2rem; }
     }
     .ld-foot { text-align: center; font-size: 0.75rem; color: var(--muted); line-height: 1.8; padding-top: 2.5rem; }
   </style>
