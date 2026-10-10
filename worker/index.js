@@ -886,6 +886,22 @@ const isAdminSession = (session) => (session?.role || "user") === "admin";
 // 歷史(放盤日數/改價/下架/趨勢)同主動推送(email/alert)先收費。
 // admin 永遠當 paid(方便自己用同測試)。
 const isPaidSession = (session) => isAdminSession(session) || (session?.tier || "free") === "paid";
+// 呢個帳戶有冇資格讀某個屋苑嘅數據（CLAUDE.md 規則 4：per-account scope）。
+// 屋苑 id 係連續數字，唔驗嘅話任何帳戶（包括免費）逐個 id 打就抽得晒全部屋苑。
+// 准讀：admin、已追蹤（account_estates，包括暫停）、自己有睇樓記錄、自己有朋友屋企
+// （取消追蹤之後睇樓記錄／朋友屋企照要睇到該屋苑嘅盤同成交）。
+async function canReadEstate(db, session, estateId) {
+  if (isAdminSession(session)) return true;
+  const eid = Number(estateId);
+  if (!Number.isInteger(eid) || eid <= 0) return false;
+  const hit = await db.prepare(
+    `SELECT 1 FROM account_estates WHERE account_id = ?1 AND estate_id = ?2
+     UNION ALL SELECT 1 FROM viewings WHERE account_id = ?1 AND estate_id = ?2
+     UNION ALL SELECT 1 FROM friend_homes WHERE account_id = ?1 AND estate_id = ?2
+     LIMIT 1`
+  ).bind(session.account_id, eid).first();
+  return !!hit;
+}
 // 402 Payment Required——前端見到就彈升級 modal(同 401 登出流程分得開)。
 const paywall = (feature) =>
   json(402, { error: "呢個係收費版功能", upgrade: true, feature: feature || null });
@@ -6637,6 +6653,14 @@ export default {
         return json(200, { ok: !result?.error, result });
       }
 
+      // 屋苑 id 入面讀／寫屋苑數據嘅 route 一律要有資格（見 canReadEstate）。
+      // 回 404 唔係 403：唔畀人用嚟探邊個 id 存在。PATCH/DELETE/favourite/pause/resume
+      // 本身已經 scope 咗 account_id，唔使行呢度。
+      {
+        const em = path.match(/^\/api\/estates\/(\d+)\/(listings|rental-listings|rental-trends|rental-transactions|market-temp|line-history|group-overrides|trends|transactions|estate-info|photos)$/);
+        if (em && !(await canReadEstate(db, session, em[1]))) return json(404, { error: "搵唔到屋苑" });
+      }
+
       // Per-account 屋苑清單:訂閱關係/最愛/排序/加入日全部嚟自 account_estates。
       if (method === "GET" && path === "/api/estates") {
         const { results } = await db
@@ -7764,6 +7788,7 @@ export default {
         const flatLetter = url.searchParams.get("flat");
         if (!estateId || !blockNum || !floorNum || !flatLetter)
           return json(400, { error: "Missing params" });
+        if (!(await canReadEstate(db, session, estateId))) return json(404, { error: "搵唔到屋苑" });
         const { results } = await db.prepare(
           "SELECT price, saleable_area, valuation_date, fetched_at FROM hangseng_valuation_history WHERE estate_id=? AND building=? AND floor=? AND flat=? ORDER BY fetched_at DESC LIMIT 20"
         ).bind(estateId, blockNum, floorNum, flatLetter).all();
@@ -8168,6 +8193,8 @@ export default {
       if (method === "POST" && path === "/api/sync") {
         const estateId = url.searchParams.get("estateId");
         if (estateId) {
+          // 淨係准 sync 自己有資格讀嘅屋苑（否則任何帳戶可以叫 worker 去 scrape 任何屋苑）
+          if (!(await canReadEstate(db, session, estateId))) return json(404, { error: "Not found" });
           // Single estate stays synchronous — it's one estate, well under the limit.
           const estate = await db.prepare("SELECT * FROM estates WHERE id = ?").bind(estateId).first();
           if (!estate) return json(404, { error: "Not found" });
@@ -8180,12 +8207,16 @@ export default {
         // All estates in one request (best-effort, immediate feedback). The
         // automated daily sync is split across cron slots to stay under the
         // per-invocation subrequest limit; see the scheduled handler.
+        // 一般帳戶：只 sync 自己追蹤緊嘅屋苑；全站 sync 淨係 admin（否則免費帳戶一撳就打晒全部
+        // 帳戶嘅屋苑去四大地產網）。
+        const mineOnly = !isAdminSession(session);
         const { results: estates } = await db.prepare(
           `SELECT * FROM estates e
            WHERE (e.is_disabled = 0 OR e.is_disabled IS NULL)
              AND EXISTS (SELECT 1 FROM account_estates ae
-                         WHERE ae.estate_id = e.id AND ae.paused_at IS NULL)
-           ORDER BY e.id`).all();
+                         WHERE ae.estate_id = e.id AND ae.paused_at IS NULL
+                           AND (?1 = 0 OR ae.account_id = ?2))
+           ORDER BY e.id`).bind(mineOnly ? 1 : 0, session.account_id).all();
         const results = await Promise.all(estates.map(async (estate) => {
           try { return await syncOneEstate(db, estate); }
           catch (err) { return { estate: estate.name, error: userSafeError(err, "sync " + estate.name), ok: false }; }
@@ -8194,6 +8225,8 @@ export default {
       }
 
       if (method === "POST" && path === "/api/test-email") {
+        // admin only：收件人寫死咗係 owner，一般帳戶唔應該識觸發。
+        if (!isAdminSession(session)) return json(403, { error: "admin only" });
         const result = await sendEmail(
           env,
           "johnwong777@hotmail.com",
@@ -8741,6 +8774,7 @@ export default {
         if (!isPaidSession(session)) return paywall("相對市價");
         const eid = Number(url.searchParams.get("estate_id"));
         if (!eid) return json(400, { error: "estate_id required" });
+        if (!(await canReadEstate(db, session, eid))) return json(404, { error: "搵唔到屋苑" });
         const basis = url.searchParams.get("basis");
         const tier = url.searchParams.get("tier");
         const ownBuilding = url.searchParams.get("own_building");
