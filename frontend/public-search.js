@@ -110,7 +110,7 @@ async function fetchPage(id, src) {
   st.busy = false;
   if (!res || !res.ok) {
     // 地產網限流（利嘉閣 JSON API 每個 IP 大約 8–10 秒先准一次）：worker 回 retry 秒數，
-    // 每頁自動再試一次；再唔得先當失敗，畀條連結去原網站自己搵
+    // 每頁自動再試一次；再唔得先當失敗（個網站靜靜收埋，見 renderSrcbar）
     const wait = Number(body.retry);
     if (wait > 0 && st.retriedPage !== page) {
       st.retriedPage = page;
@@ -127,19 +127,15 @@ async function fetchPage(id, src) {
   }
   st.page = page;
   st.pageSize = body.pageSize || st.pageSize;
-  if (body.unsupported) {
-    st.status = "unsupported";
-  } else {
-    st.total = Number.isFinite(body.total) ? body.total : st.total;
-    const seen = new Set(state.items.map((x) => x.key));
-    (body.items || []).forEach((it, i) => {
-      const key = `${src}|${it.url || i + ":" + page}`;
-      if (seen.has(key)) return;
-      seen.add(key);
-      state.items.push({ ...it, src, key, rank: (page - 1) * st.pageSize + i });
-    });
-    st.status = "ok";
-  }
+  st.total = Number.isFinite(body.total) ? body.total : st.total;
+  const seen = new Set(state.items.map((x) => x.key));
+  (body.items || []).forEach((it, i) => {
+    const key = `${src}|${it.url || i + ":" + page}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    state.items.push({ ...it, src, key, rank: (page - 1) * st.pageSize + i });
+  });
+  st.status = "ok";
   renderAll();
 }
 
@@ -147,11 +143,6 @@ function loadMore() {
   for (const [src, st] of Object.entries(state.srcs)) if (hasMore(st)) fetchPage(runId, src);
 }
 const hasMore = (st) => st.status === "ok" && !st.busy && st.page < MAX_PAGE && st.total != null && st.page * st.pageSize < st.total;
-
-function ricacorpListUrl(c) {
-  const base = `https://www.ricacorp.com/zh-hk/property/list/${c.deal === "R" ? "rent" : "buy"}`;
-  return c.kw ? `${base}/${encodeURIComponent(c.kw)}` : base;
-}
 
 // ── 排序 ───────────────────────────────────────────────────
 function ordered() {
@@ -189,20 +180,15 @@ function renderTitle() {
   document.title = (bits.length ? `${bits.join(" ")} ${deal}` : `全港最新${deal}`) + "｜四大地產網一次過搜尋 — 搵樓日記";
 }
 
+// 某個網站搵唔到（限流／出錯／暫停）就靜靜收埋佢：用戶見到「暫時搵唔到」會以為係我哋有 bug，
+// 其他網站照出就夠。全部網站都搵唔到先喺結果區講一句（見 renderGrid）。
+const FAILED = new Set(["err", "busy", "off"]);
 function renderSrcbar() {
-  const html = Object.entries(state.srcs).map(([src, st]) => {
-    let txt;
-    if (st.status === "loading") txt = "搵緊…";
-    else if (st.status === "retrying") txt = "網站繁忙，幾秒後自動再試…";
-    else if (st.status === "ok") txt = st.total != null ? `${st.total.toLocaleString("en-US")} 個盤` : "有結果";
-    else if (st.status === "unsupported") txt = "租盤暫未支援";
-    else if (st.status === "busy") txt = "搜尋太頻密，一分鐘後再試";
-    else if (st.status === "off") txt = "暫停中";
-    else txt = "暫時搵唔到";
-    // 搵唔到：利嘉閣有固定格式嘅搜尋頁，畀條連結自己去搵
-    const out = st.status === "err" && src === "ricacorp"
-      ? ` <a href="${safeUrl(ricacorpListUrl(state.cond))}" target="_blank" rel="noopener noreferrer nofollow">去利嘉閣網站搵 ↗</a>` : "";
-    return `<span class="ps-stat"><span class="ps-badge b-${src}">${escHtml(SRC[src].name)}</span><small>${escHtml(txt)}${out}</small></span>`;
+  const html = Object.entries(state.srcs).filter(([, st]) => !FAILED.has(st.status)).map(([src, st]) => {
+    const txt = st.status === "ok"
+      ? (st.total != null ? `${st.total.toLocaleString("en-US")} 個盤` : "有結果")
+      : "搵緊…";                                   // loading／retrying（限流自動再試緊）
+    return `<span class="ps-stat"><span class="ps-badge b-${src}">${escHtml(SRC[src].name)}</span><small>${escHtml(txt)}</small></span>`;
   }).join("");
   $("ps-srcbar").innerHTML = html;
 }
@@ -214,8 +200,12 @@ function renderGrid() {
   const msg = $("ps-msg");
   const loading = Object.values(state.srcs).some((s) => s.status === "loading" || s.status === "retrying");
   if (!list.length) {
+    const sts = Object.values(state.srcs);
+    const allFailed = sts.every((s) => FAILED.has(s.status));
     msg.hidden = false;
-    msg.textContent = loading ? "搵緊四大地產網…" : "冇搵到符合條件嘅放盤，試吓放寬價錢或者面積？";
+    msg.textContent = loading ? "搵緊四大地產網…"
+      : allFailed ? (sts.some((s) => s.status === "busy") ? "搜尋太頻密，請一分鐘後再試" : "暫時搵唔到，請稍後再試")
+      : "冇搵到符合條件嘅放盤，試吓放寬價錢或者面積？";
   } else msg.hidden = true;
 }
 
