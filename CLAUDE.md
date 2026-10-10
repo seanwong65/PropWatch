@@ -60,7 +60,7 @@ XSS/HTML injection、API 被人狂抽數據去做類似嘅系統。**每個新 f
    **屋苑 id 入面讀數據嘅 route**（`/api/estates/:id/*`、`estate_id=` 參數）一律要過
    `canReadEstate()`（准：admin／已追蹤／自己有睇樓記錄／自己有朋友屋企），否則回 404。
    屋苑 id 係連續數字，唔驗等於任何免費帳戶逐個 id 抽到全站數據（2026-10-11 修過）。
-   新加 route 如果係「屋苑 id → 數據」，要加入 `server` 嗰個 regex 或者自己呼叫 `canReadEstate`。
+   新加 route 如果係「屋苑 id → 數據」，要加入 worker 入面 `/api/estates` 之前嗰個 regex，或者自己呼叫 `canReadEstate`。
    會觸發外部 scrape／寄信嘅 route（`/api/sync`、`/api/test-email`）要 admin 或者限自己屋苑。
 5. 錯誤訊息唔好漏內部細節（login 失敗永遠回同一句 `用戶名或密碼錯誤`）。
 6. **收費／付款**：`tier`（free/paid）係「有冇得用收費功能」嘅唯一真相，
