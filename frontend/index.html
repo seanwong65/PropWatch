@@ -239,26 +239,29 @@
        價錢／面積喺結果頁先揀——首頁保持似 Google 咁簡單。 */
     .ld-search {
       background: var(--glass-bg); border: 1px solid var(--glass-border); border-radius: var(--radius-lg);
-      box-shadow: var(--glass-inner), var(--shadow); padding: 1.3rem 1.4rem 1.2rem; margin: 0.5rem 0 1rem;
+      box-shadow: var(--glass-inner), var(--shadow); padding: 1.9rem 2rem 1.7rem; margin: 0.5rem 0 1.2rem;
     }
-    .ld-search-h { font-size: 1.15rem; font-weight: 800; margin: 0 0 0.25rem; }
-    .ld-search-sub { margin: 0 0 0.9rem; color: var(--muted); font-size: 0.88rem; }
-    .ld-search-form { display: grid; grid-template-columns: auto minmax(0, 1fr) minmax(0, 7.5rem) minmax(0, 7.5rem) auto; gap: 0.6rem; align-items: center; }
+    .ld-search-h { font-size: 1.4rem; font-weight: 800; margin: 0 0 0.35rem; }
+    .ld-search-sub { margin: 0 0 1.2rem; color: var(--muted); font-size: 0.95rem; }
+    .ld-search-form { display: grid; grid-template-columns: auto minmax(0, 1fr) minmax(0, 8.5rem) minmax(0, 8.5rem) auto; gap: 0.75rem; align-items: center; }
     .ld-seg { display: inline-flex; background: var(--surface2); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 3px; }
     .ld-seg label { position: relative; }
     .ld-seg input { position: absolute; opacity: 0; inset: 0; margin: 0; cursor: pointer; }
-    .ld-seg span { display: block; padding: 0.42rem 0.9rem; border-radius: 8px; font-size: 0.9rem; color: var(--muted); }
+    .ld-seg span { display: block; padding: 0.6rem 1.05rem; border-radius: 8px; font-size: 1rem; color: var(--muted); }
     .ld-seg input:checked + span { background: var(--surface); color: var(--brand); font-weight: 700; box-shadow: var(--shadow-sm); }
     .ld-seg input:focus-visible + span { outline: 2px solid var(--brand); outline-offset: 1px; }
-    .ld-search-in { width: 100%; min-width: 0; border: 1px solid var(--border-strong); background: var(--surface); border-radius: var(--radius-sm); padding: 0.62rem 0.8rem; font-size: 0.95rem; font-family: inherit; color: var(--text); }
-    .ld-search-form .ld-cta { padding: 0.62rem 1.5rem; font-size: 0.95rem; }
-    .ld-search-hot { margin-top: 0.8rem; display: flex; flex-wrap: wrap; gap: 0.35rem 0.5rem; font-size: 0.82rem; color: var(--muted); align-items: center; }
+    .ld-search-in { width: 100%; min-width: 0; border: 1px solid var(--border-strong); background: var(--surface); border-radius: var(--radius-sm); padding: 0.85rem 0.9rem; font-size: 1.02rem; font-family: inherit; color: var(--text); }
+    .ld-search-form .ld-cta { padding: 0.85rem 1.7rem; font-size: 1.05rem; white-space: nowrap; }
+    .ld-search-hot { margin-top: 1rem; display: flex; flex-wrap: wrap; gap: 0.35rem 0.5rem; font-size: 0.82rem; color: var(--muted); align-items: center; }
     .ld-search-hot a { color: var(--brand); text-decoration: none; border: 1px solid var(--border); background: var(--surface); border-radius: 999px; padding: 0.15rem 0.65rem; }
     @media (max-width: 640px) {
-      .ld-search-form { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+      .ld-search { padding: 1.4rem 1.1rem 1.2rem; }
+      /* 手機：地區 | 房數 | 搜尋 同一行，掣唔好跌落下一行 */
+      .ld-search-form { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto; gap: 0.6rem; }
       .ld-search-form .ld-seg, .ld-search-form .ld-kw { grid-column: 1 / -1; }
       .ld-search-form .ld-seg { justify-self: start; }
-      .ld-search-form .ld-cta { grid-column: 1 / -1; }
+      .ld-search-in { padding: 0.8rem 0.6rem; }
+      .ld-search-form .ld-cta { padding: 0.8rem 1.1rem; }
     }
     .ld-foot { text-align: center; font-size: 0.75rem; color: var(--muted); line-height: 1.8; padding-top: 2.5rem; }
   </style>
@@ -279,7 +282,7 @@
           <label><input type="radio" name="deal" value="S" checked><span>買盤</span></label>
           <label><input type="radio" name="deal" value="R"><span>租盤</span></label>
         </div>
-        <input class="ld-search-in ld-kw" name="kw" type="search" maxlength="30" placeholder="屋苑名，例如：天晉、太古城（可留空）" aria-label="屋苑" autocomplete="off">
+        <input class="ld-search-in ld-kw" name="kw" type="search" maxlength="30" placeholder="屋苑名，例如：天晉（可留空）" aria-label="屋苑" autocomplete="off">
         <select class="ld-search-in" name="area" aria-label="地區">
           <option value="">全港</option>
           <optgroup label="港島"><option value="1001">中西區</option><option value="1002">灣仔</option><option value="1003">南區</option><option value="1004">東區</option></optgroup>
