@@ -411,7 +411,10 @@ if (opts.track) $("ps-grid").addEventListener("click", (e) => {
 });
 
 // FormData 同 URLSearchParams 都有 get/getAll，readCond 兩樣都食
-const initCond = readCond(embedded ? new URLSearchParams() : new URLSearchParams(location.search));
+// 嵌入（app）：用戶有設定睇樓偏好就預填（opts.initial＝{deal,beds,pmin,pmax,smin,smax}，單位同表單一樣：買盤萬／租盤元）
+const initCond = readCond(embedded
+  ? new URLSearchParams(Object.entries(opts.initial || {}).filter(([, v]) => v != null && v !== "").map(([k, v]) => [k, String(v)]))
+  : new URLSearchParams(location.search));
 // 首頁 form 會帶埋空白欄位（?deal=S&kw=&beds=），執靚條 URL 方便分享
 const initQs = condToQuery(initCond);
 if (!embedded && location.search.slice(1) !== initQs) history.replaceState(null, "", initQs ? `/search?${initQs}` : "/search");
