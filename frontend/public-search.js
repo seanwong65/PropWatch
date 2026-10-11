@@ -75,18 +75,6 @@ const PANEL_HTML = `
       <button type="button" class="ps-chip" data-v="psf" aria-pressed="false">呎價低至高</button>
     </div>
   </div>
-
-
-  <div class="ps-srcbar" id="ps-srcbar" aria-live="polite"></div>
-  <div class="ps-head">
-    <h2 id="ps-title">最新放盤</h2>
-    <div class="ps-sort" role="group" aria-label="排序" id="ps-sort">
-      <button type="button" class="ps-chip" data-v="mix" aria-pressed="true">四網輪流</button>
-      <button type="button" class="ps-chip" data-v="new" aria-pressed="false">最新</button>
-      <button type="button" class="ps-chip" data-v="price" aria-pressed="false">價錢低至高</button>
-      <button type="button" class="ps-chip" data-v="psf" aria-pressed="false">呎價低至高</button>
-    </div>
-  </div>
 `;
 const HOOK_HTML = `
   <div class="ps-hook">
