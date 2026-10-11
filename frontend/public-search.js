@@ -311,7 +311,7 @@ function renderGrid() {
     const allFailed = sts.every((s) => FAILED.has(s.status));
     msg.hidden = false;
     msg.textContent = loading ? "搵緊四大地產網…"
-      : allFailed ? (sts.some((s) => s.status === "busy") ? "搜尋太頻密，請一分鐘後再試" : "暫時搵唔到，請稍後再試")
+      : allFailed ? (sts.some((s) => s.status === "busy") ? "搜尋太頻密，請一分鐘後再試" : "連唔到搜尋服務（唔係冇盤），請檢查網絡或者稍後再試")
       : "冇搵到符合條件嘅放盤，試吓放寬價錢或者面積？";
   } else msg.hidden = true;
 }
