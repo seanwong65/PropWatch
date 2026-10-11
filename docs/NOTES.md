@@ -120,6 +120,26 @@ HKP 行 `search/v1`、美聯行 `search/v2`）。實測分別：
   - 前端 `<select>`（search.html／index.html）＋ `public-search.js` 嘅 `AREAS` 要同 worker 對得上。
 - 未做：跨網同一單位合併、「有歷史記錄」標記。
 
+## 對應放盤相片存檔（收費版，2026-10-11）
+
+睇樓記錄撳 ✓ 確認對應放盤 → 背景將個盤嘅相存落 **R2**（`env.PHOTOS`），代理落咗架都睇得返。
+- **相唔入 D1**：D1 免費 500MB（當時用咗 88MB），一個盤 15 張已經 1–3MB，幾百個盤就爆。
+  D1 淨係記索引 `listing_photo_archive`（account_id, viewing_id, ref_no, seq, full_key, thumb_key, bytes）。
+- **尺寸靠地產網 CDN**（Worker 冇得自己壓圖，CPU 10ms）：`archiveVariants()`——中原 hkais
+  `w=800&quality=75`（大圖）／`w=400&quality=70`（縮圖），**實測因相而異：60–145KB／30–40KB**；
+  美聯 wm→wm-cdn、置業 wm.hkp 用 `h=600`／`h=300`。利嘉閣冇詳情相片 API，暫時唔存（回 unsupported）。
+- R2 key：`a/<account>/<viewing>/<ref>/<seq>-f|-t`。
+- Endpoints（全部 auth、scope account）：`POST /api/viewings/:id/archive-photos {ref_no}`（收費版、
+  ref 要已 ✓、idempotent、上限 `sec_photo_archive_max_listings` 個盤＝200、每盤 `sec_photo_archive_per_listing`＝15 張）；
+  `GET /api/viewings/:id/archived-photos?size=thumb|full&ref=`（data URL，降級咗都睇得返自己存過嘅）；
+  `DELETE …/archive-photos?ref=`（取消 ✓ 時）；刪睇樓記錄會連 R2 一齊清。
+- 前端：`buildMatchCell` 喺 ✓ 咗嘅盤下面留 `.vw-arch` 位，`fillArchiveStrips()` 填「📷 已保存 N 張」＋縮圖列，
+  撳縮圖用 `viewImgFull('arch:vid:ref')` 睇大圖；免費用戶見 🔒 提示。
+- **冇 PHOTOS binding（R2 未開）→ 成個功能自動停**（GET 回 unavailable、POST 503，前端靜靜唔顯示）。
+- **開通步驟**：① Cloudflare dashboard 開 R2（要加付款方式，免費額度內唔收費）；
+  ② `npx wrangler r2 bucket create propwatch-photos`（test：`propwatch-photos-test`）；
+  ③ `wrangler.toml`／`wrangler.test.toml` 加 `[[r2_buckets]] binding = "PHOTOS"` + `bucket_name`；④ deploy。
+
 ## 按揭計算機
 
 前端 pure function（`stampDuty` / `maxLoanFor` / `mipPremium` /

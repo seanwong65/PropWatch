@@ -619,6 +619,10 @@ const SEC_DEFS = [
     desc: "卡片 view 每張卡可以左右揭嘅相數上限。相係即時經 /api/photo 代取（唔入 DB），"
         + "每張都食一個 subrequest —— 擺喺 sec_* 而唔係 ⚙️ 設定，就係唔想用戶自己較大變成放大器。"
         + "前端只會載住緊嗰張同下一張，加大主要影響最多可以揭到幾多張。" },
+  { key: "sec_photo_archive_per_listing", def: 15, min: 1, max: 30, label: "相片存檔：每個對應放盤存幾多張",
+    desc: "收費版撳 ✓ 確認對應放盤時，背景存低嘅相數（大圖 800 闊＋縮圖），存喺 R2。每張食 2 個 subrequest。" },
+  { key: "sec_photo_archive_max_listings", def: 200, min: 1, max: 5000, label: "相片存檔：每個帳戶最多存幾多個盤",
+    desc: "每個盤約 1MB（15 張）。R2 免費 10GB，呢個上限防止單一帳戶食晒。" },
   { key: "sec_free_max_viewing_imgs", def: 10, min: 1, max: 100, label: "免費版：每個睇樓記錄最多幾多張相",
     desc: "免費用戶每個睇樓記錄可以存幾多張相（收費版唔受呢個限，淨係受下面嗰個絕對上限）。" },
   { key: "sec_viewing_imgs_max", def: 40, min: 1, max: 200, label: "睇樓記錄：每個絕對上限（連收費版都封頂）",
@@ -886,6 +890,96 @@ const isAdminSession = (session) => (session?.role || "user") === "admin";
 // 歷史(放盤日數/改價/下架/趨勢)同主動推送(email/alert)先收費。
 // admin 永遠當 paid(方便自己用同測試)。
 const isPaidSession = (session) => isAdminSession(session) || (session?.tier || "free") === "paid";
+// ── 對應放盤相片存檔（2026-10-11，收費版）─────────────────────────────
+// 用戶撳 ✓ 確認「呢個盤就係我睇嗰個單位」，就將個盤嘅相存落 R2（env.PHOTOS），
+// 代理落咗架都睇得返。D1 淨係記索引（listing_photo_archive），相本身唔入 D1
+// （D1 免費 500MB，一個盤 15 張已經 1MB，幾百個盤就爆）。
+// 尺寸：用地產網 CDN 本身嘅縮放參數（Worker 冇得自己壓圖）——中原 800 闊 q75 ≈ 60KB、
+// 400 闊縮圖 ≈ 30KB；美聯／置業用 img_wm_revamp.php 嘅 h=。
+// 冇 PHOTOS binding（R2 未開）→ 成個功能自動停，回 unavailable，唔會爆。
+async function ensurePhotoArchive(db) {
+  await db.prepare(`CREATE TABLE IF NOT EXISTS listing_photo_archive (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    account_id INTEGER NOT NULL,
+    viewing_id INTEGER NOT NULL,
+    ref_no TEXT NOT NULL,
+    source TEXT,
+    seq INTEGER NOT NULL,
+    full_key TEXT NOT NULL,
+    thumb_key TEXT NOT NULL,
+    bytes INTEGER,
+    created_at TEXT DEFAULT (datetime('now'))
+  )`).run();
+  await db.prepare("CREATE INDEX IF NOT EXISTS idx_lpa_acct_view ON listing_photo_archive(account_id, viewing_id, ref_no, seq)").run();
+}
+const ARCHIVE_HOSTS = new Set(["hkais.centanet.com", "wm.hkp.com.hk", "wmc.hkp.com.hk", "wm-cdn.midland.com.hk", "wmc.midland.com.hk"]);
+// 原圖 URL → { full, thumb }（只准白名單 host，唔係就 null）
+export function archiveVariants(u) {
+  let x; try { x = new URL(String(u)); } catch { return null; }
+  if (x.protocol !== "https:") return null;
+  if (x.hostname === "wm.midland.com.hk") x.hostname = "wm-cdn.midland.com.hk";   // h= 淨係 wm-cdn 有效
+  if (!ARCHIVE_HOSTS.has(x.hostname)) return null;
+  const mk = (params) => { const y = new URL(x.toString()); for (const [k, v] of Object.entries(params)) y.searchParams.set(k, v); return y.toString(); };
+  if (x.hostname === "hkais.centanet.com") return { full: mk({ w: "800", quality: "75" }), thumb: mk({ w: "400", quality: "70" }) };
+  return { full: mk({ h: "600" }), thumb: mk({ h: "300" }) };
+}
+// 由地產網詳情攞個盤嘅相片 URL（原始，未縮放）。/api/listing-photos 同存檔共用。
+async function listingPhotoUrls(row, ref, max) {
+  const out = [];
+  if (row.source === "centanet") {
+    const r = await fetch(`https://hk.centanet.com/findproperty/api/Post/Detail?refNo=${encodeURIComponent(ref)}`, {
+      headers: Object.fromEntries(Object.entries(FETCH_HEADERS).filter(([k]) => k !== "Content-Type")), signal: AbortSignal.timeout(12000),
+    });
+    if (r.ok) {
+      const d = await r.json();
+      for (const p of d?.media?.postImages || []) {
+        const u = p?.path;
+        if (typeof u === "string" && u.startsWith("https://hkais.centanet.com/") && out.length < max) out.push(u);
+      }
+    }
+  } else if (row.source === "midland" || row.source === "hkp") {
+    let page;
+    try { page = new URL(row.detail_url || ""); } catch (_) { page = null; }
+    const okHost = page && page.protocol === "https:" && (row.source === "hkp" ? page.hostname === "www.hkp.com.hk" : page.hostname === "www.midland.com.hk");
+    if (okHost) {
+      const r = await fetch(page.toString(), {
+        headers: { "User-Agent": row.source === "hkp" ? HKP_UA : MIDLAND_UA, "Accept-Language": "zh-HK,zh;q=0.9" },
+        signal: AbortSignal.timeout(15000),
+      });
+      const html = r.ok ? await r.text() : "";
+      const m = html.match(/<script id="__NEXT_DATA__"[^>]*>([\s\S]*?)<\/script>/);
+      const list = m ? (JSON.parse(m[1])?.props?.pageProps?.propertyDetail?.photos || []) : [];
+      for (const p of list) {
+        const u = p?.wan_doc_path;
+        if (typeof u === "string" && out.length < max) out.push(u);
+      }
+    }
+  }
+  return out;
+}
+// ArrayBuffer → base64（分段，唔好一次過 spread 爆 call stack）
+function bufToB64(buf) {
+  const bytes = new Uint8Array(buf);
+  let s = "";
+  for (let i = 0; i < bytes.length; i += 0x8000) s += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
+  return btoa(s);
+}
+async function deleteArchive(db, env, accountId, viewingId, refNo = null) {
+  await ensurePhotoArchive(db);
+  const { results } = await db.prepare(
+    `SELECT full_key, thumb_key FROM listing_photo_archive WHERE account_id = ? AND viewing_id = ?${refNo ? " AND ref_no = ?" : ""}`
+  ).bind(...(refNo ? [accountId, viewingId, refNo] : [accountId, viewingId])).all();
+  if (!results.length) return 0;
+  if (env.PHOTOS) {
+    const keys = results.flatMap((r) => [r.full_key, r.thumb_key]);
+    for (let i = 0; i < keys.length; i += 900) await env.PHOTOS.delete(keys.slice(i, i + 900));
+  }
+  await db.prepare(
+    `DELETE FROM listing_photo_archive WHERE account_id = ? AND viewing_id = ?${refNo ? " AND ref_no = ?" : ""}`
+  ).bind(...(refNo ? [accountId, viewingId, refNo] : [accountId, viewingId])).run();
+  return results.length;
+}
+
 // 呢個帳戶有冇資格讀某個屋苑嘅數據（CLAUDE.md 規則 4：per-account scope）。
 // 屋苑 id 係連續數字，唔驗嘅話任何帳戶（包括免費）逐個 id 打就抽得晒全部屋苑。
 // 准讀：admin、已追蹤（account_estates，包括暫停）、自己有睇樓記錄、自己有朋友屋企
@@ -6749,39 +6843,10 @@ export default {
         const maxPhotos = (await getSecCfg(db)).sec_card_photos_max;
         const photos = [];
         try {
-          if (row.source === "centanet") {
-            const r = await fetch(`https://hk.centanet.com/findproperty/api/Post/Detail?refNo=${encodeURIComponent(ref)}`, {
-              headers: Object.fromEntries(Object.entries(FETCH_HEADERS).filter(([k]) => k !== "Content-Type")), signal: AbortSignal.timeout(12000),
-            });
-            if (r.ok) {
-              const d = await r.json();
-              for (const p of d?.media?.postImages || []) {
-                const u = p?.path;
-                // CSP img-src 只准 hkais.centanet.com，其他 host 即使有都放棄
-                if (typeof u === "string" && u.startsWith("https://hkais.centanet.com/") && photos.length < maxPhotos) photos.push({ src: u });
-              }
-            }
-          } else if (row.source === "midland" || row.source === "hkp") {
-            let page;
-            try { page = new URL(row.detail_url || ""); } catch (_) { page = null; }
-            const okHost = page && page.protocol === "https:" && (row.source === "hkp" ? page.hostname === "www.hkp.com.hk" : page.hostname === "www.midland.com.hk");
-            if (okHost) {
-              const r = await fetch(page.toString(), {
-                headers: { "User-Agent": row.source === "hkp" ? HKP_UA : MIDLAND_UA, "Accept-Language": "zh-HK,zh;q=0.9" },
-                signal: AbortSignal.timeout(15000),
-              });
-              const html = r.ok ? await r.text() : "";
-              const m = html.match(/<script id="__NEXT_DATA__"[^>]*>([\s\S]*?)<\/script>/);
-              const list = m ? (JSON.parse(m[1])?.props?.pageProps?.propertyDetail?.photos || []) : [];
-              // 跟返 portal 相簿原本次序（單位相先，屋苑公共相喺尾）。唔自作主張剔嘢：
-              // 列表 API 嗰 4 張有時包咗屋苑相，剔咗會令已有嗰張同全部相對唔上。
-              for (const p of list) {
-                let u = p?.wan_doc_path;
-                if (typeof u !== "string" || photos.length >= maxPhotos) continue;
-                u = u.replace("://wm-cdn.midland.com.hk/", "://wm.midland.com.hk/");   // 同 /photos 一致，前端先 dedupe 到
-                photos.push({ rel: `/api/photo?u=${encodeURIComponent(u)}` });
-              }
-            }
+          for (let u of await listingPhotoUrls(row, ref, maxPhotos)) {
+            // 中原直接 hotlink（CSP 已准）；美聯／置業經 /api/photo 代取，wm-cdn 統一寫返 wm（前端 dedupe 用）
+            if (row.source === "centanet") photos.push({ src: u });
+            else photos.push({ rel: `/api/photo?u=${encodeURIComponent(u.replace("://wm-cdn.midland.com.hk/", "://wm.midland.com.hk/"))}` });
           }
         } catch (e) {
           console.error("[listing-photos]", row.source, ref, e?.message || e);   // 攞唔到就回空，前端照用已有嗰幾張
@@ -8262,6 +8327,101 @@ export default {
       // Viewings
       // estate_id 唔傳＝攞全部屋苑（dashboard「睇過嘅盤」用）。之前前端要
       // 逐個屋苑打一次，14 個屋苑實測 8.5 秒；一個 request 拎晒快好多。
+      // ── 對應放盤相片存檔 ──（要擺喺下面 /api/viewings/ 通用 PUT/PATCH/DELETE 之前）
+      {
+        const am = path.match(/^\/api\/viewings\/(\d+)\/(archive-photos|archived-photos)$/);
+        if (am) {
+          const viewingId = Number(am[1]);
+          await ensurePhotoArchive(db);
+          const v = await db.prepare("SELECT id, estate_id, deal_type, linked_ref_no FROM viewings WHERE id = ? AND account_id = ?")
+            .bind(viewingId, session.account_id).first();
+          if (!v) return json(404, { error: "搵唔到呢個睇樓記錄" });
+          const refQ = String(url.searchParams.get("ref") || "");
+          if (refQ && !/^[A-Za-z0-9_-]{3,40}$/.test(refQ)) return json(400, { error: "參數唔啱" });
+
+          // 讀：自己嘅存檔（降級咗都照睇得返自己存過嘅相）
+          if (method === "GET" && am[2] === "archived-photos") {
+            if (!env.PHOTOS) return json(200, { items: [], unavailable: true });
+            const size = url.searchParams.get("size") === "full" ? "full" : "thumb";
+            const { results } = await db.prepare(
+              `SELECT ref_no, source, seq, full_key, thumb_key, created_at FROM listing_photo_archive
+               WHERE account_id = ? AND viewing_id = ?${refQ ? " AND ref_no = ?" : ""} ORDER BY ref_no, seq`
+            ).bind(...(refQ ? [session.account_id, viewingId, refQ] : [session.account_id, viewingId])).all();
+            const items = [];
+            for (const r of results) {
+              const obj = await env.PHOTOS.get(size === "full" ? r.full_key : r.thumb_key);
+              if (!obj) continue;
+              const ct = obj.httpMetadata?.contentType || "image/jpeg";
+              items.push({ ref_no: r.ref_no, source: r.source, seq: r.seq, saved_at: r.created_at,
+                data: `data:${/^image\/[a-z+]+$/.test(ct) ? ct : "image/jpeg"};base64,${bufToB64(await obj.arrayBuffer())}` });
+            }
+            return json(200, { items });
+          }
+
+          // 刪：取消 ✓ 就清走嗰個盤嘅存檔
+          if (method === "DELETE" && am[2] === "archive-photos") {
+            if (!refQ) return json(400, { error: "ref required" });
+            return json(200, { ok: true, deleted: await deleteArchive(db, env, session.account_id, viewingId, refQ) });
+          }
+
+          // 存：收費版，ref 一定要係呢個記錄已經 ✓ 咗嘅盤，盤要喺呢個屋苑真係有
+          if (method === "POST" && am[2] === "archive-photos") {
+            if (!isPaidSession(session)) return paywall("相片存檔");
+            if (!env.PHOTOS) return json(503, { error: "相片存檔暫時未開", unavailable: true });
+            const body = await request.json().catch(() => ({}));
+            const ref = String(body.ref_no || "");
+            if (!/^[A-Za-z0-9_-]{3,40}$/.test(ref)) return json(400, { error: "參數唔啱" });
+            const linked = String(v.linked_ref_no || "").split(",").map((x) => x.trim());
+            if (!linked.includes(ref)) return json(400, { error: "要先 ✓ 確認呢個盤" });
+            const have = await db.prepare("SELECT COUNT(*) AS c FROM listing_photo_archive WHERE account_id = ? AND viewing_id = ? AND ref_no = ?")
+              .bind(session.account_id, viewingId, ref).first();
+            if (have?.c) return json(200, { ok: true, count: have.c, already: true });
+            const sec = await getSecCfg(db);
+            const used = await db.prepare("SELECT COUNT(DISTINCT viewing_id || ':' || ref_no) AS c FROM listing_photo_archive WHERE account_id = ?")
+              .bind(session.account_id).first();
+            if ((used?.c || 0) >= sec.sec_photo_archive_max_listings && !isAdminSession(session))
+              return json(400, { error: `相片存檔上限 ${sec.sec_photo_archive_max_listings} 個盤，取消舊嘅 ✓ 先存得新嘅` });
+            const tbl = v.deal_type === "R" ? "rental_listings" : "listings";
+            const row = await db.prepare(`SELECT source, detail_url FROM ${tbl} WHERE estate_id = ? AND ref_no = ? ORDER BY snapshot_date DESC LIMIT 1`)
+              .bind(v.estate_id, ref).first();
+            if (!row) return json(404, { error: "搵唔到呢個盤" });
+            if (!["centanet", "midland", "hkp"].includes(row.source)) return json(200, { ok: true, count: 0, unsupported: true });
+            let urls = [];
+            try { urls = await listingPhotoUrls(row, ref, sec.sec_photo_archive_per_listing); }
+            catch (e) { console.error("[archive] urls", row.source, ref, e?.message || e); }
+            const jobs = urls.map((u, i) => ({ i, var: archiveVariants(u) })).filter((j) => j.var);
+            const grab = async (u) => {
+              const r = await fetch(u, { headers: { "User-Agent": MIDLAND_UA }, signal: AbortSignal.timeout(12000) });
+              const ct = r.headers.get("content-type") || "";
+              if (!r.ok || !ct.startsWith("image/")) return null;
+              const buf = await r.arrayBuffer();
+              return buf.byteLength > 0 && buf.byteLength < 1_500_000 ? { buf, ct } : null;
+            };
+            const saved = [];
+            for (let k = 0; k < jobs.length; k += 5) {
+              await Promise.all(jobs.slice(k, k + 5).map(async (j) => {
+                try {
+                  const [f, t] = await Promise.all([grab(j.var.full), grab(j.var.thumb)]);
+                  if (!f || !t) return;
+                  const base = `a/${session.account_id}/${viewingId}/${ref}/${String(j.i).padStart(2, "0")}`;
+                  await env.PHOTOS.put(`${base}-f`, f.buf, { httpMetadata: { contentType: f.ct } });
+                  await env.PHOTOS.put(`${base}-t`, t.buf, { httpMetadata: { contentType: t.ct } });
+                  saved.push({ seq: j.i, full_key: `${base}-f`, thumb_key: `${base}-t`, bytes: f.buf.byteLength + t.buf.byteLength });
+                } catch (e) { console.error("[archive] photo", ref, j.i, e?.message || e); }
+              }));
+            }
+            if (saved.length) {
+              await db.batch(saved.map((x) => db.prepare(
+                "INSERT INTO listing_photo_archive (account_id, viewing_id, ref_no, source, seq, full_key, thumb_key, bytes) VALUES (?,?,?,?,?,?,?,?)"
+              ).bind(session.account_id, viewingId, ref, row.source, x.seq, x.full_key, x.thumb_key, x.bytes)));
+            }
+            console.log(JSON.stringify({ archive: { acct: session.account_id, viewingId, ref, src: row.source, found: urls.length, saved: saved.length } }));
+            return json(200, { ok: true, count: saved.length });
+          }
+          return json(405, { error: "method not allowed" });
+        }
+      }
+
       if (method === "GET" && (path === "/api/viewings" || path === "/api/viewings/all")) {
         const estateId = path === "/api/viewings" ? url.searchParams.get("estate_id") : null;
         if (path === "/api/viewings" && !estateId) return json(400, { error: "estate_id required" });
@@ -8699,6 +8859,8 @@ export default {
       if (method === "DELETE" && path.startsWith("/api/viewings/")) {
         const viewingId = path.split("/").pop();
         await ensureViewingImages(db);
+        // 對應放盤相片存檔（R2）一齊清；清唔到唔阻刪記錄
+        try { await deleteArchive(db, env, session.account_id, Number(viewingId)); } catch (e) { console.error("[archive] delete", e?.message || e); }
         await db.batch([
           db.prepare("DELETE FROM viewing_images WHERE viewing_id = ? AND account_id = ?").bind(viewingId, session.account_id),
           db.prepare("DELETE FROM viewings WHERE id = ? AND account_id = ?").bind(viewingId, session.account_id),

@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { scrapeRicacorpListings, scrapeHkpListings, hsUnitParts, hsBlockKey, hsNameVariants, pickRotationEstates, apiRateKeys, rateLimited,
-  parsePublicSearch, PUB_AREAS, pubCacheKey, centanetThumb, normCentanet, midlandThumb, normMidHkp, normRicacorp } from "../index.js";
+  parsePublicSearch, PUB_AREAS, pubCacheKey, archiveVariants, centanetThumb, normCentanet, midlandThumb, normMidHkp, normRicacorp } from "../index.js";
 import { readFileSync } from "node:fs";
 
 // ── Pure helpers extracted inline (no DB/fetch deps) ──────────────────────
@@ -564,5 +564,25 @@ describe("公開搜尋 /api/public/search（地產網資料當唔可信）", () 
     expect(r.url).toBe("https://www.ricacorp.com/zh-hk/property/detail/abc%2F..%2Fx");
     expect(r.img).toBe("https://resourcecdn.ricacorp.com/p.jpg?width=256");
     expect(normRicacorp({ thumbnail: "https://evil.com/p.jpg" }).img).toBeNull();
+  });
+});
+
+describe("相片存檔 archiveVariants（只准白名單 host，用 CDN 參數縮細）", () => {
+  it("中原 hkais：800 闊 q75 大圖 + 400 闊 q70 縮圖", () => {
+    const v = archiveVariants("https://hkais.centanet.com/Images/2024/a.jpeg");
+    expect(v.full).toBe("https://hkais.centanet.com/Images/2024/a.jpeg?w=800&quality=75");
+    expect(v.thumb).toBe("https://hkais.centanet.com/Images/2024/a.jpeg?w=400&quality=70");
+  });
+  it("美聯 wm → wm-cdn（h= 淨係 wm-cdn 有效）；置業加 h=", () => {
+    expect(archiveVariants("https://wm.midland.com.hk/img_wm_revamp.php?src=x").full)
+      .toBe("https://wm-cdn.midland.com.hk/img_wm_revamp.php?src=x&h=600");
+    expect(archiveVariants("https://wm.hkp.com.hk/img_wm_revamp.php?src=x").thumb)
+      .toBe("https://wm.hkp.com.hk/img_wm_revamp.php?src=x&h=300");
+  });
+  it("其他 host／http／javascript: 一律 null（唔可以變開放 proxy）", () => {
+    expect(archiveVariants("https://evil.com/a.jpg")).toBeNull();
+    expect(archiveVariants("http://hkais.centanet.com/a.jpg")).toBeNull();
+    expect(archiveVariants("javascript:alert(1)")).toBeNull();
+    expect(archiveVariants("https://hkais.centanet.com.evil.com/a.jpg")).toBeNull();
   });
 });
