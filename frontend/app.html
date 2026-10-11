@@ -1294,7 +1294,7 @@
     .vw-hs-ref { color: var(--muted); font-weight: 600; font-size: 0.85em; }
     .vw-kw-hs { color: var(--accent2); background: color-mix(in srgb, var(--accent2) 14%, transparent); }
     .vw-kw-you { color: var(--accent); background: color-mix(in srgb, var(--accent) 14%, transparent); }
-    .arch-unsure { font-size: 0.75rem; background: none; border: 1px dashed var(--border-strong); color: var(--muted); border-radius: 4px; cursor: pointer; padding: 1px 5px; }
+    .arch-unsure { white-space: nowrap; font-size: 0.75rem; background: none; border: 1px dashed var(--border-strong); color: var(--muted); border-radius: 4px; cursor: pointer; padding: 1px 5px; }
     .arch-unsure.on { border-style: solid; border-color: var(--accent); color: var(--accent); background: color-mix(in srgb, var(--accent) 12%, transparent); font-weight: 600; }
     .vw-arch:empty { display: none; }
     .vw-arch { margin: 0.15rem 0 0.45rem; }
@@ -6290,9 +6290,9 @@ function buildMatchCell(v) {
         ? `<button class="vw-edit-only" onclick="dismissViewingListing(${v.id},'${escJsAttr(l.ref_no||'')}',true)" style="font-size:0.75rem;background:none;border:none;color:var(--muted);cursor:pointer;padding:1px 3px" title="取消刪除線">✕</button>`
         : `<button class="vw-edit-only" onclick="dismissViewingListing(${v.id},'${escJsAttr(l.ref_no||'')}')" style="font-size:0.75rem;background:none;border:none;color:var(--muted);cursor:pointer;padding:1px 3px" title="唔係呢個">✕</button>`
       : '';
-    // 「？唔肯定」：好似係呢個盤，但代理冇上載啱嘅相／認唔實。唔算確認（唔存相），亦唔當剔走；再撳取消。
+    // 「唔肯定」：好似係呢個盤，但代理冇上載啱嘅相／認唔實。唔算確認（唔存相），亦唔當剔走；再撳取消。
     const qBtn = (!isConfirmed && !srcBlocked && !isDismissed)
-      ? `<button class="vw-edit-only arch-unsure${isUnsure ? ' on' : ''}" onclick="unsureViewingListing(${v.id},'${escJsAttr(l.ref_no||'')}')" title="${isUnsure ? '取消「唔肯定」' : '唔肯定：可能代理冇上載啱嘅相'}">${isUnsure ? '？唔肯定' : '？'}</button>`
+      ? `<button class="vw-edit-only arch-unsure${isUnsure ? ' on' : ''}" onclick="unsureViewingListing(${v.id},'${escJsAttr(l.ref_no||'')}')" title="${isUnsure ? '取消「唔肯定」' : '唔肯定：可能代理冇上載啱嘅相'}">唔肯定</button>`
       : '';
     return `<div style="font-size:0.78rem;display:flex;align-items:center;gap:0.3rem;opacity:${rowOpacity}">${link}
       <button class="vw-edit-only" onclick="confirmViewingListing(${v.id},'${escJsAttr(l.ref_no||'')}')" style="${confirmStyle}" ${isConfirmed ? 'title="取消"' : ''}>✓</button>${xBtn}${qBtn}
