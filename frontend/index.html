@@ -253,6 +253,8 @@
     .ld-search-in { width: 100%; min-width: 0; border: 1px solid var(--border-strong); background: var(--surface); border-radius: var(--radius-sm); padding: 0.85rem 0.9rem; font-size: 1.02rem; font-family: inherit; color: var(--text); }
     .ld-search-form .ld-cta { padding: 0.85rem 1.7rem; font-size: 1.05rem; white-space: nowrap; }
     .ld-search-hot { margin-top: 1rem; display: flex; flex-wrap: wrap; gap: 0.35rem 0.5rem; font-size: 0.82rem; color: var(--muted); align-items: center; }
+    .ld-search-recent { margin-top: 0.6rem; }
+    .ld-search-recent button.ld-recent-clear { background: none; border: 0; color: var(--muted); font-size: 0.78rem; cursor: pointer; text-decoration: underline; font-family: inherit; padding: 0 0.3rem; }
     .ld-search-hot a { color: var(--brand); text-decoration: none; border: 1px solid var(--border); background: var(--surface); border-radius: 999px; padding: 0.15rem 0.65rem; }
     /* ≤900px 一行放唔晒 5 樣嘢（屋苑輸入框會被壓到得幾十 px），改做：買租／屋苑各佔一行，
        地區 | 房數 | 搜尋 同一行 */
@@ -305,6 +307,8 @@
         <a href="/search?kw=%E7%BE%8E%E5%AD%9A%E6%96%B0%E9%82%A8">美孚新邨</a>
         <a href="/search?kw=%E5%A4%A9%E6%99%89">天晉</a>
       </div>
+      <!-- 最近搜尋：淨係讀本機 localStorage（pw_recent_search，由 /search 頁寫入），冇就收埋 -->
+      <div class="ld-search-hot ld-search-recent" id="ld-recent" hidden></div>
     </section>
 
     <div class="ld-hero-row">
@@ -537,6 +541,29 @@ function ldHeroCarRestart() {
 }
 function ldHeroCarTo(i) { ldHeroCarShow(i); ldHeroCarRestart(); }
 ldHeroCarRestart();
+</script>
+<script>
+// 最近搜尋 chips：撳咗去 /search?<條件>，/search 會自動填返條件再搜。內容全部 textContent，q 做白名單。
+(function () {
+  try {
+    var box = document.getElementById("ld-recent");
+    var list = JSON.parse(localStorage.getItem("pw_recent_search") || "[]");
+    if (!box || !Array.isArray(list) || !list.length) return;
+    box.appendChild(document.createTextNode("最近搜尋："));
+    list.slice(0, 6).forEach(function (x) {
+      if (!x || typeof x.q !== "string" || typeof x.l !== "string" || !/^[A-Za-z0-9_%=&.\-+]*$/.test(x.q)) return;
+      var a = document.createElement("a");
+      a.href = "/search?" + x.q;
+      a.textContent = x.l.slice(0, 40);
+      box.appendChild(a);
+    });
+    var b = document.createElement("button");
+    b.type = "button"; b.className = "ld-recent-clear"; b.textContent = "清除";
+    b.onclick = function () { try { localStorage.removeItem("pw_recent_search"); } catch (_) {} box.hidden = true; };
+    box.appendChild(b);
+    box.hidden = box.querySelectorAll("a").length === 0;
+  } catch (_) {}
+})();
 </script>
 </body>
 </html>
