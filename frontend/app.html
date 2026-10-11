@@ -2902,7 +2902,7 @@ async function pickEstateForQuick(id) {
 // 手機版 sidebar 收埋咗，快捷掣要幫手拉返出嚟先 focus 到個搜尋框
 // 側欄「🔍 搵樓」：喺主畫面（#main）入面開四大地產網搜尋——同公開 /search 頁共用
 // public-search.js／.css（第一次先載入）。「🔔 追蹤加減價」直接帶去側欄屋苑搜尋，唔使再登記。
-const PS_VER = '20261011b';   // 改 public-search.js/.css 要同 search.html 一齊 bump（Pages 靜態檔 cache 4 小時）
+const PS_VER = '20261011c';   // 改 public-search.js/.css 要同 search.html 一齊 bump（Pages 靜態檔 cache 4 小時）
 let _psAssets = null;
 function _loadPublicSearchAssets() {
   if (!_psAssets) _psAssets = new Promise((resolve, reject) => {
@@ -2916,6 +2916,22 @@ function _loadPublicSearchAssets() {
     document.head.appendChild(sc);
   });
   return _psAssets;
+}
+// 搜尋條件跟返用戶嘅「睇樓偏好」（⚙️ 設定／登入後彈嘅偏好）：買盤定租盤、預算、房數、實呎。
+// 單位：買盤預算萬、租盤預算 $/月、面積呎——同搜尋表單一樣，直接帶入。
+function _searchDefaultsFromPrefs() {
+  const p = _userPrefs;
+  if (!p || p.dismissed && !(p.price_min || p.price_max || p.rent_min || p.rent_max || p.beds || p.size_min || p.size_max)) return {};
+  const dts = Array.isArray(p.deal_types) && p.deal_types.length ? p.deal_types : ['S'];
+  const rent = dts.length === 1 && dts[0] === 'R';      // 淨係搵租盤先預設租盤；兩樣都有或者淨買盤 → 買盤
+  const beds = String(p.beds || '');
+  return {
+    deal: rent ? 'R' : 'S',
+    beds: beds === '4+' ? 4 : (/^[1-4]$/.test(beds) ? Number(beds) : ''),
+    pmin: rent ? p.rent_min : p.price_min,
+    pmax: rent ? p.rent_max : p.price_max,
+    smin: p.size_min, smax: p.size_max,
+  };
 }
 async function openPublicSearch() {
   if (window.innerWidth <= 768) closeSidebar();
@@ -2932,7 +2948,7 @@ async function openPublicSearch() {
     const root = document.getElementById('psEmbedRoot');
     if (!root) return;      // 期間用戶已經去咗第度
     root.innerHTML = '';
-    window.PublicSearch.mount(root, { embedded: true, track: trackNameFromSearch });
+    window.PublicSearch.mount(root, { embedded: true, track: trackNameFromSearch, initial: _searchDefaultsFromPrefs() });
   } catch (_) {
     const root = document.getElementById('psEmbedRoot');
     if (root) root.innerHTML = '<div style="color:var(--down)">載入失敗，請再試</div>';
