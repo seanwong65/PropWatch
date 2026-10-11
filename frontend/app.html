@@ -1294,6 +1294,15 @@
     .vw-hs-ref { color: var(--muted); font-weight: 600; font-size: 0.85em; }
     .vw-kw-hs { color: var(--accent2); background: color-mix(in srgb, var(--accent2) 14%, transparent); }
     .vw-kw-you { color: var(--accent); background: color-mix(in srgb, var(--accent) 14%, transparent); }
+    .vw-arch:empty { display: none; }
+    .vw-arch { margin: 0.15rem 0 0.45rem; }
+    .arch-chip { font-size: 0.72rem; border-radius: 999px; padding: 1px 8px; white-space: nowrap; display: inline-block; }
+    .arch-chip.saving { background: var(--brand-soft); color: var(--brand); }
+    .arch-chip.ok { background: color-mix(in srgb, var(--up) 15%, transparent); color: var(--up); }
+    .arch-strip { display: flex; gap: 6px; overflow-x: auto; padding: 5px 0 2px; scrollbar-width: thin; }
+    .arch-strip img { flex: 0 0 auto; width: 74px; height: 52px; object-fit: cover; border-radius: 7px; border: 1px solid var(--border); cursor: pointer; }
+    .arch-lock { border: 1px dashed var(--border-strong); background: var(--surface2); border-radius: 10px; padding: 0.5rem 0.65rem; font-size: 0.75rem; color: var(--muted); }
+    .arch-lock b { color: var(--text); }
     .vw-kw-sold { color: var(--up); background: color-mix(in srgb, var(--up) 16%, transparent); }
     /* 睇樓記錄「未沽出/已沽出」狀態——放大做 pill，一眼睇到邊啲已經有
        結果。已沽出＝綠底（有落實嘅市價數據），未沽出＝灰底（仲未知）。 */
@@ -6253,7 +6262,7 @@ function buildMatchCell(v) {
       html += `<div style="font-size:0.78rem;display:flex;align-items:center;gap:0.3rem">
         <span style="color:var(--muted)">已確認 (已下架)</span>
         <button class="vw-edit-only" onclick="confirmViewingListing(${v.id},'${escJsAttr(ref)}')" style="font-size:0.75rem;background:none;border:none;color:var(--muted);cursor:pointer;padding:0" title="取消">✕ 取消</button>
-      </div>`;
+      </div>${_archSlot(v.id, ref)}`;
     }
   }
 
@@ -6279,9 +6288,71 @@ function buildMatchCell(v) {
       : '';
     return `<div style="font-size:0.78rem;display:flex;align-items:center;gap:0.3rem;opacity:${rowOpacity}">${link}
       <button class="vw-edit-only" onclick="confirmViewingListing(${v.id},'${escJsAttr(l.ref_no||'')}')" style="${confirmStyle}" ${isConfirmed ? 'title="取消"' : ''}>✓</button>${xBtn}
-    </div>`;
+    </div>${isConfirmed ? _archSlot(v.id, l.ref_no) : ''}`;
   }).join('');
+  if (confirmedRefs.length) setTimeout(() => fillArchiveStrips(v.id), 0);   // HTML 落咗 DOM 先填相片列
   return html;
+}
+
+// ── 對應放盤相片存檔（收費版）：✓ 咗嘅盤自動存低相（R2），代理落咗架都睇得返 ──
+// buildMatchCell 只係留個空位（.vw-arch），之後 fillArchiveStrips 再攞縮圖填入去。
+const _archThumbs = {};   // viewingId → Promise<{items, unavailable}>（縮圖，一個記錄攞一次）
+const _archSaving = {};   // "vid|ref" → true（保存緊）
+const _archSlot = (vid, ref) => `<div class="vw-arch" data-vid="${Number(vid)}" data-ref="${escHtml(String(ref || ''))}"></div>`;
+function _archLoad(vid, force = false) {
+  if (force || !_archThumbs[vid]) {
+    _archThumbs[vid] = api(`/api/viewings/${vid}/archived-photos`).catch(() => ({ items: [], unavailable: true }));
+  }
+  return _archThumbs[vid];
+}
+async function fillArchiveStrips(vid, force = false) {
+  const slots = [...document.querySelectorAll(`.vw-arch[data-vid="${Number(vid)}"]`)];
+  if (!slots.length) return;
+  const d = await _archLoad(vid, force);
+  let lockShown = false;
+  for (const el of document.querySelectorAll(`.vw-arch[data-vid="${Number(vid)}"]`)) {
+    const ref = el.dataset.ref;
+    const items = (d.items || []).filter(x => x.ref_no === ref);
+    if (_archSaving[`${vid}|${ref}`]) { el.innerHTML = '<span class="arch-chip saving">📥 保存相片中…</span>'; continue; }
+    if (items.length) {
+      const day = String(items[0].saved_at || '').slice(0, 10);
+      el.innerHTML = `<span class="arch-chip ok">📷 已保存 ${items.length} 張${day ? ` · ${escHtml(day)}` : ''}</span>
+        <div class="arch-strip">${items.map((x, i) => `<img src="${safeImgSrc(x.data)}" alt="" loading="lazy" onclick="openArchiveFull(${Number(vid)},'${escJsAttr(ref)}',${i})">`).join('')}</div>`;
+      continue;
+    }
+    // 免費用戶：✓ 咗都唔存，同一張卡淨係提一次
+    if (!isPaid() && !d.unavailable && !lockShown) {
+      lockShown = true;
+      el.innerHTML = `<div class="arch-lock">🔒 <b>收費版：自動保存對應放盤相片</b><br>撳 ✓ 就幫你存低 15 張相，代理落咗架都照睇到。<br><button type="button" class="vf-submit" style="width:auto;margin:0.35rem 0 0;padding:0.3rem 0.7rem;font-size:0.75rem" onclick="showUpgrade('相片存檔')">睇下收費版有咩</button></div>`;
+      continue;
+    }
+    el.innerHTML = '';
+  }
+}
+async function archiveListingPhotos(vid, ref) {
+  _archSaving[`${vid}|${ref}`] = true;
+  fillArchiveStrips(vid);
+  try {
+    const r = await api(`/api/viewings/${vid}/archive-photos`, { method: 'POST', body: JSON.stringify({ ref_no: ref }) });
+    if (r.count) toast(`已保存 ${r.count} 張相`, 'success');
+  } catch (e) {
+    if (!e.paywall && !/未開/.test(e.message || '')) toast('保存相片失敗：' + (e.message || ''), 'error');
+  } finally {
+    delete _archSaving[`${vid}|${ref}`];
+    fillArchiveStrips(vid, true);
+  }
+}
+async function openArchiveFull(vid, ref, idx) {
+  const key = `arch:${vid}:${ref}`;
+  window._viewingImgsMap = window._viewingImgsMap || {};
+  try {
+    if (!window._viewingImgsMap[key]) {
+      toast('載入相片…');
+      const d = await api(`/api/viewings/${vid}/archived-photos?size=full&ref=${encodeURIComponent(ref)}`);
+      window._viewingImgsMap[key] = (d.items || []).map(x => x.data);
+    }
+    viewImgFull(key, idx);
+  } catch (e) { toast('載入相片失敗', 'error'); }
 }
 
 // buildMatchCell 靠 allListings。喺「睇過嘅盤」tab 一次過有多個屋苑,re-render
@@ -6318,10 +6389,17 @@ async function confirmViewingListing(viewingId, refNo) {
     const i = refs.indexOf(refNo);
     if (i >= 0) refs.splice(i, 1); else refs.push(refNo);
   }
+  const turnedOn = !!refNo && refs.includes(refNo);
   v.linked_ref_no = refs.length ? refs.join(',') : null;
-  api(`/api/viewings/${viewingId}`, { method: 'PATCH', body: JSON.stringify({ linked_ref_no: v.linked_ref_no }) }).catch(() => {});
+  const saved = api(`/api/viewings/${viewingId}`, { method: 'PATCH', body: JSON.stringify({ linked_ref_no: v.linked_ref_no }) }).catch(() => null);
   const cell = document.getElementById(`vmatch-${viewingId}`);
   if (cell) cell.innerHTML = _matchCellFor(v);
+  // 相片存檔：✓ 咗（收費版）就存；取消 ✓ 就清走嗰個盤嘅存檔
+  if (refNo && turnedOn && isPaid()) { await saved; archiveListingPhotos(viewingId, refNo); }
+  else if (refNo && !turnedOn) {
+    api(`/api/viewings/${viewingId}/archive-photos?ref=${encodeURIComponent(refNo)}`, { method: 'DELETE' }).catch(() => {})
+      .finally(() => { delete window._viewingImgsMap?.[`arch:${viewingId}:${refNo}`]; fillArchiveStrips(viewingId, true); });
+  }
 }
 
 function getNotesOptions() {
