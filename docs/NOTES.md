@@ -127,7 +127,9 @@ HKP 行 `search/v1`、美聯行 `search/v2`）。實測分別：
   D1 淨係記索引 `listing_photo_archive`（account_id, viewing_id, ref_no, seq, full_key, thumb_key, bytes）。
 - **尺寸靠地產網 CDN**（Worker 冇得自己壓圖，CPU 10ms）：`archiveVariants()`——中原 hkais
   `w=800&quality=75`（大圖）／`w=400&quality=70`（縮圖），**實測因相而異：60–145KB／30–40KB**；
-  美聯 wm→wm-cdn、置業 wm.hkp 用 `h=600`／`h=300`。利嘉閣冇詳情相片 API，暫時唔存（回 unsupported）。
+  美聯 wm→wm-cdn、置業 wm.hkp 用 `h=600`／`h=300`。利嘉閣：`api/post?postNo=<盤號>` 回單個盤連 `attachments`
+  （混有 VR 封面、YouTube 縮圖，只取 `resourcecdn…/rcdrive/ownerships/` 實相），`?width=800`／`?width=256`
+  （實測 ≈50–70KB／≈10KB；詳情頁 HTML 係 JS 畫，淨得封面）。利嘉閣 JSON API 有 per-IP 限流，429 就回 0 張＋前端提示重試。
 - R2 key：`a/<account>/<viewing>/<ref>/<seq>-f|-t`。
 - Endpoints（全部 auth、scope account）：`POST /api/viewings/:id/archive-photos {ref_no}`（收費版、
   ref 要已 ✓、idempotent、上限 `sec_photo_archive_max_listings` 個盤＝200、每盤 `sec_photo_archive_per_listing`＝15 張）；
