@@ -2902,14 +2902,15 @@ async function pickEstateForQuick(id) {
 // 手機版 sidebar 收埋咗，快捷掣要幫手拉返出嚟先 focus 到個搜尋框
 // 側欄「🔍 搵樓」：喺主畫面（#main）入面開四大地產網搜尋——同公開 /search 頁共用
 // public-search.js／.css（第一次先載入）。「🔔 追蹤加減價」直接帶去側欄屋苑搜尋，唔使再登記。
+const PS_VER = '20261011a';   // 改 public-search.js/.css 要同 search.html 一齊 bump（Pages 靜態檔 cache 4 小時）
 let _psAssets = null;
 function _loadPublicSearchAssets() {
   if (!_psAssets) _psAssets = new Promise((resolve, reject) => {
     const l = document.createElement('link');
-    l.rel = 'stylesheet'; l.href = '/public-search.css';
+    l.rel = 'stylesheet'; l.href = '/public-search.css?v=' + PS_VER;
     document.head.appendChild(l);
     const sc = document.createElement('script');
-    sc.src = '/public-search.js';
+    sc.src = '/public-search.js?v=' + PS_VER;
     sc.onload = resolve;
     sc.onerror = () => { _psAssets = null; reject(new Error('載入失敗')); };
     document.head.appendChild(sc);
