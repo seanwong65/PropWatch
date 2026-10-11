@@ -46,3 +46,8 @@ crons = ["*/2 * * * *", "0 1 * * *"]
 # 邊一步死。開咗之後 `npx wrangler tail` 同 dashboard 都有得睇返。
 [observability]
 enabled = true
+
+# 對應放盤相片存檔（收費版）：✓ 咗嘅盤嘅相存喺度。冇呢個 binding 功能自動停。見 docs/NOTES.md「對應放盤相片存檔」。
+[[r2_buckets]]
+binding = "PHOTOS"
+bucket_name = "propwatch-photos"
