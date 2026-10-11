@@ -42,7 +42,8 @@
   }
   </script>
   <link rel="stylesheet" href="/site.css">
-  <link rel="stylesheet" href="/public-search.css">
+  <!-- ?v=：Pages 對 .js/.css 回 max-age=14400，改檔要 bump 呢個版本（search.html + app.html 嘅 PS_VER），否則舊 JS 配新 HTML 會壞 -->
+<link rel="stylesheet" href="/public-search.css?v=20261011a">
 </head>
 <body>
 
@@ -87,6 +88,6 @@
   <div>搵樓日記唔係地產代理，亦唔係銀行。數據收集自公開地產網站，只供參考。</div>
 </footer>
 
-<script src="/public-search.js"></script>
+<script src="/public-search.js?v=20261011a"></script>
 </body>
 </html>
