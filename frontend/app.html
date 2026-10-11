@@ -2238,9 +2238,9 @@
       </div>
       <!-- 2026-10-11：由「進階搜尋（跨屋苑搵盤，搜自己追蹤嘅屋苑）」改做首頁嗰個搜尋：即時搵四大地產網，
            有地區／房數／價錢／面積篩選。舊嘅 openAdvSearch() 彈窗 code 仲喺度（想還原只係呢個掣改返）。 -->
-      <a href="/search" target="_blank" rel="noopener"
-        style="display:inline-block;color:var(--accent2);font-size:0.78rem;padding:0.35rem 0 0;text-decoration:none;font-family:inherit">
-        🔍 搵樓（四大地產網一次過搜尋）↗</a>
+      <button onclick="openPublicSearch()"
+        style="background:none;border:none;color:var(--accent2);font-size:0.78rem;padding:0.35rem 0 0;cursor:pointer;text-align:left;font-family:inherit">
+        🔍 搵樓（四大地產網一次過搜尋）</button>
     </div>
     <div class="estate-list" id="estateList">
       <div class="sidebar-empty">載入中…</div>
@@ -2900,6 +2900,54 @@ async function pickEstateForQuick(id) {
 }
 
 // 手機版 sidebar 收埋咗，快捷掣要幫手拉返出嚟先 focus 到個搜尋框
+// 側欄「🔍 搵樓」：喺主畫面（#main）入面開四大地產網搜尋——同公開 /search 頁共用
+// public-search.js／.css（第一次先載入）。「🔔 追蹤加減價」直接帶去側欄屋苑搜尋，唔使再登記。
+let _psAssets = null;
+function _loadPublicSearchAssets() {
+  if (!_psAssets) _psAssets = new Promise((resolve, reject) => {
+    const l = document.createElement('link');
+    l.rel = 'stylesheet'; l.href = '/public-search.css';
+    document.head.appendChild(l);
+    const sc = document.createElement('script');
+    sc.src = '/public-search.js';
+    sc.onload = resolve;
+    sc.onerror = () => { _psAssets = null; reject(new Error('載入失敗')); };
+    document.head.appendChild(sc);
+  });
+  return _psAssets;
+}
+async function openPublicSearch() {
+  if (window.innerWidth <= 768) closeSidebar();
+  activeEstateId = null;
+  _viewingEstateId = null;
+  document.querySelectorAll('.estate-card').forEach(c => c.classList.remove('active'));
+  const main = document.getElementById('main');
+  main.innerHTML = `<div class="ps-root ps-embed">
+    <div class="ps-embed-bar"><button type="button" class="ps-back" onclick="goHome()">← 返去日記</button><h2>🔍 搵樓：四大地產網一次過搜尋</h2></div>
+    <div id="psEmbedRoot"><div class="loading"><div class="spinner"></div> 載入中…</div></div>
+  </div>`;
+  try {
+    await _loadPublicSearchAssets();
+    const root = document.getElementById('psEmbedRoot');
+    if (!root) return;      // 期間用戶已經去咗第度
+    root.innerHTML = '';
+    window.PublicSearch.mount(root, { embedded: true, track: trackNameFromSearch });
+  } catch (_) {
+    const root = document.getElementById('psEmbedRoot');
+    if (root) root.innerHTML = '<div style="color:var(--down)">載入失敗，請再試</div>';
+  }
+}
+// 搜尋結果卡「🔔 追蹤加減價」：喺側欄屋苑搜尋填好屋苑名，等用戶揀返啱嗰個先追蹤（同名／分期多）
+async function trackNameFromSearch(name) {
+  if (window.innerWidth <= 768) {
+    const sb = document.querySelector('.sidebar');
+    if (sb && !sb.classList.contains('open')) toggleSidebar();
+  }
+  searchInput.value = name;
+  await doSearch(name);
+  toast(`喺側欄揀返「${name}」就會開始每日追蹤加減價`);
+}
+
 function focusEstateSearch() {
   if (window.innerWidth <= 768) {
     const sidebar = document.querySelector('.sidebar');
