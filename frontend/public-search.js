@@ -1,3 +1,4 @@
+(function () {
 // 公開搜尋頁（/search）——未登入都用得，即時問四大地產網（經 worker /api/public/search）。
 // 每個網站獨立一個 request（並行），邊個返先出邊個；一個網站死咗唔影響其他。
 // ⚠️ 地產網回嚟嘅字串全部當唔可信：入 HTML 一律行底部嘅 escHtml／safeUrl／safeImgSrc。
@@ -11,6 +12,99 @@ const API = location.hostname === "home.ws-techs.com"
     ? "http://localhost:8787"
     : "https://propwatch-worker-test.johnwong777.workers.dev";
 
+const PANEL_HTML = `
+  <form class="ps-panel" id="ps-form" action="/search" method="get" aria-label="樓盤搜尋">
+    <div class="ps-row1">
+      <div class="ps-field"><span class="ps-label">類型</span>
+        <div class="ps-seg" role="radiogroup" aria-label="類型">
+          <label><input type="radio" name="deal" value="S" checked><span>買盤</span></label>
+          <label><input type="radio" name="deal" value="R"><span>租盤</span></label>
+        </div>
+      </div>
+      <label class="ps-field" for="ps-kw"><span class="ps-label">屋苑（可留空）</span>
+        <input class="ps-input" id="ps-kw" name="kw" type="search" maxlength="30" placeholder="例如：天晉、太古城、嘉湖山莊" autocomplete="off">
+      </label>
+      <button type="submit" class="ps-go">搜尋</button>
+    </div>
+    <div class="ps-row2">
+      <label class="ps-field" for="ps-area"><span class="ps-label">地區</span>
+        <select class="ps-select" id="ps-area" name="area">
+          <option value="">全港</option>
+          <optgroup label="港島"><option value="1001">中西區</option><option value="1002">灣仔</option><option value="1003">南區</option><option value="1004">東區</option></optgroup>
+          <optgroup label="九龍"><option value="2005">油尖旺</option><option value="2006">深水埗</option><option value="2007">觀塘</option><option value="2008">黃大仙</option><option value="2009">九龍城</option><option value="2010">將軍澳</option></optgroup>
+          <optgroup label="新界"><option value="3010">西貢</option><option value="3011">荃灣</option><option value="3012">葵青</option><option value="3013">屯門</option><option value="3014">元朗</option><option value="3015">北區</option><option value="3016">大埔</option><option value="3017">沙田</option><option value="3018">離島</option></optgroup>
+        </select>
+      </label>
+      <label class="ps-field" for="ps-beds"><span class="ps-label">房數</span>
+        <select class="ps-select" id="ps-beds" name="beds">
+          <option value="">唔限</option><option value="1">1 房</option><option value="2">2 房</option>
+          <option value="3">3 房</option><option value="4">4 房或以上</option>
+        </select>
+      </label>
+      <div class="ps-field"><span class="ps-label" id="ps-price-label">售價（萬）</span>
+        <div class="ps-range">
+          <input class="ps-input num" id="ps-pmin" name="pmin" type="number" inputmode="numeric" min="0" placeholder="最低" aria-label="最低價">
+          <span>至</span>
+          <input class="ps-input num" id="ps-pmax" name="pmax" type="number" inputmode="numeric" min="0" placeholder="最高" aria-label="最高價">
+        </div>
+      </div>
+      <div class="ps-field"><span class="ps-label">實用面積（呎）</span>
+        <div class="ps-range">
+          <input class="ps-input num" id="ps-smin" name="smin" type="number" inputmode="numeric" min="0" placeholder="最細" aria-label="最細面積">
+          <span>至</span>
+          <input class="ps-input num" id="ps-smax" name="smax" type="number" inputmode="numeric" min="0" placeholder="最大" aria-label="最大面積">
+        </div>
+      </div>
+    </div>
+    <div class="ps-srcs" role="group" aria-label="地產網">
+      <span class="ps-label">搜尋：</span>
+      <label><input type="checkbox" name="src" value="centanet" checked> 中原</label>
+      <label><input type="checkbox" name="src" value="midland" checked> 美聯</label>
+      <label><input type="checkbox" name="src" value="hkp" checked> 香港置業</label>
+      <label><input type="checkbox" name="src" value="ricacorp" checked> 利嘉閣</label>
+    </div>
+  </form>
+
+  <div class="ps-srcbar" id="ps-srcbar" aria-live="polite"></div>
+  <div class="ps-head">
+    <h2 id="ps-title">最新放盤</h2>
+    <div class="ps-sort" role="group" aria-label="排序" id="ps-sort">
+      <button type="button" class="ps-chip" data-v="mix" aria-pressed="true">四網輪流</button>
+      <button type="button" class="ps-chip" data-v="new" aria-pressed="false">最新</button>
+      <button type="button" class="ps-chip" data-v="price" aria-pressed="false">價錢低至高</button>
+      <button type="button" class="ps-chip" data-v="psf" aria-pressed="false">呎價低至高</button>
+    </div>
+  </div>
+
+
+  <div class="ps-srcbar" id="ps-srcbar" aria-live="polite"></div>
+  <div class="ps-head">
+    <h2 id="ps-title">最新放盤</h2>
+    <div class="ps-sort" role="group" aria-label="排序" id="ps-sort">
+      <button type="button" class="ps-chip" data-v="mix" aria-pressed="true">四網輪流</button>
+      <button type="button" class="ps-chip" data-v="new" aria-pressed="false">最新</button>
+      <button type="button" class="ps-chip" data-v="price" aria-pressed="false">價錢低至高</button>
+      <button type="button" class="ps-chip" data-v="psf" aria-pressed="false">呎價低至高</button>
+    </div>
+  </div>
+`;
+const HOOK_HTML = `
+  <div class="ps-hook">
+    <p><b>地產網唔會話你個盤放咗幾耐、減過幾多次價。</b>免費登記追蹤屋苑，搵樓日記由今日開始每日幫你記錄。</p>
+    <a class="ps-btn" href="/app#register">免費登記</a>
+  </div>
+
+`;
+const GRID_HTML = `
+  <div class="ps-grid" id="ps-grid"></div>
+  <p class="ps-msg" id="ps-msg" hidden></p>
+  <div class="ps-more" id="ps-more" hidden><button type="button" class="ps-btn ghost" id="ps-more-btn">載入更多</button></div>
+
+`;
+
+// root：畫落邊個元素；opts.embedded＝喺 app 入面（唔郁網址／標題）；opts.track(name)＝app 自己處理「追蹤」
+function mount(root, opts = {}) {
+const embedded = !!opts.embedded;
 const SRC = {
   centanet: { name: "中原" },
   midland:  { name: "美聯" },
@@ -26,7 +120,8 @@ const AREAS = {
 };
 const MAX_PAGE = 10;                 // worker 都係最多 10 頁
 
-const $ = (id) => document.getElementById(id);
+root.innerHTML = PANEL_HTML + (embedded ? "" : HOOK_HTML) + GRID_HTML;
+const $ = (id) => root.querySelector("#" + id);
 const form = $("ps-form");
 let runId = 0;                       // 新搜尋作廢舊 request 嘅結果
 let state = null;                    // { cond, srcs: { [src]: { page, pageSize, total, status, busy } }, items: [] }
@@ -188,7 +283,7 @@ function renderTitle() {
   if (c.smin != null || c.smax != null) bits.push(`${c.smin ?? 0}–${c.smax ?? "∞"}呎`);
   const deal = c.deal === "R" ? "租盤" : "買盤";
   $("ps-title").textContent = bits.length ? `${bits.join(" · ")} ${deal}` : `全港最新${deal}`;
-  document.title = (bits.length ? `${bits.join(" ")} ${deal}` : `全港最新${deal}`) + "｜四大地產網一次過搜尋 — 搵樓日記";
+  if (!embedded) document.title = (bits.length ? `${bits.join(" ")} ${deal}` : `全港最新${deal}`) + "｜四大地產網一次過搜尋 — 搵樓日記";
 }
 
 // 某個網站搵唔到（限流／出錯／暫停）就靜靜收埋佢：用戶見到「暫時搵唔到」會以為係我哋有 bug，
@@ -262,9 +357,9 @@ function cardHtml(it) {
     ? (rent ? `$${escHtml(it.price.toLocaleString("en-US"))}<small>/月</small>` : `$${escHtml(fmtWan(it.price))}<small>萬</small>`)
     : `<small>價錢請睇原網站</small>`;
   const psf = it.psf ? `@$${escHtml(it.psf.toLocaleString("en-US"))}/呎` : "";
-  const track = it.estate
-    ? `<a class="ps-track" href="/app?track_name=${encodeURIComponent(it.estate)}#register" title="免費登記，每日記錄${escHtml(it.estate)}嘅加減價">🔔 追蹤加減價</a>`
-    : "";
+  const track = !it.estate ? "" : (opts.track
+    ? `<button type="button" class="ps-track" data-track="${escHtml(it.estate)}" title="追蹤${escHtml(it.estate)}嘅加減價">🔔 追蹤加減價</button>`
+    : `<a class="ps-track" href="/app?track_name=${encodeURIComponent(it.estate)}#register" title="免費登記，每日記錄${escHtml(it.estate)}嘅加減價">🔔 追蹤加減價</a>`);
   return `<article class="ps-card">
     <div class="ps-photo">${photo}</div>
     <div class="ps-body">
@@ -306,10 +401,10 @@ form.addEventListener("submit", (e) => {
     return;
   }
   const qs = condToQuery(c);
-  history.pushState(null, "", qs ? `/search?${qs}` : "/search");
+  if (!embedded) history.pushState(null, "", qs ? `/search?${qs}` : "/search");
   startSearch(c);
 });
-window.addEventListener("popstate", () => {
+if (!embedded) window.addEventListener("popstate", () => {
   const c = readCond(new URLSearchParams(location.search));
   fillForm(c);
   startSearch(c);
@@ -322,12 +417,16 @@ $("ps-sort").addEventListener("click", (e) => {
   renderGrid();
 });
 $("ps-more-btn").addEventListener("click", loadMore);
+if (opts.track) $("ps-grid").addEventListener("click", (e) => {
+  const b = e.target.closest("button[data-track]");
+  if (b) opts.track(b.dataset.track);
+});
 
 // FormData 同 URLSearchParams 都有 get/getAll，readCond 兩樣都食
-const initCond = readCond(new URLSearchParams(location.search));
+const initCond = readCond(embedded ? new URLSearchParams() : new URLSearchParams(location.search));
 // 首頁 form 會帶埋空白欄位（?deal=S&kw=&beds=），執靚條 URL 方便分享
 const initQs = condToQuery(initCond);
-if (location.search.slice(1) !== initQs) history.replaceState(null, "", initQs ? `/search?${initQs}` : "/search");
+if (!embedded && location.search.slice(1) !== initQs) history.replaceState(null, "", initQs ? `/search?${initQs}` : "/search");
 fillForm(initCond);
 startSearch(initCond);
 
@@ -343,3 +442,13 @@ function safeImgSrc(u) {
   const s = String(u || "");
   return (/^https?:\/\//i.test(s) || /^data:image\//i.test(s)) ? escHtml(s) : "";
 }
+
+}
+
+window.PublicSearch = { mount };
+// 獨立 /search 頁：有 #ps-root 就自動畫
+document.addEventListener("DOMContentLoaded", () => {
+  const r = document.getElementById("ps-root");
+  if (r && !r.dataset.mounted) { r.dataset.mounted = "1"; mount(r); }
+});
+})();
