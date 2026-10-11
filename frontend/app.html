@@ -1294,6 +1294,8 @@
     .vw-hs-ref { color: var(--muted); font-weight: 600; font-size: 0.85em; }
     .vw-kw-hs { color: var(--accent2); background: color-mix(in srgb, var(--accent2) 14%, transparent); }
     .vw-kw-you { color: var(--accent); background: color-mix(in srgb, var(--accent) 14%, transparent); }
+    .arch-unsure { font-size: 0.75rem; background: none; border: 1px dashed var(--border-strong); color: var(--muted); border-radius: 4px; cursor: pointer; padding: 1px 5px; }
+    .arch-unsure.on { border-style: solid; border-color: var(--accent); color: var(--accent); background: color-mix(in srgb, var(--accent) 12%, transparent); font-weight: 600; }
     .vw-arch:empty { display: none; }
     .vw-arch { margin: 0.15rem 0 0.45rem; }
     .arch-chip { font-size: 0.72rem; border-radius: 999px; padding: 1px 8px; white-space: nowrap; display: inline-block; }
@@ -6267,8 +6269,10 @@ function buildMatchCell(v) {
   }
 
   const dismissed = new Set(JSON.parse(v.dismissed_refs || '[]'));
+  const unsure = new Set(JSON.parse(v.unsure_refs || '[]'));
   html += matches.map(l => {
     const isConfirmed = confirmedSet.has(l.ref_no);
+    const isUnsure = !isConfirmed && unsure.has(l.ref_no);
     // 同 source 已經揀咗第個：呢行變暗、收埋啲掣（想轉要先取消嗰個）
     const srcBlocked = !isConfirmed && !!srcTaken[l.source];
     const isDismissed = !isConfirmed && dismissed.has(l.ref_no);
@@ -6286,8 +6290,12 @@ function buildMatchCell(v) {
         ? `<button class="vw-edit-only" onclick="dismissViewingListing(${v.id},'${escJsAttr(l.ref_no||'')}',true)" style="font-size:0.75rem;background:none;border:none;color:var(--muted);cursor:pointer;padding:1px 3px" title="取消刪除線">✕</button>`
         : `<button class="vw-edit-only" onclick="dismissViewingListing(${v.id},'${escJsAttr(l.ref_no||'')}')" style="font-size:0.75rem;background:none;border:none;color:var(--muted);cursor:pointer;padding:1px 3px" title="唔係呢個">✕</button>`
       : '';
+    // 「？唔肯定」：好似係呢個盤，但代理冇上載啱嘅相／認唔實。唔算確認（唔存相），亦唔當剔走；再撳取消。
+    const qBtn = (!isConfirmed && !srcBlocked && !isDismissed)
+      ? `<button class="vw-edit-only arch-unsure${isUnsure ? ' on' : ''}" onclick="unsureViewingListing(${v.id},'${escJsAttr(l.ref_no||'')}')" title="${isUnsure ? '取消「唔肯定」' : '唔肯定：可能代理冇上載啱嘅相'}">${isUnsure ? '？唔肯定' : '？'}</button>`
+      : '';
     return `<div style="font-size:0.78rem;display:flex;align-items:center;gap:0.3rem;opacity:${rowOpacity}">${link}
-      <button class="vw-edit-only" onclick="confirmViewingListing(${v.id},'${escJsAttr(l.ref_no||'')}')" style="${confirmStyle}" ${isConfirmed ? 'title="取消"' : ''}>✓</button>${xBtn}
+      <button class="vw-edit-only" onclick="confirmViewingListing(${v.id},'${escJsAttr(l.ref_no||'')}')" style="${confirmStyle}" ${isConfirmed ? 'title="取消"' : ''}>✓</button>${xBtn}${qBtn}
     </div>${isConfirmed ? _archSlot(v.id, l.ref_no) : ''}`;
   }).join('');
   if (confirmedRefs.length) setTimeout(() => fillArchiveStrips(v.id), 0);   // HTML 落咗 DOM 先填相片列
@@ -6368,9 +6376,28 @@ function _matchCellFor(v) {
   return buildMatchCell(v);
 }
 
+// 「唔肯定」存喺 viewings.unsure_refs（JSON 陣列）
+function _clearUnsure(v, refNo) {
+  const set = new Set(JSON.parse(v.unsure_refs || '[]'));
+  if (!set.delete(refNo)) return;
+  v.unsure_refs = set.size ? JSON.stringify([...set]) : null;
+  api(`/api/viewings/${v.id}`, { method: 'PATCH', body: JSON.stringify({ unsure_refs: v.unsure_refs }) }).catch(() => {});
+}
+function unsureViewingListing(viewingId, refNo) {
+  const v = _lastViewings?.find(x => x.id === viewingId);
+  if (!v) return;
+  const set = new Set(JSON.parse(v.unsure_refs || '[]'));
+  if (!set.delete(refNo)) set.add(refNo);
+  v.unsure_refs = set.size ? JSON.stringify([...set]) : null;
+  api(`/api/viewings/${viewingId}`, { method: 'PATCH', body: JSON.stringify({ unsure_refs: v.unsure_refs }) }).catch(() => {});
+  const cell = document.getElementById(`vmatch-${viewingId}`);
+  if (cell) cell.innerHTML = _matchCellFor(v);
+}
+
 async function dismissViewingListing(viewingId, refNo, reverse = false) {
   const v = _lastViewings?.find(v => v.id === viewingId);
   if (!v) return;
+  if (!reverse) _clearUnsure(v, refNo);   // ✕ 咗就唔再係「唔肯定」
   const dismissed = new Set(JSON.parse(v.dismissed_refs || '[]'));
   reverse ? dismissed.delete(refNo) : dismissed.add(refNo);
   v.dismissed_refs = dismissed.size ? JSON.stringify([...dismissed]) : null;
@@ -6391,6 +6418,7 @@ async function confirmViewingListing(viewingId, refNo) {
     if (i >= 0) refs.splice(i, 1); else refs.push(refNo);
   }
   const turnedOn = !!refNo && refs.includes(refNo);
+  if (turnedOn) _clearUnsure(v, refNo);   // 確認咗就唔再係「唔肯定」
   v.linked_ref_no = refs.length ? refs.join(',') : null;
   const saved = api(`/api/viewings/${viewingId}`, { method: 'PATCH', body: JSON.stringify({ linked_ref_no: v.linked_ref_no }) }).catch(() => null);
   const cell = document.getElementById(`vmatch-${viewingId}`);

@@ -8846,7 +8846,7 @@ export default {
           if (!subd) return json(400, { error: "只可以改去你追蹤緊嘅屋苑" });
           await db.prepare("UPDATE viewings SET estate_id = ? WHERE id = ? AND account_id = ?")
             .bind(newEstateId, viewingId, session.account_id).run();
-          await db.prepare("UPDATE viewings SET linked_ref_no = NULL, dismissed_refs = NULL WHERE id = ? AND account_id = ?")
+          await db.prepare("UPDATE viewings SET linked_ref_no = NULL, dismissed_refs = NULL, unsure_refs = NULL WHERE id = ? AND account_id = ?")
             .bind(viewingId, session.account_id).run().catch(() => {});   // 欄位係 lazy ALTER 出嚟，未必存在
         }
         await db.batch([
@@ -8867,6 +8867,14 @@ export default {
         } else if ("dismissed_refs" in body) {
           await db.prepare("ALTER TABLE viewings ADD COLUMN dismissed_refs TEXT").run().catch(() => {});
           await db.prepare("UPDATE viewings SET dismissed_refs=? WHERE id=? AND account_id=?").bind(body.dismissed_refs||null, viewingId, session.account_id).run();
+        } else if ("unsure_refs" in body) {
+          // 「唔肯定」：用戶覺得可能係呢個盤，但代理冇上載啱嘅相／認唔到。介乎 ✓ 同 ✕ 之間。
+          let list = [];
+          try { list = JSON.parse(body.unsure_refs || "[]"); } catch (_) { list = []; }
+          list = (Array.isArray(list) ? list : []).filter((x) => typeof x === "string" && /^[A-Za-z0-9_-]{3,40}$/.test(x)).slice(0, 30);
+          await db.prepare("ALTER TABLE viewings ADD COLUMN unsure_refs TEXT").run().catch(() => {});
+          await db.prepare("UPDATE viewings SET unsure_refs=? WHERE id=? AND account_id=?")
+            .bind(list.length ? JSON.stringify(list) : null, viewingId, session.account_id).run();
         } else {
           await db.prepare("UPDATE viewings SET hs_price=? WHERE id=? AND account_id=?").bind(body.hs_price||null, viewingId, session.account_id).run();
         }
