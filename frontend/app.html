@@ -1648,6 +1648,19 @@
       .hl-tr td { padding: 0.3rem 0.4rem 0.3rem 0; }
     }
 
+    /* 手機（≤520px）：睇樓日記有 main → dashboard → highlights-section → dj → dj-body → viewing-card
+       六層 padding／border，疊埋每邊食咗 ~78px，375px 闊嘅機入面詳細卡淨返 ~219px。
+       逐層收窄（只改手機，電腦版唔郁），詳細卡可用闊度 ~219 → ~300px。 */
+    @media (max-width: 520px) {
+      .main { padding: 0.25rem; }
+      .dashboard { padding: 0.35rem 0.25rem; }
+      .highlights-section { padding: 0.5rem 0.3rem; border-radius: 14px; }
+      .dj { padding: 0.55rem 0.35rem 0.6rem; border-radius: 14px; }
+      .dj-head { padding: 0.7rem 0.55rem; gap: 0.55rem; }
+      .dj-body { padding: 0.5rem 0.35rem 0.2rem; }
+      .viewing-card { padding: 0.7rem 0.7rem; }
+    }
+
     /* Tablet range — iPad landscape & small laptops: tighten the sidebar */
     @media (min-width: 769px) and (max-width: 1024px) {
       .layout { grid-template-columns: 260px 1fr; }
