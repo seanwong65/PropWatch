@@ -912,7 +912,7 @@ async function ensurePhotoArchive(db) {
   )`).run();
   await db.prepare("CREATE INDEX IF NOT EXISTS idx_lpa_acct_view ON listing_photo_archive(account_id, viewing_id, ref_no, seq)").run();
 }
-const ARCHIVE_HOSTS = new Set(["hkais.centanet.com", "wm.hkp.com.hk", "wmc.hkp.com.hk", "wm-cdn.midland.com.hk", "wmc.midland.com.hk"]);
+const ARCHIVE_HOSTS = new Set(["hkais.centanet.com", "wm.hkp.com.hk", "wmc.hkp.com.hk", "wm-cdn.midland.com.hk", "wmc.midland.com.hk", "resourcecdn.ricacorp.com"]);
 // 原圖 URL → { full, thumb }（只准白名單 host，唔係就 null）
 export function archiveVariants(u) {
   let x; try { x = new URL(String(u)); } catch { return null; }
@@ -921,6 +921,7 @@ export function archiveVariants(u) {
   if (!ARCHIVE_HOSTS.has(x.hostname)) return null;
   const mk = (params) => { const y = new URL(x.toString()); for (const [k, v] of Object.entries(params)) y.searchParams.set(k, v); return y.toString(); };
   if (x.hostname === "hkais.centanet.com") return { full: mk({ w: "800", quality: "75" }), thumb: mk({ w: "400", quality: "70" }) };
+  if (x.hostname === "resourcecdn.ricacorp.com") return { full: mk({ width: "800" }), thumb: mk({ width: "256" }) };   // 實測 800 闊 ≈70KB、256 闊 ≈11KB
   return { full: mk({ h: "600" }), thumb: mk({ h: "300" }) };
 }
 // 由地產網詳情攞個盤嘅相片 URL（原始，未縮放）。/api/listing-photos 同存檔共用。
@@ -952,6 +953,22 @@ async function listingPhotoUrls(row, ref, max) {
       for (const p of list) {
         const u = p?.wan_doc_path;
         if (typeof u === "string" && out.length < max) out.push(u);
+      }
+    }
+  } else if (row.source === "ricacorp") {
+    // 利嘉閣冇詳情頁相片接口（頁面係 JS 畫，HTML 淨得封面）；但 api/post?postNo=<盤號> 回單個盤連全部 attachments。
+    // attachments 混埋 VR 封面、YouTube 縮圖，只取 resourcecdn …/rcdrive/ownerships/ 嘅實相。
+    const r = await fetch(`https://www.ricacorp.com/zh-hk/property/api/post?page=1&postNo=${encodeURIComponent(ref)}`, {
+      headers: { "User-Agent": RICA_UA, Accept: "application/json, text/plain, */*", "Accept-Language": "zh-HK,zh;q=0.9",
+        "x-custom-header": "www.ricacorp.com/zh-hk/property", Referer: "https://www.ricacorp.com/zh-hk/property/list/buy" },
+      signal: AbortSignal.timeout(12000),
+    });
+    if (r.status === 429 || r.status === 403) throw new Error("ricacorp rate-limited");
+    if (r.ok) {
+      const post = (await r.json())?.results?.find((p) => p?.postNo === ref);
+      for (const a of post?.attachments || []) {
+        const u = a?.webCdnUrl;
+        if (typeof u === "string" && u.startsWith("https://resourcecdn.ricacorp.com/images/v2/rcdrive/ownerships/") && out.length < max) out.push(u);
       }
     }
   }
@@ -8385,7 +8402,7 @@ export default {
             const row = await db.prepare(`SELECT source, detail_url FROM ${tbl} WHERE estate_id = ? AND ref_no = ? ORDER BY snapshot_date DESC LIMIT 1`)
               .bind(v.estate_id, ref).first();
             if (!row) return json(404, { error: "搵唔到呢個盤" });
-            if (!["centanet", "midland", "hkp"].includes(row.source)) return json(200, { ok: true, count: 0, unsupported: true });
+            if (!["centanet", "midland", "hkp", "ricacorp"].includes(row.source)) return json(200, { ok: true, count: 0, unsupported: true });
             let urls = [];
             try { urls = await listingPhotoUrls(row, ref, sec.sec_photo_archive_per_listing); }
             catch (e) { console.error("[archive] urls", row.source, ref, e?.message || e); }

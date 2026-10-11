@@ -579,6 +579,11 @@ describe("相片存檔 archiveVariants（只准白名單 host，用 CDN 參數�
     expect(archiveVariants("https://wm.hkp.com.hk/img_wm_revamp.php?src=x").thumb)
       .toBe("https://wm.hkp.com.hk/img_wm_revamp.php?src=x&h=300");
   });
+  it("利嘉閣 resourcecdn：width=800 大圖／width=256 縮圖", () => {
+    const v = archiveVariants("https://resourcecdn.ricacorp.com/images/v2/rcdrive/ownerships/abc/def.jpeg");
+    expect(v.full).toBe("https://resourcecdn.ricacorp.com/images/v2/rcdrive/ownerships/abc/def.jpeg?width=800");
+    expect(v.thumb).toBe("https://resourcecdn.ricacorp.com/images/v2/rcdrive/ownerships/abc/def.jpeg?width=256");
+  });
   it("其他 host／http／javascript: 一律 null（唔可以變開放 proxy）", () => {
     expect(archiveVariants("https://evil.com/a.jpg")).toBeNull();
     expect(archiveVariants("http://hkais.centanet.com/a.jpg")).toBeNull();

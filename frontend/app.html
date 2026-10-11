@@ -6335,6 +6335,7 @@ async function archiveListingPhotos(vid, ref) {
   try {
     const r = await api(`/api/viewings/${vid}/archive-photos`, { method: 'POST', body: JSON.stringify({ ref_no: ref }) });
     if (r.count) toast(`已保存 ${r.count} 張相`, 'success');
+    else toast(r.unsupported ? '呢個網站暫時未支援相片存檔' : '搵唔到呢個盤嘅相（可能代理已經落架，或者網站暫時擋咗），稍後取消 ✓ 再撳一次試', 'error');
   } catch (e) {
     if (!e.paywall && !/未開/.test(e.message || '')) toast('保存相片失敗：' + (e.message || ''), 'error');
   } finally {
