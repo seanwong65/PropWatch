@@ -258,6 +258,18 @@ function renderAll() {
   renderMore();
 }
 
+// 最近搜尋（淨係存喺呢部機瀏覽器 localStorage，唔上傳、唔寫 D1）：首頁搜尋框下面「最近搜尋」列出，
+// 撳咗去 /search?<條件> 自動填返條件再搜。淨係 /search 獨立頁記錄；app 入面（已登入）唔記。
+const RECENT_KEY = "pw_recent_search";
+function saveRecent(c, label, qs) {
+  if (embedded || !qs) return;                    // 冇任何條件（全港最新）唔記
+  try {
+    const list = JSON.parse(localStorage.getItem(RECENT_KEY) || "[]").filter((x) => x && x.q !== qs);
+    list.unshift({ q: qs, l: label });
+    localStorage.setItem(RECENT_KEY, JSON.stringify(list.slice(0, 6)));
+  } catch (_) {}
+}
+
 function renderTitle() {
   const c = state.cond;
   const bits = [];
@@ -272,6 +284,7 @@ function renderTitle() {
   const deal = c.deal === "R" ? "租盤" : "買盤";
   $("ps-title").textContent = bits.length ? `${bits.join(" · ")} ${deal}` : `全港最新${deal}`;
   if (!embedded) document.title = (bits.length ? `${bits.join(" ")} ${deal}` : `全港最新${deal}`) + "｜四大地產網一次過搜尋 — 搵樓日記";
+  if (bits.length) saveRecent(c, `${bits.join(" · ")} ${deal}`, condToQuery(c));
 }
 
 // 某個網站搵唔到（限流／出錯／暫停）就靜靜收埋佢：用戶見到「暫時搵唔到」會以為係我哋有 bug，
