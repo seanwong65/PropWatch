@@ -8008,7 +8008,7 @@ function renderOneViewing(v, estateId, isMobile, showTypeFilter) {
       const viewBtn = `<button class="viewing-del-btn vw-view-btn" onclick='openViewingModal(JSON.parse(decodeURIComponent("${vData}")), true)' title="查看" style="background:var(--btn2-bg);border:1px solid var(--btn2-border);margin-right:0.3rem">👁</button>`;
       const editBtn = `<button class="viewing-del-btn" onclick='openViewingModal(JSON.parse(decodeURIComponent("${vData}")))' title="更改" style="background:var(--btn2-bg);border:1px solid var(--btn2-border);margin-right:0.3rem">✏️</button>`;
       const delBtn = `<button class="viewing-del-btn" onclick="deleteViewing(${v.id},${estateId})" title="刪除">🗑</button>`;
-      const shareBtn = `<button class="viewing-del-btn vw-edit-only" onclick='openShareModal([JSON.parse(decodeURIComponent("${vData}"))], "viewing")' title="分享" style="background:var(--btn2-bg);border:1px solid var(--btn2-border);margin-right:0.3rem">📤</button>`;
+      const shareBtn = `<button class="viewing-del-btn vw-edit-only" onclick='openShareModal([JSON.parse(decodeURIComponent("${vData}"))], "viewing")' title="分享" style="background:var(--btn2-bg);border:1px solid var(--btn2-border);margin-right:0.3rem;font-weight:600">📤 Share</button>`;
 
       if (isMobile) {
         // 卡片版面：一格一格垂直疊，唔使橫拉。同一組 id（vmatch-/vprev-）
