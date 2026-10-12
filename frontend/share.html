@@ -155,6 +155,17 @@
 
   post("/api/public/share", { t: token }).then(function (j) {
     var items = j.items || [];
+    if (j.kind === "fav") {
+      // 心儀樓盤：淨係屋苑＋單位，冇價錢／相／連結
+      document.querySelector(".sh-h").textContent = "心儀樓盤分享";
+      document.title = "心儀樓盤分享 — 搵樓日記";
+      $("sub").textContent = items.length + " 個心儀樓盤 · 由搵樓日記用戶分享";
+      $("list").innerHTML = '<div class="sv">' + items.map(function (x, i) {
+        return '<div style="padding:0.55rem 0;' + (i ? "border-top:1px solid var(--border)" : "") + '"><span class="estate-pill">' + esc(x.estate || "（屋苑）") + "</span>" +
+          '<div class="unit" style="margin-top:0.35rem">' + esc(x.unit || "") + "</div></div>";
+      }).join("") + "</div>";
+      return;
+    }
     $("sub").textContent = (j.kind === "day" && items[0] && items[0].view_date ? items[0].view_date + " 睇樓日記 · " : "") + items.length + " 個盤 · 由搵樓日記用戶分享";
     $("list").innerHTML = items.map(card).join("");
   }).catch(function (e) { fail(e.message || "載入失敗"); });

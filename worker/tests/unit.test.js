@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { scrapeRicacorpListings, scrapeHkpListings, hsUnitParts, hsBlockKey, hsNameVariants, pickRotationEstates, apiRateKeys, rateLimited,
-  parsePublicSearch, PUB_AREAS, pubCacheKey, archiveVariants, cleanShareOpts, shareViewingPayload, centanetThumb, normCentanet, midlandThumb, normMidHkp, normRicacorp } from "../index.js";
+  parsePublicSearch, PUB_AREAS, pubCacheKey, archiveVariants, cleanShareOpts, shareViewingPayload, shareFavPayload, centanetThumb, normCentanet, midlandThumb, normMidHkp, normRicacorp } from "../index.js";
 import { readFileSync } from "node:fs";
 
 // ── Pure helpers extracted inline (no DB/fetch deps) ──────────────────────
@@ -614,5 +614,18 @@ describe("睇樓分享：只回白名單欄位，分析一律唔回", () => {
   });
   it("租盤唔回管理費", () => {
     expect(shareViewingPayload({ ...v, deal_type: "R", price: 20000 }, cleanShareOpts({ price: 1 }), {}, null, 0).mgmt_fee).toBeNull();
+  });
+});
+
+describe("心儀樓盤分享：淨係屋苑＋單位", () => {
+  it("只回 estate／unit，價錢連結相一律唔回", () => {
+    const f = { estate_name: "昇悅居", snap: JSON.stringify({ building_name: "6座", floor: "高層", unit: "H室", price: 7480000,
+      thumbnail: "https://hkcdn.centanet.com/a.jpg", sources: [{ detail_url: "https://hk.centanet.com/x", price: 7480000 }] }) };
+    const p = shareFavPayload(f);
+    expect(p).toEqual({ estate: "昇悅居", unit: "6座 高層 H室" });
+  });
+  it("搜尋結果收藏（冇屋苑）：用快照入面嘅屋苑名，unit 只有標題＋樓層", () => {
+    const p = shareFavPayload({ estate_name: null, snap: JSON.stringify({ estate_name: "麗港城", building_name: "麗港城 4期 21座", floor: "高層", unit: "A室" }) });
+    expect(p).toEqual({ estate: "麗港城", unit: "4期 21座 高層" });
   });
 });

@@ -131,6 +131,11 @@ HKP 行 `search/v1`、美聯行 `search/v2`）。實測分別：
 - 下架判斷：該 ref 最後見到嘅 snapshot_date ≠ 該來源最新一次 sync 日；合併卡所有來源都唔見先算下架。
   列表每個 ref 逐個 seek（`idx_*_estate_ref`），唔掃歷史。
 - 前端：`favBtnHtml()`／`toggleFavListing()`／`loadFavListings()`；表格 view 暫時未加 ♡（只喺卡片 view）。
+- 搜尋結果（app 內嵌搜尋）都有 ♡：`POST /api/favourite-listings/external`，ref_no＝原網站 URL，estate_id=0；
+  快照由 client 傳所以逐欄 sanitize＋host 白名單；唔判斷下架／升跌。
+- **分享心儀樓盤**：tab 入面每張卡有 checkbox＋「全選」＋「📤 Share」（multi-select）。分享 kind='fav'
+  （`viewing_shares.viewing_ids` 借嚟放 listing_favourites.id）；分享頁**淨係屋苑＋座 樓層 室**
+  （`shareFavPayload`，唔回價錢／連結／相；用戶決定），實時（取消收藏即消失）。
 
 ## 睇樓記錄分享（2026-10-12）
 

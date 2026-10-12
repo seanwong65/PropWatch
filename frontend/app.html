@@ -1310,6 +1310,11 @@
     .lc-fav:hover { transform: scale(1.08); }
     .fav-card { display: flex; gap: 0.75rem; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 0.7rem; margin-bottom: 0.65rem; box-shadow: var(--shadow-sm); }
     .fav-card.gone { opacity: 0.6; }
+    .fav-bar { display: flex; align-items: center; gap: 0.7rem; margin: 0 0 0.6rem; font-size: 0.85rem; }
+    .fav-bar label { display: inline-flex; align-items: center; gap: 0.35rem; cursor: pointer; }
+    .fav-bar .share-btn { margin-left: auto; padding: 0.3rem 0.8rem; font-size: 0.8rem; }
+    .fav-bar .share-btn:disabled { opacity: 0.45; cursor: not-allowed; }
+    .fav-sel { width: 18px; height: 18px; accent-color: var(--brand); flex-shrink: 0; align-self: center; cursor: pointer; }
     .fav-thumb { flex: 0 0 96px; height: 76px; border-radius: 10px; background: var(--surface2) center/cover no-repeat; display: grid; place-items: center; color: var(--muted); }
     .fav-main { flex: 1; min-width: 0; font-size: 0.82rem; }
     .fav-price { font-size: 1.1rem; font-weight: 800; color: var(--accent); }
@@ -2148,12 +2153,14 @@
     <button class="modal-close" onclick="closeShareModal()">✕</button>
     <div class="modal-title">📤 分享睇樓記錄</div>
     <div id="share-target" style="margin:0.35rem 0 0.9rem"></div>
+    <div id="share-opts">
     <label class="vf-label">要包埋乜嘢</label>
     <label class="share-opt"><input type="checkbox" id="sh-photos" checked onchange="shareOptsChanged()"> 📷 相片 <small>你自己影嘅相</small></label>
     <label class="share-opt"><input type="checkbox" id="sh-price" checked onchange="shareOptsChanged()"> 💰 售價／租金、管理費</label>
     <label class="share-opt"><input type="checkbox" id="sh-ratings" checked onchange="shareOptsChanged()"> ⭐ 評分</label>
     <label class="share-opt"><input type="checkbox" id="sh-notes" onchange="shareOptsChanged()"> 📝 備註 <small>預設唔包：可能有經紀電話等私人嘢</small></label>
-    <div class="share-info">🔗 連結會<b>一直有效</b>，直到你喺 ⚙️ 設定「我分享過嘅連結」取消。你之後改記錄，對方會見到最新；刪除記錄，連結即時失效。我哋嘅分析（價格尺、中位數、估值、對應放盤）唔會分享出去。</div>
+    </div>
+    <div class="share-info" id="share-info">🔗 連結會<b>一直有效</b>，直到你喺 ⚙️ 設定「我分享過嘅連結」取消。你之後改記錄，對方會見到最新；刪除記錄，連結即時失效。我哋嘅分析（價格尺、中位數、估值、對應放盤）唔會分享出去。</div>
     <div id="share-before"><button type="button" class="vf-submit" id="share-create-btn" onclick="createShare()">建立分享連結</button></div>
     <div id="share-after" style="display:none">
       <div style="display:flex;gap:0.4rem;margin-bottom:0.6rem">
@@ -6519,10 +6526,28 @@ function openShareForIds(ids, kind) {
   const items = ids.map(id => pool.find(v => v.id === id)).filter(Boolean);
   if (items.length) openShareModal(items, kind);
 }
+const _favEstateName = (f) => f.estate_name || (f.snap || {}).estate_name || (f.snap || {}).district || '';
+// 單位字串（座 樓層 室）；搜尋結果收藏嘅標題通常已經帶屋苑名，去重
+const _favUnit = (f) => {
+  const sn = f.snap || {};
+  let u = (f.estate_id ? [sn.building_name, sn.floor, sn.unit] : [sn.building_name, sn.floor]).filter(Boolean).join(' ');
+  const e = _favEstateName(f);
+  if (e && u.startsWith(e)) u = u.slice(e.length).trim();
+  return u;
+};
+const _favShareLabel = (f) => `${_favEstateName(f)} ${_favUnit(f)}`.trim();
+const _SHARE_INFO_DEFAULT = '🔗 連結會<b>一直有效</b>，直到你喺 ⚙️ 設定「我分享過嘅連結」取消。你之後改記錄，對方會見到最新；刪除記錄，連結即時失效。我哋嘅分析（價格尺、中位數、估值、對應放盤）唔會分享出去。';
 function openShareModal(items, kind) {
   _shareCtx = { items, kind, url: null };
   const v0 = items[0];
-  document.getElementById('share-target').innerHTML = kind === 'day'
+  const isFav = kind === 'fav';
+  document.getElementById('share-opts').style.display = isFav ? 'none' : '';
+  document.getElementById('share-info').innerHTML = isFav
+    ? '🔗 只會分享<b>屋苑同單位</b>（例如「昇悅居 6座 高層 H室」），<b>唔包價錢、連結、相片</b>。連結一直有效，直到你喺 ⚙️ 設定「我分享過嘅連結」取消；你取消咗心儀，對方嗰邊亦會跟住消失。'
+    : _SHARE_INFO_DEFAULT;
+  document.querySelector('#shareModalOverlay .modal-title').textContent = isFav ? '📤 分享心儀樓盤' : '📤 分享睇樓記錄';
+  if (isFav) document.getElementById('share-target').innerHTML = `<div style="font-size:0.85rem;line-height:1.8">${items.map(f => `<div><span class="dj-detail-estate">${escHtml(_favEstateName(f) || '搜尋結果')}</span> ${escHtml(_favUnit(f))}</div>`).join('')}</div>`;
+  else document.getElementById('share-target').innerHTML = kind === 'day'
     ? `<span class="dj-detail-estate">${escHtml(v0.view_date || '')} 睇樓日記</span> <span style="font-size:0.82rem;color:var(--muted)">${items.length} 個盤：${escHtml(items.map(v => `${_shareEstate(v)} ${_shareUnit(v)}`).join('、'))}</span>`
     : `<span class="dj-detail-estate">${escHtml(_shareEstate(v0))}</span> <span style="font-size:0.82rem;color:var(--muted)">${escHtml(_shareUnit(v0))}${v0.view_date ? ' · ' + escHtml(v0.view_date) : ''}</span>`;
   document.getElementById('sh-photos').checked = true;
@@ -6546,7 +6571,10 @@ async function createShare() {
   btn.disabled = true; btn.textContent = '建立緊…';
   try {
     const opts = _shareOptsNow();
-    const r = await api('/api/shares', { method: 'POST', body: JSON.stringify({ viewing_ids: _shareCtx.items.map(v => v.id), kind: _shareCtx.kind, opts }) });
+    const body = _shareCtx.kind === 'fav'
+      ? { kind: 'fav', fav_ids: _shareCtx.items.map(f => f.id) }
+      : { viewing_ids: _shareCtx.items.map(v => v.id), kind: _shareCtx.kind, opts };
+    const r = await api('/api/shares', { method: 'POST', body: JSON.stringify(body) });
     _shareCtx.url = `${location.origin}/share#${r.token}`;
     _shareCtx.opts = opts;
     document.getElementById('share-url').value = _shareCtx.url;
@@ -6558,6 +6586,9 @@ async function createShare() {
 }
 // 「複製文字」：俾 WhatsApp 用嘅純文字摘要（同分享頁一樣只有用戶自己入嘅嘢）
 function _shareText() {
+  if (_shareCtx.kind === 'fav') {
+    return ['❤️ 我嘅心儀樓盤', ..._shareCtx.items.map(f => '🏠 ' + _favShareLabel(f)), '', `詳情：${_shareCtx.url}`, '（由搵樓日記分享）'].join('\n');
+  }
   const o = _shareCtx.opts || _shareOptsNow();
   const lines = [];
   for (const v of _shareCtx.items) {
@@ -6689,8 +6720,11 @@ function renderFavListings() {
     return;
   }
   const sorted = [..._favItems].sort((a, b) => (b.active - a.active) || String(b.created_at).localeCompare(String(a.created_at)));
+  const bar = `<div class="fav-bar"><label><input type="checkbox" id="fav-all" onchange="favSelectAll(this.checked)"> 全選</label>
+      <span id="fav-sel-count" style="color:var(--muted);font-size:0.78rem"></span>
+      <button type="button" class="share-btn" id="fav-share-btn" disabled onclick="shareSelectedFavs()">📤 Share</button></div>`;
   const wan = (p) => `$${(Math.round(p / 1000) / 10).toLocaleString()}萬`;
-  body.innerHTML = sorted.map(f => {
+  body.innerHTML = bar + sorted.map(f => {
     const sn = f.snap || {};
     const rent = f.deal === 'R';
     const fmt = (p) => p ? (rent ? `$${Math.round(p).toLocaleString()}/月` : wan(p)) : '-';
@@ -6706,6 +6740,7 @@ function renderFavListings() {
       `<a href="${safeUrl(x.detail_url)}" target="_blank" rel="noopener" class="detail-link lc-src" style="font-size:0.78rem">${escHtml(sourceLabel(x.source))}${x.price ? ' ' + (rent ? '$' + Math.round(x.price).toLocaleString() : wan(x.price)) : ''} ↗</a>`).join(' ');
     const thumb = sn.thumbnail ? ` style="background-image:url('${safeImgSrc(sn.thumbnail)}')"` : '';
     return `<div class="fav-card${f.active ? '' : ' gone'}">
+      <input type="checkbox" class="fav-sel" data-id="${Number(f.id)}" onchange="favSelChanged()" aria-label="揀呢個去分享">
       <div class="fav-thumb"${thumb}>${sn.thumbnail ? '' : '🏠'}</div>
       <div class="fav-main">
         <div>${f.estate_id
@@ -6721,6 +6756,20 @@ function renderFavListings() {
       </div>
     </div>`;
   }).join('');
+}
+function favSelChanged() {
+  const sel = [...document.querySelectorAll('.fav-sel:checked')];
+  const all = document.querySelectorAll('.fav-sel').length;
+  document.getElementById('fav-sel-count').textContent = sel.length ? `已揀 ${sel.length} 個` : '';
+  document.getElementById('fav-share-btn').disabled = !sel.length;
+  const a = document.getElementById('fav-all');
+  if (a) { a.checked = all > 0 && sel.length === all; a.indeterminate = sel.length > 0 && sel.length < all; }
+}
+function favSelectAll(on) { document.querySelectorAll('.fav-sel').forEach(c => { c.checked = on; }); favSelChanged(); }
+function shareSelectedFavs() {
+  const ids = [...document.querySelectorAll('.fav-sel:checked')].map(c => Number(c.dataset.id));
+  const items = ids.map(id => _favItems.find(f => f.id === id)).filter(Boolean);
+  if (items.length) openShareModal(items, 'fav');
 }
 async function removeFavListing(id) {
   const f = _favItems.find(x => x.id === id);
