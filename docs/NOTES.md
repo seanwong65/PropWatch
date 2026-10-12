@@ -120,6 +120,18 @@ HKP 行 `search/v1`、美聯行 `search/v2`）。實測分別：
   - 前端 `<select>`（search.html／index.html）＋ `public-search.js` 嘅 `AREAS` 要同 worker 對得上。
 - 未做：跨網同一單位合併、「有歷史記錄」標記。
 
+## 心儀樓盤（2026-10-12）
+
+放盤卡（買盤／租盤卡片 view）右上角 ♡，撳咗收藏；首頁 tab「♥ 心儀樓盤」列出所有收藏。
+- 表 `listing_favourites`（account_id, estate_id, deal S|R, ref_no＝合併卡入面最平嗰個, refs JSON＝所有來源 ref,
+  snap JSON＝收藏嗰刻由 DB 攞嘅快照, fav_price）；UNIQUE(account_id, deal, ref_no)，重覆收藏冪等。
+- API（登入）：`POST /api/favourite-listings {estate_id, deal, refs[]}`（要 `canReadEstate`、ref 要真係喺嗰個屋苑；
+  快照一律由 DB 攞，唔信 client）、`DELETE ?ref=&deal=`（合併卡任何一個 ref 都取消到）、`GET`（列表＋最新價＋下架）、
+  `GET /refs`（♡ 狀態，app 啟動時攞一次）。上限 `sec_fav_listings_max`（200，免費收費一樣）。
+- 下架判斷：該 ref 最後見到嘅 snapshot_date ≠ 該來源最新一次 sync 日；合併卡所有來源都唔見先算下架。
+  列表每個 ref 逐個 seek（`idx_*_estate_ref`），唔掃歷史。
+- 前端：`favBtnHtml()`／`toggleFavListing()`／`loadFavListings()`；表格 view 暫時未加 ♡（只喺卡片 view）。
+
 ## 睇樓記錄分享（2026-10-12）
 
 用戶將自己嘅睇樓記錄分享俾人睇，對方唔使登入：`/share#<token>`（`frontend/share.html`）。

@@ -607,6 +607,8 @@ const SEC_DEFS = [
     desc: "免費同收費一樣（2026-10 用戶決定暫時唔分 tier）。純粹防濫用嘅安全上限，正常用唔會撞到。" },
   { key: "sec_share_rpm", def: 60, min: 10, max: 600, label: "睇樓分享頁：每個 IP 每分鐘幾多次",
     desc: "未登入嘅人開分享連結（/share）嘅速率上限，防止有人用嚟狂試 token 或者洗 D1 讀取。" },
+  { key: "sec_fav_listings_max", def: 200, min: 1, max: 5000, label: "心儀樓盤：每個帳戶最多幾多個",
+    desc: "用戶撳 ♡ 收藏嘅放盤上限（免費同收費一樣）。純粹防濫用；每個收藏列表時會查一次最新價同下架狀態。" },
   { key: "sec_auth_rpm", def: 10, min: 3, max: 120, label: "登入／註冊每分鐘上限",
     desc: "login/register/忘記密碼：每個 IP 每分鐘試嘅次數，擋暴力試密碼。" },
   { key: "sec_free_max_estates", def: 3, min: 1, max: 50, label: "免費版：最多追蹤屋苑",
@@ -894,6 +896,25 @@ const isAdminSession = (session) => (session?.role || "user") === "admin";
 // 歷史(放盤日數/改價/下架/趨勢)同主動推送(email/alert)先收費。
 // admin 永遠當 paid(方便自己用同測試)。
 const isPaidSession = (session) => isAdminSession(session) || (session?.tier || "free") === "paid";
+// ── 心儀樓盤（2026-10-12）─────────────────────────────────────────────
+// 用戶喺放盤卡撳 ♡ 收藏。snap 係收藏嗰刻由 DB 攞嘅快照（唔信 client 傳嚟嘅欄位）；
+// 合併卡（同一單位多個來源）用 refs 記晒所有 ref，ref_no 係最平嗰個。列表時再查最新價／有冇下架。
+async function ensureFavListings(db) {
+  await db.prepare(`CREATE TABLE IF NOT EXISTS listing_favourites (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    account_id INTEGER NOT NULL,
+    estate_id INTEGER NOT NULL,
+    deal TEXT NOT NULL DEFAULT 'S',
+    ref_no TEXT NOT NULL,
+    refs TEXT NOT NULL,
+    snap TEXT NOT NULL,
+    fav_price REAL,
+    created_at TEXT DEFAULT (datetime('now')),
+    UNIQUE(account_id, deal, ref_no)
+  )`).run();
+  await db.prepare("CREATE INDEX IF NOT EXISTS idx_favl_acct ON listing_favourites(account_id, created_at)").run();
+}
+
 // ── 睇樓記錄分享（2026-10-12）─────────────────────────────────────────
 // 用戶將自己嘅睇樓記錄（1 個，或者同一日幾個）分享俾人睇：一條 /share#<token> 連結，對方唔使登入。
 // 只回用戶自己入嘅欄位（白名單 SHARE_FIELDS + 選咗嘅 opts），我哋嘅分析一律唔回。
@@ -8454,6 +8475,111 @@ export default {
       // Viewings
       // estate_id 唔傳＝攞全部屋苑（dashboard「睇過嘅盤」用）。之前前端要
       // 逐個屋苑打一次，14 個屋苑實測 8.5 秒；一個 request 拎晒快好多。
+      // ── 心儀樓盤：收藏／取消／列表（要登入）──
+      if (path === "/api/favourite-listings" || path === "/api/favourite-listings/refs") {
+        await ensureFavListings(db);
+        const dealOf = (x) => (x === "R" ? "R" : "S");
+        if (method === "GET" && path === "/api/favourite-listings/refs") {
+          const { results } = await db.prepare("SELECT deal, refs FROM listing_favourites WHERE account_id = ?").bind(session.account_id).all();
+          const refs = [];
+          for (const r of results) { try { for (const x of JSON.parse(r.refs)) refs.push(`${r.deal}:${x}`); } catch (_) {} }
+          return json(200, { refs });
+        }
+        if (method === "POST" && path === "/api/favourite-listings") {
+          const body = await request.json().catch(() => ({}));
+          const estateId = Number(body.estate_id), deal = dealOf(body.deal);
+          const refs = [...new Set((Array.isArray(body.refs) ? body.refs : []).map(String))]
+            .filter((x) => /^[A-Za-z0-9_-]{3,40}$/.test(x)).slice(0, 10);
+          if (!Number.isInteger(estateId) || estateId <= 0 || !refs.length) return json(400, { error: "參數唔啱" });
+          if (!(await canReadEstate(db, session, estateId))) return json(404, { error: "搵唔到屋苑" });
+          const tbl = deal === "R" ? "rental_listings" : "listings";
+          const found = [];
+          for (const ref of refs) {
+            const row = await db.prepare(
+              `SELECT ref_no, source, building_name, floor, unit, bedrooms, direction, size_net, price, price_per_ft, detail_url, thumbnail, publish_date
+               FROM ${tbl} WHERE estate_id = ? AND ref_no = ? ORDER BY snapshot_date DESC LIMIT 1`
+            ).bind(estateId, ref).first();
+            if (row) found.push(row);
+          }
+          if (!found.length) return json(404, { error: "搵唔到呢個盤" });
+          found.sort((a, b) => (a.price || 9e15) - (b.price || 9e15));
+          const p = found[0];
+          const urlOk = (u) => { try { const x = new URL(String(u)); return x.protocol === "https:" ? x.toString().slice(0, 500) : null; } catch { return null; } };
+          const snap = {
+            building_name: p.building_name || null, floor: p.floor || null, unit: p.unit || null, bedrooms: p.bedrooms ?? null,
+            direction: p.direction || null, size_net: p.size_net || null, price: p.price || null, price_per_ft: p.price_per_ft || null,
+            thumbnail: urlOk(p.thumbnail), publish_date: p.publish_date || null,
+            sources: found.map((f) => ({ source: f.source, ref_no: f.ref_no, price: f.price || null, detail_url: urlOk(f.detail_url) })),
+          };
+          const sec = await getSecCfg(db);
+          const cnt = await db.prepare("SELECT COUNT(*) AS c FROM listing_favourites WHERE account_id = ?").bind(session.account_id).first();
+          if ((cnt?.c || 0) >= sec.sec_fav_listings_max) return json(400, { error: `心儀樓盤最多 ${sec.sec_fav_listings_max} 個，剔走啲舊嘅先` });
+          await db.prepare(
+            "INSERT OR IGNORE INTO listing_favourites (account_id, estate_id, deal, ref_no, refs, snap, fav_price) VALUES (?,?,?,?,?,?,?)"
+          ).bind(session.account_id, estateId, deal, p.ref_no, JSON.stringify(found.map((f) => f.ref_no)), JSON.stringify(snap), p.price || null).run();
+          return json(200, { ok: true, refs: found.map((f) => f.ref_no) });
+        }
+        if (method === "DELETE" && path === "/api/favourite-listings") {
+          const ref = String(url.searchParams.get("ref") || ""), deal = dealOf(url.searchParams.get("deal"));
+          if (!/^[A-Za-z0-9_-]{3,40}$/.test(ref)) return json(400, { error: "參數唔啱" });
+          // ref 可以係收藏嗰張卡入面任何一個來源嘅 ref（合併卡）
+          await db.prepare(
+            "DELETE FROM listing_favourites WHERE account_id = ? AND deal = ? AND (ref_no = ? OR refs LIKE ?)"
+          ).bind(session.account_id, deal, ref, `%"${ref}"%`).run();
+          return json(200, { ok: true });
+        }
+        if (method === "GET" && path === "/api/favourite-listings") {
+          const { results: favs } = await db.prepare(
+            `SELECT f.id, f.estate_id, f.deal, f.ref_no, f.refs, f.snap, f.fav_price, f.created_at, e.name AS estate_name
+             FROM listing_favourites f LEFT JOIN estates e ON e.id = f.estate_id
+             WHERE f.account_id = ? ORDER BY f.created_at DESC, f.id DESC LIMIT 500`
+          ).bind(session.account_id).all();
+          const tbls = { S: "listings", R: "rental_listings" };
+          // 每個收藏每個 ref 攞最新一行（idx_*_estate_ref，逐個 seek，唔掃歷史）
+          const stmts = [], keys = [];
+          for (const f of favs) {
+            let refs = []; try { refs = JSON.parse(f.refs) || []; } catch (_) {}
+            for (const ref of refs.slice(0, 10)) {
+              stmts.push(db.prepare(
+                `SELECT ref_no, source, price, snapshot_date FROM ${tbls[f.deal] || "listings"} WHERE estate_id = ? AND ref_no = ? ORDER BY snapshot_date DESC LIMIT 1`
+              ).bind(f.estate_id, ref));
+              keys.push(f.id);
+            }
+          }
+          const latest = {};   // fav id → [{ref_no, source, price, snapshot_date}]
+          for (let i = 0; i < stmts.length; i += 50) {
+            const rs = await db.batch(stmts.slice(i, i + 50));
+            rs.forEach((r, j) => { const row = r.results?.[0]; if (row) (latest[keys[i + j]] = latest[keys[i + j]] || []).push(row); });
+          }
+          // 每個來源最新一次成功 sync 嘅日期：last_seen 早過佢＝下架
+          const out = [];
+          const srcDates = {};
+          for (const f of favs) {
+            const tbl = tbls[f.deal] || "listings";
+            for (const row of latest[f.id] || []) {
+              const k = `${tbl}|${f.estate_id}|${row.source}`;
+              if (!(k in srcDates)) {
+                srcDates[k] = (await db.prepare(`SELECT MAX(snapshot_date) AS d FROM ${tbl} WHERE estate_id = ? AND source = ?`).bind(f.estate_id, row.source).first())?.d || null;
+              }
+            }
+          }
+          for (const f of favs) {
+            const tbl = tbls[f.deal] || "listings";
+            let snap = {}; try { snap = JSON.parse(f.snap) || {}; } catch (_) {}
+            const live = (latest[f.id] || []).filter((r) => srcDates[`${tbl}|${f.estate_id}|${r.source}`] === r.snapshot_date);
+            const cur = live.length ? Math.min(...live.map((r) => r.price || 9e15)) : null;
+            out.push({
+              id: f.id, estate_id: f.estate_id, estate_name: f.estate_name || "", deal: f.deal, ref_no: f.ref_no,
+              fav_price: f.fav_price, created_at: f.created_at, snap,
+              active: live.length > 0, cur_price: cur && cur < 9e15 ? cur : null,
+              last_seen: (latest[f.id] || []).map((r) => r.snapshot_date).sort().pop() || null,
+            });
+          }
+          return json(200, { items: out });
+        }
+        return json(405, { error: "method not allowed" });
+      }
+
       // ── 睇樓記錄分享：建立／列出／取消（要登入）──
       if (path === "/api/shares" || /^\/api\/shares\/\d+$/.test(path)) {
         await ensureShares(db);
