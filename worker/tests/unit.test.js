@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { scrapeRicacorpListings, scrapeHkpListings, hsUnitParts, hsBlockKey, hsNameVariants, pickRotationEstates, apiRateKeys, rateLimited,
-  parsePublicSearch, PUB_AREAS, pubCacheKey, archiveVariants, centanetThumb, normCentanet, midlandThumb, normMidHkp, normRicacorp } from "../index.js";
+  parsePublicSearch, PUB_AREAS, pubCacheKey, archiveVariants, cleanShareOpts, shareViewingPayload, centanetThumb, normCentanet, midlandThumb, normMidHkp, normRicacorp } from "../index.js";
 import { readFileSync } from "node:fs";
 
 // ── Pure helpers extracted inline (no DB/fetch deps) ──────────────────────
@@ -589,5 +589,30 @@ describe("相片存檔 archiveVariants（只准白名單 host，用 CDN 參數�
     expect(archiveVariants("http://hkais.centanet.com/a.jpg")).toBeNull();
     expect(archiveVariants("javascript:alert(1)")).toBeNull();
     expect(archiveVariants("https://hkais.centanet.com.evil.com/a.jpg")).toBeNull();
+  });
+});
+
+describe("睇樓分享：只回白名單欄位，分析一律唔回", () => {
+  const v = { id: 7, estate_name: "昇悅居", deal_type: "S", view_date: "2026-08-29", block: "7", floor: "11", unit: "F",
+    size_net: 517, direction: "北", bedrooms: 2, toilet: "明廁", price: 8000000, mgmt_fee: 3.5, notes: "經紀 9123 4567",
+    ratings: JSON.stringify({ 11: 4, 12: 3, 99: 5 }), hs_price: 7570000, linked_ref_no: "M123", account_id: 1, dismissed_refs: "[]" };
+  it("opts 只認識四個 key，其他忽略", () => {
+    expect(cleanShareOpts({ photos: 1, notes: 0, evil: true })).toEqual({ photos: true, price: false, ratings: false, notes: false });
+  });
+  it("預設（冇 opts）：淨係基本資料，冇價錢／評分／備註／相", () => {
+    const p = shareViewingPayload(v, cleanShareOpts({}), {}, null, 0);
+    expect(p).toEqual({ id: 7, estate: "昇悅居", deal_type: "S", view_date: "2026-08-29", block: "7", floor: "11", unit: "F",
+      size_net: 517, direction: "北", bedrooms: 2, toilet: "明廁" });
+  });
+  it("全開：都唔會有分析欄位（hs_price／linked_ref_no／account_id）；評分只回有名嘅項目", () => {
+    const p = shareViewingPayload(v, cleanShareOpts({ photos: 1, price: 1, ratings: 1, notes: 1 }), { 11: "景觀", 12: "新舊程度" }, "data:image/jpeg;base64,xx", 6);
+    for (const k of ["hs_price", "linked_ref_no", "account_id", "dismissed_refs"]) expect(p).not.toHaveProperty(k);
+    expect(p.price).toBe(8000000);
+    expect(p.notes).toBe("經紀 9123 4567");
+    expect(p.ratings).toEqual([{ name: "景觀", value: 4 }, { name: "新舊程度", value: 3 }]);
+    expect(p.photo_count).toBe(6);
+  });
+  it("租盤唔回管理費", () => {
+    expect(shareViewingPayload({ ...v, deal_type: "R", price: 20000 }, cleanShareOpts({ price: 1 }), {}, null, 0).mgmt_fee).toBeNull();
   });
 });
