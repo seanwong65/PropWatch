@@ -1305,6 +1305,19 @@
     .dj-foot { display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; margin-top: 0.25rem; }
     .dj-foot .dj-more { margin: 0; }
     .dj-share-day { margin-left: auto; border: 1px solid var(--brand); background: var(--brand-soft); color: var(--brand); border-radius: 999px; padding: 0.15rem 0.7rem; font-size: 0.75rem; font-weight: 700; cursor: pointer; font-family: inherit; }
+    .lc-fav { position: absolute; top: 8px; right: 8px; z-index: 4; width: 34px; height: 34px; border-radius: 999px; border: 0; background: rgba(255,255,255,0.88); color: #6b7f93; font-size: 1.2rem; line-height: 1; cursor: pointer; box-shadow: 0 1px 6px rgba(15,28,46,0.25); display: grid; place-items: center; padding: 0; }
+    .lc-fav.on { color: #e11d48; }
+    .lc-fav:hover { transform: scale(1.08); }
+    .fav-card { display: flex; gap: 0.75rem; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 0.7rem; margin-bottom: 0.65rem; box-shadow: var(--shadow-sm); }
+    .fav-card.gone { opacity: 0.6; }
+    .fav-thumb { flex: 0 0 96px; height: 76px; border-radius: 10px; background: var(--surface2) center/cover no-repeat; display: grid; place-items: center; color: var(--muted); }
+    .fav-main { flex: 1; min-width: 0; font-size: 0.82rem; }
+    .fav-price { font-size: 1.1rem; font-weight: 800; color: var(--accent); }
+    .fav-actions { display: flex; flex-wrap: wrap; gap: 0.35rem; margin-top: 0.4rem; align-items: center; }
+    .fav-chip { font-size: 0.72rem; border-radius: 999px; padding: 1px 8px; background: var(--surface2); color: var(--muted); }
+    .fav-chip.down { background: color-mix(in srgb, var(--up) 15%, transparent); color: var(--up); }
+    .fav-chip.up { background: color-mix(in srgb, var(--down) 13%, transparent); color: var(--down); }
+    .fav-chip.gone { background: color-mix(in srgb, var(--down) 13%, transparent); color: var(--down); }
     .vw-arch:empty { display: none; }
     .vw-arch { margin: 0.15rem 0 0.45rem; }
     .arch-chip { font-size: 0.72rem; border-radius: 999px; padding: 1px 8px; white-space: nowrap; display: inline-block; }
@@ -2885,6 +2898,7 @@ async function showDashboard(estates) {
             <button id="dash-tab-comps" onclick="switchDashTab('comps')" style="background:none;border:none;border-bottom:2px solid var(--brand);margin-bottom:-2px;color:var(--text);font-weight:600;font-size:0.9rem;padding:0.35rem 0.85rem;cursor:pointer">睇樓日記</button>
             <button id="dash-tab-radar" hidden onclick="switchDashTab('radar')" style="display:none;background:none;border:none;border-bottom:2px solid transparent;margin-bottom:-2px;color:var(--muted);font-size:0.9rem;padding:0.35rem 0.85rem;cursor:pointer">💎 抵買雷達</button>
             <button id="dash-tab-friends" onclick="switchDashTab('friends')" style="background:none;border:none;border-bottom:2px solid transparent;margin-bottom:-2px;color:var(--muted);font-size:0.9rem;padding:0.35rem 0.85rem;cursor:pointer">👥 朋友屋企</button>
+            <button id="dash-tab-fav" onclick="switchDashTab('fav')" style="background:none;border:none;border-bottom:2px solid transparent;margin-bottom:-2px;color:var(--muted);font-size:0.9rem;padding:0.35rem 0.85rem;cursor:pointer">♥ 心儀樓盤</button>
             <button id="dash-tab-today" onclick="switchDashTab('today')" style="background:none;border:none;border-bottom:2px solid transparent;margin-bottom:-2px;color:var(--muted);font-size:0.9rem;padding:0.35rem 0.85rem;cursor:pointer">今日動態 <span id="highlights-date" style="font-weight:400;color:var(--muted);font-size:0.8rem"></span></button>
           </div>
           <div id="dash-tab-actions" style="display:flex;align-items:center;gap:0.5rem">
@@ -2896,6 +2910,7 @@ async function showDashboard(estates) {
         <div id="dash-panel-comps" style="display:none"><div id="comps-body" style="color:var(--muted);font-size:0.75rem">載入中…</div></div>
         <div id="dash-panel-radar" style="display:none"><div id="radar-body" style="color:var(--muted);font-size:0.75rem">載入中…</div></div>
         <div id="dash-panel-friends" style="display:none"><div id="friends-body" style="color:var(--muted);font-size:0.75rem">載入中…</div></div>
+        <div id="dash-panel-fav" style="display:none"><div id="fav-body" style="color:var(--muted);font-size:0.75rem">載入中…</div></div>
       </div>
     </div>
   `;
@@ -3042,7 +3057,7 @@ let _radarLoaded = false;
 let _friendsLoaded = false;
 let _todayLoaded = false;
 function switchDashTab(tab) {
-  const tabs = ['today', 'comps', 'radar', 'friends'];
+  const tabs = ['today', 'comps', 'radar', 'friends', 'fav'];
   for (const id of tabs) {
     const active = id === tab;
     const panel = document.getElementById('dash-panel-' + id);
@@ -3074,6 +3089,7 @@ function switchDashTab(tab) {
   // 抵買雷達 tab 暫時隱藏（每次載入食 D1 額度）；想恢復：拿走 #dash-tab-radar 嘅 hidden／display:none 同下面呢行嘅 `false &&`。
   if (false && tab === 'radar' && !_radarLoaded) { _radarLoaded = true; loadBargainRadar(); }
   if (tab === 'friends' && !_friendsLoaded) { _friendsLoaded = true; loadFriendHomes(); }
+  if (tab === 'fav') loadFavListings();   // 每次入嚟都重攞（價錢／下架狀態會變），數量少
 }
 
 async function loadBargainRadar() {
@@ -6039,6 +6055,7 @@ function renderRentalCards(el, rows, med) {
       : `<span class="lc-src" style="color:var(--muted)">${escHtml(sourceLabel(l.source))}</span>`;
     return `
     <div class="lc-card"${removed ? ' style="opacity:0.55"' : ''}>
+      ${favBtnHtml(refs, 'R')}
       <div class="lc-photo" data-refs="${escHtml(refs.join(','))}"${(l.thumbnail && l.source === 'centanet' && l.ref_no) ? ` data-owner="${escHtml(l.ref_no)}"` : ''} data-removed="${removed ? 1 : 0}">${img}${removed ? '<div class="lc-removed-overlay">已下架</div>' : ''}</div>
       <div class="lc-body">
         <div class="lc-price">$${l.price ? Math.round(l.price).toLocaleString() : '-'}<span class="lc-psf">/月</span></div>
@@ -6595,6 +6612,104 @@ async function revokeShare(id) {
   catch (e) { toast('取消失敗', 'error'); }
 }
 
+// ── 心儀樓盤（♡）──────────────────────────────────────────────
+// _favRefs：「S:ref／R:ref」（買／租 + 放盤 ref）。合併卡有幾個 ref，任何一個喺度就當收藏咗。
+let _favRefs = new Set();
+let _favItems = [];
+async function loadFavRefs() {
+  try { const { refs } = await api('/api/favourite-listings/refs'); _favRefs = new Set(refs || []); } catch (_) {}
+  document.querySelectorAll('.lc-fav').forEach(syncFavBtn);
+}
+function favBtnHtml(refs, deal) {
+  if (!refs || !refs.length) return '';
+  const on = refs.some(r => _favRefs.has(`${deal}:${r}`));
+  return `<button type="button" class="lc-fav${on ? ' on' : ''}" data-deal="${deal}" data-refs="${escHtml(refs.join(','))}" title="${on ? '取消心儀樓盤' : '加入心儀樓盤'}" aria-label="心儀樓盤" aria-pressed="${on}" onclick="event.stopPropagation();toggleFavListing(this)">${on ? '♥' : '♡'}</button>`;
+}
+function syncFavBtn(btn) {
+  const deal = btn.dataset.deal, refs = (btn.dataset.refs || '').split(',').filter(Boolean);
+  const on = refs.some(r => _favRefs.has(`${deal}:${r}`));
+  btn.classList.toggle('on', on);
+  btn.textContent = on ? '♥' : '♡';
+  btn.title = on ? '取消心儀樓盤' : '加入心儀樓盤';
+  btn.setAttribute('aria-pressed', on ? 'true' : 'false');
+}
+async function toggleFavListing(btn) {
+  const deal = btn.dataset.deal, refs = (btn.dataset.refs || '').split(',').filter(Boolean);
+  if (!refs.length || btn.disabled) return;
+  const on = refs.some(r => _favRefs.has(`${deal}:${r}`));
+  btn.disabled = true;
+  try {
+    if (on) {
+      for (const r of refs) await api(`/api/favourite-listings?ref=${encodeURIComponent(r)}&deal=${deal}`, { method: 'DELETE' });
+      refs.forEach(r => _favRefs.delete(`${deal}:${r}`));
+      toast('已移出心儀樓盤');
+    } else {
+      const r = await api('/api/favourite-listings', { method: 'POST', body: JSON.stringify({ estate_id: activeEstateId, deal, refs }) });
+      (r.refs || refs).forEach(x => _favRefs.add(`${deal}:${x}`));
+      toast('已加入心儀樓盤 ♥', 'success');
+    }
+  } catch (e) { toast(e.message || '操作失敗', 'error'); }
+  finally { btn.disabled = false; syncFavBtn(btn); }
+}
+async function loadFavListings() {
+  const body = document.getElementById('fav-body');
+  if (!body) return;
+  try {
+    const { items } = await api('/api/favourite-listings');
+    _favItems = items || [];
+    renderFavListings();
+  } catch (e) { body.innerHTML = `<span style="color:var(--down)">載入失敗：${escHtml(e.message || '')}</span>`; }
+}
+function renderFavListings() {
+  const body = document.getElementById('fav-body');
+  if (!body) return;
+  if (!_favItems.length) {
+    body.innerHTML = '<div class="dj-empty" style="padding:1.2rem 0.5rem;color:var(--muted);font-size:0.85rem;line-height:1.7">未有心儀樓盤。<br>喺屋苑頁嘅放盤卡右上角撳 ♡，就會收藏喺呢度，之後可以隨時回嚟睇價錢有冇變、有冇落架。</div>';
+    return;
+  }
+  const sorted = [..._favItems].sort((a, b) => (b.active - a.active) || String(b.created_at).localeCompare(String(a.created_at)));
+  const wan = (p) => `$${(Math.round(p / 1000) / 10).toLocaleString()}萬`;
+  body.innerHTML = sorted.map(f => {
+    const sn = f.snap || {};
+    const rent = f.deal === 'R';
+    const fmt = (p) => p ? (rent ? `$${Math.round(p).toLocaleString()}/月` : wan(p)) : '-';
+    const nowP = f.active ? f.cur_price : null;
+    let chg = '';
+    if (nowP && f.fav_price && Math.abs(nowP - f.fav_price) >= 1000) {
+      const d = nowP - f.fav_price, pct = (d / f.fav_price * 100).toFixed(1);
+      chg = `<span class="fav-chip ${d < 0 ? 'down' : 'up'}">${d < 0 ? '▼ 減' : '▲ 加'} ${rent ? '$' + Math.abs(Math.round(d)).toLocaleString() : wan(Math.abs(d))}（${Math.abs(pct)}%）自收藏</span>`;
+    }
+    const unit = [sn.building_name, sn.floor, sn.unit].filter(Boolean).join(' ');
+    const links = (sn.sources || []).filter(x => x.detail_url).map(x =>
+      `<a href="${safeUrl(x.detail_url)}" target="_blank" rel="noopener" class="detail-link lc-src" style="font-size:0.78rem">${escHtml(sourceLabel(x.source))}${x.price ? ' ' + (rent ? '$' + Math.round(x.price).toLocaleString() : wan(x.price)) : ''} ↗</a>`).join(' ');
+    const thumb = sn.thumbnail ? ` style="background-image:url('${safeImgSrc(sn.thumbnail)}')"` : '';
+    return `<div class="fav-card${f.active ? '' : ' gone'}">
+      <div class="fav-thumb"${thumb}>${sn.thumbnail ? '' : '🏠'}</div>
+      <div class="fav-main">
+        <div><button type="button" class="dj-detail-estate" style="border:0;cursor:pointer;font-family:inherit" onclick="showEstate(${Number(f.estate_id)})">${escHtml(f.estate_name || '屋苑')}</button></div>
+        <div style="font-weight:700;margin-top:0.2rem">${escHtml(unit || '-')}${rent ? ' <span class="fav-chip">租盤</span>' : ''}</div>
+        <div style="color:var(--muted)">${sn.bedrooms != null ? sn.bedrooms + '房' : ''}${sn.size_net ? ' · ' + Math.round(sn.size_net).toLocaleString() + '呎' : ''}${sn.direction ? ' · 座向' + escHtml(sn.direction) : ''}</div>
+        <div style="margin-top:0.25rem"><span class="fav-price">${f.active ? fmt(nowP) : fmt(f.fav_price)}</span>
+          ${f.active ? '' : '<span class="fav-chip gone">已下架' + (f.last_seen ? ' · 最後見到 ' + escHtml(String(f.last_seen).slice(0, 10)) : '') + '</span>'} ${chg}</div>
+        <div class="fav-actions">${links}
+          <button type="button" class="share-btn" style="padding:0.2rem 0.6rem;font-size:0.74rem" onclick="removeFavListing(${Number(f.id)})">♥ 移除</button>
+          <span style="font-size:0.7rem;color:var(--muted)">收藏於 ${escHtml(String(f.created_at || '').slice(0, 10))}${f.fav_price ? ' · 當時 ' + fmt(f.fav_price) : ''}</span></div>
+      </div>
+    </div>`;
+  }).join('');
+}
+async function removeFavListing(id) {
+  const f = _favItems.find(x => x.id === id);
+  if (!f) return;
+  try {
+    await api(`/api/favourite-listings?ref=${encodeURIComponent(f.ref_no)}&deal=${f.deal}`, { method: 'DELETE' });
+    _favItems = _favItems.filter(x => x.id !== id);
+    for (const k of [...(_favRefs)]) if (k === `${f.deal}:${f.ref_no}`) _favRefs.delete(k);
+    renderFavListings();
+    loadFavRefs();
+  } catch (e) { toast('移除失敗', 'error'); }
+}
+
 function getNotesOptions() {
   return _notesOptions;
 }
@@ -6870,6 +6985,7 @@ async function loadPreferences() {
 
 // login 成功／有現存 session 開 app 時 call：未設定過偏好（連 dismissed 都冇）就彈 popup
 async function checkFirstLoginPrefs() {
+  loadFavRefs();   // ♡ 狀態（唔 await）
   await loadPreferences();
   // 順路載埋「自己撳過邊啲盤」，令「睇過」標記 reload 之後照樣出得到。
   // 唔 await（同 prefs popup 冇關係），render 表嗰陣先用到。
@@ -9315,6 +9431,7 @@ function renderListingCards(el, displayRows) {
     const btns = manualBtn + lineBtn + histBtn + groupBtn;
     return `
     <div class="lc-card${l._combined ? ' lc-combined' : ''}"${removed ? ' style="opacity:0.55"' : ''}>
+      ${favBtnHtml(refs, 'S')}
       <div class="lc-photo" data-refs="${escHtml(refs.join(','))}"${(() => { const o = l._combined ? (l.thumb_src === 'centanet' ? l.thumb_ref : null) : ((l.thumbnail && l.source === 'centanet') ? l.ref_no : null); return o ? ` data-owner="${escHtml(o)}"` : ''; })()} data-removed="${removed ? 1 : 0}">${img}${removed ? '<div class="lc-removed-overlay">已下架</div>' : ''}</div>
       <div class="lc-body">
         <div class="lc-price">${price}<span class="lc-psf">${ppf}</span></div>
