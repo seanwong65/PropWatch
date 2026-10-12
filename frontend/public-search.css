@@ -97,3 +97,7 @@ button.ps-track { cursor: pointer; font-family: inherit; }
 .ps-recent-chip { color: var(--brand); border: 1px solid var(--border); background: var(--surface); border-radius: 999px; padding: 0.15rem 0.65rem; font-size: 0.82rem; cursor: pointer; font-family: inherit; }
 .ps-recent-chip:hover { border-color: var(--brand); }
 .ps-recent-clear { background: none; border: 0; color: var(--muted); font-size: 0.78rem; cursor: pointer; text-decoration: underline; font-family: inherit; padding: 0 0.3rem; }
+
+.ps-card { position: relative; }
+.ps-fav { position: absolute; top: 8px; right: 8px; z-index: 3; width: 34px; height: 34px; border-radius: 999px; border: 0; background: rgba(255,255,255,0.88); color: #6b7f93; font-size: 1.2rem; line-height: 1; cursor: pointer; box-shadow: 0 1px 6px rgba(15,28,46,0.25); display: grid; place-items: center; padding: 0; }
+.ps-fav.on { color: #e11d48; }

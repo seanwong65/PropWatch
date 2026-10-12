@@ -8476,7 +8476,7 @@ export default {
       // estate_id 唔傳＝攞全部屋苑（dashboard「睇過嘅盤」用）。之前前端要
       // 逐個屋苑打一次，14 個屋苑實測 8.5 秒；一個 request 拎晒快好多。
       // ── 心儀樓盤：收藏／取消／列表（要登入）──
-      if (path === "/api/favourite-listings" || path === "/api/favourite-listings/refs") {
+      if (path === "/api/favourite-listings" || path === "/api/favourite-listings/refs" || path === "/api/favourite-listings/external") {
         await ensureFavListings(db);
         const dealOf = (x) => (x === "R" ? "R" : "S");
         if (method === "GET" && path === "/api/favourite-listings/refs") {
@@ -8484,6 +8484,36 @@ export default {
           const refs = [];
           for (const r of results) { try { for (const x of JSON.parse(r.refs)) refs.push(`${r.deal}:${x}`); } catch (_) {} }
           return json(200, { refs });
+        }
+        // 搜尋結果（地產網即時放盤，唔喺我哋 DB）都可以收藏：快照由 client 傳，所以逐欄 sanitize + host 白名單；
+        // ref_no＝原網站詳情頁 URL（唯一鍵，亦係 heart 狀態嘅 key）；estate_id＝0 表示「搜尋結果」。
+        if (method === "POST" && path === "/api/favourite-listings/external") {
+          const body = await request.json().catch(() => ({}));
+          const deal = dealOf(body.deal), it = body.item || {};
+          const SRC_HOSTS = { centanet: "hk.centanet.com", midland: "www.midland.com.hk", hkp: "www.hkp.com.hk", ricacorp: "www.ricacorp.com" };
+          const IMG_HOSTS = ["hkais.centanet.com", "hkcdn.centanet.com", "hkvrdata.centanet.com", "res.midland.com.hk", "wm-cdn.midland.com.hk", "wm.hkp.com.hk", "wmc.hkp.com.hk", "resourcecdn.ricacorp.com"];
+          const src = String(it.src || "");
+          if (!SRC_HOSTS[src]) return json(400, { error: "參數唔啱" });
+          const link = pubUrl(it.url, [SRC_HOSTS[src]]);
+          if (!link || link.length > 500) return json(400, { error: "參數唔啱" });
+          const txt = (v, n) => (typeof v === "string" ? v.replace(/[\u0000-\u001f]/g, " ").trim().slice(0, n) || null : null);
+          const num = (v) => (Number.isFinite(Number(v)) && Number(v) > 0 && Number(v) < 1e10 ? Math.round(Number(v)) : null);
+          const price = num(it.price);
+          const snap = {
+            external: true, src,
+            estate_name: txt(it.estate, 60), building_name: txt(it.title, 80), floor: txt(it.floor, 20), unit: null,
+            district: txt(it.district, 30), bedrooms: Number.isInteger(Number(it.beds)) ? Math.max(0, Math.min(20, Number(it.beds))) : null,
+            size_net: num(it.size), price, price_per_ft: num(it.psf), publish_date: txt(it.date, 12),
+            thumbnail: pubUrl(it.img, IMG_HOSTS),
+            sources: [{ source: src, ref_no: link, price, detail_url: link }],
+          };
+          const sec = await getSecCfg(db);
+          const cnt = await db.prepare("SELECT COUNT(*) AS c FROM listing_favourites WHERE account_id = ?").bind(session.account_id).first();
+          if ((cnt?.c || 0) >= sec.sec_fav_listings_max) return json(400, { error: `心儀樓盤最多 ${sec.sec_fav_listings_max} 個，剔走啲舊嘅先` });
+          await db.prepare(
+            "INSERT OR IGNORE INTO listing_favourites (account_id, estate_id, deal, ref_no, refs, snap, fav_price) VALUES (?,?,?,?,?,?,?)"
+          ).bind(session.account_id, 0, deal, link, JSON.stringify([link]), JSON.stringify(snap), price).run();
+          return json(200, { ok: true, ref: link });
         }
         if (method === "POST" && path === "/api/favourite-listings") {
           const body = await request.json().catch(() => ({}));
@@ -8521,11 +8551,16 @@ export default {
         }
         if (method === "DELETE" && path === "/api/favourite-listings") {
           const ref = String(url.searchParams.get("ref") || ""), deal = dealOf(url.searchParams.get("deal"));
-          if (!/^[A-Za-z0-9_-]{3,40}$/.test(ref)) return json(400, { error: "參數唔啱" });
+          // ref：一般放盤 ref，或者搜尋結果收藏嘅原網站 URL（https，≤500 字）
+          if (!(/^[A-Za-z0-9_-]{3,40}$/.test(ref) || (ref.length <= 500 && /^https:\/\/[^\s"]+$/.test(ref)))) return json(400, { error: "參數唔啱" });
           // ref 可以係收藏嗰張卡入面任何一個來源嘅 ref（合併卡）
-          await db.prepare(
-            "DELETE FROM listing_favourites WHERE account_id = ? AND deal = ? AND (ref_no = ? OR refs LIKE ?)"
-          ).bind(session.account_id, deal, ref, `%"${ref}"%`).run();
+          if (ref.startsWith("https://")) {   // 搜尋結果收藏：URL 精確配對（唔用 LIKE，URL 入面可以有 % _ ）
+            await db.prepare("DELETE FROM listing_favourites WHERE account_id = ? AND deal = ? AND ref_no = ?").bind(session.account_id, deal, ref).run();
+          } else {
+            await db.prepare(
+              "DELETE FROM listing_favourites WHERE account_id = ? AND deal = ? AND (ref_no = ? OR refs LIKE ?)"
+            ).bind(session.account_id, deal, ref, `%"${ref}"%`).run();
+          }
           return json(200, { ok: true });
         }
         if (method === "GET" && path === "/api/favourite-listings") {
@@ -8555,6 +8590,7 @@ export default {
           const out = [];
           const srcDates = {};
           for (const f of favs) {
+            if (!f.estate_id) continue;
             const tbl = tbls[f.deal] || "listings";
             for (const row of latest[f.id] || []) {
               const k = `${tbl}|${f.estate_id}|${row.source}`;
@@ -8566,6 +8602,11 @@ export default {
           for (const f of favs) {
             const tbl = tbls[f.deal] || "listings";
             let snap = {}; try { snap = JSON.parse(f.snap) || {}; } catch (_) {}
+            if (!f.estate_id) {   // 搜尋結果收藏：冇我哋 DB 數據，唔判斷下架，淨係顯示收藏時嘅快照 + 原網站連結
+              out.push({ id: f.id, estate_id: 0, estate_name: snap.estate_name || "", deal: f.deal, ref_no: f.ref_no,
+                fav_price: f.fav_price, created_at: f.created_at, snap, external: true, active: true, cur_price: null, last_seen: null });
+              continue;
+            }
             const live = (latest[f.id] || []).filter((r) => srcDates[`${tbl}|${f.estate_id}|${r.source}`] === r.snapshot_date);
             const cur = live.length ? Math.min(...live.map((r) => r.price || 9e15)) : null;
             out.push({
