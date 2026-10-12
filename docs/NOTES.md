@@ -120,6 +120,20 @@ HKP 行 `search/v1`、美聯行 `search/v2`）。實測分別：
   - 前端 `<select>`（search.html／index.html）＋ `public-search.js` 嘅 `AREAS` 要同 worker 對得上。
 - 未做：跨網同一單位合併、「有歷史記錄」標記。
 
+## 睇樓記錄分享（2026-10-12）
+
+用戶將自己嘅睇樓記錄分享俾人睇，對方唔使登入：`/share#<token>`（`frontend/share.html`）。
+- 入口：睇樓記錄卡 📤（單個）；睇樓日記日期卡「📤 分享今日睇樓日記」（嗰日 ≥2 個盤先出）。
+- 分享視窗揀 opts：相片／價錢／評分（預設開）、備註（預設關）。建立後：複製連結、WhatsApp（wa.me）、
+  複製文字（`_shareText`）、更多（`navigator.share`）。改 opts 要重新建立（伺服器按 opts 回欄位）；
+  同一組記錄＋opts 重覆建立會用返舊連結。
+- **永久有效**直到用戶喺 ⚙️ 設定「我分享過嘅連結」取消（`revoked_at`）；**實時**（改記錄對方見新，刪記錄即消失）。
+  唔記開過幾多次（用戶決定，慳 D1 寫入）。免費／收費一樣，上限 `sec_share_max_links`（500，防濫用）。
+- 表：`viewing_shares`（account_id, token UNIQUE, kind viewing|day, label, viewing_ids JSON, opts JSON, revoked_at）。
+- API：登入 `GET/POST /api/shares`、`DELETE /api/shares/:id`；公開 `POST /api/public/share {t}`、
+  `POST /api/public/share/photos {t, viewing_id}`（相撳先載，唔一次過回幾 MB）。規矩見 CLAUDE.md。
+- 欄位白名單 `shareViewingPayload()`（有 unit test 守住唔會回 hs_price／linked_ref_no 等分析欄位）。
+
 ## 對應放盤相片存檔（收費版，2026-10-11）
 
 睇樓記錄撳 ✓ 確認對應放盤 → 背景將個盤嘅相存落 **R2**（`env.PHOTOS`），代理落咗架都睇得返。

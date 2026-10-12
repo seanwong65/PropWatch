@@ -9,8 +9,8 @@ XSS/HTML injection、API 被人狂抽數據去做類似嘅系統。**每個新 f
 
 1. **新 endpoint 一律放喺 auth guard 後面**（`const session = await authenticate(...)` 之後）。
    唯一例外係 `/api/login`、`/api/logout`、`/api/register`、`/api/stripe-webhook`、
-   `/api/unsubscribe`，同埋公開「讀第三方」嘅 `GET /api/public/search`（見下）
-   — 唔准再加新嘅公開 route。
+   `/api/unsubscribe`，同埋公開「讀第三方」嘅 `GET /api/public/search`、睇樓分享頁嘅
+   `POST /api/public/share`（＋`/photos`）（見下）— 唔准再加新嘅公開 route。
    如果某功能「好似」要公開（例如 debug、email trigger），都要行 auth：
    之前 `/api/send-today-email` 同 `/api/debug-ricacorp-pages` 公開過，係漏洞，已搬入 guard 內。
 
@@ -49,6 +49,15 @@ XSS/HTML injection、API 被人狂抽數據去做類似嘅系統。**每個新 f
      記憶體 10 分鐘 + Cache API 5 分鐘（淨係自訂域名 `api.ws-techs.com` 有效，workers.dev 冇，
      所以 `/search` 頁喺正式站打 `api.ws-techs.com`）；被地產網封就喺 settings 寫
      `public_search_off = "1"` 即刻停。
+   `POST /api/public/share`（＋`/api/public/share/photos`，2026-10-12 用戶批准）：用戶主動分享
+   **自己**嘅睇樓記錄俾人睇（`/share#<token>`），係唯一一個會回帳戶數據嘅公開 route。硬規矩：
+   - **驗身靠 256-bit 隨機 token**（`randomToken()`），格式唔啱即 400；冇／已取消一律 404 同一句（唔分得出邊個存在）。
+   - token 放 URL `#` 後面、用 **POST body** 傳（唔入 server log／Referer）。
+   - **只回該 token 指定嘅 viewing_ids**，而且一定 `account_id = 分享者`；欄位**白名單**
+     （`shareViewingPayload`）＋用戶揀咗嘅 opts（相片／價錢／評分／備註）。**我哋嘅分析一律唔回**
+     （hs_price、linked_ref_no、成交／叫價中位、對應放盤、存檔地產網相…）。加欄位前要諗清楚。
+   - 用戶可以喺 ⚙️ 設定取消（`revoked_at`）；刪記錄即消失。每 IP `sec_share_rpm` 限速；
+     每帳戶 `sec_share_max_links` 上限（防濫用，唔分 tier）。分享頁 noindex。
 2. **CORS 係 allow-list**（`isAllowedOrigin()` / `applyCors()`，喺 fetch 出口統一 reflect）。
    加新 origin 前要諗清楚；唔准改返做 `*`。
 3. **安全數字參數用全局 `sec_*` settings key + code default**（`SEC_DEFAULTS`）。

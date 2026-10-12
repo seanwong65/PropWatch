@@ -603,6 +603,10 @@ const SEC_DEFS = [
   { key: "sec_public_search_rpm", def: 20, min: 5, max: 600, label: "公開搜尋：每個 IP 每分鐘幾多次",
     desc: "未登入首頁／search 頁搜尋地產網：每個 IP、每個網站每分鐘上限。每次搜尋即時問地產網，"
         + "太鬆會令我哋問地產網嘅次數暴增（有被佢哋限流、連累每日 sync 嘅風險）。" },
+  { key: "sec_share_max_links", def: 500, min: 1, max: 100000, label: "睇樓分享：每個帳戶最多幾多條有效連結",
+    desc: "免費同收費一樣（2026-10 用戶決定暫時唔分 tier）。純粹防濫用嘅安全上限，正常用唔會撞到。" },
+  { key: "sec_share_rpm", def: 60, min: 10, max: 600, label: "睇樓分享頁：每個 IP 每分鐘幾多次",
+    desc: "未登入嘅人開分享連結（/share）嘅速率上限，防止有人用嚟狂試 token 或者洗 D1 讀取。" },
   { key: "sec_auth_rpm", def: 10, min: 3, max: 120, label: "登入／註冊每分鐘上限",
     desc: "login/register/忘記密碼：每個 IP 每分鐘試嘅次數，擋暴力試密碼。" },
   { key: "sec_free_max_estates", def: 3, min: 1, max: 50, label: "免費版：最多追蹤屋苑",
@@ -890,6 +894,50 @@ const isAdminSession = (session) => (session?.role || "user") === "admin";
 // 歷史(放盤日數/改價/下架/趨勢)同主動推送(email/alert)先收費。
 // admin 永遠當 paid(方便自己用同測試)。
 const isPaidSession = (session) => isAdminSession(session) || (session?.tier || "free") === "paid";
+// ── 睇樓記錄分享（2026-10-12）─────────────────────────────────────────
+// 用戶將自己嘅睇樓記錄（1 個，或者同一日幾個）分享俾人睇：一條 /share#<token> 連結，對方唔使登入。
+// 只回用戶自己入嘅欄位（白名單 SHARE_FIELDS + 選咗嘅 opts），我哋嘅分析一律唔回。
+// 實時（改記錄對方見到新嘢；刪記錄就消失），永久有效直到用戶取消（revoked_at）。
+// token：randomToken() 256-bit；前端放喺 URL # 後面（唔入 server log／Referer），用 POST body 傳。
+async function ensureShares(db) {
+  await db.prepare(`CREATE TABLE IF NOT EXISTS viewing_shares (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    account_id INTEGER NOT NULL,
+    token TEXT NOT NULL UNIQUE,
+    kind TEXT NOT NULL,
+    label TEXT,
+    viewing_ids TEXT NOT NULL,
+    opts TEXT,
+    created_at TEXT DEFAULT (datetime('now')),
+    revoked_at TEXT
+  )`).run();
+  await db.prepare("CREATE INDEX IF NOT EXISTS idx_vshare_acct ON viewing_shares(account_id, revoked_at)").run();
+}
+const SHARE_OPTS = ["photos", "price", "ratings", "notes"];
+export function cleanShareOpts(o) {
+  const out = {};
+  for (const k of SHARE_OPTS) out[k] = !!(o && o[k]);
+  return out;
+}
+// 分享頁用嘅欄位（永遠回）＋ opts 開咗先回嘅欄位。任何分析欄位（hs_price、linked_ref_no…）都唔喺度。
+export function shareViewingPayload(v, opts, ratingNames, cover, imgCount) {
+  const out = {
+    id: v.id, estate: v.estate_name || "", deal_type: v.deal_type === "R" ? "R" : "S", view_date: v.view_date || null,
+    block: v.block || "", floor: v.floor || "", unit: v.unit || "",
+    size_net: v.size_net || null, direction: v.direction || null, bedrooms: v.bedrooms ?? null, toilet: v.toilet || null,
+  };
+  if (opts.price) { out.price = v.price || null; out.mgmt_fee = v.deal_type === "R" ? null : (v.mgmt_fee || null); }
+  if (opts.ratings) {
+    let r = {}; try { r = JSON.parse(v.ratings || "{}") || {}; } catch (_) { r = {}; }
+    out.ratings = Object.entries(r)
+      .filter(([id, val]) => ratingNames[id] && Number(val) > 0)
+      .map(([id, val]) => ({ name: ratingNames[id], value: Math.max(0, Math.min(5, Number(val))) }));
+  }
+  if (opts.notes) out.notes = v.notes || null;
+  if (opts.photos) { out.photo_count = imgCount || 0; out.cover = cover || null; }
+  return out;
+}
+
 // ── 對應放盤相片存檔（2026-10-11，收費版）─────────────────────────────
 // 用戶撳 ✓ 確認「呢個盤就係我睇嗰個單位」，就將個盤嘅相存落 R2（env.PHOTOS），
 // 代理落咗架都睇得返。D1 淨係記索引（listing_photo_archive），相本身唔入 D1
@@ -6445,6 +6493,68 @@ export default {
         }
       }
 
+      // ── 睇樓分享頁（公開讀取，2026-10-12 用戶批准；規矩見 CLAUDE.md）──
+      // POST body {t}（token 唔放 URL）；只讀「呢條連結指定嘅記錄」＋白名單欄位；冇／取消咗一律 404 同一句。
+      if (method === "POST" && (path === "/api/public/share" || path === "/api/public/share/photos")) {
+        if (rateLimited(`share:${clientIp}`, sec.sec_share_rpm)) return json(429, { error: "太頻密，請一分鐘後再試" });
+        const body = await request.json().catch(() => ({}));
+        const t = String(body.t || "");
+        if (!/^[0-9a-f]{64}$/.test(t)) return json(400, { error: "連結唔啱" });
+        const gone = () => json(404, { error: "呢個分享已經取消，或者連結唔存在" });
+        let sh;
+        try { sh = await db.prepare("SELECT * FROM viewing_shares WHERE token = ? AND revoked_at IS NULL").bind(t).first(); }
+        catch (_) { return gone(); }   // 表都未有
+        if (!sh) return gone();
+        let ids = [];
+        try { ids = (JSON.parse(sh.viewing_ids) || []).map(Number).filter((n) => Number.isInteger(n) && n > 0).slice(0, 50); } catch (_) {}
+        if (!ids.length) return gone();
+        let opts = {}; try { opts = cleanShareOpts(JSON.parse(sh.opts || "{}")); } catch (_) { opts = cleanShareOpts({}); }
+        const ph = ids.map(() => "?").join(",");
+
+        if (path === "/api/public/share/photos") {
+          const vid = Number(body.viewing_id);
+          if (!opts.photos || !ids.includes(vid)) return gone();
+          await ensureViewingImages(db);
+          const own = await db.prepare("SELECT images FROM viewings WHERE id = ? AND account_id = ?").bind(vid, sh.account_id).first();
+          if (!own) return gone();
+          const { results } = await db.prepare("SELECT data FROM viewing_images WHERE viewing_id = ? AND account_id = ? ORDER BY seq")
+            .bind(vid, sh.account_id).all();
+          let images = results.map((r) => r.data);
+          if (!images.length && own.images) { try { images = JSON.parse(own.images) || []; } catch (_) {} }
+          return json(200, { images: images.filter((d) => typeof d === "string" && /^data:image\//.test(d)) });
+        }
+
+        const { results: rows } = await db.prepare(
+          `SELECT v.*, e.name AS estate_name FROM viewings v LEFT JOIN estates e ON e.id = v.estate_id
+           WHERE v.account_id = ? AND v.id IN (${ph}) ORDER BY v.view_date, v.created_at`
+        ).bind(sh.account_id, ...ids).all();
+        if (!rows.length) return gone();
+        let ratingNames = {};
+        if (opts.ratings) {
+          const rIds = [...new Set(rows.flatMap((v) => { try { return Object.keys(JSON.parse(v.ratings || "{}") || {}); } catch (_) { return []; } }))]
+            .map(Number).filter((n) => Number.isInteger(n) && n > 0).slice(0, 100);
+          if (rIds.length) {
+            const { results: rn } = await db.prepare(
+              `SELECT id, value FROM system_parameters WHERE account_id = ? AND id IN (${rIds.map(() => "?").join(",")})`
+            ).bind(sh.account_id, ...rIds).all();
+            for (const r of rn) ratingNames[r.id] = r.value;
+          }
+        }
+        const covers = {}, counts = {};
+        if (opts.photos) {
+          await ensureViewingImages(db);
+          const { results: cs } = await db.prepare(
+            `SELECT viewing_id, COUNT(*) AS n, MAX(CASE WHEN seq = 0 THEN thumb END) AS thumb
+             FROM viewing_images WHERE account_id = ? AND viewing_id IN (${ph}) GROUP BY viewing_id`
+          ).bind(sh.account_id, ...ids).all();
+          for (const c of cs) { counts[c.viewing_id] = c.n; covers[c.viewing_id] = typeof c.thumb === "string" && /^data:image\//.test(c.thumb) ? c.thumb : null; }
+        }
+        return json(200, {
+          kind: sh.kind, created_at: sh.created_at, opts,
+          items: rows.map((v) => shareViewingPayload(v, opts, ratingNames, covers[v.id], counts[v.id])),
+        });
+      }
+
       await ensureAuthTables(db);
       await ensureSourceColumns(db);
       await ensureMultiAccount(db);
@@ -8344,6 +8454,57 @@ export default {
       // Viewings
       // estate_id 唔傳＝攞全部屋苑（dashboard「睇過嘅盤」用）。之前前端要
       // 逐個屋苑打一次，14 個屋苑實測 8.5 秒；一個 request 拎晒快好多。
+      // ── 睇樓記錄分享：建立／列出／取消（要登入）──
+      if (path === "/api/shares" || /^\/api\/shares\/\d+$/.test(path)) {
+        await ensureShares(db);
+        if (method === "GET" && path === "/api/shares") {
+          const { results } = await db.prepare(
+            "SELECT id, token, kind, label, viewing_ids, opts, created_at FROM viewing_shares WHERE account_id = ? AND revoked_at IS NULL ORDER BY id DESC LIMIT 500"
+          ).bind(session.account_id).all();
+          return json(200, { shares: results });
+        }
+        if (method === "POST" && path === "/api/shares") {
+          const body = await request.json().catch(() => ({}));
+          const ids = [...new Set((Array.isArray(body.viewing_ids) ? body.viewing_ids : []).map(Number))]
+            .filter((n) => Number.isInteger(n) && n > 0).slice(0, 50);
+          if (!ids.length) return json(400, { error: "冇揀睇樓記錄" });
+          const kind = body.kind === "day" ? "day" : "viewing";
+          const opts = cleanShareOpts(body.opts);
+          const ph = ids.map(() => "?").join(",");
+          const { results: rows } = await db.prepare(
+            `SELECT v.id, v.view_date, v.block, v.floor, v.unit, e.name AS estate_name FROM viewings v LEFT JOIN estates e ON e.id = v.estate_id
+             WHERE v.account_id = ? AND v.id IN (${ph}) ORDER BY v.view_date, v.created_at`
+          ).bind(session.account_id, ...ids).all();
+          if (rows.length !== ids.length) return json(404, { error: "搵唔到呢個睇樓記錄" });
+          const idsJson = JSON.stringify(rows.map((r) => r.id));
+          const optsJson = JSON.stringify(opts);
+          // 同一組記錄＋同一組選項已經有有效連結，就用返嗰條（唔好一撳一條，清單塞滿）
+          const dup = await db.prepare(
+            "SELECT id, token FROM viewing_shares WHERE account_id = ? AND revoked_at IS NULL AND viewing_ids = ? AND opts = ? LIMIT 1"
+          ).bind(session.account_id, idsJson, optsJson).first();
+          if (dup) return json(200, { id: dup.id, token: dup.token, reused: true });
+          const sec = await getSecCfg(db);
+          const cnt = await db.prepare("SELECT COUNT(*) AS c FROM viewing_shares WHERE account_id = ? AND revoked_at IS NULL")
+            .bind(session.account_id).first();
+          if ((cnt?.c || 0) >= sec.sec_share_max_links) return json(400, { error: `最多同時 ${sec.sec_share_max_links} 條分享連結，取消啲舊嘅先` });
+          const unitOf = (r) => [r.block && `${r.block}${/座$/.test(r.block) ? "" : "座"}`, r.floor && `${r.floor}${/[樓層]$/.test(r.floor) ? "" : "樓"}`, r.unit && `${r.unit}${/[室號]$/.test(r.unit) ? "" : "室"}`].filter(Boolean).join(" ");
+          const label = (kind === "day"
+            ? `${rows[0].view_date || ""} 睇樓日記（${rows.length} 個盤）`
+            : `${rows[0].estate_name || ""} ${unitOf(rows[0])}`).trim().slice(0, 80);
+          const token = randomToken();
+          const res = await db.prepare(
+            "INSERT INTO viewing_shares (account_id, token, kind, label, viewing_ids, opts) VALUES (?,?,?,?,?,?)"
+          ).bind(session.account_id, token, kind, label, idsJson, optsJson).run();
+          return json(200, { id: res.meta.last_row_id, token });
+        }
+        if (method === "DELETE" && /^\/api\/shares\/\d+$/.test(path)) {
+          await db.prepare("UPDATE viewing_shares SET revoked_at = datetime('now') WHERE id = ? AND account_id = ? AND revoked_at IS NULL")
+            .bind(Number(path.split("/")[3]), session.account_id).run();
+          return json(200, { ok: true });
+        }
+        return json(405, { error: "method not allowed" });
+      }
+
       // ── 對應放盤相片存檔 ──（要擺喺下面 /api/viewings/ 通用 PUT/PATCH/DELETE 之前）
       {
         const am = path.match(/^\/api\/viewings\/(\d+)\/(archive-photos|archived-photos)$/);

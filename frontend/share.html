@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="zh-HK" data-theme="light">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <title>睇樓記錄分享 — 搵樓日記</title>
+  <meta name="robots" content="noindex, nofollow">
+  <meta name="description" content="搵樓日記用戶分享嘅睇樓記錄。">
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="搵樓日記">
+  <meta property="og:title" content="睇樓記錄分享">
+  <meta property="og:description" content="撳入嚟睇佢睇過嘅樓：價錢、呎數、評分同相片。">
+  <meta property="og:image" content="https://home.ws-techs.com/images/hero-1-overview.jpg">
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <meta name="theme-color" content="#1270ac">
+  <link rel="stylesheet" href="/site.css">
+  <style>
+    /* 分享頁：對方唔使登入。資料全部由 POST /api/public/share 攞（token 喺 URL # 後面，唔入 server log）。
+       ⚙️ 只顯示用戶自己入嘅嘢；我哋嘅分析 worker 根本唔會回。 */
+    .sh-wrap { max-width: 640px; margin: 0 auto; padding: 1rem 1rem 3rem; }
+    .sh-h { font-size: 1.3rem; font-weight: 800; margin: 0.4rem 0 0.15rem; }
+    .sh-sub { font-size: 0.85rem; color: var(--muted); margin: 0 0 1rem; }
+    .sv { background: var(--surface); border: 1px solid var(--border); border-radius: 16px; padding: 1rem 1.05rem; margin-bottom: 0.9rem; box-shadow: 0 2px 10px rgba(30,90,140,0.08); }
+    .estate-pill { display: inline-block; color: var(--brand); background: color-mix(in srgb, var(--brand) 10%, transparent); border-left: 4px solid var(--brand); border-radius: 0 999px 999px 0; padding: 3px 11px 3px 9px; font-weight: 700; font-size: 0.95rem; }
+    .unit { font-weight: 800; font-size: 1.05rem; margin: 0.45rem 0 0.1rem; }
+    .meta { font-size: 0.82rem; color: var(--muted); }
+    .facts { display: flex; flex-wrap: wrap; gap: 6px; margin: 0.55rem 0; }
+    .facts span { background: var(--surface2); border-radius: 999px; padding: 2px 10px; font-size: 0.8rem; }
+    .price { font-size: 1.35rem; font-weight: 800; color: #b45309; }
+    .price small { font-size: 0.8rem; color: var(--muted); font-weight: 600; margin-left: 6px; }
+    .stars { font-size: 0.85rem; display: grid; grid-template-columns: auto 1fr; gap: 3px 12px; margin-top: 0.55rem; }
+    .stars i { font-style: normal; color: #f5b301; letter-spacing: 1px; }
+    .stars i b { color: var(--border-strong); font-weight: 400; }
+    .cover { display: block; width: 100%; aspect-ratio: 4 / 3; object-fit: cover; border-radius: 12px; margin-top: 0.7rem; cursor: zoom-in; background: var(--surface2); border: 0; padding: 0; }
+    .ph-btn { margin-top: 0.5rem; border: 1px solid var(--border-strong); background: var(--surface2); color: var(--text); border-radius: 999px; padding: 0.35rem 0.85rem; font-size: 0.84rem; cursor: pointer; font-family: inherit; }
+    .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 5px; margin-top: 0.6rem; }
+    .grid img { width: 100%; aspect-ratio: 1; object-fit: cover; border-radius: 8px; cursor: zoom-in; }
+    .notes { margin-top: 0.6rem; font-size: 0.86rem; background: var(--surface2); border-radius: 10px; padding: 0.5rem 0.7rem; white-space: pre-wrap; overflow-wrap: anywhere; }
+    .cta { text-align: center; background: var(--brand-soft); border-radius: 14px; padding: 1rem; font-size: 0.9rem; margin-top: 1rem; }
+    .cta a { display: inline-block; margin-top: 0.5rem; background: var(--brand); color: var(--brand-ink); border-radius: 999px; padding: 0.5rem 1.1rem; font-weight: 700; text-decoration: none; }
+    .msg { text-align: center; color: var(--muted); padding: 2.5rem 1rem; }
+    .lb { position: fixed; inset: 0; background: rgba(8, 14, 22, 0.92); display: flex; align-items: center; justify-content: center; z-index: 50; }
+    .lb img { max-width: 96vw; max-height: 86vh; border-radius: 8px; }
+    .lb .x, .lb .nav { position: absolute; background: rgba(255,255,255,0.15); color: #fff; border: 0; border-radius: 999px; width: 42px; height: 42px; font-size: 1.3rem; cursor: pointer; }
+    .lb .x { top: 14px; right: 14px; }
+    .lb .prev { left: 10px; top: 50%; } .lb .next { right: 10px; top: 50%; }
+    .lb .cnt { position: absolute; bottom: 16px; left: 50%; transform: translateX(-50%); color: #fff; font-size: 0.85rem; }
+  </style>
+</head>
+<body>
+<header class="top">
+  <a class="top-logo" href="/">🏙️ 搵樓日記</a>
+</header>
+<main class="sh-wrap">
+  <div class="sh-h">睇樓記錄分享</div>
+  <div class="sh-sub" id="sub">載入緊…</div>
+  <div id="list"></div>
+  <div class="cta">想好似咁記低你自己睇過嘅樓？價錢、評分、相片一次過記晒。<br><a href="/">免費用搵樓日記 →</a></div>
+</main>
+<script>
+(function () {
+  // production 用自訂域名（同 /search 一樣）；本機打本機 worker；其他（test／preview）打 test worker
+  var API = location.hostname === "home.ws-techs.com" ? "https://api.ws-techs.com"
+    : (location.hostname === "localhost" || location.hostname === "127.0.0.1") ? "http://localhost:8787"
+    : "https://propwatch-worker-test.johnwong777.workers.dev";
+  var token = (location.hash || "").replace(/^#/, "");
+  var $ = function (id) { return document.getElementById(id); };
+  function esc(s) { return String(s == null ? "" : s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;"); }
+  function safeImg(u) { var s = String(u || ""); return /^data:image\//i.test(s) ? esc(s) : ""; }
+  function post(path, body) {
+    return fetch(API + path, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) })
+      .then(function (r) { return r.json().then(function (j) { if (!r.ok) throw new Error(j.error || "載入失敗"); return j; }); });
+  }
+  function fail(msg) { $("sub").textContent = ""; $("list").innerHTML = '<div class="msg">' + esc(msg) + "</div>"; }
+  if (!/^[0-9a-f]{64}$/.test(token)) { fail("連結唔完整，請叫分享嘅人再傳一次。"); return; }
+
+  var suf = function (v, re, u) { v = String(v || ""); return v && !re.test(v) ? v + u : v; };
+  function unitOf(v) { return [suf(v.block, /座$/, "座"), suf(v.floor, /[樓層]$/, "樓"), suf(v.unit, /[室號]$/, "室")].filter(Boolean).join(" "); }
+  function money(v) {
+    if (!v.price) return "";
+    if (v.deal_type === "R") return "$" + Number(v.price).toLocaleString("en-US") + "<small>/月</small>";
+    var psf = v.size_net ? "@$" + Math.round(v.price / v.size_net).toLocaleString("en-US") + "/呎" : "";
+    var mg = v.mgmt_fee ? (psf ? " · " : "") + "管理費 $" + esc(v.mgmt_fee) + "/呎" : "";
+    return "$" + (Math.round(v.price / 1000) / 10).toLocaleString("en-US") + "萬" + (psf || mg ? "<small>" + psf + mg + "</small>" : "");
+  }
+  function stars(n) { var f = Math.round(n), s = ""; for (var i = 1; i <= 5; i++) s += i <= f ? "★" : "<b>★</b>"; return s + ' <small style="color:var(--muted)">' + (Math.round(n * 2) / 2) + "</small>"; }
+
+  var photosCache = {};
+  function card(v) {
+    var facts = [v.size_net ? "實用 " + esc(v.size_net) + " 呎" : "", v.direction ? "向" + esc(v.direction) : "",
+      v.bedrooms != null && v.bedrooms !== "" ? esc(v.bedrooms) + " 房" : "", v.toilet ? esc(v.toilet) : ""].filter(Boolean);
+    var html = '<div class="sv" data-id="' + Number(v.id) + '">' +
+      '<span class="estate-pill">' + esc(v.estate || "（屋苑）") + "</span>" +
+      '<div class="unit">' + esc(unitOf(v)) + "</div>" +
+      '<div class="meta">' + (v.view_date ? "睇於 " + esc(v.view_date) + " · " : "") + (v.deal_type === "R" ? "🔑 租盤" : "🏠 買盤") + "</div>" +
+      (facts.length ? '<div class="facts"><span>' + facts.join("</span><span>") + "</span></div>" : "") +
+      ("price" in v && v.price ? '<div class="price">' + money(v) + "</div>" : "");
+    if (v.ratings && v.ratings.length) {
+      html += '<div class="stars">' + v.ratings.map(function (r) { return "<span>" + esc(r.name) + "</span><i>" + stars(r.value) + "</i>"; }).join("") + "</div>";
+    }
+    if (v.photo_count) {
+      html += v.cover ? '<button type="button" class="cover-wrap" style="border:0;padding:0;background:none;display:block;width:100%" data-ph="0"><img class="cover" src="' + safeImg(v.cover) + '" alt="封面"></button>' : "";
+      html += '<button type="button" class="ph-btn" data-load="1">📷 睇晒 ' + Number(v.photo_count) + " 張相</button><div class=\"grid\"></div>";
+    }
+    if (v.notes) html += '<div class="notes">📝 ' + esc(v.notes) + "</div>";
+    return html + "</div>";
+  }
+
+  function loadPhotos(box) {
+    var id = Number(box.dataset.id);
+    if (photosCache[id]) return Promise.resolve(photosCache[id]);
+    return post("/api/public/share/photos", { t: token, viewing_id: id }).then(function (j) { return (photosCache[id] = j.images || []); });
+  }
+  function lightbox(list, i) {
+    var ov = document.createElement("div"); ov.className = "lb";
+    var paint = function () { ov.querySelector("img").src = list[i]; ov.querySelector(".cnt").textContent = (i + 1) + " / " + list.length; };
+    ov.innerHTML = '<img alt=""><button class="x" aria-label="關閉">✕</button>' + (list.length > 1 ? '<button class="nav prev" aria-label="上一張">‹</button><button class="nav next" aria-label="下一張">›</button>' : "") + '<div class="cnt"></div>';
+    ov.addEventListener("click", function (e) {
+      if (e.target.classList.contains("prev")) { i = (i - 1 + list.length) % list.length; paint(); }
+      else if (e.target.classList.contains("next")) { i = (i + 1) % list.length; paint(); }
+      else if (e.target.tagName !== "IMG") ov.remove();
+    });
+    document.body.appendChild(ov); paint();
+  }
+  document.addEventListener("click", function (e) {
+    var box = e.target.closest(".sv"); if (!box) return;
+    var loadBtn = e.target.closest("[data-load]"), cov = e.target.closest("[data-ph]"), gi = e.target.closest(".grid img");
+    if (!loadBtn && !cov && !gi) return;
+    if (gi) { lightbox(photosCache[Number(box.dataset.id)] || [], Number(gi.dataset.i)); return; }
+    var btn = box.querySelector("[data-load]"); if (btn) { btn.disabled = true; btn.textContent = "載入緊…"; }
+    loadPhotos(box).then(function (list) {
+      var g = box.querySelector(".grid");
+      g.innerHTML = list.map(function (d, k) { return '<img src="' + safeImg(d) + '" alt="" data-i="' + k + '" loading="lazy">'; }).join("");
+      if (btn) btn.remove();
+      if (cov && list.length) lightbox(list, 0);
+    }).catch(function (err) { if (btn) { btn.disabled = false; btn.textContent = "載入失敗，再試"; } });
+  });
+
+  post("/api/public/share", { t: token }).then(function (j) {
+    var items = j.items || [];
+    $("sub").textContent = (j.kind === "day" && items[0] && items[0].view_date ? items[0].view_date + " 睇樓日記 · " : "") + items.length + " 個盤 · 由搵樓日記用戶分享";
+    $("list").innerHTML = items.map(card).join("");
+  }).catch(function (e) { fail(e.message || "載入失敗"); });
+})();
+</script>
+</body>
+</html>

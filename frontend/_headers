@@ -9,6 +9,10 @@
 /app
   X-Robots-Tag: noindex
 
+# 睇樓記錄分享頁：用戶私人分享，唔准搜尋器收錄（頁面本身都有 <meta name="robots">）
+/share
+  X-Robots-Tag: noindex
+
 # *.pages.dev 係 test 環境（propwatch.pages.dev）同 preview branch，內容同正式站一樣。
 # 唔 noindex 就會同 home.ws-techs.com 爭排名（duplicate content），仲會俾人喺
 # Google 撳入 test 版。正式站只有 home.ws-techs.com。

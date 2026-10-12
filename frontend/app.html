@@ -1296,6 +1296,13 @@
     .vw-kw-you { color: var(--accent); background: color-mix(in srgb, var(--accent) 14%, transparent); }
     .arch-unsure { white-space: nowrap; font-size: 0.75rem; background: none; border: 1px dashed var(--border-strong); color: var(--muted); border-radius: 4px; cursor: pointer; padding: 1px 5px; }
     .arch-unsure.on { border-style: solid; border-color: var(--accent); color: var(--accent); background: color-mix(in srgb, var(--accent) 12%, transparent); font-weight: 600; }
+    .share-opt { display: flex; align-items: center; gap: 0.5rem; padding: 0.45rem 0; border-bottom: 1px dashed var(--border); font-size: 0.88rem; cursor: pointer; }
+    .share-opt small { color: var(--muted); margin-left: auto; font-size: 0.72rem; text-align: right; }
+    .share-opt input { width: 17px; height: 17px; accent-color: var(--brand); flex-shrink: 0; }
+    .share-info { background: var(--surface2); border-radius: 10px; padding: 0.5rem 0.65rem; font-size: 0.76rem; color: var(--muted); margin: 0.75rem 0; line-height: 1.55; }
+    .share-btn { border: 1px solid var(--border-strong); background: var(--surface2); color: var(--text); border-radius: 10px; padding: 0.45rem 0.85rem; font-weight: 600; font-size: 0.84rem; cursor: pointer; font-family: inherit; }
+    .share-btn.wa { background: #25d366; color: #fff; border-color: #25d366; }
+    .dj-share-day { align-self: flex-start; margin-top: 0.3rem; border: 1px solid var(--brand); background: var(--brand-soft); color: var(--brand); border-radius: 999px; padding: 0.15rem 0.7rem; font-size: 0.75rem; font-weight: 700; cursor: pointer; font-family: inherit; }
     .vw-arch:empty { display: none; }
     .vw-arch { margin: 0.15rem 0 0.45rem; }
     .arch-chip { font-size: 0.72rem; border-radius: 999px; padding: 1px 8px; white-space: nowrap; display: inline-block; }
@@ -2059,6 +2066,9 @@
         </div>
         <button class="vf-submit" style="width:auto;padding:0.5rem 1rem;margin:0;white-space:nowrap" onclick="openPrefsModal(_userPrefs||{})">修改</button>
       </div>
+
+      <div class="modal-sub" style="margin-top:1.25rem">🔗 我分享過嘅連結</div>
+      <div id="settings-shares" style="font-size:0.82rem;margin-top:0.35rem;color:var(--muted)">載入中…</div>
     </div>
 
     <!-- ② 系統設定：影響成個系統嘅參數，admin 專用。
@@ -2114,6 +2124,33 @@
     <div class="modal-title" id="comp-modal-title" style="font-size:1rem"></div>
     <div class="modal-sub">參考成交(近 12 個月)</div>
     <div id="comp-modal-body" style="margin-top:0.5rem"></div>
+  </div>
+</div>
+
+<!-- 分享睇樓記錄（2026-10-12）：產生 /share#<token> 連結，對方唔使登入。只分享用戶自己入嘅嘢。 -->
+<div class="modal-overlay" id="shareModalOverlay" style="display:none" onclick="if(event.target===this)closeShareModal()">
+  <div class="modal" style="max-width:440px">
+    <button class="modal-close" onclick="closeShareModal()">✕</button>
+    <div class="modal-title">📤 分享睇樓記錄</div>
+    <div id="share-target" style="margin:0.35rem 0 0.9rem"></div>
+    <label class="vf-label">要包埋乜嘢</label>
+    <label class="share-opt"><input type="checkbox" id="sh-photos" checked onchange="shareOptsChanged()"> 📷 相片 <small>你自己影嘅相</small></label>
+    <label class="share-opt"><input type="checkbox" id="sh-price" checked onchange="shareOptsChanged()"> 💰 售價／租金、管理費</label>
+    <label class="share-opt"><input type="checkbox" id="sh-ratings" checked onchange="shareOptsChanged()"> ⭐ 評分</label>
+    <label class="share-opt"><input type="checkbox" id="sh-notes" onchange="shareOptsChanged()"> 📝 備註 <small>預設唔包：可能有經紀電話等私人嘢</small></label>
+    <div class="share-info">🔗 連結會<b>一直有效</b>，直到你喺 ⚙️ 設定「我分享過嘅連結」取消。你之後改記錄，對方會見到最新；刪除記錄，連結即時失效。我哋嘅分析（價格尺、中位數、估值、對應放盤）唔會分享出去。</div>
+    <div id="share-before"><button type="button" class="vf-submit" id="share-create-btn" onclick="createShare()">建立分享連結</button></div>
+    <div id="share-after" style="display:none">
+      <div style="display:flex;gap:0.4rem;margin-bottom:0.6rem">
+        <input class="vf-input" id="share-url" readonly style="margin:0;flex:1;min-width:0;font-size:0.8rem" onclick="this.select()">
+        <button type="button" class="vf-submit" style="width:auto;margin:0;padding:0.45rem 0.8rem;white-space:nowrap" onclick="copyShare('url')">複製連結</button>
+      </div>
+      <div style="display:flex;gap:0.4rem;flex-wrap:wrap">
+        <button type="button" class="share-btn wa" onclick="shareWhatsApp()">WhatsApp</button>
+        <button type="button" class="share-btn" onclick="copyShare('text')">複製文字</button>
+        <button type="button" class="share-btn" id="share-native" onclick="shareNative()">更多…</button>
+      </div>
+    </div>
   </div>
 </div>
 
@@ -3811,6 +3848,7 @@ function renderCompsPanel() {
           <div class="dj-right">
             <div class="dj-rows">${rowsHtml}</div>
             ${multi ? `<button type="button" class="dj-more" onclick="toggleCompsDateGroup(${gi})">${open ? '收起' : `另外 ${g.items.length - 3} 個…`}</button>` : ''}
+            ${g.items.length > 1 ? `<button type="button" class="dj-share-day" onclick="openShareForIds([${g.items.map(v => Number(v.id)).join(',')}],'day')">📤 分享今日睇樓日記</button>` : ''}
           </div>
         </div>
         <div class="dj-body">${detailsHtml}</div>
@@ -6444,6 +6482,115 @@ async function confirmViewingListing(viewingId, refNo) {
   }
 }
 
+// ── 分享睇樓記錄 ──────────────────────────────────────────────
+let _shareCtx = null;   // { items: [viewing], kind: 'viewing'|'day', url, opts }
+function _shareOptsNow() {
+  return { photos: document.getElementById('sh-photos').checked, price: document.getElementById('sh-price').checked,
+    ratings: document.getElementById('sh-ratings').checked, notes: document.getElementById('sh-notes').checked };
+}
+function _shareUnit(v) {
+  const suf = (x, re, u) => { x = String(x || ''); return x && !re.test(x) ? x + u : x; };
+  return [suf(v.block, /座$/, '座'), suf(v.floor, /[樓層]$/, '樓'), suf(v.unit, /[室號]$/, '室')].filter(Boolean).join(' ');
+}
+const _shareEstate = (v) => v.estate_name || estatesById?.[v.estate_id]?.name || _viewingEstateName || '';
+function openShareForIds(ids, kind) {
+  const pool = [...(_compsData || []), ...(_lastViewings || [])];
+  const items = ids.map(id => pool.find(v => v.id === id)).filter(Boolean);
+  if (items.length) openShareModal(items, kind);
+}
+function openShareModal(items, kind) {
+  _shareCtx = { items, kind, url: null };
+  const v0 = items[0];
+  document.getElementById('share-target').innerHTML = kind === 'day'
+    ? `<span class="dj-detail-estate">${escHtml(v0.view_date || '')} 睇樓日記</span> <span style="font-size:0.82rem;color:var(--muted)">${items.length} 個盤：${escHtml(items.map(v => `${_shareEstate(v)} ${_shareUnit(v)}`).join('、'))}</span>`
+    : `<span class="dj-detail-estate">${escHtml(_shareEstate(v0))}</span> <span style="font-size:0.82rem;color:var(--muted)">${escHtml(_shareUnit(v0))}${v0.view_date ? ' · ' + escHtml(v0.view_date) : ''}</span>`;
+  document.getElementById('sh-photos').checked = true;
+  document.getElementById('sh-price').checked = true;
+  document.getElementById('sh-ratings').checked = true;
+  document.getElementById('sh-notes').checked = false;
+  shareOptsChanged();
+  document.getElementById('share-native').style.display = navigator.share ? '' : 'none';
+  document.getElementById('shareModalOverlay').style.display = 'flex';
+}
+function closeShareModal() { document.getElementById('shareModalOverlay').style.display = 'none'; }
+// 改咗選項＝要另一條連結（伺服器按選項回欄位），所以返去「建立」狀態
+function shareOptsChanged() {
+  if (_shareCtx) _shareCtx.url = null;
+  document.getElementById('share-before').style.display = '';
+  document.getElementById('share-after').style.display = 'none';
+}
+async function createShare() {
+  if (!_shareCtx) return;
+  const btn = document.getElementById('share-create-btn');
+  btn.disabled = true; btn.textContent = '建立緊…';
+  try {
+    const opts = _shareOptsNow();
+    const r = await api('/api/shares', { method: 'POST', body: JSON.stringify({ viewing_ids: _shareCtx.items.map(v => v.id), kind: _shareCtx.kind, opts }) });
+    _shareCtx.url = `${location.origin}/share#${r.token}`;
+    _shareCtx.opts = opts;
+    document.getElementById('share-url').value = _shareCtx.url;
+    document.getElementById('share-before').style.display = 'none';
+    document.getElementById('share-after').style.display = '';
+    toast(r.reused ? '用返之前嗰條連結' : '已建立分享連結', 'success');
+  } catch (e) { toast('建立失敗：' + (e.message || ''), 'error'); }
+  finally { btn.disabled = false; btn.textContent = '建立分享連結'; }
+}
+// 「複製文字」：俾 WhatsApp 用嘅純文字摘要（同分享頁一樣只有用戶自己入嘅嘢）
+function _shareText() {
+  const o = _shareCtx.opts || _shareOptsNow();
+  const lines = [];
+  for (const v of _shareCtx.items) {
+    lines.push(`🏠 ${_shareEstate(v)} ${_shareUnit(v)}`.trim());
+    const facts = [v.view_date ? `睇於 ${v.view_date}` : '', v.size_net ? `實用 ${v.size_net} 呎` : '', v.direction ? `向${v.direction}` : '',
+      v.bedrooms ? `${v.bedrooms} 房` : '', v.toilet || ''].filter(Boolean);
+    if (facts.length) lines.push(facts.join(' · '));
+    if (o.price && v.price) lines.push(v.deal_type === 'R' ? `💰 月租 $${Number(v.price).toLocaleString()}`
+      : `💰 $${(Math.round(v.price / 1000) / 10).toLocaleString()}萬${v.mgmt_fee ? ` · 管理費 $${v.mgmt_fee}/呎` : ''}`);
+    if (o.ratings) {
+      let r = {}; try { r = typeof v.ratings === 'string' ? JSON.parse(v.ratings || '{}') : (v.ratings || {}); } catch (_) {}
+      const parts = (_ratingCriteria || []).filter(c => Number(r[c.id]) > 0).map(c => `${c.value} ${r[c.id]}`);
+      if (parts.length) lines.push('⭐ ' + parts.join(' · '));
+    }
+    if (o.notes && v.notes) lines.push('📝 ' + v.notes);
+    lines.push('');
+  }
+  lines.push(`${o.photos ? '📷 相片同詳情：' : '詳情：'}${_shareCtx.url}`);
+  lines.push('（由搵樓日記分享）');
+  return lines.join('\n');
+}
+async function copyShare(what) {
+  if (!_shareCtx?.url) return;
+  try { await navigator.clipboard.writeText(what === 'text' ? _shareText() : _shareCtx.url); toast(what === 'text' ? '已複製文字' : '已複製連結', 'success'); }
+  catch (_) { document.getElementById('share-url').select(); toast('請長按連結自己複製', 'error'); }
+}
+function shareWhatsApp() { if (_shareCtx?.url) window.open('https://wa.me/?text=' + encodeURIComponent(_shareText()), '_blank', 'noopener'); }
+async function shareNative() {
+  if (!_shareCtx?.url || !navigator.share) return;
+  try { await navigator.share({ title: '睇樓記錄分享', text: _shareText(), url: _shareCtx.url }); } catch (_) {}
+}
+// ⚙️ 設定：我分享過嘅連結（複製／取消）
+async function loadMyShares() {
+  const box = document.getElementById('settings-shares');
+  if (!box) return;
+  try {
+    const { shares } = await api('/api/shares');
+    if (!shares.length) { box.textContent = '未分享過。喺睇樓記錄卡撳 📤 就可以分享。'; return; }
+    box.innerHTML = shares.map(sh => `<div style="display:flex;align-items:center;gap:0.4rem;padding:0.4rem 0;border-bottom:1px solid var(--border)">
+        <div style="flex:1;min-width:0;color:var(--text)">${escHtml(sh.label || '睇樓記錄')}<br><span style="color:var(--muted);font-size:0.72rem">${escHtml(String(sh.created_at || '').slice(0, 10))}</span></div>
+        <button type="button" class="share-btn" style="padding:0.25rem 0.6rem;font-size:0.75rem" onclick="copyShareLink('${escJsAttr(sh.token)}')">複製</button>
+        <button type="button" class="share-btn" style="padding:0.25rem 0.6rem;font-size:0.75rem;color:var(--down)" onclick="revokeShare(${Number(sh.id)})">取消分享</button>
+      </div>`).join('');
+  } catch (_) { box.textContent = '載入失敗'; }
+}
+async function copyShareLink(token) {
+  try { await navigator.clipboard.writeText(`${location.origin}/share#${token}`); toast('已複製連結', 'success'); } catch (_) { toast('複製失敗', 'error'); }
+}
+async function revokeShare(id) {
+  if (!(await appConfirm('取消呢個分享？對方開返條連結會見到「已經取消」。', '取消分享'))) return;
+  try { await api(`/api/shares/${id}`, { method: 'DELETE' }); toast('已取消分享', 'success'); loadMyShares(); }
+  catch (e) { toast('取消失敗', 'error'); }
+}
+
 function getNotesOptions() {
   return _notesOptions;
 }
@@ -6666,6 +6813,7 @@ function renderAbEvents() {
 
 async function openSettingsModal() {
   document.getElementById('settingsModalOverlay').style.display = 'flex';
+  loadMyShares();
   renderCfgOptions();
   renderPrefsSummary();
   renderBillingSummary();
@@ -7856,6 +8004,7 @@ function renderOneViewing(v, estateId, isMobile, showTypeFilter) {
       const viewBtn = `<button class="viewing-del-btn vw-view-btn" onclick='openViewingModal(JSON.parse(decodeURIComponent("${vData}")), true)' title="查看" style="background:var(--btn2-bg);border:1px solid var(--btn2-border);margin-right:0.3rem">👁</button>`;
       const editBtn = `<button class="viewing-del-btn" onclick='openViewingModal(JSON.parse(decodeURIComponent("${vData}")))' title="更改" style="background:var(--btn2-bg);border:1px solid var(--btn2-border);margin-right:0.3rem">✏️</button>`;
       const delBtn = `<button class="viewing-del-btn" onclick="deleteViewing(${v.id},${estateId})" title="刪除">🗑</button>`;
+      const shareBtn = `<button class="viewing-del-btn vw-edit-only" onclick='openShareModal([JSON.parse(decodeURIComponent("${vData}"))], "viewing")' title="分享" style="background:var(--btn2-bg);border:1px solid var(--btn2-border);margin-right:0.3rem">📤</button>`;
 
       if (isMobile) {
         // 卡片版面：一格一格垂直疊，唔使橫拉。同一組 id（vmatch-/vprev-）
@@ -7866,7 +8015,7 @@ function renderOneViewing(v, estateId, isMobile, showTypeFilter) {
               <div class="viewing-card-title">${unitStr}${rateBadge}</div>
               <div class="viewing-card-date">${unitSub ? unitSub + ' · ' : ''}睇於 ${v.view_date}</div>
             </div>
-            <div style="white-space:nowrap;flex-shrink:0">${viewBtn}${editBtn}${delBtn}</div>
+            <div style="white-space:nowrap;flex-shrink:0">${shareBtn}${viewBtn}${editBtn}${delBtn}</div>
           </div>
           <div class="viewing-card-grid" style="grid-template-columns:repeat(2,1fr);margin-bottom:0.7rem">
             <div class="viewing-card-kv">
@@ -7897,7 +8046,7 @@ function renderOneViewing(v, estateId, isMobile, showTypeFilter) {
         <td>${domCell}</td>
         <td>${priceChangedCell}</td>
         <td>${notesHtml}</td>
-        <td style="white-space:nowrap">${viewBtn}${editBtn}${delBtn}</td>
+        <td style="white-space:nowrap">${shareBtn}${viewBtn}${editBtn}${delBtn}</td>
       </tr>`;
 }
 
