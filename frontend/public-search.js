@@ -408,7 +408,12 @@ function cardHtml(it) {
   const track = !it.estate ? "" : (opts.track
     ? `<button type="button" class="ps-track" data-track="${escHtml(it.estate)}" title="追蹤${escHtml(it.estate)}嘅加減價">🔔 追蹤加減價</button>`
     : `<a class="ps-track" href="/app?track_name=${encodeURIComponent(it.estate)}#register" title="免費登記，每日記錄${escHtml(it.estate)}嘅加減價">🔔 追蹤加減價</a>`);
+  // ♡ 心儀樓盤（淨 app 入面，opts.fav 由 app 提供）：收藏呢個搜尋結果，之後喺首頁「心儀樓盤」睇
+  const favOn = opts.fav && it.url ? opts.fav.has(it.url, state.cond.deal) : false;
+  const heart = opts.fav && it.url
+    ? `<button type="button" class="ps-fav${favOn ? " on" : ""}" data-fav="${escHtml(it.key)}" aria-pressed="${favOn}" title="${favOn ? "取消心儀樓盤" : "加入心儀樓盤"}">${favOn ? "♥" : "♡"}</button>` : "";
   return `<article class="ps-card">
+    ${heart}
     <div class="ps-photo">${photo}</div>
     <div class="ps-body">
       <div class="ps-top"><span class="ps-badge b-${it.src}">${escHtml(name)}</span><span class="ps-date">${escHtml(fmtDate(it.date))}</span></div>
@@ -466,6 +471,21 @@ $("ps-sort").addEventListener("click", (e) => {
   renderGrid();
 });
 $("ps-more-btn").addEventListener("click", loadMore);
+if (opts.fav) $("ps-grid").addEventListener("click", async (e) => {
+  const b = e.target.closest("button[data-fav]");
+  if (!b || b.disabled) return;
+  const it = state.items.find((x) => x.key === b.dataset.fav);
+  if (!it) return;
+  b.disabled = true;
+  try {
+    const on = await opts.fav.toggle(it, state.cond.deal);
+    b.classList.toggle("on", !!on);
+    b.textContent = on ? "♥" : "♡";
+    b.setAttribute("aria-pressed", on ? "true" : "false");
+    b.title = on ? "取消心儀樓盤" : "加入心儀樓盤";
+  } catch (_) { /* app 已經 toast 咗 */ }
+  finally { b.disabled = false; }
+});
 if (opts.track) $("ps-grid").addEventListener("click", (e) => {
   const b = e.target.closest("button[data-track]");
   if (b) opts.track(b.dataset.track);

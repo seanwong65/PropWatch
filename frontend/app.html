@@ -2980,7 +2980,7 @@ async function pickEstateForQuick(id) {
 // 手機版 sidebar 收埋咗，快捷掣要幫手拉返出嚟先 focus 到個搜尋框
 // 側欄「🔍 搵樓」：喺主畫面（#main）入面開四大地產網搜尋——同公開 /search 頁共用
 // public-search.js／.css（第一次先載入）。「🔔 追蹤加減價」直接帶去側欄屋苑搜尋，唔使再登記。
-const PS_VER = '20261012a';   // 改 public-search.js/.css 要同 search.html 一齊 bump（Pages 靜態檔 cache 4 小時）
+const PS_VER = '20261012b';   // 改 public-search.js/.css 要同 search.html 一齊 bump（Pages 靜態檔 cache 4 小時）
 let _psAssets = null;
 function _loadPublicSearchAssets() {
   if (!_psAssets) _psAssets = new Promise((resolve, reject) => {
@@ -3026,7 +3026,7 @@ async function openPublicSearch() {
     const root = document.getElementById('psEmbedRoot');
     if (!root) return;      // 期間用戶已經去咗第度
     root.innerHTML = '';
-    window.PublicSearch.mount(root, { embedded: true, track: trackNameFromSearch, initial: _searchDefaultsFromPrefs() });
+    window.PublicSearch.mount(root, { embedded: true, track: trackNameFromSearch, initial: _searchDefaultsFromPrefs(), fav: _searchFav });
   } catch (_) {
     const root = document.getElementById('psEmbedRoot');
     if (root) root.innerHTML = '<div style="color:var(--down)">載入失敗，請再試</div>';
@@ -6651,6 +6651,27 @@ async function toggleFavListing(btn) {
   } catch (e) { toast(e.message || '操作失敗', 'error'); }
   finally { btn.disabled = false; syncFavBtn(btn); }
 }
+// 搜尋結果 ♡：ref＝原網站詳情頁 URL（heart 狀態 key 係 "S:<url>"），快照由 client 傳、server 逐欄 sanitize
+const _searchFav = {
+  has: (url, deal) => _favRefs.has(`${deal === 'R' ? 'R' : 'S'}:${url}`),
+  async toggle(it, deal) {
+    const d = deal === 'R' ? 'R' : 'S', key = `${d}:${it.url}`;
+    try {
+      if (_favRefs.has(key)) {
+        await api(`/api/favourite-listings?ref=${encodeURIComponent(it.url)}&deal=${d}`, { method: 'DELETE' });
+        _favRefs.delete(key);
+        toast('已移出心儀樓盤');
+        return false;
+      }
+      await api('/api/favourite-listings/external', { method: 'POST', body: JSON.stringify({ deal: d, item: {
+        src: it.src, estate: it.estate, title: it.title, floor: it.floor, district: it.district, beds: it.beds,
+        size: it.size, price: it.price, psf: it.psf, date: it.date, url: it.url, img: it.img } }) });
+      _favRefs.add(key);
+      toast('已加入心儀樓盤 ♥', 'success');
+      return true;
+    } catch (e) { toast(e.message || '操作失敗', 'error'); throw e; }
+  },
+};
 async function loadFavListings() {
   const body = document.getElementById('fav-body');
   if (!body) return;
@@ -6679,17 +6700,20 @@ function renderFavListings() {
       const d = nowP - f.fav_price, pct = (d / f.fav_price * 100).toFixed(1);
       chg = `<span class="fav-chip ${d < 0 ? 'down' : 'up'}">${d < 0 ? '▼ 減' : '▲ 加'} ${rent ? '$' + Math.abs(Math.round(d)).toLocaleString() : wan(Math.abs(d))}（${Math.abs(pct)}%）自收藏</span>`;
     }
-    const unit = [sn.building_name, sn.floor, sn.unit].filter(Boolean).join(' ');
+    const unit = f.estate_id ? [sn.building_name, sn.floor, sn.unit].filter(Boolean).join(' ')
+      : [sn.building_name, sn.floor].filter(Boolean).join(' · ');
     const links = (sn.sources || []).filter(x => x.detail_url).map(x =>
       `<a href="${safeUrl(x.detail_url)}" target="_blank" rel="noopener" class="detail-link lc-src" style="font-size:0.78rem">${escHtml(sourceLabel(x.source))}${x.price ? ' ' + (rent ? '$' + Math.round(x.price).toLocaleString() : wan(x.price)) : ''} ↗</a>`).join(' ');
     const thumb = sn.thumbnail ? ` style="background-image:url('${safeImgSrc(sn.thumbnail)}')"` : '';
     return `<div class="fav-card${f.active ? '' : ' gone'}">
       <div class="fav-thumb"${thumb}>${sn.thumbnail ? '' : '🏠'}</div>
       <div class="fav-main">
-        <div><button type="button" class="dj-detail-estate" style="border:0;cursor:pointer;font-family:inherit" onclick="showEstate(${Number(f.estate_id)})">${escHtml(f.estate_name || '屋苑')}</button></div>
+        <div>${f.estate_id
+          ? `<button type="button" class="dj-detail-estate" style="border:0;cursor:pointer;font-family:inherit" onclick="showEstate(${Number(f.estate_id)})">${escHtml(f.estate_name || '屋苑')}</button>`
+          : `<span class="dj-detail-estate">${escHtml(f.estate_name || sn.district || '搜尋結果')}</span> <span class="fav-chip">來自搜尋</span>`}</div>
         <div style="font-weight:700;margin-top:0.2rem">${escHtml(unit || '-')}${rent ? ' <span class="fav-chip">租盤</span>' : ''}</div>
         <div style="color:var(--muted)">${sn.bedrooms != null ? sn.bedrooms + '房' : ''}${sn.size_net ? ' · ' + Math.round(sn.size_net).toLocaleString() + '呎' : ''}${sn.direction ? ' · 座向' + escHtml(sn.direction) : ''}</div>
-        <div style="margin-top:0.25rem"><span class="fav-price">${f.active ? fmt(nowP) : fmt(f.fav_price)}</span>
+        <div style="margin-top:0.25rem"><span class="fav-price">${f.active && nowP ? fmt(nowP) : fmt(f.fav_price)}</span>
           ${f.active ? '' : '<span class="fav-chip gone">已下架' + (f.last_seen ? ' · 最後見到 ' + escHtml(String(f.last_seen).slice(0, 10)) : '') + '</span>'} ${chg}</div>
         <div class="fav-actions">${links}
           <button type="button" class="share-btn" style="padding:0.2rem 0.6rem;font-size:0.74rem" onclick="removeFavListing(${Number(f.id)})">♥ 移除</button>
