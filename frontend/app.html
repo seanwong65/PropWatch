@@ -1302,7 +1302,9 @@
     .share-info { background: var(--surface2); border-radius: 10px; padding: 0.5rem 0.65rem; font-size: 0.76rem; color: var(--muted); margin: 0.75rem 0; line-height: 1.55; }
     .share-btn { border: 1px solid var(--border-strong); background: var(--surface2); color: var(--text); border-radius: 10px; padding: 0.45rem 0.85rem; font-weight: 600; font-size: 0.84rem; cursor: pointer; font-family: inherit; }
     .share-btn.wa { background: #25d366; color: #fff; border-color: #25d366; }
-    .dj-share-day { align-self: flex-start; margin-top: 0.3rem; border: 1px solid var(--brand); background: var(--brand-soft); color: var(--brand); border-radius: 999px; padding: 0.15rem 0.7rem; font-size: 0.75rem; font-weight: 700; cursor: pointer; font-family: inherit; }
+    .dj-foot { display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; margin-top: 0.25rem; }
+    .dj-foot .dj-more { margin: 0; }
+    .dj-share-day { margin-left: auto; border: 1px solid var(--brand); background: var(--brand-soft); color: var(--brand); border-radius: 999px; padding: 0.15rem 0.7rem; font-size: 0.75rem; font-weight: 700; cursor: pointer; font-family: inherit; }
     .vw-arch:empty { display: none; }
     .vw-arch { margin: 0.15rem 0 0.45rem; }
     .arch-chip { font-size: 0.72rem; border-radius: 999px; padding: 1px 8px; white-space: nowrap; display: inline-block; }
@@ -3847,8 +3849,10 @@ function renderCompsPanel() {
           <button type="button" class="dj-date" ${multi ? `onclick="toggleCompsDateGroup(${gi})" aria-expanded="${open}"` : 'tabindex="-1"'}><b>${d.getUTCDate()}</b><small>${d.getUTCMonth() + 1}月 · 週${_DJ_WEEKDAY[d.getUTCDay()]}</small></button>
           <div class="dj-right">
             <div class="dj-rows">${rowsHtml}</div>
-            ${multi ? `<button type="button" class="dj-more" onclick="toggleCompsDateGroup(${gi})">${open ? '收起' : `另外 ${g.items.length - 3} 個…`}</button>` : ''}
-            ${g.items.length > 1 ? `<button type="button" class="dj-share-day" onclick="openShareForIds([${g.items.map(v => Number(v.id)).join(',')}],'day')">📤 分享今日睇樓日記</button>` : ''}
+            ${(multi || g.items.length > 1) ? `<div class="dj-foot">
+              ${multi ? `<button type="button" class="dj-more" onclick="toggleCompsDateGroup(${gi})">${open ? '收起' : `另外 ${g.items.length - 3} 個…`}</button>` : '<span></span>'}
+              ${g.items.length > 1 ? `<button type="button" class="dj-share-day" title="分享今日睇樓日記" onclick="openShareForIds([${g.items.map(v => Number(v.id)).join(',')}],'day')">📤 Share</button>` : ''}
+            </div>` : ''}
           </div>
         </div>
         <div class="dj-body">${detailsHtml}</div>
