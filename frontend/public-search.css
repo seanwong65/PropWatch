@@ -92,3 +92,8 @@
 .ps-embed-bar h2 { margin: 0; font-size: 1.15rem; }
 .ps-back { border: 1px solid var(--btn2-border); background: var(--btn2-bg); color: var(--text); border-radius: 999px; padding: 0.35rem 0.9rem; font-size: 0.85rem; cursor: pointer; font-family: inherit; }
 button.ps-track { cursor: pointer; font-family: inherit; }
+
+.ps-recent { margin-top: 0.7rem; display: flex; flex-wrap: wrap; align-items: center; gap: 0.35rem 0.5rem; font-size: 0.82rem; color: var(--muted); }
+.ps-recent-chip { color: var(--brand); border: 1px solid var(--border); background: var(--surface); border-radius: 999px; padding: 0.15rem 0.65rem; font-size: 0.82rem; cursor: pointer; font-family: inherit; }
+.ps-recent-chip:hover { border-color: var(--brand); }
+.ps-recent-clear { background: none; border: 0; color: var(--muted); font-size: 0.78rem; cursor: pointer; text-decoration: underline; font-family: inherit; padding: 0 0.3rem; }

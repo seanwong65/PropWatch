@@ -65,6 +65,7 @@ const PANEL_HTML = `
     </div>
   </form>
 
+  <div class="ps-recent" id="ps-recent" hidden></div>
   <div class="ps-srcbar" id="ps-srcbar" aria-live="polite"></div>
   <div class="ps-head">
     <h2 id="ps-title">最新放盤</h2>
@@ -259,15 +260,61 @@ function renderAll() {
 }
 
 // 最近搜尋（淨係存喺呢部機瀏覽器 localStorage，唔上傳、唔寫 D1）：首頁搜尋框下面「最近搜尋」列出，
-// 撳咗去 /search?<條件> 自動填返條件再搜。淨係 /search 獨立頁記錄；app 入面（已登入）唔記。
+// 撳咗去 /search?<條件> 自動填返條件再搜。獨立 /search 頁同 app 入面都記、都列（同一個 key）。
+// app 入面只記「用戶自己撳搜尋」嘅，唔記由睇樓偏好自動預填嗰次。
 const RECENT_KEY = "pw_recent_search";
-function saveRecent(c, label, qs) {
-  if (embedded || !qs) return;                    // 冇任何條件（全港最新）唔記
+function readRecent() {
   try {
-    const list = JSON.parse(localStorage.getItem(RECENT_KEY) || "[]").filter((x) => x && x.q !== qs);
+    const l = JSON.parse(localStorage.getItem(RECENT_KEY) || "[]");
+    return (Array.isArray(l) ? l : []).filter((x) => x && typeof x.q === "string" && typeof x.l === "string" && /^[A-Za-z0-9_%=&.\-+]*$/.test(x.q));
+  } catch (_) { return []; }
+}
+function saveRecent(c, label, qs) {
+  if (!qs) return;                                // 冇任何條件（全港最新）唔記
+  try {
+    const list = readRecent().filter((x) => x.q !== qs);
     list.unshift({ q: qs, l: label });
     localStorage.setItem(RECENT_KEY, JSON.stringify(list.slice(0, 6)));
   } catch (_) {}
+  renderRecent();
+}
+function condLabel(c) {
+  const bits = [];
+  if (c.area) bits.push(AREAS[c.area]);
+  if (c.kw) bits.push(`「${c.kw}」`);
+  if (c.beds) bits.push(c.beds >= 4 ? "4房或以上" : `${c.beds}房`);
+  if (c.pmin != null || c.pmax != null) {
+    const u = c.deal === "R" ? (v) => "$" + v.toLocaleString("en-US") : (v) => `$${v}萬`;
+    bits.push(c.pmin != null && c.pmax != null ? `${u(c.pmin)}–${u(c.pmax)}` : c.pmin != null ? `${u(c.pmin)}以上` : `${u(c.pmax)}以下`);
+  }
+  if (c.smin != null || c.smax != null) bits.push(`${c.smin ?? 0}–${c.smax ?? "∞"}呎`);
+  return bits.length ? `${bits.join(" · ")} ${c.deal === "R" ? "租盤" : "買盤"}` : "";
+}
+// 搜尋框下面「最近搜尋：…」列；撳咗填返條件再搜（唔跳頁）
+function renderRecent() {
+  const box = $("ps-recent");
+  if (!box) return;
+  const list = readRecent();
+  box.replaceChildren();
+  box.hidden = !list.length;
+  if (!list.length) return;
+  box.appendChild(document.createTextNode("最近搜尋："));
+  for (const x of list) {
+    const b = document.createElement("button");
+    b.type = "button"; b.className = "ps-recent-chip"; b.textContent = x.l.slice(0, 40);
+    b.addEventListener("click", () => {
+      const c = readCond(new URLSearchParams(x.q));
+      fillForm(c);
+      if (!embedded) history.pushState(null, "", x.q ? `/search?${x.q}` : "/search");
+      startSearch(c);
+      saveRecent(c, x.l, x.q);       // 提返上頭
+    });
+    box.appendChild(b);
+  }
+  const clr = document.createElement("button");
+  clr.type = "button"; clr.className = "ps-recent-clear"; clr.textContent = "清除";
+  clr.addEventListener("click", () => { try { localStorage.removeItem(RECENT_KEY); } catch (_) {} renderRecent(); });
+  box.appendChild(clr);
 }
 
 function renderTitle() {
@@ -284,7 +331,7 @@ function renderTitle() {
   const deal = c.deal === "R" ? "租盤" : "買盤";
   $("ps-title").textContent = bits.length ? `${bits.join(" · ")} ${deal}` : `全港最新${deal}`;
   if (!embedded) document.title = (bits.length ? `${bits.join(" ")} ${deal}` : `全港最新${deal}`) + "｜四大地產網一次過搜尋 — 搵樓日記";
-  if (bits.length) saveRecent(c, `${bits.join(" · ")} ${deal}`, condToQuery(c));
+  if (!embedded && bits.length) saveRecent(c, `${bits.join(" · ")} ${deal}`, condToQuery(c));
 }
 
 // 某個網站搵唔到（限流／出錯／暫停）就靜靜收埋佢：用戶見到「暫時搵唔到」會以為係我哋有 bug，
@@ -404,6 +451,7 @@ form.addEventListener("submit", (e) => {
   const qs = condToQuery(c);
   if (!embedded) history.pushState(null, "", qs ? `/search?${qs}` : "/search");
   startSearch(c);
+  if (embedded) saveRecent(c, condLabel(c), qs);   // 獨立頁會喺 renderTitle 記；app 入面淨係記用戶自己撳嗰次
 });
 if (!embedded) window.addEventListener("popstate", () => {
   const c = readCond(new URLSearchParams(location.search));
@@ -432,6 +480,7 @@ const initCond = readCond(embedded
 const initQs = condToQuery(initCond);
 if (!embedded && location.search.slice(1) !== initQs) history.replaceState(null, "", initQs ? `/search?${initQs}` : "/search");
 fillForm(initCond);
+renderRecent();
 startSearch(initCond);
 
 // ── Escape helpers（同 app.html 一樣；地產網資料當唔可信）──
