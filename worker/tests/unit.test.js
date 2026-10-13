@@ -464,6 +464,42 @@ describe("apiRateKeys／限速（假 token 輪換繞唔過）", () => {
   });
 });
 
+describe("公開搜尋排序＋居屋未補價（2026-10-14）", () => {
+  const P = (qs) => parsePublicSearch(new URLSearchParams(qs));
+  it("sort 白名單：new（預設）／price／psf，其他即 400", () => {
+    expect(P("src=centanet").q.sort).toBe("new");
+    expect(P("src=centanet&sort=price").q.sort).toBe("price");
+    expect(P("src=hkp&sort=psf").q.sort).toBe("psf");
+    expect(P("src=centanet&sort=evil").error).toBe("sort");
+  });
+  it("cache key 分排序（同條件唔同排序唔可以撞 cache）", () => {
+    const a = P("src=centanet&sort=price").q, b = P("src=centanet&sort=psf").q, c = P("src=centanet").q;
+    expect(new Set([pubCacheKey(a), pubCacheKey(b), pubCacheKey(c)]).size).toBe(3);
+  });
+  it("中原：salePrice 空但有 unpaidPrice → 居屋未補，價錢／呎價照出", () => {
+    const r = normCentanet({ bigEstateName: "山景邨", nSize: 287, salePrice: null, priceInfo: { unpaidPrice: 680000 },
+      detailUrl: "https://hk.centanet.com/findproperty/detail/x" }, "S");
+    expect(r.price).toBe(680000);
+    expect(r.hos).toBe(true);
+    expect(r.psf).toBe(Math.round(680000 / 287));
+  });
+  it("中原：有正常標價就唔係居屋未補；租盤唔標", () => {
+    expect(normCentanet({ salePrice: 8000000, nSize: 400, nUnitPrice: 20000, priceInfo: { unpaidPrice: 1 } }, "S").hos).toBeUndefined();
+    expect(normCentanet({ rentPrice: 20000, nSize: 400 }, "R").hos).toBeUndefined();
+  });
+  it("美聯／置業：price_hkd=0 且有 price_hos_hkd → 居屋未補", () => {
+    const m = normMidHkp({ estate: { name: "富亨邨" }, price_hkd: 0, price_hos_hkd: 680000, price_hos_over_net_area: 4146, net_area: 164,
+      url_desc: "https://www.midland.com.hk/zh-hk/property/x" }, "S", "midland");
+    expect(m.price).toBe(680000); expect(m.psf).toBe(4146); expect(m.hos).toBe(true);
+    expect(normMidHkp({ estate: { name: "天晉" }, price_hkd: 8000000, price_over_net_area: 20000 }, "S", "hkp").hos).toBeUndefined();
+  });
+  it("利嘉閣：marketPrice=0 且有 landPremiumPrice → 居屋未補", () => {
+    const r = normRicacorp({ publicLocationNamesHk: ["利嘉閣", "住宅", "九龍", "觀塘", "良景邨"], marketPrice: 0, landPremiumPrice: 478000, unitPrice: 3124.18, saleableArea: 153 });
+    expect(r.price).toBe(478000); expect(r.hos).toBe(true); expect(r.psf).toBe(3124);
+    expect(normRicacorp({ marketPrice: 6280000, unitPrice: 20000, landPremiumPrice: 0 }).hos).toBeUndefined();
+  });
+});
+
 describe("公開搜尋 /api/public/search（地產網資料當唔可信）", () => {
   const P = (qs) => parsePublicSearch(new URLSearchParams(qs));
 
@@ -480,7 +516,7 @@ describe("公開搜尋 /api/public/search（地產網資料當唔可信）", () 
 
   it("正常條件：deal 預設買盤、page 預設 1、kw 收埋多餘空格", () => {
     const { q } = P("src=midland&kw=" + encodeURIComponent("  太古城   ") + "&beds=2&pmin=5000000&pmax=8000000&smin=400");
-    expect(q).toEqual({ src: "midland", deal: "S", kw: "太古城", area: null, beds: 2, pmin: 5000000, pmax: 8000000, smin: 400, smax: null, page: 1 });
+    expect(q).toEqual({ src: "midland", deal: "S", kw: "太古城", area: null, sort: "new", beds: 2, pmin: 5000000, pmax: 8000000, smin: 400, smax: null, page: 1 });
     expect(P("src=hkp&deal=R").q.deal).toBe("R");
     expect(P("src=hkp&deal=X").q.deal).toBe("S");
   });

@@ -35,6 +35,7 @@
     .ps-srcbar { display: flex; flex-wrap: wrap; gap: 0.5rem; margin: 1.3rem 0 0.4rem; }
     .ps-stat { display: flex; align-items: center; gap: 0.45rem; background: var(--surface); border: 1px solid var(--border); border-radius: 999px; padding: 0.3rem 0.8rem 0.3rem 0.35rem; font-size: 0.84rem; }
     .ps-stat small { color: var(--muted); }
+    .ps-hos { display: inline-block; font-size: 0.68rem; font-weight: 700; color: #9a5b00; background: rgba(245,158,11,0.16); border-radius: 4px; padding: 0.04rem 0.35rem; margin-left: 0.35rem; vertical-align: middle; white-space: nowrap; }
     .ps-badge { font-size: 0.74rem; font-weight: 700; border-radius: 6px; padding: 0.08rem 0.5rem; white-space: nowrap; }
     .b-centanet { color: var(--src-centanet); background: var(--src-centanet-bg); }
     .b-midland { color: var(--src-midland); background: var(--src-midland-bg); }
