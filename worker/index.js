@@ -6165,8 +6165,10 @@ export function parsePublicSearch(sp) {
 }
 // cache key：同一組條件（次序無關）＝同一個 key
 export const pubCacheKey = (q) => JSON.stringify([q.src, q.deal, q.kw, q.area, q.beds, q.pmin, q.pmax, q.smin, q.smax, q.page, q.sort || "new"]);
-// 價錢／呎價排序時嘅最細面積（呎）：排走車位（面積 0–50 呎、$20 萬起，會霸晒升序頭幾頁）
-const PUB_SORT_MIN_SIZE = 100;
+// 價錢／呎價排序時嘅最細面積（呎）：排走車位（面積 0–100 呎、$20 萬起，會霸晒升序頭幾頁）。
+// 101：利嘉閣啲車位面積填 100 呎（實測「朗怡居 車位」100 呎）。標題有「車位」嘅再喺 runPublicSearch 剔走。
+const PUB_SORT_MIN_SIZE = 101;
+export const isPubParking = (it) => /車位|停車/.test(String(it?.title || ""));
 
 const pubDay = (v) => {
   if (v == null || v === "") return null;
@@ -6386,6 +6388,7 @@ export async function runPublicSearch(q) {
   if (hit && Date.now() - hit.at < PUB_TTL_MS) return { ...hit.data, cached: true };
   const fn = { centanet: pubCentanet, midland: (x) => pubMidHkp("midland", x), hkp: (x) => pubMidHkp("hkp", x), ricacorp: pubRicacorp }[q.src];
   const data = await fn(q);
+  if (q.sort && q.sort !== "new") data.items = (data.items || []).filter((it) => !isPubParking(it));
   const out = { src: q.src, page: q.page, pageSize: q.src === "ricacorp" ? 10 : PUB_PAGE, ...data };
   PUB_MEM.set(key, { at: Date.now(), data: out });
   if (PUB_MEM.size > 300) for (const [k, v] of PUB_MEM) if (Date.now() - v.at >= PUB_TTL_MS || PUB_MEM.size > 300) PUB_MEM.delete(k);

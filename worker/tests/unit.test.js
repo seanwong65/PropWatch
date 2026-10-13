@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { scrapeRicacorpListings, scrapeHkpListings, hsUnitParts, hsBlockKey, hsNameVariants, pickRotationEstates, apiRateKeys, rateLimited,
-  parsePublicSearch, PUB_AREAS, pubCacheKey, archiveVariants, cleanShareOpts, shareViewingPayload, centanetThumb, normCentanet, midlandThumb, normMidHkp, normRicacorp } from "../index.js";
+  parsePublicSearch, PUB_AREAS, pubCacheKey, archiveVariants, cleanShareOpts, shareViewingPayload, centanetThumb, normCentanet, midlandThumb, normMidHkp, normRicacorp, isPubParking } from "../index.js";
 import { readFileSync } from "node:fs";
 
 // ── Pure helpers extracted inline (no DB/fetch deps) ──────────────────────
@@ -492,6 +492,10 @@ describe("公開搜尋排序＋居屋未補價（2026-10-14）", () => {
       url_desc: "https://www.midland.com.hk/zh-hk/property/x" }, "S", "midland");
     expect(m.price).toBe(680000); expect(m.psf).toBe(4146); expect(m.hos).toBe(true);
     expect(normMidHkp({ estate: { name: "天晉" }, price_hkd: 8000000, price_over_net_area: 20000 }, "S", "hkp").hos).toBeUndefined();
+  });
+  it("車位標題會被排序模式剔走", () => {
+    expect(isPubParking({ title: "朗怡居 車位" })).toBe(true);
+    expect(isPubParking({ title: "朗怡居 1期 3座" })).toBe(false);
   });
   it("利嘉閣：marketPrice=0 且有 landPremiumPrice → 居屋未補", () => {
     const r = normRicacorp({ publicLocationNamesHk: ["利嘉閣", "住宅", "九龍", "觀塘", "良景邨"], marketPrice: 0, landPremiumPrice: 478000, unitPrice: 3124.18, saleableArea: 153 });
