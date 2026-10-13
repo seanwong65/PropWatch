@@ -172,6 +172,7 @@ function apiUrl(c, src, page) {
   if (c.smin != null) sp.set("smin", c.smin);
   if (c.smax != null) sp.set("smax", c.smax);
   if (page > 1) sp.set("page", page);
+  sp.set("sort", sortMode);   // price／psf／new：由各網站 API 排（唔係前端排已載入嗰幾十個）
   return `${API}/api/public/search?${sp}`;
 }
 
@@ -399,6 +400,7 @@ function cardHtml(it) {
   const price = it.price
     ? (rent ? `$${escHtml(it.price.toLocaleString("en-US"))}<small>/月</small>` : `$${escHtml(fmtWan(it.price))}<small>萬</small>`)
     : `<small>價錢請睇原網站</small>`;
+  const hos = it.hos ? `<span class="ps-hos" title="居屋／綠表置居盤，呢個係未補地價價錢">居屋未補</span>` : "";
   const psf = it.psf ? `@$${escHtml(it.psf.toLocaleString("en-US"))}/呎` : "";
   const track = !it.estate ? "" : (opts.track
     ? `<button type="button" class="ps-track" data-track="${escHtml(it.estate)}" title="追蹤${escHtml(it.estate)}嘅加減價">🔔 追蹤加減價</button>`
@@ -414,7 +416,7 @@ function cardHtml(it) {
       <div class="ps-top"><span class="ps-badge b-${it.src}">${escHtml(name)}</span><span class="ps-date">${escHtml(fmtDate(it.date))}</span></div>
       <div class="ps-title">${escHtml(head || it.title || "（未有屋苑名）")}${sub ? `<small>${escHtml(sub)}</small>` : ""}</div>
       ${facts ? `<div class="ps-facts">${facts}</div>` : ""}
-      <div class="ps-money"><span class="ps-price num">${price}</span><span class="ps-psf num">${psf}</span></div>
+      <div class="ps-money"><span class="ps-price num">${price}</span>${hos}<span class="ps-psf num">${psf}</span></div>
       <div class="ps-cta">
         <a class="ps-out ${it.src}" href="${safeUrl(it.url)}" target="_blank" rel="noopener noreferrer nofollow">去${escHtml(name)}睇 ↗</a>
         ${track}
@@ -461,9 +463,11 @@ if (!embedded) window.addEventListener("popstate", () => {
 $("ps-sort").addEventListener("click", (e) => {
   const b = e.target.closest("button[data-v]");
   if (!b) return;
+  if (sortMode === b.dataset.v) return;
   sortMode = b.dataset.v;
   for (const x of $("ps-sort").querySelectorAll("button")) x.setAttribute("aria-pressed", String(x === b));
-  renderGrid();
+  // 排序由各網站 API 做，所以要用新排序重新攞（同一條件 5–10 分鐘內有 cache，唔會嘥）
+  if (state) startSearch(state.cond); else renderGrid();
 });
 $("ps-more-btn").addEventListener("click", loadMore);
 if (opts.fav) $("ps-grid").addEventListener("click", async (e) => {

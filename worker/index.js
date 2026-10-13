@@ -6153,14 +6153,20 @@ export function parsePublicSearch(sp) {
   };
   const area = sp.get("area") || null;
   if (area && !Object.hasOwn(PUB_AREAS, area)) return { error: "area" };
-  const q = { src, deal, kw, area, beds: int("beds", 1, 4), pmin: int("pmin", 0, 2e9), pmax: int("pmax", 0, 2e9),
+  // 排序：new＝最新放盤（預設）／price＝價錢低至高／psf＝實用呎價低至高。價錢／呎價排序由各網站 API 做
+  // （唔係前端排已載入嗰幾十個），並自動排走 100 呎以下（車位）。
+  const sort = sp.get("sort") || "new";
+  if (!["new", "price", "psf"].includes(sort)) return { error: "sort" };
+  const q = { src, deal, kw, area, sort, beds: int("beds", 1, 4), pmin: int("pmin", 0, 2e9), pmax: int("pmax", 0, 2e9),
     smin: int("smin", 0, 20000), smax: int("smax", 0, 20000), page: int("page", 1, 10) };
   for (const k of ["beds", "pmin", "pmax", "smin", "smax", "page"]) if (q[k] === undefined) return { error: k };
   if (q.page == null) q.page = 1;
   return { q };
 }
 // cache key：同一組條件（次序無關）＝同一個 key
-export const pubCacheKey = (q) => JSON.stringify([q.src, q.deal, q.kw, q.area, q.beds, q.pmin, q.pmax, q.smin, q.smax, q.page]);
+export const pubCacheKey = (q) => JSON.stringify([q.src, q.deal, q.kw, q.area, q.beds, q.pmin, q.pmax, q.smin, q.smax, q.page, q.sort || "new"]);
+// 價錢／呎價排序時嘅最細面積（呎）：排走車位（面積 0–50 呎、$20 萬起，會霸晒升序頭幾頁）
+const PUB_SORT_MIN_SIZE = 100;
 
 const pubDay = (v) => {
   if (v == null || v === "") return null;
@@ -6194,22 +6200,34 @@ export function normCentanet(x, deal) {
     floor: x?.yAxis || "",
     district: x?.districtName || "",
     beds: Number.isFinite(x?.bedroomCount) ? x.bedroomCount : null,
+    ...centaPrice(x, deal),
     size: pubNum(x?.nSize ?? x?.areaInfo?.nSize),
-    price: pubNum(deal === "R" ? (x?.rentPrice ?? x?.priceInfo?.rent) : (x?.salePrice ?? x?.priceInfo?.price)),
-    psf: pubNum(deal === "R" ? x?.unitPriceInfo?.nUnitRent : x?.nUnitPrice),
     date: pubDay(x?.publishDate),
     url: pubUrl(x?.detailUrl, ["hk.centanet.com"]),
     img: centanetThumb(x?.thumbnail),
   };
 }
+// 居屋／綠表盤未補地價：標價欄（salePrice）係空，價錢喺 priceInfo.unpaidPrice（「售$68萬(未補)」）。
+// 照出，標 hos:true（畫面寫「居屋未補」），價錢升序先唔會頭幾十個冇價。
+function centaPrice(x, deal) {
+  if (deal === "R") return { price: pubNum(x?.rentPrice ?? x?.priceInfo?.rent), psf: pubNum(x?.unitPriceInfo?.nUnitRent) };
+  const price = pubNum(x?.salePrice ?? x?.priceInfo?.price);
+  if (price) return { price, psf: pubNum(x?.nUnitPrice) };
+  const un = pubNum(x?.priceInfo?.unpaidPrice), size = pubNum(x?.nSize ?? x?.areaInfo?.nSize);
+  return un ? { price: un, psf: size ? Math.round(un / size) : null, hos: true } : { price: null, psf: null };
+}
 async function pubCentanet(q) {
-  const body = { postType: q.deal === "R" ? "Rent" : "Sale", sort: "PublishDate", order: "Descending",
+  // 中原冇「實用呎價」排序：UnitPrice 係按建築面積計。呎價排序時用佢攞候選（同實用呎價高度相關），
+  // 前端再按實用呎價重排，所以中原嘅呎價排序係近似。
+  const sortBy = q.sort === "price" ? { sort: "Price", order: "Ascending" } : q.sort === "psf" ? { sort: "UnitPrice", order: "Ascending" } : { sort: "PublishDate", order: "Descending" };
+  const body = { postType: q.deal === "R" ? "Rent" : "Sale", ...sortBy,
     size: PUB_PAGE, offset: (q.page - 1) * PUB_PAGE, displayTextStyle: "WebResultList", pageSource: "search", bigPhotoMode: false };
   if (q.kw) body.keyword = q.kw;
   if (q.area) body.hmas = PUB_AREAS[q.area].centa.split(",");
   if (q.beds) body.bedroomCount = bedsList(q.beds);
   if (q.pmin != null || q.pmax != null) body.amountRange = { min: q.pmin ?? 0, max: q.pmax ?? 2e9 };
-  if (q.smin != null || q.smax != null) body.nSizeRange = { min: q.smin ?? 0, max: q.smax ?? 20000 };
+  const smin = q.sort === "new" ? q.smin : Math.max(q.smin ?? 0, PUB_SORT_MIN_SIZE);
+  if (smin != null || q.smax != null) body.nSizeRange = { min: smin ?? 0, max: q.smax ?? 20000 };
   const res = await fetch(CENTANET_SEARCH, { method: "POST", headers: FETCH_HEADERS, body: JSON.stringify(body), ...CF_OPTIONS, signal: AbortSignal.timeout(8000) });
   if (!res.ok) throw new Error(`centanet ${res.status}`);
   const j = await res.json();
@@ -6234,6 +6252,14 @@ export function midlandThumb(p) {
   // 原圖 600KB 以上；同美聯自己網站一樣加 h=300（wm-cdn 先支援）
   return raw ? raw.replace("://wm.midland.com.hk/", "://wm-cdn.midland.com.hk/") + "&h=300" : null;
 }
+// 居屋未補：price_hkd 係 0，價錢喺 price_hos_hkd（呎價 price_hos_over_net_area）。照出，標 hos:true。
+function midPrice(p, deal) {
+  if (deal === "R") return { price: pubNum(p?.rent_hkd ?? p?.rent), psf: pubNum(p?.rent_over_net_area) };
+  const price = pubNum(p?.price_hkd || p?.price);
+  if (price) return { price, psf: pubNum(p?.price_over_net_area) };
+  const un = pubNum(p?.price_hos_hkd);
+  return un ? { price: un, psf: pubNum(p?.price_hos_over_net_area ?? p?.price_over_net_area), hos: true } : { price: null, psf: null };
+}
 export function normMidHkp(p, deal, site) {
   const estate = String(p?.estate?.name || "").replace(/\s*\([^)]*\)\s*$/, "");
   const photo = site === "hkp" ? pubUrl((p?.photos || [])[0], ["wm.hkp.com.hk"]) : null;
@@ -6250,8 +6276,7 @@ export function normMidHkp(p, deal, site) {
     district: p?.district?.name || "",
     beds: Number.isFinite(p?.bedroom) ? p.bedroom : null,
     size: pubNum(p?.net_area),
-    price: pubNum(deal === "R" ? (p?.rent_hkd ?? p?.rent) : (p?.price_hkd ?? p?.price)),
-    psf: pubNum(deal === "R" ? p?.rent_over_net_area : p?.price_over_net_area),
+    ...midPrice(p, deal),
     date: pubDay(p?.post_date || p?.first_pub_date || p?.update_date),
     url: pubUrl(p?.url_desc, [site === "hkp" ? "www.hkp.com.hk" : "www.midland.com.hk"]),
     img: site === "hkp" ? (photo ? photo + "&h=300" : null) : midlandThumb(p),
@@ -6263,7 +6288,8 @@ async function pubMidHkp(site, q) {
   const base = site === "hkp" ? "https://data.hkp.com.hk/search/v1" : "https://data.midland.com.hk/search/v2";
   const H = { headers: { "User-Agent": HKP_UA, Authorization: `Bearer ${tok}`, Accept: "application/json" }, signal: AbortSignal.timeout(8000) };
   // sort=latest：最新放盤先（同中原 PublishDate Descending 一致；唔加係佢哋自己嘅「推介」次序）
-  const sp = new URLSearchParams({ tx_type: q.deal === "R" ? "L" : "S", limit: String(PUB_PAGE), page: String(q.page), sort: "latest" });
+  const sp = new URLSearchParams({ tx_type: q.deal === "R" ? "L" : "S", limit: String(PUB_PAGE), page: String(q.page),
+    sort: q.sort === "price" ? "price" : q.sort === "psf" ? "net_ft_price" : "latest" });
   if (q.kw) {
     const ac = await fetch(`${base}/autocomplete/estates?text=${encodeURIComponent(q.kw)}`, H).then((r) => (r.ok ? r.json() : null)).catch(() => null);
     const estId = ac?.[0]?.result?.[0]?.search?.id;
@@ -6274,7 +6300,8 @@ async function pubMidHkp(site, q) {
   if (q.beds) sp.set("bedroom", bedsList(q.beds).join(","));
   // 租盤都係用 price（實測 rent= 冇效）
   if (q.pmin != null || q.pmax != null) sp.set("price", `${q.pmin ?? 0}-${q.pmax ?? 2e9}`);
-  if (q.smin != null || q.smax != null) sp.set("net_area", `${q.smin ?? 0}-${q.smax ?? 20000}`);
+  const smin = q.sort === "new" ? q.smin : Math.max(q.smin ?? 0, PUB_SORT_MIN_SIZE);
+  if (smin != null || q.smax != null) sp.set("net_area", `${smin ?? 0}-${q.smax ?? 20000}`);
   const res = await fetch(`${base}/properties?${sp}`, H);
   if (!res.ok) throw new Error(`${site} ${res.status}`);
   const j = await res.json();
@@ -6294,8 +6321,10 @@ export function normRicacorp(x) {
     district: names[3] || "",
     beds: Number.isFinite(x?.room) ? x.room : null,
     size: pubNum(x?.saleableArea),
-    price: pubNum(x?.marketPrice),
-    psf: pubNum(x?.unitPrice),
+    // 居屋未補：marketPrice 係 0，價錢喺 landPremiumPrice（呎價 unitPrice 就係佢除實用面積）
+    ...(pubNum(x?.marketPrice) || !pubNum(x?.landPremiumPrice)
+      ? { price: pubNum(x?.marketPrice), psf: pubNum(x?.unitPrice) }
+      : { price: pubNum(x?.landPremiumPrice), psf: pubNum(x?.unitPrice), hos: true }),
     date: pubDay(x?.overallDateModified),
     url: slug ? pubUrl(`https://www.ricacorp.com/zh-hk/property/detail/${encodeURIComponent(slug)}`, ["www.ricacorp.com"]) : null,
     img: pubUrl(x?.thumbnail, ["resourcecdn.ricacorp.com"]),
@@ -6311,7 +6340,9 @@ const pubRetry = (sec) => Object.assign(new Error("rate-limited upstream"), { re
 async function pubRicacorp(q) {
   if (Date.now() < _ricaBlockedUntil) throw pubRetry(Math.ceil((_ricaBlockedUntil - Date.now()) / 1000));
   // orderBy：最新先（同其他三網一致）；agreementType 5 = 租盤（3 = 買盤，即預設）
-  const sp = new URLSearchParams({ page: String(q.page), orderBy: "overallDateModified desc" });
+  // orderBy 值來自佢網站排序選單（price asc／unitPrice asc＝實用呎價）；實測價錢升序正確
+  const orderBy = q.sort === "price" ? "price asc" : q.sort === "psf" ? "unitPrice asc" : "overallDateModified desc";
+  const sp = new URLSearchParams({ page: String(q.page), orderBy });
   if (q.deal === "R") sp.set("agreementType", "5");
   if (q.kw) sp.set("displayText", q.kw);
   if (q.area) sp.set("locationId", PUB_AREAS[q.area].rica);   // 逗號分隔多個 group（實測 = 各 group 總和）
@@ -6319,7 +6350,8 @@ async function pubRicacorp(q) {
   // 租盤都係用 priceFrom/priceTo（月租，實測有效）
   if (q.pmin != null) sp.set("priceFrom", String(q.pmin));
   if (q.pmax != null) sp.set("priceTo", String(q.pmax));
-  if (q.smin != null) sp.set("saleableAreaFrom", String(q.smin));
+  const smin = q.sort === "new" ? q.smin : Math.max(q.smin ?? 0, PUB_SORT_MIN_SIZE);
+  if (smin != null) sp.set("saleableAreaFrom", String(smin));
   if (q.smax != null) sp.set("saleableAreaTo", String(q.smax));
   const res = await fetch(`https://www.ricacorp.com/zh-hk/property/api/post?${sp}`, {
     headers: { "User-Agent": RICA_UA, Accept: "application/json, text/plain, */*", "Accept-Language": "zh-HK,zh;q=0.9",
