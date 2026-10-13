@@ -940,16 +940,6 @@ export function cleanShareOpts(o) {
   for (const k of SHARE_OPTS) out[k] = !!(o && o[k]);
   return out;
 }
-// 心儀樓盤分享：淨係屋苑名＋單位（座 樓層 室）。snap 入面其他欄位（價錢、連結、相）一律唔出。
-export function shareFavPayload(f) {
-  let snap = {}; try { snap = JSON.parse(f.snap) || {}; } catch (_) {}
-  const clean = (v) => (typeof v === "string" ? v.replace(/[\u0000-\u001f]/g, " ").trim().slice(0, 60) : "");
-  const external = !f.estate_name;   // 搜尋結果收藏：冇我哋嘅屋苑，用收藏時嘅名
-  const estate = clean(f.estate_name || snap.estate_name || snap.district || "");
-  let unit = [clean(snap.building_name), clean(snap.floor), external ? "" : clean(snap.unit)].filter(Boolean).join(" ");
-  if (estate && unit.startsWith(estate)) unit = unit.slice(estate.length).trim();   // 搜尋標題通常已經帶屋苑名，唔好重覆
-  return { estate, unit };
-}
 // 分享頁用嘅欄位（永遠回）＋ opts 開咗先回嘅欄位。任何分析欄位（hs_price、linked_ref_no…）都唔喺度。
 export function shareViewingPayload(v, opts, ratingNames, cover, imgCount) {
   const out = {
@@ -6540,16 +6530,7 @@ export default {
         try { ids = (JSON.parse(sh.viewing_ids) || []).map(Number).filter((n) => Number.isInteger(n) && n > 0).slice(0, 50); } catch (_) {}
         if (!ids.length) return gone();
         const ph = ids.map(() => "?").join(",");
-        if (sh.kind === "fav") {
-          // 心儀樓盤分享：只回「屋苑 + 座 樓層 室」，連價錢／連結／相都唔回（用戶決定）。實時：收藏取消咗就消失。
-          if (path !== "/api/public/share") return gone();
-          const { results: fr } = await db.prepare(
-            `SELECT f.id, f.snap, f.created_at, e.name AS estate_name FROM listing_favourites f LEFT JOIN estates e ON e.id = f.estate_id
-             WHERE f.account_id = ? AND f.id IN (${ph}) ORDER BY f.created_at, f.id`
-          ).bind(sh.account_id, ...ids).all();
-          if (!fr.length) return gone();
-          return json(200, { kind: "fav", created_at: sh.created_at, items: fr.map(shareFavPayload) });
-        }
+        if (sh.kind === "fav") return gone();   // 心儀樓盤唔再用連結分享（改為直接分享原網站連結文字）；舊 token 一律失效
         let opts = {}; try { opts = cleanShareOpts(JSON.parse(sh.opts || "{}")); } catch (_) { opts = cleanShareOpts({}); }
 
         if (path === "/api/public/share/photos") {
@@ -8646,36 +8627,12 @@ export default {
         await ensureShares(db);
         if (method === "GET" && path === "/api/shares") {
           const { results } = await db.prepare(
-            "SELECT id, token, kind, label, viewing_ids, opts, created_at FROM viewing_shares WHERE account_id = ? AND revoked_at IS NULL ORDER BY id DESC LIMIT 500"
+            "SELECT id, token, kind, label, viewing_ids, opts, created_at FROM viewing_shares WHERE account_id = ? AND revoked_at IS NULL AND kind != 'fav' ORDER BY id DESC LIMIT 500"
           ).bind(session.account_id).all();
           return json(200, { shares: results });
         }
         if (method === "POST" && path === "/api/shares") {
           const body = await request.json().catch(() => ({}));
-          // 心儀樓盤分享：淨係屋苑＋座／樓層／室（viewing_ids 欄位借嚟放 listing_favourites.id）
-          if (body.kind === "fav") {
-            await ensureFavListings(db);
-            const fids = [...new Set((Array.isArray(body.fav_ids) ? body.fav_ids : []).map(Number))]
-              .filter((n) => Number.isInteger(n) && n > 0).slice(0, 50);
-            if (!fids.length) return json(400, { error: "冇揀心儀樓盤" });
-            const { results: fr } = await db.prepare(
-              `SELECT id FROM listing_favourites WHERE account_id = ? AND id IN (${fids.map(() => "?").join(",")}) ORDER BY id`
-            ).bind(session.account_id, ...fids).all();
-            if (fr.length !== fids.length) return json(404, { error: "搵唔到呢個心儀樓盤" });
-            const idsJson = JSON.stringify(fr.map((r) => r.id));
-            const dupF = await db.prepare(
-              "SELECT id, token FROM viewing_shares WHERE account_id = ? AND revoked_at IS NULL AND kind = 'fav' AND viewing_ids = ? LIMIT 1"
-            ).bind(session.account_id, idsJson).first();
-            if (dupF) return json(200, { id: dupF.id, token: dupF.token, reused: true });
-            const secF = await getSecCfg(db);
-            const cntF = await db.prepare("SELECT COUNT(*) AS c FROM viewing_shares WHERE account_id = ? AND revoked_at IS NULL").bind(session.account_id).first();
-            if ((cntF?.c || 0) >= secF.sec_share_max_links) return json(400, { error: `最多同時 ${secF.sec_share_max_links} 條分享連結，取消啲舊嘅先` });
-            const tokenF = randomToken();
-            const resF = await db.prepare(
-              "INSERT INTO viewing_shares (account_id, token, kind, label, viewing_ids, opts) VALUES (?,?,?,?,?,?)"
-            ).bind(session.account_id, tokenF, "fav", `心儀樓盤（${fr.length} 個）`, idsJson, "{}").run();
-            return json(200, { id: resF.meta.last_row_id, token: tokenF });
-          }
           const ids = [...new Set((Array.isArray(body.viewing_ids) ? body.viewing_ids : []).map(Number))]
             .filter((n) => Number.isInteger(n) && n > 0).slice(0, 50);
           if (!ids.length) return json(400, { error: "冇揀睇樓記錄" });

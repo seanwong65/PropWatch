@@ -2163,10 +2163,11 @@
     <div class="share-info" id="share-info">🔗 連結會<b>一直有效</b>，直到你喺 ⚙️ 設定「我分享過嘅連結」取消。你之後改記錄，對方會見到最新；刪除記錄，連結即時失效。我哋嘅分析（價格尺、中位數、估值、對應放盤）唔會分享出去。</div>
     <div id="share-before"><button type="button" class="vf-submit" id="share-create-btn" onclick="createShare()">建立分享連結</button></div>
     <div id="share-after" style="display:none">
-      <div style="display:flex;gap:0.4rem;margin-bottom:0.6rem">
+      <div id="share-url-row" style="display:flex;gap:0.4rem;margin-bottom:0.6rem">
         <input class="vf-input" id="share-url" readonly style="margin:0;flex:1;min-width:0;font-size:0.8rem" onclick="this.select()">
         <button type="button" class="vf-submit" style="width:auto;margin:0;padding:0.45rem 0.8rem;white-space:nowrap" onclick="copyShare('url')">複製連結</button>
       </div>
+      <textarea class="vf-input" id="share-fav-text" readonly rows="7" style="display:none;margin:0 0 0.6rem;width:100%;box-sizing:border-box;font-size:0.82rem;line-height:1.6;resize:vertical" onclick="this.select()"></textarea>
       <div style="display:flex;gap:0.4rem;flex-wrap:wrap">
         <button type="button" class="share-btn wa" onclick="shareWhatsApp()">WhatsApp</button>
         <button type="button" class="share-btn" onclick="copyShare('text')">複製文字</button>
@@ -6536,6 +6537,17 @@ const _favUnit = (f) => {
   return u;
 };
 const _favShareLabel = (f) => `${_favEstateName(f)} ${_favUnit(f)}`.trim();
+// 分享出去嘅原網站連結：淨係「網站名 + 連結」，唔帶價錢
+const _favLinks = (f) => {
+  const seen = new Set(), out = [];
+  for (const x of ((f.snap || {}).sources || [])) {
+    const u = x && x.detail_url;
+    if (!u || seen.has(u) || !/^https:\/\//.test(u)) continue;
+    seen.add(u); out.push({ label: sourceLabel(x.source), url: u });
+  }
+  return out;
+};
+const _favShareText = (items) => ['❤️ 我嘅心儀樓盤', '', ...items.map(f => [`🏠 ${_favShareLabel(f)}`, ..._favLinks(f).map(l => `${l.label}：${l.url}`)].join('\n')).join('\n\n').split('\n')].join('\n');
 const _SHARE_INFO_DEFAULT = '🔗 連結會<b>一直有效</b>，直到你喺 ⚙️ 設定「我分享過嘅連結」取消。你之後改記錄，對方會見到最新；刪除記錄，連結即時失效。我哋嘅分析（價格尺、中位數、估值、對應放盤）唔會分享出去。';
 function openShareModal(items, kind) {
   _shareCtx = { items, kind, url: null };
@@ -6543,10 +6555,10 @@ function openShareModal(items, kind) {
   const isFav = kind === 'fav';
   document.getElementById('share-opts').style.display = isFav ? 'none' : '';
   document.getElementById('share-info').innerHTML = isFav
-    ? '🔗 只會分享<b>屋苑同單位</b>（例如「昇悅居 6座 高層 H室」），<b>唔包價錢、連結、相片</b>。連結一直有效，直到你喺 ⚙️ 設定「我分享過嘅連結」取消；你取消咗心儀，對方嗰邊亦會跟住消失。'
+    ? '只會分享<b>屋苑、單位</b>（例如「昇悅居 6座 高層 H室」）同<b>原網站放盤連結</b>（中原／美聯等），<b>唔包價錢、相片同你嘅任何記錄</b>。直接複製或 WhatsApp 出去就得，唔會建立任何連結。'
     : _SHARE_INFO_DEFAULT;
   document.querySelector('#shareModalOverlay .modal-title').textContent = isFav ? '📤 分享心儀樓盤' : '📤 分享睇樓記錄';
-  if (isFav) document.getElementById('share-target').innerHTML = `<div style="font-size:0.85rem;line-height:1.8">${items.map(f => `<div><span class="dj-detail-estate">${escHtml(_favEstateName(f) || '搜尋結果')}</span> ${escHtml(_favUnit(f))}</div>`).join('')}</div>`;
+  if (isFav) document.getElementById('share-target').innerHTML = `<div style="font-size:0.85rem;line-height:1.8">${items.map(f => `<div><span class="dj-detail-estate">${escHtml(_favEstateName(f) || '搜尋結果')}</span> ${escHtml(_favUnit(f))} <span style="color:var(--muted);font-size:0.78rem">${escHtml(_favLinks(f).map(l => l.label).join('、'))}</span></div>`).join('')}</div>`;
   else document.getElementById('share-target').innerHTML = kind === 'day'
     ? `<span class="dj-detail-estate">${escHtml(v0.view_date || '')} 睇樓日記</span> <span style="font-size:0.82rem;color:var(--muted)">${items.length} 個盤：${escHtml(items.map(v => `${_shareEstate(v)} ${_shareUnit(v)}`).join('、'))}</span>`
     : `<span class="dj-detail-estate">${escHtml(_shareEstate(v0))}</span> <span style="font-size:0.82rem;color:var(--muted)">${escHtml(_shareUnit(v0))}${v0.view_date ? ' · ' + escHtml(v0.view_date) : ''}</span>`;
@@ -6555,6 +6567,15 @@ function openShareModal(items, kind) {
   document.getElementById('sh-ratings').checked = true;
   document.getElementById('sh-notes').checked = false;
   shareOptsChanged();
+  // 心儀樓盤：唔經分享連結，直接出文字（屋苑＋單位＋原網站連結）
+  document.getElementById('share-url-row').style.display = isFav ? 'none' : 'flex';
+  const ft = document.getElementById('share-fav-text');
+  ft.style.display = isFav ? '' : 'none';
+  if (isFav) {
+    ft.value = _favShareText(items);
+    document.getElementById('share-before').style.display = 'none';
+    document.getElementById('share-after').style.display = '';
+  }
   document.getElementById('share-native').style.display = navigator.share ? '' : 'none';
   document.getElementById('shareModalOverlay').style.display = 'flex';
 }
@@ -6571,9 +6592,7 @@ async function createShare() {
   btn.disabled = true; btn.textContent = '建立緊…';
   try {
     const opts = _shareOptsNow();
-    const body = _shareCtx.kind === 'fav'
-      ? { kind: 'fav', fav_ids: _shareCtx.items.map(f => f.id) }
-      : { viewing_ids: _shareCtx.items.map(v => v.id), kind: _shareCtx.kind, opts };
+    const body = { viewing_ids: _shareCtx.items.map(v => v.id), kind: _shareCtx.kind, opts };
     const r = await api('/api/shares', { method: 'POST', body: JSON.stringify(body) });
     _shareCtx.url = `${location.origin}/share#${r.token}`;
     _shareCtx.opts = opts;
@@ -6586,9 +6605,7 @@ async function createShare() {
 }
 // 「複製文字」：俾 WhatsApp 用嘅純文字摘要（同分享頁一樣只有用戶自己入嘅嘢）
 function _shareText() {
-  if (_shareCtx.kind === 'fav') {
-    return ['❤️ 我嘅心儀樓盤', ..._shareCtx.items.map(f => '🏠 ' + _favShareLabel(f)), '', `詳情：${_shareCtx.url}`, '（由搵樓日記分享）'].join('\n');
-  }
+  if (_shareCtx.kind === 'fav') return _favShareText(_shareCtx.items);
   const o = _shareCtx.opts || _shareOptsNow();
   const lines = [];
   for (const v of _shareCtx.items) {
@@ -6610,15 +6627,16 @@ function _shareText() {
   lines.push('（由搵樓日記分享）');
   return lines.join('\n');
 }
+const _shareReady = () => !!(_shareCtx && (_shareCtx.kind === 'fav' || _shareCtx.url));
 async function copyShare(what) {
-  if (!_shareCtx?.url) return;
+  if (!_shareReady()) return;
   try { await navigator.clipboard.writeText(what === 'text' ? _shareText() : _shareCtx.url); toast(what === 'text' ? '已複製文字' : '已複製連結', 'success'); }
-  catch (_) { document.getElementById('share-url').select(); toast('請長按連結自己複製', 'error'); }
+  catch (_) { document.getElementById(_shareCtx.kind === 'fav' ? 'share-fav-text' : 'share-url').select(); toast('請長按文字自己複製', 'error'); }
 }
-function shareWhatsApp() { if (_shareCtx?.url) window.open('https://wa.me/?text=' + encodeURIComponent(_shareText()), '_blank', 'noopener'); }
+function shareWhatsApp() { if (_shareReady()) window.open('https://wa.me/?text=' + encodeURIComponent(_shareText()), '_blank', 'noopener'); }
 async function shareNative() {
-  if (!_shareCtx?.url || !navigator.share) return;
-  try { await navigator.share({ title: '睇樓記錄分享', text: _shareText(), url: _shareCtx.url }); } catch (_) {}
+  if (!_shareReady() || !navigator.share) return;
+  try { await navigator.share(_shareCtx.kind === 'fav' ? { title: '心儀樓盤', text: _shareText() } : { title: '睇樓記錄分享', text: _shareText(), url: _shareCtx.url }); } catch (_) {}
 }
 // ⚙️ 設定：我分享過嘅連結（複製／取消）
 async function loadMyShares() {
