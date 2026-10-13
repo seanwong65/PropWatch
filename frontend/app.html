@@ -1308,7 +1308,7 @@
     .lc-fav { position: absolute; top: 8px; right: 8px; z-index: 4; width: 34px; height: 34px; border-radius: 999px; border: 0; background: rgba(255,255,255,0.88); color: #6b7f93; font-size: 1.2rem; line-height: 1; cursor: pointer; box-shadow: 0 1px 6px rgba(15,28,46,0.25); display: grid; place-items: center; padding: 0; }
     .lc-fav.on { color: #e11d48; }
     .lc-fav:hover { transform: scale(1.08); }
-    .fav-card { display: flex; gap: 0.75rem; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 0.7rem; margin-bottom: 0.65rem; box-shadow: var(--shadow-sm); }
+    .fav-card { position: relative; display: flex; gap: 0.75rem; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 0.7rem; margin-bottom: 0.65rem; box-shadow: var(--shadow-sm); }
     .fav-card.gone { opacity: 0.6; }
     .fav-bar { display: flex; align-items: center; gap: 0.7rem; margin: 0 0 0.6rem; font-size: 0.85rem; }
     .fav-bar label { display: inline-flex; align-items: center; gap: 0.35rem; cursor: pointer; }
@@ -1318,6 +1318,9 @@
     .fav-thumb { flex: 0 0 96px; height: 76px; border-radius: 10px; background: var(--surface2) center/cover no-repeat; display: grid; place-items: center; color: var(--muted); }
     .fav-main { flex: 1; min-width: 0; font-size: 0.82rem; }
     .fav-price { font-size: 1.1rem; font-weight: 800; color: var(--accent); }
+    /* 移除掣放卡片右上角；第一行（屋苑名）留位，唔好撞 */
+    .fav-rm { position: absolute; top: 0.55rem; right: 0.6rem; padding: 0.2rem 0.6rem; font-size: 0.74rem; }
+    .fav-main > div:first-child { padding-right: 4.6rem; }
     .fav-actions { display: flex; flex-wrap: wrap; gap: 0.35rem; margin-top: 0.4rem; align-items: center; }
     .fav-chip { font-size: 0.72rem; border-radius: 999px; padding: 1px 8px; background: var(--surface2); color: var(--muted); }
     .fav-chip.down { background: color-mix(in srgb, var(--up) 15%, transparent); color: var(--up); }
@@ -6792,6 +6795,7 @@ function renderFavListings() {
       `<a href="${safeUrl(x.detail_url)}" target="_blank" rel="noopener" class="detail-link lc-src" style="font-size:0.78rem">${escHtml(sourceLabel(x.source))}${x.price ? ' ' + (rent ? '$' + Math.round(x.price).toLocaleString() : wan(x.price)) : ''} ↗</a>`).join(' ');
     const thumb = sn.thumbnail ? ` style="background-image:url('${safeImgSrc(sn.thumbnail)}')"` : '';
     return `<div class="fav-card${f.active ? '' : ' gone'}">
+      <button type="button" class="share-btn fav-rm" onclick="removeFavListing(${Number(f.id)})" title="移出心儀樓盤">♥ 移除</button>
       <input type="checkbox" class="fav-sel" data-id="${Number(f.id)}" onchange="favSelChanged()" aria-label="揀呢個去分享">
       <div class="fav-thumb"${thumb}>${sn.thumbnail ? '' : '🏠'}</div>
       <div class="fav-main">
@@ -6803,7 +6807,6 @@ function renderFavListings() {
         <div style="margin-top:0.25rem"><span class="fav-price">${f.active && nowP ? fmt(nowP) : fmt(f.fav_price)}</span>
           ${f.active ? '' : '<span class="fav-chip gone">已下架' + (f.last_seen ? ' · 最後見到 ' + escHtml(String(f.last_seen).slice(0, 10)) : '') + '</span>'} ${chg}</div>
         <div class="fav-actions">${links}
-          <button type="button" class="share-btn" style="padding:0.2rem 0.6rem;font-size:0.74rem" onclick="removeFavListing(${Number(f.id)})">♥ 移除</button>
           <span style="font-size:0.7rem;color:var(--muted)">收藏於 ${escHtml(String(f.created_at || '').slice(0, 10))}${f.fav_price ? ' · 當時 ' + fmt(f.fav_price) : ''}</span></div>
       </div>
     </div>`;
