@@ -133,9 +133,10 @@ HKP 行 `search/v1`、美聯行 `search/v2`）。實測分別：
 - 前端：`favBtnHtml()`／`toggleFavListing()`／`loadFavListings()`；表格 view 暫時未加 ♡（只喺卡片 view）。
 - 搜尋結果（app 內嵌搜尋）都有 ♡：`POST /api/favourite-listings/external`，ref_no＝原網站 URL，estate_id=0；
   快照由 client 傳所以逐欄 sanitize＋host 白名單；唔判斷下架／升跌。
-- **分享心儀樓盤**：tab 入面每張卡有 checkbox＋「全選」＋「📤 Share」（multi-select）。分享 kind='fav'
-  （`viewing_shares.viewing_ids` 借嚟放 listing_favourites.id）；分享頁**淨係屋苑＋座 樓層 室**
-  （`shareFavPayload`，唔回價錢／連結／相；用戶決定），實時（取消收藏即消失）。
+- **分享心儀樓盤**：tab 入面每張卡有 checkbox＋「全選」＋「📤 Share」（multi-select）。**純 client 端**：彈窗直接出文字
+  （`_favShareText`：「🏠 屋苑 座 樓層 室」＋每個來源嘅「中原：原網站連結」），俾 WhatsApp／複製／系統分享；
+  **唔建立搵樓日記分享連結、冇伺服器 route**（用戶決定：佢要分享嘅係原網站連結，唔係我哋嘅頁；唔包價錢／相）。
+  舊版（2026-10-12）嘅 `viewing_shares.kind='fav'` 已拆走，公開 route 對 kind='fav' 一律回 gone。
 
 ## 睇樓記錄分享（2026-10-12）
 
