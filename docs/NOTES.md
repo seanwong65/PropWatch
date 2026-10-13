@@ -352,3 +352,7 @@ See `CLAUDE.md` for the enforced conventions. Quick facts:
 - 前端 `fhAutoEnrich` 自動重試（每個 session 每個盤最多 3 次，6s／12s 退避，用戶唔使撳 🔄）；用盡就顯示「暫時抓唔到，下次打開會再試」。
 - `txn_status IS NULL` 且成交為空嘅舊資料，打開 tab 時會重驗一次（得出 ok／none／error）。
 - 注意：越秀廣場等個別單位中原本身冇成交（約四分一單位 404），`none` 係正常結果。
+- **恒生估值同樣自動重試**：`hsLookup` 回 `reason:"error"`（keywordsearch／座表／valuation 5xx、429、403、連線錯；404／errorCode 仍然係 `no_unit`）。
+  `friend_homes.hs_status='error'`（或舊資料 NULL 且冇估值）→ 前端同過往成交共用重試次數（3 次）；
+  error 唔覆蓋之前查到嘅 hs_price／hs_area／hs_date（SQL CASE），真係「恒生冇」先清走舊值。
+  其他 caller（每日掃描、手動查估值）淨係讀 `v`，行為不變。
