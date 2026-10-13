@@ -1021,13 +1021,11 @@
       padding: 0 0.75rem 0 0; border: none; border-right: 1px solid var(--border); background: none;
       font-family: inherit; color: inherit; cursor: default;
     }
-    .dj-card.multi .dj-date { cursor: pointer; }
     .dj-date b { font-size: 1.4rem; line-height: 1.1; font-weight: 800; color: var(--text); }
     .dj-date small { font-size: 0.62rem; color: var(--muted); margin-top: 2px; white-space: nowrap; }
     .dj-right { flex: 1; min-width: 0; display: flex; flex-direction: column; justify-content: center; gap: 0.15rem; }
     .dj-rows { display: flex; flex-direction: column; gap: 0.1rem; }
     /* 一行一個盤，撳咗先打開嗰個盤嘅詳細卡。超過 3 個嘅喺日期卡未展開前收埋。 */
-    .dj-card:not(.open) .dj-row[data-extra="1"] { display: none; }
     .dj-row {
       display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.1rem 0.5rem; font-size: 0.82rem;
       width: calc(100% + 0.8rem); margin: 0 -0.4rem; padding: 0.28rem 1.4rem 0.28rem 0.4rem; position: relative;
@@ -1050,10 +1048,6 @@
     .dj-tag.dj-warn { background: rgba(245,158,11,0.18); color: #9a5b00; font-weight: 600; }
     .dj-missing { font-size: 0.78rem; line-height: 1.55; color: var(--text); background: rgba(245,158,11,0.14); border-left: 3px solid var(--accent); border-radius: 6px; padding: 0.4rem 0.6rem; margin: 0 0 0.4rem; }
     .dj-meta { font-size: 0.7rem; color: var(--muted); }
-    .dj-more {
-      align-self: flex-start; background: none; border: none; padding: 0.15rem 0; margin-top: 0.1rem;
-      font-family: inherit; font-size: 0.75rem; color: var(--brand); cursor: pointer;
-    }
     /* 詳細卡全闊擺喺清單下面（右邊欄太窄擺唔落），撳邊行就開邊個 */
     .dj-body { display: none; padding: 0.75rem 0.75rem 0.25rem; border-top: 1px solid var(--border); background: #f6fafe; }
     .dj-card.has-detail .dj-body { display: block; }
@@ -1303,7 +1297,6 @@
     .share-btn { border: 1px solid var(--border-strong); background: var(--surface2); color: var(--text); border-radius: 10px; padding: 0.45rem 0.85rem; font-weight: 600; font-size: 0.84rem; cursor: pointer; font-family: inherit; }
     .share-btn.wa { background: #25d366; color: #fff; border-color: #25d366; }
     .dj-foot { display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; margin-top: 0.25rem; }
-    .dj-foot .dj-more { margin: 0; }
     .dj-share-day { margin-left: auto; border: 1px solid var(--brand); background: var(--brand-soft); color: var(--brand); border-radius: 999px; padding: 0.15rem 0.7rem; font-size: 0.75rem; font-weight: 700; cursor: pointer; font-family: inherit; }
     .lc-fav { position: absolute; top: 8px; right: 8px; z-index: 4; width: 34px; height: 34px; border-radius: 999px; border: 0; background: rgba(255,255,255,0.88); color: #6b7f93; font-size: 1.2rem; line-height: 1; cursor: pointer; box-shadow: 0 1px 6px rgba(15,28,46,0.25); display: grid; place-items: center; padding: 0; }
     .lc-fav.on { color: #e11d48; }
@@ -3639,7 +3632,6 @@ let _compsDateTo = '';           // '' = 冇上限
 let _compsYear = null;           // null = 最新有記錄嗰年
 let _compsMonth = 0;             // 0 = 成年
 let _compsRangeOpen = false;
-const _compsOpen = new Set();    // 展開咗清單嘅日期（重畫之後照樣展開）
 const _compsOpenRows = new Set(); // 打開咗詳細卡嘅睇樓記錄 id
 // 同一套日記畫面兩個用途：主頁（跨屋苑，_compsScope = null）同屋苑頁「睇樓記錄」tab
 // （_compsScope = 屋苑 id：只顯示嗰個屋苑、唔顯示屋苑名、多一排買盤／租盤 chip）。
@@ -3676,7 +3668,7 @@ async function runPhotoTidy(btn) {
 let _compsScopeKey = null;
 function _compsResetState() {
   _compsDateFrom = ''; _compsDateTo = ''; _compsYear = null; _compsMonth = 0; _compsRangeOpen = false;
-  _compsOpen.clear(); _compsOpenRows.clear();
+  _compsOpenRows.clear();
 }
 
 const _inCompsRange = d => (!_compsDateFrom || d >= _compsDateFrom) && (!_compsDateTo || d <= _compsDateTo);
@@ -3768,18 +3760,6 @@ async function fillCompsDetail(vid) {
   // 屋苑頁：打開咗先查嗰個單位嘅「上手成交」（之前係一開頁逐個查，而家只查打開嘅）
   if (_compsScope && v.deal_type !== 'R') fetchUnitTxn(v.id);
   if (Number(v.img_count) > 0) loadViewingCover(v.id, box);
-}
-
-// 撳日期卡：展開／收起成日嘅睇樓清單（簡潔行，唔係詳細卡）
-function toggleCompsDateGroup(gi) {
-  const card = document.querySelector(`#comps-body .dj-card[data-gi="${gi}"]`);
-  if (!card || !card.classList.contains('multi')) return;
-  const open = !card.classList.contains('open');
-  card.classList.toggle('open', open);
-  card.querySelector('.dj-date')?.setAttribute('aria-expanded', open ? 'true' : 'false');
-  const more = card.querySelector('.dj-more');
-  if (more) more.textContent = open ? '收起' : `另外 ${card.dataset.extra} 個…`;
-  if (open) _compsOpen.add(card.dataset.date); else _compsOpen.delete(card.dataset.date);
 }
 
 // 撳某一行：打開／收埋嗰個盤嘅詳細卡
@@ -3887,14 +3867,11 @@ function renderCompsPanel() {
   }
   const cardsHtml = groups.map((g, gi) => {
     const d = new Date(`${g.date}T00:00:00Z`);
-    const multi = g.items.length > 3;
-    // 有行（第 4 個起）收埋，或者其中一個盤已經打開咗詳細卡，個日期卡就要係展開狀態
-    const open = multi && (_compsOpen.has(g.date) || g.items.some((v, k) => k >= 3 && _compsOpenRows.has(v.id)));
     const rowsHtml = g.items.map((v, k) => {
       const r = ratingAvg(parseRatings(v));
       const n = Number(v.img_count) || 0;
       const rowOpen = _compsOpenRows.has(v.id);
-      return `<button type="button" class="dj-row${rowOpen ? ' open' : ''}" data-vid="${Number(v.id)}" data-extra="${k >= 3 ? 1 : 0}" aria-expanded="${rowOpen}" onpointerenter="prefetchCompsRow(${Number(v.id)})" onclick="toggleCompsViewing(${Number(v.id)})">`
+      return `<button type="button" class="dj-row${rowOpen ? ' open' : ''}" data-vid="${Number(v.id)}" aria-expanded="${rowOpen}" onpointerenter="prefetchCompsRow(${Number(v.id)})" onclick="toggleCompsViewing(${Number(v.id)})">`
         + (_compsScope ? '' : `<span class="dj-estate">${escHtml(v.estate_name || '')}</span>`)
         + `<span class="dj-unit">${escHtml(_compsUnitLabel(v))}</span>`
         + (v.price ? `<span class="dj-price">${escHtml(_compsPriceLabel(v))}</span>` : '')
@@ -3905,14 +3882,13 @@ function renderCompsPanel() {
     }).join('');
     const detailsHtml = g.items.map(v => `<div class="dj-detail${_compsOpenRows.has(v.id) ? ' show' : ''}" data-vid="${Number(v.id)}"></div>`).join('');
     const hasDetail = g.items.some(v => _compsOpenRows.has(v.id));
-    return `<div class="dj-card${multi ? ' multi' : ''}${open ? ' open' : ''}${hasDetail ? ' has-detail' : ''}" data-date="${escHtml(g.date)}" data-gi="${gi}" data-extra="${g.items.length - 3}">
+    return `<div class="dj-card${hasDetail ? ' has-detail' : ''}" data-date="${escHtml(g.date)}" data-gi="${gi}">
         <div class="dj-head">
-          <button type="button" class="dj-date" ${multi ? `onclick="toggleCompsDateGroup(${gi})" aria-expanded="${open}"` : 'tabindex="-1"'}><b>${d.getUTCDate()}</b><small>${d.getUTCMonth() + 1}月 · 週${_DJ_WEEKDAY[d.getUTCDay()]}</small></button>
+          <button type="button" class="dj-date" tabindex="-1"><b>${d.getUTCDate()}</b><small>${d.getUTCMonth() + 1}月 · 週${_DJ_WEEKDAY[d.getUTCDay()]}</small></button>
           <div class="dj-right">
             <div class="dj-rows">${rowsHtml}</div>
-            ${(multi || g.items.length > 1) ? `<div class="dj-foot">
-              ${multi ? `<button type="button" class="dj-more" onclick="toggleCompsDateGroup(${gi})">${open ? '收起' : `另外 ${g.items.length - 3} 個…`}</button>` : '<span></span>'}
-              ${g.items.length > 1 ? `<button type="button" class="dj-share-day" title="分享今日睇樓日記" onclick="openShareForIds([${g.items.map(v => Number(v.id)).join(',')}],'day')">📤 Share</button>` : ''}
+            ${g.items.length > 1 ? `<div class="dj-foot"><span></span>
+              <button type="button" class="dj-share-day" title="分享今日睇樓日記" onclick="openShareForIds([${g.items.map(v => Number(v.id)).join(',')}],'day')">📤 Share</button>
             </div>` : ''}
           </div>
         </div>
