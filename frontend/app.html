@@ -3254,6 +3254,11 @@ function fhTxnsHtml(h) {
 function fhHsHtml(h) {
   if (!h.enriched) return '<span style="color:var(--muted);font-size:0.75rem">⏳ 抓取中…</span>';
   if (!h.hs_price) {
+    // 抓失敗（hs_status=error，或舊資料 null）唔係「恒生冇」：背景自動重試（同過往成交共用次數，最多 3 次）
+    if (h.hs_status === 'error' || h.hs_status == null) {
+      const gaveUp = (_fhTxnTries.get(h.id) || 0) >= 3;
+      return `<span style="color:var(--muted);font-size:0.75rem">${gaveUp ? '暫時查唔到，下次打開會再試' : '⏳ 自動重試中…'}</span>`;
+    }
     // 後端記低「點解查唔到」：恒生冇呢個屋苑／搵唔到呢個座／冇呢個單位估值
     const why = { no_estate: '恒生冇收錄呢個屋苑', no_block: '恒生搵唔到呢個座', no_unit: '恒生冇呢個單位嘅估值' }[h.hs_status];
     return `<span style="color:var(--muted);font-size:0.75rem"${why ? ` title="${escHtml(why)}"` : ''}>查唔到${why ? `<br><span style="font-size:0.68rem">${escHtml(why)}</span>` : ''}</span>`;
@@ -3476,8 +3481,10 @@ async function deleteFriendHome(fhId) {
 const _fhAutoTried = new Set();
 let _fhAutoRunning = false;
 const _fhTxnTries = new Map();   // id → 過往成交自動重試次數（每個 session，上限 3）
+// 過往成交同恒生估值一齊重試（一次 enrich 兩樣都重抓），共用次數上限
 const _fhNeedTxnRetry = (h) => h.enriched && (_fhTxnTries.get(h.id) || 0) < 3 &&
-  (h.txn_status === 'error' || (h.txn_status == null && !(h.unit_txns || []).length));   // 舊資料 '[]' 重驗一次
+  (h.txn_status === 'error' || (h.txn_status == null && !(h.unit_txns || []).length) ||   // 舊資料 '[]' 重驗一次
+   (!h.hs_price && (h.hs_status === 'error' || h.hs_status == null)));
 async function fhAutoEnrich(homes) {
   if (_fhAutoRunning) return;
   const needs = (h) => ((!h.enriched || !h.meta_at) && !_fhAutoTried.has(h.id)) || _fhNeedTxnRetry(h);
@@ -3496,10 +3503,11 @@ async function fhAutoEnrich(homes) {
         try {
           const r = await api(`/api/friend-homes/${h.id}/enrich`, { method: 'POST' });
           h.enriched = true; h.meta_at = h.meta_at || 'now'; h.txn_status = r.txn_status;
+          h.hs_price = r.hs_price; h.hs_status = r.hs_status;
           try { h.unit_txns = JSON.parse(r.past_txns || '[]'); } catch (_) {}
-          if (r.txn_status !== 'error') _fhTxnTries.delete(h.id);
+          if (r.txn_status !== 'error' && r.hs_status !== 'error') _fhTxnTries.delete(h.id);
         } catch (_) { h.txn_status = h.txn_status || 'error'; }
-        if (h.txn_status === 'error') anyErr = true;
+        if (_fhNeedTxnRetry(h)) anyErr = true;   // 仲有次數可以重試先需要等
         if (!document.getElementById('friends-body')) break;      // 用戶已經離開呢個 tab
       }
       if (!document.getElementById('friends-body') || !anyErr) break;

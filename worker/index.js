@@ -230,11 +230,15 @@ export function hsNameVariants(name) {
   if (m && m[1]) out.push({ kw: m[1].trim(), phase: m[2], strict: true });
   return out;
 }
-async function hsKeywordSearch(estateName) {
+// errs（可選）：外抓失敗（5xx／429／連線錯）時 errs.failed = true——俾 hsLookup 分得清「恒生真係冇」同「抓失敗」。
+const hsTransient = (status) => status === 429 || status >= 500 || status === 403;
+async function hsKeywordSearch(estateName, errs = null) {
   if (hsEstateCache.has(estateName)) return hsEstateCache.get(estateName);
   for (const v of hsNameVariants(estateName)) {
-    const res = await fetch(`${HS_API}/keywordsearch?keyword=${encodeURIComponent(v.kw)}`, { headers: HS_HEADERS });
-    if (!res.ok) continue;
+    let res;
+    try { res = await fetch(`${HS_API}/keywordsearch?keyword=${encodeURIComponent(v.kw)}`, { headers: HS_HEADERS }); }
+    catch (e) { if (errs) errs.failed = true; else throw e; continue; }
+    if (!res.ok) { if (errs && hsTransient(res.status)) errs.failed = true; continue; }
     const data = await res.json();
     const match = Array.isArray(data) ? data[0] : null;
     if (!match) continue;
@@ -250,16 +254,18 @@ async function hsKeywordSearch(estateName) {
   return null;
 }
 
-async function hsBlockList() {
+async function hsBlockList(errs = null) {
   if (hsBlockListCache) return hsBlockListCache;
-  const res = await fetch(`${HS_API}/area2blockfulllist`, { headers: HS_HEADERS });
-  if (!res.ok) return null;
+  let res;
+  try { res = await fetch(`${HS_API}/area2blockfulllist`, { headers: HS_HEADERS }); }
+  catch (e) { if (errs) { errs.failed = true; return null; } throw e; }
+  if (!res.ok) { if (errs) errs.failed = true; return null; }
   hsBlockListCache = await res.json();
   return hsBlockListCache;
 }
 
-async function findBlockCode(estateCode, blockNum, phase = null) {
-  const list = await hsBlockList();
+async function findBlockCode(estateCode, blockNum, phase = null, errs = null) {
+  const list = await hsBlockList(errs);
   if (!list) return null;
   const isNumeric = /^\d+$/.test(blockNum);
   for (const area of list.areas || []) {
@@ -300,12 +306,14 @@ async function findBlockCode(estateCode, blockNum, phase = null) {
 }
 
 // 回傳 { v, reason }：reason = no_estate（恒生冇呢個屋苑）／no_block（搵唔到座）／
-// no_unit（冇呢個單位估值）。朋友屋企用嚟顯示「點解查唔到」。
+// no_unit（冇呢個單位估值）／error（外抓失敗：5xx、429、連線錯——唔係「恒生冇」，朋友屋企會自動重試）。
+// 朋友屋企用嚟顯示「點解查唔到」。其他 caller（getHangSengValuation）淨係讀 v，失敗照舊當冇值。
 async function hsLookup(estateName, blockNum, floorNum, flatLetter) {
-  const estate = await hsKeywordSearch(estateName);
-  if (!estate) return { v: null, reason: "no_estate" };
-  const blockInfo = await findBlockCode(estate.estateCode, blockNum, estate.phase);
-  if (!blockInfo) return { v: null, reason: "no_block" };
+  const errs = { failed: false };
+  const estate = await hsKeywordSearch(estateName, errs);
+  if (!estate) return { v: null, reason: errs.failed ? "error" : "no_estate" };
+  const blockInfo = await findBlockCode(estate.estateCode, blockNum, estate.phase, errs);
+  if (!blockInfo) return { v: null, reason: errs.failed ? "error" : "no_block" };
   const body = {
     area: String(estate.areaCode),
     district: String(estate.districtCode),
@@ -317,8 +325,10 @@ async function hsLookup(estateName, blockNum, floorNum, flatLetter) {
     tcKnowledge: "on",
     openCarpark: 0,
   };
-  const res = await fetch(`${HS_API}/valuation`, { method: "POST", headers: HS_HEADERS, body: JSON.stringify(body) });
-  if (!res.ok) return { v: null, reason: "no_unit" };
+  let res;
+  try { res = await fetch(`${HS_API}/valuation`, { method: "POST", headers: HS_HEADERS, body: JSON.stringify(body) }); }
+  catch (_) { return { v: null, reason: "error" }; }
+  if (!res.ok) return { v: null, reason: hsTransient(res.status) ? "error" : "no_unit" };
   const data = await res.json();
   const result = Array.isArray(data) ? data[0] : data;
   if (result?.errorCode || result?.fieldName || !result?.price) return { v: null, reason: "no_unit" };
@@ -3386,15 +3396,21 @@ async function enrichFriendHome(db, home) {
         hs_price = Number(v.price); hs_area = Number(v.saleableArea); hs_date = v.valuationDate; hs_status = "ok";
         await saveHangSengValuation(db, home.estate_id, blockNum, floorNumHs, flat, v);
       } else hs_status = reason || "no_unit";
-    } catch (_) { hs_status = null; }   // 暫時出錯：唔記原因，前端顯示一般「查唔到」
+    } catch (_) { hs_status = "error"; }
   }
+  // 抓失敗（error）唔覆蓋之前查到嘅估值，前端自動重試；真係「恒生冇」先清走舊值
+  const hsErr = hs_status === "error" ? 1 : 0;
   // 中原攞到嘅實呎／房數優先（朋友屋企冇輸入欄位，size_net／bedrooms 全部靠呢度）；攞唔到就保留原值
-  await db.prepare(`UPDATE friend_homes SET past_txns=COALESCE(?, past_txns), est_url=COALESCE(?, est_url), txn_status=?,
-      hs_price=?, hs_area=?, hs_date=?, hs_status=?,
-      size_net=COALESCE(?, size_net), bedrooms=COALESCE(?, bedrooms), meta_at=datetime('now'), enriched_at=datetime('now') WHERE id=?`)
-    .bind(past_txns, est_url, txn_status, hs_price, hs_area, hs_date, hs_status, size_net, bedrooms, home.id).run();
-  const cur = await db.prepare("SELECT past_txns, est_url FROM friend_homes WHERE id = ?").bind(home.id).first();
-  return { past_txns: cur?.past_txns ?? "[]", est_url: cur?.est_url ?? null, txn_status, hs_price, hs_area, hs_date, hs_status, size_net, bedrooms };
+  await db.prepare(`UPDATE friend_homes SET past_txns=COALESCE(?1, past_txns), est_url=COALESCE(?2, est_url), txn_status=?3,
+      hs_price=CASE WHEN ?4 = 1 THEN hs_price ELSE ?5 END, hs_area=CASE WHEN ?4 = 1 THEN hs_area ELSE ?6 END,
+      hs_date=CASE WHEN ?4 = 1 THEN hs_date ELSE ?7 END,
+      hs_status=CASE WHEN ?4 = 1 AND hs_price IS NOT NULL THEN 'ok' ELSE ?8 END,
+      size_net=COALESCE(?9, size_net), bedrooms=COALESCE(?10, bedrooms), meta_at=datetime('now'), enriched_at=datetime('now') WHERE id=?11`)
+    .bind(past_txns, est_url, txn_status, hsErr, hs_price, hs_area, hs_date, hs_status, size_net, bedrooms, home.id).run();
+  const cur = await db.prepare("SELECT past_txns, est_url, hs_price, hs_area, hs_date, hs_status, size_net, bedrooms FROM friend_homes WHERE id = ?").bind(home.id).first();
+  return { past_txns: cur?.past_txns ?? "[]", est_url: cur?.est_url ?? null, txn_status,
+    hs_price: cur?.hs_price ?? null, hs_area: cur?.hs_area ?? null, hs_date: cur?.hs_date ?? null, hs_status: cur?.hs_status ?? hs_status,
+    size_net: cur?.size_net ?? size_net, bedrooms: cur?.bedrooms ?? bedrooms };
 }
 
 // ── 睇過嘅盤 · 參考成交 (comps) ──────────────────────────────────────────────
