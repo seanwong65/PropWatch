@@ -70,9 +70,8 @@ const PANEL_HTML = `
   <div class="ps-head">
     <h2 id="ps-title">最新放盤</h2>
     <div class="ps-sort" role="group" aria-label="排序" id="ps-sort">
-      <button type="button" class="ps-chip" data-v="mix" aria-pressed="true">四網輪流</button>
+      <button type="button" class="ps-chip" data-v="price" aria-pressed="true">價錢低至高</button>
       <button type="button" class="ps-chip" data-v="new" aria-pressed="false">最新</button>
-      <button type="button" class="ps-chip" data-v="price" aria-pressed="false">價錢低至高</button>
       <button type="button" class="ps-chip" data-v="psf" aria-pressed="false">呎價低至高</button>
     </div>
   </div>
@@ -114,7 +113,7 @@ const $ = (id) => root.querySelector("#" + id);
 const form = $("ps-form");
 let runId = 0;                       // 新搜尋作廢舊 request 嘅結果
 let state = null;                    // { cond, srcs: { [src]: { page, pageSize, total, status, busy } }, items: [] }
-let sortMode = "mix";
+let sortMode = "price";   // 預設價錢低至高（2026-10-13 用戶決定，唔再有「四網輪流」）
 const cardCache = new Map();         // key → card element（重新排序唔使重整，張相唔會閃）
 
 // ── URL ⇄ 表單 ─────────────────────────────────────────────
@@ -245,11 +244,7 @@ function ordered() {
   if (sortMode === "new") return items.sort((a, b) => String(b.date || "").localeCompare(String(a.date || "")) || a.rank - b.rank);
   if (sortMode === "price") return items.sort((a, b) => last(a.price) - last(b.price));
   if (sortMode === "psf") return items.sort((a, b) => last(a.psf) - last(b.psf));
-  // 四網輪流：每個網站按佢自己嘅次序（最新放盤先），輪住出，唔會頭幾十個全部係同一個網
-  const bySrc = SRC_KEYS.map((s) => items.filter((x) => x.src === s));
-  const out = [];
-  for (let i = 0; out.length < items.length; i++) for (const arr of bySrc) if (arr[i]) out.push(arr[i]);
-  return out;
+  return items.sort((a, b) => last(a.price) - last(b.price));
 }
 
 // ── Render ─────────────────────────────────────────────────
