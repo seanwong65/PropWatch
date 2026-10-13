@@ -343,3 +343,12 @@ See `CLAUDE.md` for the enforced conventions. Quick facts:
 - `computeAskingSold(db)` / `computeViewingComps(db)` — negotiation-spread & comp analysis
 - `fetchAndSaveTransactions` / `parseListing` / `parseHkpProperty` / `scrapeRicacorpListings`
 - `hkDateStr`, `N()`, `normalizeUnit`, `ensureAuthTables`, `ensureSourceColumns`, `authenticate`
+
+## 朋友屋企：過往成交抓取狀態（2026-10-13）
+
+`friend_homes.txn_status`：`ok`＝有成交／`none`＝中原確認冇（Centadata `DetailByUnitCode` 回 404，或單位唔喺佢表）／
+`error`＝抓失敗（網絡、限速、5xx）。**error 唔會當「冇記錄」存**（之前一律存 `'[]'`，暫時出錯會永遠顯示「冇記錄」）：
+- `fetchUnitTxns` 回傳 `failed`（任何非 404 嘅外抓失敗）；`enrichFriendHome` 用 COALESCE，error 唔覆蓋舊 `past_txns`／`est_url`。
+- 前端 `fhAutoEnrich` 自動重試（每個 session 每個盤最多 3 次，6s／12s 退避，用戶唔使撳 🔄）；用盡就顯示「暫時抓唔到，下次打開會再試」。
+- `txn_status IS NULL` 且成交為空嘅舊資料，打開 tab 時會重驗一次（得出 ok／none／error）。
+- 注意：越秀廣場等個別單位中原本身冇成交（約四分一單位 404），`none` 係正常結果。

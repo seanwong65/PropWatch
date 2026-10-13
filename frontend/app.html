@@ -3234,13 +3234,20 @@ function fhUnitHtml(h) {
 function fhTxnsHtml(h) {
   if (!h.enriched) return '<span style="color:var(--muted);font-size:0.75rem">⏳ 抓取中…</span>';
   const txns = h.unit_txns || [];
-  if (!txns.length) return '<span style="color:var(--muted);font-size:0.75rem">冇記錄</span>';
+  // 抓取失敗（txn_status=error）唔係「冇記錄」：背景自動重試（最多 3 次），用盡就提示下次打開再試
+  const failedNote = h.txn_status === 'error'
+    ? (_fhTxnTries.get(h.id) >= 3 ? '暫時抓唔到，下次打開會再試' : '⏳ 自動重試中…')
+    : '';
+  if (!txns.length) return failedNote
+    ? `<span style="color:var(--muted);font-size:0.75rem">${failedNote}</span>`
+    : (h.txn_status === 'none' ? '<span style="color:var(--muted);font-size:0.75rem" title="中原冇呢個單位嘅成交記錄">中原冇成交記錄</span>'
+      : '<span style="color:var(--muted);font-size:0.75rem">冇記錄</span>');
   const rows = txns.slice(0, 4).map((t, i) =>
     `<div style="${i ? 'color:var(--muted);font-size:0.75rem' : 'font-weight:600;color:var(--accent)'}">$${(t.price/1e4).toFixed(0)}萬 <span style="color:var(--muted);font-size:0.72rem;font-weight:400">${(t.reg_date||'').slice(0,7)}</span></div>`
   ).join('');
   const more = txns.length > 4 ? `<div class="unit-price">+${txns.length - 4} 宗更早</div>` : '';
   const link = h.est_url ? `<div style="margin-top:2px"><a href="${safeUrl(h.est_url)}" target="_blank" style="color:var(--accent2);font-size:0.72rem;text-decoration:none">中原記錄 ↗</a></div>` : '';
-  return rows + more + link;
+  return rows + more + link + (failedNote ? `<div class="unit-price">${failedNote.replace('⏳ 自動重試中…', '⏳ 未完整，自動重試中…').replace('暫時抓唔到，', '記錄未完整，')}</div>` : '');
 }
 
 // 恆生估值：由後端 enrich 存 DB（h.hs_price）；「歷史」掣用回原本 showHSHistory。
@@ -3468,17 +3475,35 @@ async function deleteFriendHome(fhId) {
 // 每個 id 一個 session 淨係自動試一次（失敗就由用戶撳 🔄），亦唔會同「儲存」流程撞（見 submitFriendHome）。
 const _fhAutoTried = new Set();
 let _fhAutoRunning = false;
+const _fhTxnTries = new Map();   // id → 過往成交自動重試次數（每個 session，上限 3）
+const _fhNeedTxnRetry = (h) => h.enriched && (_fhTxnTries.get(h.id) || 0) < 3 &&
+  (h.txn_status === 'error' || (h.txn_status == null && !(h.unit_txns || []).length));   // 舊資料 '[]' 重驗一次
 async function fhAutoEnrich(homes) {
   if (_fhAutoRunning) return;
-  const todo = homes.filter(h => (!h.enriched || !h.meta_at) && !_fhAutoTried.has(h.id));
-  if (!todo.length) return;
+  const needs = (h) => ((!h.enriched || !h.meta_at) && !_fhAutoTried.has(h.id)) || _fhNeedTxnRetry(h);
+  if (!homes.some(needs)) return;
   _fhAutoRunning = true;
   try {
-    toast(`正在補抓 ${todo.length} 個朋友屋企嘅呎數同估值，每個約 30 秒…`, 'info');
-    for (const h of todo) {
-      _fhAutoTried.add(h.id);
-      try { await api(`/api/friend-homes/${h.id}/enrich`, { method: 'POST' }); } catch (_) {}
-      if (!document.getElementById('friends-body')) break;      // 用戶已經離開呢個 tab
+    let first = true;
+    for (;;) {
+      const todo = homes.filter(needs);
+      if (!todo.length) break;
+      if (first) { toast(`正在背景補抓 ${todo.length} 個朋友屋企嘅過往成交／呎數／估值，抓唔到會自動重試…`, 'info'); first = false; }
+      let anyErr = false;
+      for (const h of todo) {
+        _fhAutoTried.add(h.id);
+        _fhTxnTries.set(h.id, (_fhTxnTries.get(h.id) || 0) + 1);
+        try {
+          const r = await api(`/api/friend-homes/${h.id}/enrich`, { method: 'POST' });
+          h.enriched = true; h.meta_at = h.meta_at || 'now'; h.txn_status = r.txn_status;
+          try { h.unit_txns = JSON.parse(r.past_txns || '[]'); } catch (_) {}
+          if (r.txn_status !== 'error') _fhTxnTries.delete(h.id);
+        } catch (_) { h.txn_status = h.txn_status || 'error'; }
+        if (h.txn_status === 'error') anyErr = true;
+        if (!document.getElementById('friends-body')) break;      // 用戶已經離開呢個 tab
+      }
+      if (!document.getElementById('friends-body') || !anyErr) break;
+      await new Promise(r => setTimeout(r, 6000 * Math.min(...todo.map(h => _fhTxnTries.get(h.id) || 1))));   // 退避：6s、12s…
     }
   } finally { _fhAutoRunning = false; }
   if (document.getElementById('friends-body')) await loadFriendHomes();
@@ -3486,6 +3511,7 @@ async function fhAutoEnrich(homes) {
 
 async function refreshFriendHome(fhId) {
   _fhAutoTried.add(fhId);
+  _fhTxnTries.delete(fhId);
   toast('正在更新過往成交同估值，約 30 秒…', 'info');
   try {
     await api(`/api/friend-homes/${fhId}/enrich`, { method: 'POST' });

@@ -1213,7 +1213,9 @@ async function ensureMultiAccount(db) {
     // past_txns NULL = 未抓過（顯示「抓取中」）；'[]' = 抓過但冇記錄。
     // hs_status：恒生查唔到嘅原因（no_estate／no_block／no_unit，ok＝查到）。
     // meta_at：幾時由中原攞過實呎／房數（NULL＝未攞，前端會喺背景補抓）。
-    for (const col of ["past_txns TEXT", "est_url TEXT", "hs_price INTEGER", "hs_area REAL", "hs_date TEXT", "enriched_at TEXT", "hs_status TEXT", "meta_at TEXT"]) {
+    // txn_status：過往成交抓取結果 ok＝有記錄／none＝中原確認冇（HTTP 404 或單位唔喺佢表）／error＝抓失敗
+    //   （唔會當「冇記錄」，前端自動重試）；NULL＝舊資料（'[]' 嘅會重驗一次）。
+    for (const col of ["past_txns TEXT", "est_url TEXT", "hs_price INTEGER", "hs_area REAL", "hs_date TEXT", "enriched_at TEXT", "hs_status TEXT", "meta_at TEXT", "txn_status TEXT"]) {
       try { await db.prepare(`ALTER TABLE friend_homes ADD COLUMN ${col}`).run(); } catch (_) {}
     }
     await db.prepare("CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT)").run();
@@ -3237,9 +3239,12 @@ async function fetchUnitTxns(db, { estateName, building, floor, unit, viewDate =
   // 順手攞單位實用面積（nArea）同房數（成交搜尋 row 嘅 bedroomCount）——朋友屋企 enrich 用，
   // 其他 caller 照舊只讀 txns/txn/estateUrl（加欄位唔影響佢哋）。
   const extra = { nArea: null, bedrooms: null };
+  // failed＝有一步外抓失敗（唔係 404）——結果唔可信，朋友屋企 enrich 唔會當「冇成交」存低。
+  // 404＝中原確認冇呢個單位嘅成交記錄，唔算失敗。
+  let failed = false;
   const fromDetail = async (cuntcode, estateUrl) => {
     const detailRes = await fetch(`${CENTANET_DETAIL}?cuntcode=${cuntcode}`, { ...CF_OPTIONS });
-    if (!detailRes.ok) return null;
+    if (!detailRes.ok) { if (detailRes.status !== 404) failed = true; return null; }
     const detail = await detailRes.json();
     if (Number(detail.nArea) > 0) extra.nArea = Number(detail.nArea);
     const txns = (detail.recentTransactions || [])
@@ -3256,7 +3261,7 @@ async function fetchUnitTxns(db, { estateName, building, floor, unit, viewDate =
     const cuntcode = staticData.units[`${floor}_${unit}`];
     const estateUrl = `https://hk.centanet.com/CentaEstimate/estate-${encodeURIComponent(estateName)}-${encodeURIComponent(building)}_${staticData.typeCode}?tab=history`;
     if (cuntcode) { const r = await fromDetail(cuntcode, estateUrl); if (r) return r; }
-    return wantAll ? { txns: [], estateUrl, ...extra } : { txn: null, estateUrl, ...extra };
+    return wantAll ? { txns: [], estateUrl, failed, ...extra } : { txn: null, estateUrl, failed, ...extra };
   }
 
   // Building-level search → typeCode + shallow recent txns
@@ -3317,7 +3322,7 @@ async function fetchUnitTxns(db, { estateName, building, floor, unit, viewDate =
   for (const tc of typeCodes) {
     try {
       const bvRes = await fetch(`https://hk.centanet.com/CentaEstimate/api/PropertyValuation/BuildingValuation?typecode=${tc}`, CF_OPTIONS);
-      if (!bvRes.ok) continue;
+      if (!bvRes.ok) { if (bvRes.status !== 404) failed = true; continue; }
       const bvData = await bvRes.json();
       const floorNum = _floorNum(floor);
       const unitNorm = unit.replace(/[室號]/g, "");
@@ -3339,9 +3344,9 @@ async function fetchUnitTxns(db, { estateName, building, floor, unit, viewDate =
         const r = await fromDetail(cuntcode, tcUrl);
         if (r) return r;
       }
-    } catch (_) {}
+    } catch (_) { failed = true; }
   }
-  return { ...shallow, nArea: extra.nArea, bedrooms: extra.bedrooms };
+  return { ...shallow, nArea: extra.nArea, bedrooms: extra.bedrooms, failed };
 }
 
 // 抓一次過往成交（centadata 全歷史）+ 恆生估值，存落 friend_homes row。
@@ -3353,17 +3358,21 @@ async function enrichFriendHome(db, home) {
   const floorParam = /[樓層]$/.test(home.floor) ? home.floor : home.floor + "樓";
   const unitParam = /[室號]$/.test(home.unit) ? home.unit : home.unit + "室";
 
-  let past_txns = "[]", est_url = null, size_net = null, bedrooms = null;
+  // 成交抓取結果分三種：ok（有記錄）／none（中原確認冇）／error（抓失敗，前端會自動重試）。
+  // error 唔會覆蓋之前抓到嘅 past_txns／est_url，亦唔會當「冇記錄」存低。
+  let past_txns = null, est_url = null, size_net = null, bedrooms = null, txn_status = "error";
   try {
     const r = await fetchUnitTxns(db, {
       estateName: home.estate_name, building, floor: floorParam, unit: unitParam,
       wantAll: true, estateId: home.estate_id,
     });
-    past_txns = JSON.stringify(r.txns || []);
+    const txns = r.txns || [];
+    if (txns.length) { past_txns = JSON.stringify(txns); txn_status = r.failed ? "error" : "ok"; }   // 失敗但有部分（只得最近成交）：留住，仍然重試攞全歷史
+    else if (!r.failed) { past_txns = "[]"; txn_status = "none"; }
     est_url = r.estateUrl || null;
     size_net = r.nArea > 0 ? Math.round(r.nArea) : null;   // 中原實用面積
     bedrooms = r.bedrooms > 0 ? r.bedrooms : null;          // 中原成交 row 嘅房數（同座同室）
-  } catch (_) { past_txns = "[]"; }
+  } catch (_) { txn_status = "error"; }
 
   // 恆生估值：座號抽數字（單幢用屋苑名）；順便寫入共用 cache + history 俾「歷史」掣用
   const blockNum = (home.block || "").match(/\d+/)?.[0] || blk || home.estate_name;
@@ -3380,10 +3389,12 @@ async function enrichFriendHome(db, home) {
     } catch (_) { hs_status = null; }   // 暫時出錯：唔記原因，前端顯示一般「查唔到」
   }
   // 中原攞到嘅實呎／房數優先（朋友屋企冇輸入欄位，size_net／bedrooms 全部靠呢度）；攞唔到就保留原值
-  await db.prepare(`UPDATE friend_homes SET past_txns=?, est_url=?, hs_price=?, hs_area=?, hs_date=?, hs_status=?,
+  await db.prepare(`UPDATE friend_homes SET past_txns=COALESCE(?, past_txns), est_url=COALESCE(?, est_url), txn_status=?,
+      hs_price=?, hs_area=?, hs_date=?, hs_status=?,
       size_net=COALESCE(?, size_net), bedrooms=COALESCE(?, bedrooms), meta_at=datetime('now'), enriched_at=datetime('now') WHERE id=?`)
-    .bind(past_txns, est_url, hs_price, hs_area, hs_date, hs_status, size_net, bedrooms, home.id).run();
-  return { past_txns, est_url, hs_price, hs_area, hs_date, hs_status, size_net, bedrooms };
+    .bind(past_txns, est_url, txn_status, hs_price, hs_area, hs_date, hs_status, size_net, bedrooms, home.id).run();
+  const cur = await db.prepare("SELECT past_txns, est_url FROM friend_homes WHERE id = ?").bind(home.id).first();
+  return { past_txns: cur?.past_txns ?? "[]", est_url: cur?.est_url ?? null, txn_status, hs_price, hs_area, hs_date, hs_status, size_net, bedrooms };
 }
 
 // ── 睇過嘅盤 · 參考成交 (comps) ──────────────────────────────────────────────
@@ -9615,7 +9626,7 @@ export default {
         // 座/樓/室可能改咗 → 清走 cache（past_txns=NULL）等前端叫 enrich 重抓
         await db.prepare(`
           UPDATE friend_homes SET friend_name = ?, block = ?, floor = ?, unit = ?, size_net = ?, bedrooms = ?,
-            past_txns = NULL, est_url = NULL, hs_price = NULL, hs_area = NULL, hs_date = NULL, hs_status = NULL, meta_at = NULL, enriched_at = NULL
+            past_txns = NULL, est_url = NULL, txn_status = NULL, hs_price = NULL, hs_area = NULL, hs_date = NULL, hs_status = NULL, meta_at = NULL, enriched_at = NULL
           WHERE id = ? AND account_id = ?
         `).bind(String(b.friend_name || "").trim(), String(b.block || "").trim(),
                 String(b.floor || "").trim(), String(b.unit || "").trim(),
