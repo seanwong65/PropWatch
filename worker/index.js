@@ -8533,21 +8533,24 @@ export default {
             if (row) found.push(row);
           }
           if (!found.length) return json(404, { error: "搵唔到呢個盤" });
+          // 唔合併（用戶決定）：同一張合併卡有幾個來源，就收藏做幾個獨立心儀（每個來源一行、各自價錢／連結）。
           found.sort((a, b) => (a.price || 9e15) - (b.price || 9e15));
-          const p = found[0];
           const urlOk = (u) => { try { const x = new URL(String(u)); return x.protocol === "https:" ? x.toString().slice(0, 500) : null; } catch { return null; } };
-          const snap = {
-            building_name: p.building_name || null, floor: p.floor || null, unit: p.unit || null, bedrooms: p.bedrooms ?? null,
-            direction: p.direction || null, size_net: p.size_net || null, price: p.price || null, price_per_ft: p.price_per_ft || null,
-            thumbnail: urlOk(p.thumbnail), publish_date: p.publish_date || null,
-            sources: found.map((f) => ({ source: f.source, ref_no: f.ref_no, price: f.price || null, detail_url: urlOk(f.detail_url) })),
-          };
           const sec = await getSecCfg(db);
           const cnt = await db.prepare("SELECT COUNT(*) AS c FROM listing_favourites WHERE account_id = ?").bind(session.account_id).first();
-          if ((cnt?.c || 0) >= sec.sec_fav_listings_max) return json(400, { error: `心儀樓盤最多 ${sec.sec_fav_listings_max} 個，剔走啲舊嘅先` });
-          await db.prepare(
-            "INSERT OR IGNORE INTO listing_favourites (account_id, estate_id, deal, ref_no, refs, snap, fav_price) VALUES (?,?,?,?,?,?,?)"
-          ).bind(session.account_id, estateId, deal, p.ref_no, JSON.stringify(found.map((f) => f.ref_no)), JSON.stringify(snap), p.price || null).run();
+          if ((cnt?.c || 0) + found.length > sec.sec_fav_listings_max) return json(400, { error: `心儀樓盤最多 ${sec.sec_fav_listings_max} 個，剔走啲舊嘅先` });
+          const ins = found.map((p) => {
+            const snap = {
+              building_name: p.building_name || null, floor: p.floor || null, unit: p.unit || null, bedrooms: p.bedrooms ?? null,
+              direction: p.direction || null, size_net: p.size_net || null, price: p.price || null, price_per_ft: p.price_per_ft || null,
+              thumbnail: urlOk(p.thumbnail), publish_date: p.publish_date || null,
+              sources: [{ source: p.source, ref_no: p.ref_no, price: p.price || null, detail_url: urlOk(p.detail_url) }],
+            };
+            return db.prepare(
+              "INSERT OR IGNORE INTO listing_favourites (account_id, estate_id, deal, ref_no, refs, snap, fav_price) VALUES (?,?,?,?,?,?,?)"
+            ).bind(session.account_id, estateId, deal, p.ref_no, JSON.stringify([p.ref_no]), JSON.stringify(snap), p.price || null);
+          });
+          await db.batch(ins);
           return json(200, { ok: true, refs: found.map((f) => f.ref_no) });
         }
         if (method === "DELETE" && path === "/api/favourite-listings") {
@@ -8565,6 +8568,23 @@ export default {
           return json(200, { ok: true });
         }
         if (method === "GET" && path === "/api/favourite-listings") {
+          // 舊版將合併卡嘅幾個來源收藏成一行（refs 多過一個）：拆開做每個來源一行（用戶要求唔合併）。
+          const { results: merged } = await db.prepare(
+            "SELECT id, estate_id, deal, refs, snap, created_at FROM listing_favourites WHERE account_id = ? AND refs LIKE '%,%'"
+          ).bind(session.account_id).all();
+          for (const m of merged) {
+            let sn = {}; try { sn = JSON.parse(m.snap) || {}; } catch (_) {}
+            const srcs = (Array.isArray(sn.sources) ? sn.sources : []).filter((x) => x && x.ref_no).slice(0, 10);
+            if (srcs.length < 2) continue;
+            const stmts = [db.prepare("DELETE FROM listing_favourites WHERE id = ? AND account_id = ?").bind(m.id, session.account_id)];
+            for (const x of srcs) {
+              const one = { ...sn, price: x.price || null, sources: [x] };
+              stmts.push(db.prepare(
+                "INSERT OR IGNORE INTO listing_favourites (account_id, estate_id, deal, ref_no, refs, snap, fav_price, created_at) VALUES (?,?,?,?,?,?,?,?)"
+              ).bind(session.account_id, m.estate_id, m.deal, String(x.ref_no), JSON.stringify([String(x.ref_no)]), JSON.stringify(one), x.price || null, m.created_at));
+            }
+            await db.batch(stmts);
+          }
           const { results: favs } = await db.prepare(
             `SELECT f.id, f.estate_id, f.deal, f.ref_no, f.refs, f.snap, f.fav_price, f.created_at, e.name AS estate_name
              FROM listing_favourites f LEFT JOIN estates e ON e.id = f.estate_id

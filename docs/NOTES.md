@@ -123,12 +123,13 @@ HKP 行 `search/v1`、美聯行 `search/v2`）。實測分別：
 ## 心儀樓盤（2026-10-12）
 
 放盤卡（買盤／租盤卡片 view）右上角 ♡，撳咗收藏；首頁 tab「♥ 心儀樓盤」列出所有收藏。
-- 表 `listing_favourites`（account_id, estate_id, deal S|R, ref_no＝合併卡入面最平嗰個, refs JSON＝所有來源 ref,
-  snap JSON＝收藏嗰刻由 DB 攞嘅快照, fav_price）；UNIQUE(account_id, deal, ref_no)，重覆收藏冪等。
+- 表 `listing_favourites`（account_id, estate_id, deal S|R, ref_no＝嗰個來源嘅 ref, refs JSON＝[ref],
+  snap JSON＝收藏嗰刻由 DB 攞嘅快照（sources 淨係一個）, fav_price）；UNIQUE(account_id, deal, ref_no)，重覆收藏冪等。
+  **唔合併**（2026-10-13 用戶決定）：撳合併卡 ♥ ＝每個來源各存一行；舊版合併行喺 `GET` 時 lazy 拆開。
 - API（登入）：`POST /api/favourite-listings {estate_id, deal, refs[]}`（要 `canReadEstate`、ref 要真係喺嗰個屋苑；
-  快照一律由 DB 攞，唔信 client）、`DELETE ?ref=&deal=`（合併卡任何一個 ref 都取消到）、`GET`（列表＋最新價＋下架）、
+  快照一律由 DB 攞，唔信 client）、`DELETE ?ref=&deal=`（合併卡 ♥ 會逐個 ref 打）、`GET`（列表＋最新價＋下架）、
   `GET /refs`（♡ 狀態，app 啟動時攞一次）。上限 `sec_fav_listings_max`（200，免費收費一樣）。
-- 下架判斷：該 ref 最後見到嘅 snapshot_date ≠ 該來源最新一次 sync 日；合併卡所有來源都唔見先算下架。
+- 下架判斷：該 ref 最後見到嘅 snapshot_date ≠ 該來源最新一次 sync 日；每行淨係一個來源，所以該來源唔見＝下架。
   列表每個 ref 逐個 seek（`idx_*_estate_ref`），唔掃歷史。
 - 前端：`favBtnHtml()`／`toggleFavListing()`／`loadFavListings()`；表格 view 暫時未加 ♡（只喺卡片 view）。
 - 搜尋結果（app 內嵌搜尋）都有 ♡：`POST /api/favourite-listings/external`，ref_no＝原網站 URL，estate_id=0；
