@@ -362,7 +362,8 @@ See `CLAUDE.md` for the enforced conventions. Quick facts:
 2026-10-14 中午起，Cloudflare 將每個 cron 觸發點喺**兩個機房**（AMS＋SIN）各行一次（GraphQL `workersInvocationsAdaptive`
 dimension `coloCode` 見到；之前只得 SIN，每小時 invocation 30→60），設定冇變（`schedules` 仍然只得 `*/2` 同 `0 1`）。
 09:00 email task 因而跑兩次，admin 帳戶收兩封一樣嘅信。處理：`sendDailyEmail` 寄之前用 `daily_email_log(account_id, day)`
-`INSERT OR IGNORE` 原子認領當日名額，輸咗就唔寄（result 記 `duplicate`）；寄失敗就放返名額。`/api/admin/run-email-task`
+`INSERT OR IGNORE` 原子認領當日名額，輸咗就唔寄（result 記 `duplicate`）；寄失敗就放返名額。認領有過期：`sent_at` 寄完先填，認領後 10 分鐘仍未寄
+（worker 被殺）可由另一個 invocation 原子接手重寄（`DAILY_EMAIL_CLAIM_TTL_MIN`）；`sent_at` 有值永不重寄。`/api/admin/run-email-task`
 用 `force` 唔受限，手動單一帳戶／overrideEmail 都唔受限。
 drip sync（`*/2`）同樣被雙重觸發：兩個 invocation 同時揀同一批 pending 單元，每個單元被抓兩次
 （實測每日 subrequest：10-14 前 ~260，10-16 ~650，10-17 ~1100）。處理（2026-10-17）：`acquireDripLock` 用 D1 租約鎖

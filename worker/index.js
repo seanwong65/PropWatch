@@ -5900,12 +5900,36 @@ async function getUnsubToken(db, accountId) {
 // 每帳戶每日只寄一次（2026-10-17）：Cloudflare 由 2026-10-14 開始將每個 cron 觸發點喺兩個機房（AMS＋SIN）
 // 各行一次，09:00 email task 跑兩次、寄兩封一樣嘅信。寄信前用 INSERT OR IGNORE 原子「認領」當日名額，
 // 輸咗嗰個唔寄；寄失敗就放返名額（俾補跑／手動重試）。force＝手動 /api/admin/run-email-task 想重寄。
-async function claimDailyEmail(db, accountId, day) {
+// 認領有過期（2026-10-17）：認領咗但 worker 寄信前被殺（超時／CPU 上限），sent_at 會一直係 NULL。
+// 超過 DAILY_EMAIL_CLAIM_TTL_MIN 分鐘仍未標記已寄，容許另一個 invocation（或補跑）接手重寄，唔會當日漏寄。
+// sent_at 有值＝已寄，永遠唔再寄。
+const DAILY_EMAIL_CLAIM_TTL_MIN = 10;
+let _dailyEmailLogReady = false;
+async function ensureDailyEmailLog(db) {
+  if (_dailyEmailLogReady) return;
   await db.prepare(`CREATE TABLE IF NOT EXISTS daily_email_log (
-    account_id INTEGER NOT NULL, day TEXT NOT NULL, claimed_at TEXT DEFAULT (datetime('now')),
+    account_id INTEGER NOT NULL, day TEXT NOT NULL, claimed_at TEXT DEFAULT (datetime('now')), sent_at TEXT,
     PRIMARY KEY (account_id, day))`).run();
-  const r = await db.prepare("INSERT OR IGNORE INTO daily_email_log (account_id, day) VALUES (?, ?)").bind(accountId, day).run();
-  return (r.meta?.changes || 0) > 0;
+  try {
+    await db.prepare("ALTER TABLE daily_email_log ADD COLUMN sent_at TEXT").run();
+    // 舊表（冇 sent_at 嗰版）加欄一刻：已存在嘅行當已寄，否則會被當「未寄完」重寄
+    await db.prepare("UPDATE daily_email_log SET sent_at = claimed_at WHERE sent_at IS NULL").run();
+  } catch (_) { /* 已經有欄位 */ }
+  _dailyEmailLogReady = true;
+}
+async function claimDailyEmail(db, accountId, day) {
+  await ensureDailyEmailLog(db);
+  const ins = await db.prepare("INSERT OR IGNORE INTO daily_email_log (account_id, day) VALUES (?, ?)").bind(accountId, day).run();
+  if ((ins.meta?.changes || 0) > 0) return true;
+  // 已有認領：未寄完（sent_at NULL）而且過期先接手；UPDATE 帶條件，原子，兩個接手者只有一個贏
+  const take = await db.prepare(
+    `UPDATE daily_email_log SET claimed_at = datetime('now')
+     WHERE account_id = ? AND day = ? AND sent_at IS NULL AND claimed_at < datetime('now', ?)`
+  ).bind(accountId, day, `-${DAILY_EMAIL_CLAIM_TTL_MIN} minutes`).run();
+  return (take.meta?.changes || 0) > 0;
+}
+async function markDailyEmailSent(db, accountId, day) {
+  await db.prepare("UPDATE daily_email_log SET sent_at = datetime('now') WHERE account_id = ? AND day = ?").bind(accountId, day).run().catch(() => {});
 }
 async function sendDailyEmail(db, env, onlyAccountId = null, overrideEmail = null, skipAccountIds = null, force = false) {
   if (!env?.GMAIL_REFRESH_TOKEN) return { error: "no GMAIL credentials" };
@@ -6017,6 +6041,7 @@ async function sendDailyEmail(db, env, onlyAccountId = null, overrideEmail = nul
         "List-Unsubscribe": `<${unsubUrl}>`,
         "List-Unsubscribe-Post": "List-Unsubscribe=One-Click",
       });
+      if (guard) await markDailyEmailSent(db, acc.id, day);
       out.push({ account: acc.username, to: toEmail, ok: true });
     } catch (err) {
       console.error(`Email to ${acc.username} failed:`, err.message);
