@@ -744,6 +744,18 @@ async function checkCronWatchdog(db, env) {
 // EMAIL_CATCHUP_HOUR 都仲未有今日嘅 heartbeat，就即刻補跑一次 + 出 telegram。
 // 補跑本身係 idempotent 嘅（sendDailyEmail 睇當日數據，寄多次最多係重複，
 // 唔會寫壞嘢），而 cron_last_email_start 一寫低就唔會再補第二次。
+// Drip 防重覆（2026-10-17）：Cloudflare 由 2026-10-14 起將每個 cron 觸發點喺兩個機房（AMS＋SIN）各行一次，
+// 兩個 invocation 同一刻揀同一批 pending 單元，每個單元被抓兩次（subrequest 由 ~260/日 變 ~650–1100/日）。
+// 用 D1 租約鎖：INSERT … ON CONFLICT DO UPDATE … WHERE 原子判斷，過期先拎得到；唔主動釋放
+// （租約 100 秒 < cron 間隔 120 秒，遲到嗰個重覆 invocation 一律被擋，下一個正常 tick 自然拎到）。
+const DRIP_LOCK_MS = 100000;
+async function acquireDripLock(db) {
+  const now = Date.now();
+  const r = await db.prepare(
+    "INSERT INTO settings (key, value) VALUES ('drip_lock_until', ?1) ON CONFLICT(key) DO UPDATE SET value = excluded.value WHERE CAST(settings.value AS INTEGER) < ?2"
+  ).bind(String(now + DRIP_LOCK_MS), now).run();
+  return (r.meta?.changes || 0) > 0;
+}
 const EMAIL_CATCHUP_HOUR = 10;   // 09:00 寄信，過咗 10:00 都未見到就當佢冇跑
 async function checkEmailCronWatchdog(db, env) {
   if (hkHour() < EMAIL_CATCHUP_HOUR) return;
@@ -6441,6 +6453,8 @@ export default {
           // 00:25 停到 04:18，redeploy 先返生），停咗嘅話任何靠 cron 自己發
           // 嘅 alert 都一定唔會出，所以要有個唔靠 cron 嘅偵測。
           await setSetting(env.DB, "cron_last_drip", new Date().toISOString());
+          // 雙重觸發：已有另一個 invocation 行緊（或者啱啱行完）就收工，唔好再撞同一批單元
+          if (!(await acquireDripLock(env.DB))) { console.log("[drip] 跳過：另一個 invocation 持有鎖（cron 雙重觸發）"); return; }
           // 順手睇下今日封 email 寄咗未（見 checkEmailCronWatchdog）。擺喺
           // syncBatch 之前：syncBatch 可以行足 45 秒，擺後面驚 invocation
           // 唔夠時間就走咗。查一個 setting 好平，唔會拖慢 drip。
