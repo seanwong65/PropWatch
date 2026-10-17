@@ -364,5 +364,8 @@ dimension `coloCode` 見到；之前只得 SIN，每小時 invocation 30→60）
 09:00 email task 因而跑兩次，admin 帳戶收兩封一樣嘅信。處理：`sendDailyEmail` 寄之前用 `daily_email_log(account_id, day)`
 `INSERT OR IGNORE` 原子認領當日名額，輸咗就唔寄（result 記 `duplicate`）；寄失敗就放返名額。`/api/admin/run-email-task`
 用 `force` 唔受限，手動單一帳戶／overrideEmail 都唔受限。
-⚠️ drip sync（`*/2`）同樣被雙重觸發，兩個 invocation 會撞同一批 pending 單元（idempotent 但白撞 portal、食雙倍 D1／CPU）；
-暫未處理。查法：`workersInvocationsAdaptive` 加 `coloCode` 維度。
+drip sync（`*/2`）同樣被雙重觸發：兩個 invocation 同時揀同一批 pending 單元，每個單元被抓兩次
+（實測每日 subrequest：10-14 前 ~260，10-16 ~650，10-17 ~1100）。處理（2026-10-17）：`acquireDripLock` 用 D1 租約鎖
+（`settings.drip_lock_until`，100 秒；`INSERT … ON CONFLICT DO UPDATE … WHERE` 原子；唔主動釋放，租約 < cron 間隔 120 秒），
+拎唔到鎖就收工（console.log「[drip] 跳過」）。email watchdog／summary／恒生掃描都喺鎖入面，一併唔會重覆。
+查法：`workersInvocationsAdaptive` 加 `coloCode`／`datetimeFiveMinutes` 維度，睇 AMS 同 SIN 嘅 subrequests。
