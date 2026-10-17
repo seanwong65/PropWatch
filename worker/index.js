@@ -5885,7 +5885,17 @@ async function getUnsubToken(db, accountId) {
 }
 
 // skipAccountIds：對數之後發現扣數出咗事嗰批（Set of account id），唔寄。
-async function sendDailyEmail(db, env, onlyAccountId = null, overrideEmail = null, skipAccountIds = null) {
+// 每帳戶每日只寄一次（2026-10-17）：Cloudflare 由 2026-10-14 開始將每個 cron 觸發點喺兩個機房（AMS＋SIN）
+// 各行一次，09:00 email task 跑兩次、寄兩封一樣嘅信。寄信前用 INSERT OR IGNORE 原子「認領」當日名額，
+// 輸咗嗰個唔寄；寄失敗就放返名額（俾補跑／手動重試）。force＝手動 /api/admin/run-email-task 想重寄。
+async function claimDailyEmail(db, accountId, day) {
+  await db.prepare(`CREATE TABLE IF NOT EXISTS daily_email_log (
+    account_id INTEGER NOT NULL, day TEXT NOT NULL, claimed_at TEXT DEFAULT (datetime('now')),
+    PRIMARY KEY (account_id, day))`).run();
+  const r = await db.prepare("INSERT OR IGNORE INTO daily_email_log (account_id, day) VALUES (?, ?)").bind(accountId, day).run();
+  return (r.meta?.changes || 0) > 0;
+}
+async function sendDailyEmail(db, env, onlyAccountId = null, overrideEmail = null, skipAccountIds = null, force = false) {
   if (!env?.GMAIL_REFRESH_TOKEN) return { error: "no GMAIL credentials" };
   // 逐個有 email 嘅帳戶寄——各自用自己嘅訂閱/設定/雷達視角。
   // 冇訂閱任何屋苑嘅帳戶跳過（新用戶未加屋苑，冇嘢好通知）。
@@ -5907,6 +5917,13 @@ async function sendDailyEmail(db, env, onlyAccountId = null, overrideEmail = nul
     // 手動 trigger 單一帳戶（onlyAccountId）唔受呢個限制——測試緊就要寄得出。
     if (!onlyAccountId && skipAccountIds?.has(acc.id)) {
       out.push({ account: acc.username, skipped: "扣數出咗事，今日唔寄" });
+      continue;
+    }
+    // 手動單一帳戶測試（onlyAccountId／overrideEmail）同 force 唔受限；cron 路徑一日一封
+    const guard = !onlyAccountId && !overrideEmail && !force;
+    const day = hkDateStr();
+    if (guard && !(await claimDailyEmail(db, acc.id, day))) {
+      out.push({ account: acc.username, duplicate: true });
       continue;
     }
     try {
@@ -5992,6 +6009,7 @@ async function sendDailyEmail(db, env, onlyAccountId = null, overrideEmail = nul
     } catch (err) {
       console.error(`Email to ${acc.username} failed:`, err.message);
       out.push({ account: acc.username, error: err.message });
+      if (guard) await db.prepare("DELETE FROM daily_email_log WHERE account_id = ? AND day = ?").bind(acc.id, day).run().catch(() => {});
     }
   }
   return { sent: out };
@@ -6005,7 +6023,7 @@ async function sendDailyEmail(db, env, onlyAccountId = null, overrideEmail = nul
 // heartbeat：入口／出口各寫一次 settings。cron 唔 fire、fire 咗但中途死，
 // 兩種情況喺 DB 度分得開 —— 缺咗呢個，Cloudflare 個 invocation 數字得個
 // 「success」睇，乜都查唔到。
-async function runDailyEmailTask(env) {
+async function runDailyEmailTask(env, { force = false } = {}) {
   const started = new Date().toISOString();
   try { await setSetting(env.DB, "cron_last_email_start", started); } catch (_) {}
   const finish = async (status, detail) => {
@@ -6027,10 +6045,11 @@ async function runDailyEmailTask(env) {
     } catch (e) {
       recon.error = _errDetail(e);   // 對數炒咗都要照寄信，聽日再補對數
     }
-    const res = await sendDailyEmail(env.DB, env, null, null, recon.trouble);
+    const res = await sendDailyEmail(env.DB, env, null, null, recon.trouble, force);
     const sent = res?.sent || [];
     const failed = sent.filter((r) => r.error);
     const skipped = sent.filter((r) => r.skipped);
+    const dups = sent.filter((r) => r.duplicate);   // 另一個 invocation 已經寄咗（cron 雙重觸發），唔係出事
     const ok = sent.filter((r) => r.ok);
     const alerts = [];
     if (recon.error) alerts.push(`⚠️ Stripe 對數失敗（tier 未改過）：${recon.error}`);
@@ -6041,7 +6060,7 @@ async function runDailyEmailTask(env) {
     } else if (failed.length) {
       await sendAdminAlert(env.DB, env, `⚠️ 搵樓日記每日 email 有 ${failed.length} 個帳戶寄失敗`,
         "每日 email task", [...failed.map((f) => `${f.account}: ${f.error}`), ...alerts]);
-    } else if (!sent.length) {
+    } else if (!sent.length && !dups.length) {
       // 一個帳戶都冇揀到＝有嘢唔對路（query 條件、帳戶狀態、tier 全部改過都會
       // 中）。以前呢個 case 靜靜過骨：冇 error、冇 failed，所以乜 alert 都唔出，
       // 用戶淨係見到「冇信」。而家一定要嘈。
@@ -6051,8 +6070,8 @@ async function runDailyEmailTask(env) {
       // 信照寄得晒，但對數有嘢要你知（補咗數／有人扣唔到錢）
       await sendAdminAlert(env.DB, env, "💳 搵樓日記訂閱對數有發現", "每日 email task", alerts);
     }
-    await finish("done", { ok: ok.length, failed: failed.length, skipped: skipped.length });
-    return { ok: ok.length, failed: failed.length, skipped: skipped.length, sent, recon: { checked: recon.checked, fixed: recon.fixed, error: recon.error } };
+    await finish("done", { ok: ok.length, failed: failed.length, skipped: skipped.length, duplicate: dups.length });
+    return { ok: ok.length, failed: failed.length, skipped: skipped.length, duplicate: dups.length, sent, recon: { checked: recon.checked, fixed: recon.fixed, error: recon.error } };
   } catch (e) {
     const detail = _errDetail(e);
     await finish("threw", detail);
@@ -6944,7 +6963,7 @@ export default {
       // cron 出事嗰段佢係測唔到嘅（就係咁先查極查唔到）。
       if (method === "POST" && path === "/api/admin/run-email-task") {
         if (!isAdminSession(session)) return json(403, { error: "admin only" });
-        const r = await runDailyEmailTask(env);
+        const r = await runDailyEmailTask(env, { force: true });   // 手動驗證路徑：唔受「一日一封」限制
         return json(200, { ok: !r?.error, result: r });
       }
 
