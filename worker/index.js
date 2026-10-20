@@ -8727,6 +8727,29 @@ export default {
             const rs = await db.batch(stmts.slice(i, i + 50));
             rs.forEach((r, j) => { const row = r.results?.[0]; if (row) (latest[keys[i + j]] = latest[keys[i + j]] || []).push(row); });
           }
+          // 改價記錄：每個收藏（我哋 DB 入面嘅放盤）攞改價點（價錢同上一日唔同嗰日，加第一日）。
+          // 窗口函數喺該 ref 嘅日子上跑（idx_*_estate_ref），結果只得幾行；搜尋結果收藏冇 DB 數據唔查。
+          const hist = {};   // fav id → [{d, p}]
+          {
+            const hs = [], hk = [];
+            for (const f of favs) {
+              if (!f.estate_id) continue;
+              const ht = f.deal === "R" ? "rental_price_history" : "listing_price_history";
+              hs.push(db.prepare(
+                `SELECT snapshot_date AS d, price AS p FROM (
+                   SELECT snapshot_date, price, LAG(price) OVER (ORDER BY snapshot_date) AS lp
+                   FROM ${ht} WHERE estate_id = ? AND ref_no = ?)
+                 WHERE price > 0 AND (lp IS NULL OR lp != price) ORDER BY d`
+              ).bind(f.estate_id, f.ref_no));
+              hk.push(f.id);
+            }
+            for (let i = 0; i < hs.length; i += 50) {
+              try {
+                const rs = await db.batch(hs.slice(i, i + 50));
+                rs.forEach((r, j) => { hist[hk[i + j]] = (r.results || []).slice(-20); });   // 最多最近 20 個點
+              } catch (_) { /* 冇歷史表／出錯：淨係唔顯示改價記錄 */ }
+            }
+          }
           // 每個來源最新一次成功 sync 嘅日期：last_seen 早過佢＝下架
           const out = [];
           const srcDates = {};
@@ -8752,7 +8775,7 @@ export default {
             const cur = live.length ? Math.min(...live.map((r) => r.price || 9e15)) : null;
             out.push({
               id: f.id, estate_id: f.estate_id, estate_name: f.estate_name || "", deal: f.deal, ref_no: f.ref_no,
-              fav_price: f.fav_price, created_at: f.created_at, snap,
+              fav_price: f.fav_price, created_at: f.created_at, snap, history: hist[f.id] || [],
               active: live.length > 0, cur_price: cur && cur < 9e15 ? cur : null,
               last_seen: (latest[f.id] || []).map((r) => r.snapshot_date).sort().pop() || null,
             });

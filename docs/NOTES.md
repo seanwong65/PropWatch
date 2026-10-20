@@ -125,6 +125,9 @@ HKP 行 `search/v1`、美聯行 `search/v2`）。實測分別：
 放盤卡（買盤／租盤卡片 view）右上角 ♡，撳咗收藏；首頁 tab「♥ 心儀樓盤」列出所有收藏。
 - 表 `listing_favourites`（account_id, estate_id, deal S|R, ref_no＝嗰個來源嘅 ref, refs JSON＝[ref],
   snap JSON＝收藏嗰刻由 DB 攞嘅快照（sources 淨係一個）, fav_price）；UNIQUE(account_id, deal, ref_no)，重覆收藏冪等。
+  **改價記錄**（2026-10-20）：`GET /api/favourite-listings` 每個收藏回 `history:[{d,p}]`——該 ref 喺 `listing_price_history`／`rental_price_history`
+  入面「價錢同上一日唔同」嗰日（窗口函數 LAG，加第一日，最多 20 點）；卡片顯示「改價記錄：06-28 $570萬 → 07-07 $560萬 ▼1.8% …」，
+  未改價顯示「未有改價記錄」；搜尋結果收藏（estate_id=0）冇 DB 數據唔顯示。
   **唔合併**（2026-10-13 用戶決定）：撳合併卡 ♥ ＝每個來源各存一行；舊版合併行喺 `GET` 時 lazy 拆開。
 - API（登入）：`POST /api/favourite-listings {estate_id, deal, refs[]}`（要 `canReadEstate`、ref 要真係喺嗰個屋苑；
   快照一律由 DB 攞，唔信 client）、`DELETE ?ref=&deal=`（合併卡 ♥ 會逐個 ref 打）、`GET`（列表＋最新價＋下架）、
