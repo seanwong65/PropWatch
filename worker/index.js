@@ -8729,8 +8729,10 @@ export default {
           }
           // 改價記錄：每個收藏（我哋 DB 入面嘅放盤）攞改價點（價錢同上一日唔同嗰日，加第一日）。
           // 窗口函數喺該 ref 嘅日子上跑（idx_*_estate_ref），結果只得幾行；搜尋結果收藏冇 DB 數據唔查。
+          // 收費功能（2026-10-20 用戶決定）：免費帳戶一律唔查唔回（server 端 gate，唔係淨係前端收埋）
+          const histPaid = isPaidSession(session);
           const hist = {};   // fav id → [{d, p}]
-          {
+          if (histPaid) {
             const hs = [], hk = [];
             for (const f of favs) {
               if (!f.estate_id) continue;
@@ -8780,7 +8782,7 @@ export default {
               last_seen: (latest[f.id] || []).map((r) => r.snapshot_date).sort().pop() || null,
             });
           }
-          return json(200, { items: out });
+          return json(200, { items: out, history_locked: !histPaid });
         }
         return json(405, { error: "method not allowed" });
       }

@@ -125,6 +125,8 @@ HKP 行 `search/v1`、美聯行 `search/v2`）。實測分別：
 放盤卡（買盤／租盤卡片 view）右上角 ♡，撳咗收藏；首頁 tab「♥ 心儀樓盤」列出所有收藏。
 - 表 `listing_favourites`（account_id, estate_id, deal S|R, ref_no＝嗰個來源嘅 ref, refs JSON＝[ref],
   snap JSON＝收藏嗰刻由 DB 攞嘅快照（sources 淨係一個）, fav_price）；UNIQUE(account_id, deal, ref_no)，重覆收藏冪等。
+  **改價記錄＝收費功能**（2026-10-20 用戶決定）：`GET /api/favourite-listings` 只喺 `isPaidSession` 先查先回 `history`，免費帳戶
+  `history:[]` ＋ 頂層 `history_locked:true`（server 端 gate，唔係淨係前端收埋）；前端見 `history_locked` 就喺卡上顯示「🔒 改價記錄 · 收費功能」，撳落去彈升級 modal（`showUpgrade('心儀樓盤改價記錄')`）。
   **改價記錄**（2026-10-20）：`GET /api/favourite-listings` 每個收藏回 `history:[{d,p}]`——該 ref 喺 `listing_price_history`／`rental_price_history`
   入面「價錢同上一日唔同」嗰日（窗口函數 LAG，加第一日，最多 20 點）；卡片顯示「改價記錄：06-28 $570萬 → 07-07 $560萬 ▼1.8% …」，
   未改價顯示「未有改價記錄」；搜尋結果收藏（estate_id=0）冇 DB 數據唔顯示。
