@@ -1311,10 +1311,20 @@
     .fav-thumb { flex: 0 0 96px; height: 76px; border-radius: 10px; background: var(--surface2) center/cover no-repeat; display: grid; place-items: center; color: var(--muted); }
     .fav-main { flex: 1; min-width: 0; font-size: 0.82rem; }
     .fav-price { font-size: 1.1rem; font-weight: 800; color: var(--accent); }
-    .fav-hist { display: flex; flex-wrap: wrap; align-items: center; gap: 0.15rem 0.35rem; margin-top: 0.3rem; font-size: 0.72rem; color: var(--muted); line-height: 1.6; }
-    .fav-hist b { color: var(--text); font-weight: 600; }
-    .fav-hist .arr { opacity: 0.5; }
-    .fav-hist .dn { color: var(--up); } .fav-hist .upx { color: var(--down); }
+    /* 改價記錄：垂直時間線（新→舊），每個價位一行：日期｜價錢｜升跌 chip；全部列出 */
+    .fav-hist { margin-top: 0.5rem; padding: 0.45rem 0.7rem 0.35rem; background: var(--surface2); border-radius: 12px; font-size: 0.78rem; }
+    .fav-hist-h { display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; margin-bottom: 0.2rem; font-weight: 700; color: var(--text); }
+    .fav-hist-h small { font-weight: 400; color: var(--muted); }
+    .fav-hist-row { display: grid; grid-template-columns: 3.1rem 1fr auto; align-items: center; gap: 0 0.7rem; padding: 0.22rem 0; border-top: 1px dashed var(--border); }
+    .fav-hist-row:first-of-type { border-top: 0; }
+    .fav-hist-row .d { color: var(--muted); font-variant-numeric: tabular-nums; }
+    .fav-hist-row .p { font-weight: 700; color: var(--text); font-variant-numeric: tabular-nums; }
+    .fav-hist-row .p em { font-style: normal; font-weight: 400; font-size: 0.68rem; color: var(--muted); margin-left: 0.4rem; }
+    .fav-hist-row.cur .p { color: var(--accent); }
+    .fav-hist .chg { font-size: 0.72rem; font-weight: 600; border-radius: 999px; padding: 1px 8px; white-space: nowrap; }
+    .fav-hist .chg.dn { background: color-mix(in srgb, var(--up) 15%, transparent); color: var(--up); }
+    .fav-hist .chg.upx { background: color-mix(in srgb, var(--down) 13%, transparent); color: var(--down); }
+    .fav-hist .chg.none { background: transparent; color: var(--muted); font-weight: 400; }
     /* 移除掣放卡片右上角；第一行（屋苑名）留位，唔好撞 */
     .fav-rm { position: absolute; top: 0.55rem; right: 0.6rem; padding: 0.2rem 0.6rem; font-size: 0.74rem; }
     .fav-main > div:first-child { padding-right: 4.6rem; }
@@ -6771,19 +6781,25 @@ function renderFavListings() {
     }
     const unit = f.estate_id ? [sn.building_name, sn.floor, sn.unit].filter(Boolean).join(' ')
       : [sn.building_name, sn.floor].filter(Boolean).join(' · ');
-    // 改價記錄：每個價位一格（日期＋價錢＋同上一個價位比嘅升跌 %），全部列出
+    // 改價記錄：垂直時間線（新→舊）；每個價位一行：日期｜價錢（最新標「現價」、最舊標「最初叫價」）｜同上一個價位比嘅升跌；全部列出
     const hs = f.history || [];
-    const md = (d) => String(d || '').slice(5);
+    const money = (p) => rent ? '$' + Math.round(p).toLocaleString() : wan(p);
+    const multiYear = new Set(hs.map(h => String(h.d).slice(0, 4))).size > 1;
+    const dstr = (d) => multiYear ? String(d || '') : String(d || '').slice(5);
     let hist = '';
     if (f.estate_id && hs.length >= 2) {
-      hist = '<div class="fav-hist"><span>改價記錄：</span>' + hs.map((h, i) => {
+      const first = hs[0], last = hs[hs.length - 1];
+      const tot = last.p - first.p, totPct = tot / first.p * 100;
+      const chip = (d, pct) => `<span class="chg ${d < 0 ? 'dn' : 'upx'}">${d < 0 ? '▼ 減' : '▲ 加'} ${money(Math.abs(d))}（${Math.abs(pct).toFixed(1)}%）</span>`;
+      const rows = hs.map((h, i) => {
         const prev = hs[i - 1];
-        let pct = '';
-        if (prev) { const d = (h.p - prev.p) / prev.p * 100; pct = ` <span class="${d < 0 ? 'dn' : 'upx'}">${d < 0 ? '▼' : '▲'}${Math.abs(d).toFixed(1)}%</span>`; }
-        return `${i ? '<span class="arr">→</span>' : ''}<span><b>${escHtml(md(h.d))}</b> ${rent ? '$' + Math.round(h.p).toLocaleString() : wan(h.p)}${pct}</span>`;
-      }).join('') + '</div>';
+        const tag = i === hs.length - 1 ? '<em>現價</em>' : (i === 0 ? '<em>最初叫價</em>' : '');
+        const c = prev ? chip(h.p - prev.p, (h.p - prev.p) / prev.p * 100) : '<span class="chg none">—</span>';
+        return `<div class="fav-hist-row${i === hs.length - 1 ? ' cur' : ''}"><span class="d">${escHtml(dstr(h.d))}</span><span class="p">${money(h.p)}${tag}</span>${c}</div>`;
+      }).reverse().join('');
+      hist = `<div class="fav-hist"><div class="fav-hist-h"><span>改價記錄 <small>（${hs.length - 1} 次）</small></span>${chip(tot, totPct).replace('class="chg', 'title="自最初叫價累計" class="chg')}</div>${rows}</div>`;
     } else if (f.estate_id && hs.length === 1) {
-      hist = `<div class="fav-hist"><span>未有改價記錄（${escHtml(md(hs[0].d))} 起叫價 ${rent ? '$' + Math.round(hs[0].p).toLocaleString() : wan(hs[0].p)}）</span></div>`;
+      hist = `<div class="fav-hist"><div class="fav-hist-h"><span>改價記錄</span><small>未有改價（${escHtml(dstr(hs[0].d))} 起叫價 ${money(hs[0].p)}）</small></div></div>`;
     }
     const links = (sn.sources || []).filter(x => x.detail_url).map(x =>
       `<a href="${safeUrl(x.detail_url)}" target="_blank" rel="noopener" class="detail-link lc-src" style="font-size:0.78rem">${escHtml(sourceLabel(x.source))}${x.price ? ' ' + (rent ? '$' + Math.round(x.price).toLocaleString() : wan(x.price)) : ''} ↗</a>`).join(' ');
