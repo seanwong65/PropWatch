@@ -1311,6 +1311,10 @@
     .fav-thumb { flex: 0 0 96px; height: 76px; border-radius: 10px; background: var(--surface2) center/cover no-repeat; display: grid; place-items: center; color: var(--muted); }
     .fav-main { flex: 1; min-width: 0; font-size: 0.82rem; }
     .fav-price { font-size: 1.1rem; font-weight: 800; color: var(--accent); }
+    .fav-hist { display: flex; flex-wrap: wrap; align-items: center; gap: 0.15rem 0.35rem; margin-top: 0.3rem; font-size: 0.72rem; color: var(--muted); line-height: 1.6; }
+    .fav-hist b { color: var(--text); font-weight: 600; }
+    .fav-hist .arr { opacity: 0.5; }
+    .fav-hist .dn { color: var(--up); } .fav-hist .upx { color: var(--down); }
     /* 移除掣放卡片右上角；第一行（屋苑名）留位，唔好撞 */
     .fav-rm { position: absolute; top: 0.55rem; right: 0.6rem; padding: 0.2rem 0.6rem; font-size: 0.74rem; }
     .fav-main > div:first-child { padding-right: 4.6rem; }
@@ -6767,6 +6771,20 @@ function renderFavListings() {
     }
     const unit = f.estate_id ? [sn.building_name, sn.floor, sn.unit].filter(Boolean).join(' ')
       : [sn.building_name, sn.floor].filter(Boolean).join(' · ');
+    // 改價記錄：每個價位一格（日期＋價錢＋同上一個價位比嘅升跌 %），全部列出
+    const hs = f.history || [];
+    const md = (d) => String(d || '').slice(5);
+    let hist = '';
+    if (f.estate_id && hs.length >= 2) {
+      hist = '<div class="fav-hist"><span>改價記錄：</span>' + hs.map((h, i) => {
+        const prev = hs[i - 1];
+        let pct = '';
+        if (prev) { const d = (h.p - prev.p) / prev.p * 100; pct = ` <span class="${d < 0 ? 'dn' : 'upx'}">${d < 0 ? '▼' : '▲'}${Math.abs(d).toFixed(1)}%</span>`; }
+        return `${i ? '<span class="arr">→</span>' : ''}<span><b>${escHtml(md(h.d))}</b> ${rent ? '$' + Math.round(h.p).toLocaleString() : wan(h.p)}${pct}</span>`;
+      }).join('') + '</div>';
+    } else if (f.estate_id && hs.length === 1) {
+      hist = `<div class="fav-hist"><span>未有改價記錄（${escHtml(md(hs[0].d))} 起叫價 ${rent ? '$' + Math.round(hs[0].p).toLocaleString() : wan(hs[0].p)}）</span></div>`;
+    }
     const links = (sn.sources || []).filter(x => x.detail_url).map(x =>
       `<a href="${safeUrl(x.detail_url)}" target="_blank" rel="noopener" class="detail-link lc-src" style="font-size:0.78rem">${escHtml(sourceLabel(x.source))}${x.price ? ' ' + (rent ? '$' + Math.round(x.price).toLocaleString() : wan(x.price)) : ''} ↗</a>`).join(' ');
     const thumb = sn.thumbnail ? ` style="background-image:url('${safeImgSrc(sn.thumbnail)}')"` : '';
@@ -6782,6 +6800,7 @@ function renderFavListings() {
         <div style="color:var(--muted)">${sn.bedrooms != null ? sn.bedrooms + '房' : ''}${sn.size_net ? ' · ' + Math.round(sn.size_net).toLocaleString() + '呎' : ''}${sn.direction ? ' · 座向' + escHtml(sn.direction) : ''}</div>
         <div style="margin-top:0.25rem"><span class="fav-price">${f.active && nowP ? fmt(nowP) : fmt(f.fav_price)}</span>
           ${f.active ? '' : '<span class="fav-chip gone">已下架' + (f.last_seen ? ' · 最後見到 ' + escHtml(String(f.last_seen).slice(0, 10)) : '') + '</span>'} ${chg}</div>
+        ${hist}
         <div class="fav-actions">${links}
           <span style="font-size:0.7rem;color:var(--muted)">收藏於 ${escHtml(String(f.created_at || '').slice(0, 10))}${f.fav_price ? ' · 當時 ' + fmt(f.fav_price) : ''}</span></div>
       </div>
