@@ -6692,6 +6692,7 @@ async function revokeShare(id) {
 // _favRefs：「S:ref／R:ref」（買／租 + 放盤 ref）。合併卡有幾個 ref，任何一個喺度就當收藏咗。
 let _favRefs = new Set();
 let _favItems = [];
+let _favHistLocked = false;   // 免費帳戶：改價記錄係收費功能，server 唔回 history
 async function loadFavRefs() {
   try { const { refs } = await api('/api/favourite-listings/refs'); _favRefs = new Set(refs || []); } catch (_) {}
   document.querySelectorAll('.lc-fav').forEach(syncFavBtn);
@@ -6752,8 +6753,9 @@ async function loadFavListings() {
   const body = document.getElementById('fav-body');
   if (!body) return;
   try {
-    const { items } = await api('/api/favourite-listings');
-    _favItems = items || [];
+    const r = await api('/api/favourite-listings');
+    _favItems = r.items || [];
+    _favHistLocked = !!r.history_locked;
     renderFavListings();
   } catch (e) { body.innerHTML = `<span style="color:var(--down)">載入失敗：${escHtml(e.message || '')}</span>`; }
 }
@@ -6798,6 +6800,9 @@ function renderFavListings() {
         return `<div class="fav-hist-row${i === hs.length - 1 ? ' cur' : ''}"><span class="d">${escHtml(dstr(h.d))}</span><span class="p">${money(h.p)}${tag}</span>${c}</div>`;
       }).reverse().join('');
       hist = `<div class="fav-hist"><div class="fav-hist-h"><span>改價記錄 <small>（${hs.length - 1} 次）</small></span>${chip(tot, totPct).replace('class="chg', 'title="自最初叫價累計" class="chg')}</div>${rows}</div>`;
+    } else if (f.estate_id && _favHistLocked) {
+      // 收費功能：見到個功能存在，撳落去彈升級 modal（資料 server 端唔回）
+      hist = `<div class="fav-hist" role="button" tabindex="0" style="cursor:pointer" onclick="showUpgrade('心儀樓盤改價記錄')"><div class="fav-hist-h"><span>🔒 改價記錄</span><small>收費功能 · 睇下收費版有咩 ›</small></div></div>`;
     } else if (f.estate_id && hs.length === 1) {
       hist = `<div class="fav-hist"><div class="fav-hist-h"><span>改價記錄</span><small>未有改價（${escHtml(dstr(hs[0].d))} 起叫價 ${money(hs[0].p)}）</small></div></div>`;
     }
