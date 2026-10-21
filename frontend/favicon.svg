@@ -1,5 +1,18 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
-  <rect width="64" height="64" rx="14" fill="#047857"/>
-  <path d="M32 13 12 30h6v20h11V38h6v12h11V30h6z" fill="#fff"/>
-  <path d="M40 18h6v9l-6-5z" fill="#fff"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#5dbbfd"/>
+      <stop offset="1" stop-color="#035ece"/>
+    </linearGradient>
+    <linearGradient id="amber" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#ffd34d"/>
+      <stop offset="1" stop-color="#f78f18"/>
+    </linearGradient>
+  </defs>
+  <!-- 搵樓日記 簡化版 favicon：屋 + 放大鏡（+ 走勢線）。完整版（天際線）見 docs/brand/app-icon-master-1024.png -->
+  <rect width="512" height="512" rx="112" fill="url(#bg)"/>
+  <path d="M256 92 L98 230 V392 H414 V230 Z" fill="#fff" stroke="#fff" stroke-width="30" stroke-linejoin="round"/>
+  <circle cx="236" cy="274" r="64" fill="#ddedfc" stroke="url(#amber)" stroke-width="30"/>
+  <path d="M206 296 L228 270 L246 284 L272 250" fill="none" stroke="#2682eb" stroke-width="15" stroke-linecap="round" stroke-linejoin="round"/>
+  <line x1="287" y1="325" x2="342" y2="380" stroke="url(#amber)" stroke-width="38" stroke-linecap="round"/>
 </svg>
