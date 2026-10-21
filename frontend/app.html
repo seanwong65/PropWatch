@@ -7,8 +7,9 @@
   <title>搵樓日記</title>
   <!-- App 本身（登入後介面）唔需要被搜尋器收錄；公開內容喺 / 同各內容頁。 -->
   <meta name="robots" content="noindex">
-  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
-  <link rel="icon" href="/favicon.ico" sizes="48x48">
+  <link rel="icon" type="image/png" sizes="32x32" href="/icons/favicon-32.png">
+  <link rel="icon" type="image/png" sizes="16x16" href="/icons/favicon-16.png">
+  <link rel="shortcut icon" href="/favicon.ico">
   <link rel="apple-touch-icon" href="/apple-touch-icon.png">
   <link rel="manifest" href="/manifest.webmanifest">
   <meta name="theme-color" content="#1270ac">
@@ -262,7 +263,7 @@
       z-index: 100;
     }
     .logo { display: flex; align-items: center; gap: 0.6rem; }
-    .logo-icon { width: 30px; height: 30px; border-radius: 8px; display: block; box-shadow: 0 2px 6px rgba(30,90,140,0.25); }
+    .logo-icon { width: 36px; height: 36px; border-radius: 9px; display: block; box-shadow: 0 2px 6px rgba(30,90,140,0.25); }
     .logo .logo-text { font-size: 1.1rem; font-weight: 700; letter-spacing: -0.02em; }
     .logo span { color: var(--accent); }
     /* Header 上面嘅掣：白底做 ghost（淡邊＋白面），唔好一排實色掣搶主體內容。
@@ -1675,7 +1676,7 @@
       /* Tighten header so all controls fit one row on phones (no vertical spill) */
       header { padding: 0 max(0.6rem, env(safe-area-inset-right)) 0 max(0.6rem, env(safe-area-inset-left)); }
       header > div:last-child { gap: 0.35rem !important; }
-      .logo-icon { width: 26px; height: 26px; border-radius: 7px; }
+      .logo-icon { width: 32px; height: 32px; border-radius: 8px; }
       .logo .logo-text { font-size: 1rem; }
       .sync-btn { padding: 0.4rem 0.6rem; font-size: 0.75rem; }
       .stats-row { grid-template-columns: repeat(2, 1fr); }
@@ -1742,7 +1743,7 @@
       <span></span><span></span><span></span>
     </button>
     <div class="logo" onclick="goHome()" style="cursor:pointer">
-      <img class="logo-icon" src="/favicon.svg" width="30" height="30" alt="">
+      <img class="logo-icon" src="/icons/icon-192.png" width="36" height="36" alt="">
       <div class="logo-text">搵樓<span>日記</span></div>
     </div>
   </div>
@@ -1772,7 +1773,7 @@
     <button onclick="closeAuth()" aria-label="返回"
       style="float:right;background:none;border:none;color:var(--muted);font-size:1.1rem;cursor:pointer;margin:-0.5rem -0.5rem 0 0">✕</button>
     <div style="text-align:center;margin-bottom:1.5rem">
-      <img src="/favicon.svg" width="60" height="60" alt="" style="display:block;margin:0 auto 0.5rem;border-radius:15px;box-shadow:0 6px 16px rgba(30,90,140,0.22)">
+      <img src="/icons/icon-192.png" width="60" height="60" alt="" style="display:block;margin:0 auto 0.5rem;border-radius:15px;box-shadow:0 6px 16px rgba(30,90,140,0.22)">
       <div style="font-size:1.4rem;font-weight:700;color:var(--brand)">搵樓日記</div>
     </div>
     <div id="login-error" style="color:#e57373;font-size:0.85rem;margin-bottom:0.75rem;display:none"></div>
