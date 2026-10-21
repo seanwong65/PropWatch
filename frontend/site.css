@@ -30,7 +30,7 @@ a { color: var(--accent2); }
   border-bottom: 1px solid var(--border);
 }
 .top-logo { font-weight: 700; font-size: 1.05rem; color: var(--brand); text-decoration: none; display: inline-flex; align-items: center; gap: 0.5rem; }
-.top-logo img { border-radius: 7px; box-shadow: 0 2px 6px rgba(30,90,140,0.25); }
+.top-logo img { border-radius: 8px; box-shadow: 0 2px 6px rgba(30,90,140,0.25); }
 .top-actions { display: flex; gap: 0.5rem; }
 .top-btn {
   border: 1px solid var(--btn2-border); background: var(--btn2-bg); color: var(--text);
