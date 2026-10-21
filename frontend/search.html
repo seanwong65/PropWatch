@@ -3,15 +3,15 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-  <title>搵樓｜中原、美聯、香港置業、利嘉閣一次過搜尋 — 搵樓日記</title>
-  <meta name="description" content="一個搜尋同時搵中原、美聯、香港置業、利嘉閣嘅二手放盤：按屋苑、價錢、實用面積、房數篩選，即時睇晒四大地產網，啱心水直接去原網站睇。免登入。">
+  <title>二手樓搜尋｜中原、美聯、香港置業、利嘉閣買盤租盤一次搵晒 — 搵樓日記</title>
+  <meta name="description" content="一個搜尋同時搵中原、美聯、香港置業、利嘉閣嘅二手買盤同租盤：按屋苑、全港 19 區、價錢、實用面積、房數篩選，價錢或實用呎價由低至高排，居屋未補地價盤會標明。即時睇晒四大地產網，啱心水直接去原網站睇。免登入、免費。">
   <link rel="canonical" href="https://home.ws-techs.com/search">
   <meta property="og:type" content="website">
   <meta property="og:site_name" content="搵樓日記">
   <meta property="og:locale" content="zh_HK">
   <meta property="og:url" content="https://home.ws-techs.com/search">
-  <meta property="og:title" content="搵樓：中原、美聯、香港置業、利嘉閣一次過搜尋">
-  <meta property="og:description" content="按屋苑、價錢、面積、房數，即時搵晒四大地產網嘅放盤。免登入。">
+  <meta property="og:title" content="二手樓搜尋：中原、美聯、香港置業、利嘉閣買盤租盤一次搵晒">
+  <meta property="og:description" content="買盤、租盤、全港 19 區，按價錢由低至高即時搵晒四大地產網。免登入、免費。">
   <meta property="og:image" content="https://home.ws-techs.com/images/hero-1-overview.jpg">
   <meta name="twitter:card" content="summary_large_image">
   <link rel="icon" type="image/png" sizes="32x32" href="/icons/favicon-32.png">
@@ -33,8 +33,10 @@
         "inLanguage": "zh-HK",
         "isAccessibleForFree": true,
         "offers": { "@type": "Offer", "price": "0", "priceCurrency": "HKD" },
-        "description": "一個搜尋同時搵中原、美聯、香港置業、利嘉閣嘅二手樓放盤，按屋苑、價錢、實用面積同房數篩選。"
+        "description": "一個搜尋同時搵中原、美聯、香港置業、利嘉閣嘅二手樓買盤同租盤，按屋苑、地區、價錢、實用面積同房數篩選，價錢或實用呎價由低至高排序。",
+        "featureList": ["四大地產網一次過搜尋","買盤及租盤","全港 19 區地區篩選","價錢／實用呎價由低至高排序","居屋未補地價盤標示","免登入"]
       },
+      {"@type": "FAQPage", "mainEntity": [{"@type": "Question", "name": "搵樓日記嘅搜尋同地產網自己個搜尋有咩分別？", "acceptedAnswer": {"@type": "Answer", "text": "地產網淨係搵佢自己嘅盤；呢度一個搜尋同時問中原、美聯、香港置業、利嘉閣四個網，結果擺埋一齊比較，啱心水就撳入原網站睇詳情或者聯絡代理。"}}, {"@type": "Question", "name": "可唔可以搵租盤？", "acceptedAnswer": {"@type": "Answer", "text": "可以。揀「租盤」，價錢欄就係月租（元），一樣可以按地區、房數、面積篩選同按租金由低至高排。"}}, {"@type": "Question", "name": "點解價錢由低至高頭幾個係「居屋未補」？", "acceptedAnswer": {"@type": "Answer", "text": "居屋、綠表置居等未補地價嘅盤，標價係未補地價價錢，所以特別平。我哋會清楚標明「居屋未補」；價錢同呎價排序亦會自動排走 100 呎以下嘅車位。"}}, {"@type": "Question", "name": "搜尋資料準唔準？", "acceptedAnswer": {"@type": "Answer", "text": "每次搜尋都係即時去四個地產網攞最新放盤，資料由地產網提供，實際情況（叫價、單位資料）請向代理核實。搵樓日記唔係地產代理，唔儲存搜尋結果。"}}, {"@type": "Question", "name": "想知個盤放咗幾耐、減過幾多次價點算？", "acceptedAnswer": {"@type": "Answer", "text": "喺結果撳「追蹤加減價」免費登記，搵樓日記會每日自動記低嗰個屋苑每個盤嘅放盤日數、每次改價同下架去向。"}}]},
       {
         "@type": "BreadcrumbList",
         "itemListElement": [
@@ -47,7 +49,17 @@
   </script>
   <link rel="stylesheet" href="/site.css">
   <!-- ?v=：Pages 對 .js/.css 回 max-age=14400，改檔要 bump 呢個版本（search.html + app.html 嘅 PS_VER），否則舊 JS 配新 HTML 會壞 -->
-<link rel="stylesheet" href="/public-search.css?v=20261014a">
+<link rel="stylesheet" href="/public-search.css?v=20261022a">
+<style>
+  /* SEO 說明段（只喺 /search 頁） */
+  .ps-seo { margin: 2.5rem 0 1rem; color: var(--text); font-size: 0.92rem; line-height: 1.85; }
+  .ps-seo h2 { font-size: 1.1rem; margin: 1.6rem 0 0.5rem; }
+  .ps-seo ol { padding-left: 1.3rem; margin: 0; }
+  .ps-seo a { color: var(--accent2); }
+  .ps-seo details { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 0.7rem 1rem; margin-bottom: 0.5rem; }
+  .ps-seo summary { cursor: pointer; font-weight: 700; }
+  .ps-seo details p { margin: 0.45rem 0 0; color: var(--muted); }
+</style>
 </head>
 <body>
 
@@ -77,6 +89,26 @@
   <!-- 表單／結果區由 public-search.js 畫（同 app 入面嗰個共用同一份），見 PANEL_HTML -->
   <div id="ps-root"></div>
 
+
+  <!-- SEO 說明段（靜態 HTML，crawler 唔行 JS 都讀到；同 JSON-LD FAQPage 一致） -->
+  <section class="ps-seo">
+    <h2>點樣用：三步搵晒四大地產網</h2>
+    <ol>
+      <li><b>揀買盤或者租盤</b>，輸入屋苑名（可留空），揀地區、房數、價錢同實用面積。</li>
+      <li><b>撳搜尋</b>：中原、美聯、香港置業、利嘉閣嘅結果會同時出，頂部見到每個網有幾多個盤。</li>
+      <li><b>排序比較</b>：預設<b>價錢由低至高</b>，亦可以揀實用呎價或者最新放盤；啱心水撳入原網站睇詳情。</li>
+    </ol>
+    <h2>按地區搵二手樓</h2>
+    <p>全港 19 個地區：<a href="/search?area=1001">中西區</a>、<a href="/search?area=1002">灣仔</a>、<a href="/search?area=1003">南區</a>、<a href="/search?area=1004">東區</a>、<a href="/search?area=2005">油尖旺</a>、<a href="/search?area=2006">深水埗</a>、<a href="/search?area=2007">觀塘</a>、<a href="/search?area=2008">黃大仙</a>、<a href="/search?area=2009">九龍城</a>、<a href="/search?area=2010">將軍澳</a>、<a href="/search?area=3010">西貢</a>、<a href="/search?area=3011">荃灣</a>、<a href="/search?area=3012">葵青</a>、<a href="/search?area=3013">屯門</a>、<a href="/search?area=3014">元朗</a>、<a href="/search?area=3015">北區</a>、<a href="/search?area=3016">大埔</a>、<a href="/search?area=3017">沙田</a>、<a href="/search?area=3018">離島</a>。</p>
+    <p>想租樓？例如 <a href="/search?deal=R&amp;area=1001">中西區</a>、<a href="/search?deal=R&amp;area=1002">灣仔</a>、<a href="/search?deal=R&amp;area=1003">南區</a>、<a href="/search?deal=R&amp;area=1004">東區</a>、<a href="/search?deal=R&amp;area=2005">油尖旺</a>、<a href="/search?deal=R&amp;area=2006">深水埗</a>、<a href="/search?deal=R&amp;area=2007">觀塘</a>、<a href="/search?deal=R&amp;area=2008">黃大仙</a> 嘅租盤，或者喺上面揀「租盤」再揀地區。</p>
+    <h2>常見問題</h2>
+    <details><summary>搵樓日記嘅搜尋同地產網自己個搜尋有咩分別？</summary><p>地產網淨係搵佢自己嘅盤；呢度一個搜尋同時問中原、美聯、香港置業、利嘉閣四個網，結果擺埋一齊比較，啱心水就撳入原網站睇詳情或者聯絡代理。</p></details>
+    <details><summary>可唔可以搵租盤？</summary><p>可以。揀「租盤」，價錢欄就係月租（元），一樣可以按地區、房數、面積篩選同按租金由低至高排。</p></details>
+    <details><summary>點解價錢由低至高頭幾個係「居屋未補」？</summary><p>居屋、綠表置居等未補地價嘅盤，標價係未補地價價錢，所以特別平。我哋會清楚標明「居屋未補」；價錢同呎價排序亦會自動排走 100 呎以下嘅車位。</p></details>
+    <details><summary>搜尋資料準唔準？</summary><p>每次搜尋都係即時去四個地產網攞最新放盤，資料由地產網提供，實際情況（叫價、單位資料）請向代理核實。搵樓日記唔係地產代理，唔儲存搜尋結果。</p></details>
+    <details><summary>想知個盤放咗幾耐、減過幾多次價點算？</summary><p>喺結果撳「追蹤加減價」免費登記，搵樓日記會每日自動記低嗰個屋苑每個盤嘅放盤日數、每次改價同下架去向。</p></details>
+  </section>
+
   <p class="ps-note">放盤資料即時來自各地產代理網站，由第三方提供，搵樓日記唔保證準確，實際情況請向代理核實。<br>搵樓日記唔係地產代理，唔儲存搜尋結果。</p>
 </main>
 
@@ -92,6 +124,6 @@
   <div>搵樓日記唔係地產代理，亦唔係銀行。數據收集自公開地產網站，只供參考。</div>
 </footer>
 
-<script src="/public-search.js?v=20261014a"></script>
+<script src="/public-search.js?v=20261022a"></script>
 </body>
 </html>

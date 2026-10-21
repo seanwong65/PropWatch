@@ -386,3 +386,11 @@ drip sync（`*/2`）同樣被雙重觸發：兩個 invocation 同時揀同一批
 - 11 個 HTML 嘅 `<head>` 已加 `favicon.ico`、`apple-touch-icon`；`index/app/search` 另加 `manifest`；`_headers` 加 manifest 嘅 Content-Type；首頁 JSON-LD `logo` 改指 `icon-512.png`。
 - 顏色（取樣自完整版）：背景 `#5dbbfd`→`#035ece`，琥珀 `#ffd34d`→`#f78f18`，鏡片 `#ddedfc`。比網站 UI 品牌藍 `#1270ac` 鮮艷（用戶揀 A：保持原色）。
 - 瀏覽器會死 cache favicon：換 icon 後要硬重新整理或清 cache 先見到新嘅。
+
+## SEO 更新（2026-10-22）
+
+- 首頁：title／description／OG 改為以「四大地產網一次搜（買盤租盤）＋放盤日數、減價紀錄追蹤」做主打；JSON-LD WebApplication featureList 補齊新功能，加 `FAQPage`（同頁面可見嘅「常見問題」6 條 `<details>` 一致）；功能介紹加 2 張卡（四網搜尋、心儀樓盤改價記錄，截圖 `images/feat-search-726.jpg`、`feat-fav-707.jpg`，只截自己 UI，冇地產網相片）。
+- `/search`：title／description 加買盤租盤、19 區、價錢排序、居屋未補；頁底加靜態說明段 `.ps-seo`（用法、19 區連結 `/search?area=…`、租盤連結、FAQ 5 條＋JSON-LD FAQPage）；canonical 仍係 `/search`。
+  `public-search.js`：冇條件時唔再用 JS 改 `document.title`（Google 會 render JS，會蓋過 SEO 標題）。PS_VER `20261022a`。
+- 新教學：`/guides/viewing-checklist`（睇樓清單）；guides 首頁、首頁教學區、about 加連結；sitemap 加新頁＋更新 lastmod。
+- 文案事實要同功能一致：免費 3 個屋苑／15 個睇樓記錄（`sec_free_*`）；改價記錄、時間軸、走勢圖、每日 email 係收費；價錢唔寫死（Stripe 動態）。

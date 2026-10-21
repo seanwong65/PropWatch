@@ -326,7 +326,8 @@ function renderTitle() {
   if (c.smin != null || c.smax != null) bits.push(`${c.smin ?? 0}–${c.smax ?? "∞"}呎`);
   const deal = c.deal === "R" ? "租盤" : "買盤";
   $("ps-title").textContent = bits.length ? `${bits.join(" · ")} ${deal}` : `全港最新${deal}`;
-  if (!embedded) document.title = (bits.length ? `${bits.join(" ")} ${deal}` : `全港最新${deal}`) + "｜四大地產網一次過搜尋 — 搵樓日記";
+  // 冇條件（/search 本身）就保留 HTML 嘅 SEO 標題，唔好用 JS 蓋過（Google 會 render JS）
+  if (!embedded && bits.length) document.title = `${bits.join(" ")} ${deal}｜四大地產網一次過搜尋 — 搵樓日記`;
   if (!embedded && bits.length) saveRecent(c, `${bits.join(" · ")} ${deal}`, condToQuery(c));
 }
 

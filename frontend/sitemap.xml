@@ -2,11 +2,11 @@
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
   <url>
     <loc>https://home.ws-techs.com/</loc>
-    <lastmod>2026-09-25</lastmod>
+    <lastmod>2026-10-22</lastmod>
   </url>
   <url>
     <loc>https://home.ws-techs.com/search</loc>
-    <lastmod>2026-10-10</lastmod>
+    <lastmod>2026-10-22</lastmod>
   </url>
   <url>
     <loc>https://home.ws-techs.com/mortgage-calculator</loc>
@@ -14,7 +14,7 @@
   </url>
   <url>
     <loc>https://home.ws-techs.com/guides/</loc>
-    <lastmod>2026-09-25</lastmod>
+    <lastmod>2026-10-22</lastmod>
   </url>
   <url>
     <loc>https://home.ws-techs.com/guides/listing-days</loc>
@@ -25,8 +25,12 @@
     <lastmod>2026-09-25</lastmod>
   </url>
   <url>
+    <loc>https://home.ws-techs.com/guides/viewing-checklist</loc>
+    <lastmod>2026-10-22</lastmod>
+  </url>
+  <url>
     <loc>https://home.ws-techs.com/about</loc>
-    <lastmod>2026-09-25</lastmod>
+    <lastmod>2026-10-22</lastmod>
   </url>
   <url>
     <loc>https://home.ws-techs.com/privacy</loc>
