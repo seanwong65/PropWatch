@@ -375,3 +375,13 @@ drip sync（`*/2`）同樣被雙重觸發：兩個 invocation 同時揀同一批
 （`settings.drip_lock_until`，100 秒；`INSERT … ON CONFLICT DO UPDATE … WHERE` 原子；唔主動釋放，租約 < cron 間隔 120 秒），
 拎唔到鎖就收工（console.log「[drip] 跳過」）。email watchdog／summary／恒生掃描都喺鎖入面，一併唔會重覆。
 查法：`workersInvocationsAdaptive` 加 `coloCode`／`datetimeFiveMinutes` 維度，睇 AMS 同 SIN 嘅 subrequests。
+
+## App icon（2026-10-21）
+
+- **完整版**（屋＋香港天際線＋放大鏡＋走勢線＋書籤，AI 生成）：`docs/brand/app-icon-master-1024.png`（原圖，唔 deploy）；
+  由佢 `sips` 縮出 `frontend/icons/icon-512.png`、`icon-192.png`、`frontend/apple-touch-icon.png`（180，iOS 要求無透明）。
+- **簡化版**（屋＋放大鏡＋走勢線，圓角 SVG，顏色同完整版一致）：`frontend/favicon.svg`；`favicon.ico`（16／32／48 PNG 內嵌）由同一 SVG 經 `qlmanage` 渲染再 `sips` 縮。
+- `frontend/manifest.webmanifest`（PWA：start_url `/app`、theme `#1270ac`、background `#eef6fd`；purpose 只用 `any`，唔做 maskable——完整版構圖未留夠 safe zone）。
+- 11 個 HTML 嘅 `<head>` 已加 `favicon.ico`、`apple-touch-icon`；`index/app/search` 另加 `manifest`；`_headers` 加 manifest 嘅 Content-Type；首頁 JSON-LD `logo` 改指 `icon-512.png`。
+- 顏色（取樣自完整版）：背景 `#5dbbfd`→`#035ece`，琥珀 `#ffd34d`→`#f78f18`，鏡片 `#ddedfc`。比網站 UI 品牌藍 `#1270ac` 鮮艷（用戶揀 A：保持原色）。
+- 瀏覽器會死 cache favicon：換 icon 後要硬重新整理或清 cache 先見到新嘅。
