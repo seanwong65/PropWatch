@@ -396,3 +396,4 @@ drip sync（`*/2`）同樣被雙重觸發：兩個 invocation 同時揀同一批
 - 文案事實要同功能一致：免費 3 個屋苑／15 個睇樓記錄（`sec_free_*`）；改價記錄、時間軸、走勢圖、每日 email 係收費；價錢唔寫死（Stripe 動態）。
 - 2026-10-22（續）：分享預覽圖改用 `images/og-default.jpg`（1200×630，源檔 `docs/brand/og-default.svg`，`qlmanage` 渲染：SVG 要做正方形 1200×1200、內容置中再 `sips -c` 中間 630 行，否則 qlmanage 會放大）；全站 og:image／twitter:image／guides JSON-LD image 統一。
   新教學：`/guides/negotiation`（點樣講價）、`/guides/hos-premium`（居屋未補地價）、`/guides/renting-checklist`（租樓注意事項）；guides 首頁、首頁教學區、sitemap 已加。政策／稅率類內容加咗「以官方最新公佈為準」。
+- 地區專頁**樣本** `/area/sha-tin`（2026-10-22）：`noindex`、未入 sitemap、冇內部連結，等用戶確認格式。結構：H1＋簡介、嵌入即時搜尋（`PublicSearch.mount(el,{embedded:true, hook:true, initial:{area:"3017"}})`，`opts.hook` 新加：嵌入模式都顯示免費登記提示）、分區／港鐵站／屋苑表（屋苑連 `/search?kw=`）、買樓注意、租盤同附近地區連結、FAQ＋JSON-LD。PS_VER `20261022b`。
