@@ -398,3 +398,5 @@ drip sync（`*/2`）同樣被雙重觸發：兩個 invocation 同時揀同一批
   新教學：`/guides/negotiation`（點樣講價）、`/guides/hos-premium`（居屋未補地價）、`/guides/renting-checklist`（租樓注意事項）；guides 首頁、首頁教學區、sitemap 已加。政策／稅率類內容加咗「以官方最新公佈為準」。
 - 地區專頁**樣本** `/area/sha-tin`（2026-10-22）：`noindex`、未入 sitemap、冇內部連結，等用戶確認格式。結構：H1＋簡介、嵌入即時搜尋（`PublicSearch.mount(el,{embedded:true, hook:true, initial:{area:"3017"}})`，`opts.hook` 新加：嵌入模式都顯示免費登記提示）、分區／港鐵站／屋苑表（屋苑連 `/search?kw=`）、買樓注意、租盤同附近地區連結、FAQ＋JSON-LD。PS_VER `20261022b`。
 - 教學第二批（2026-10-22，10 篇）：saleable-area、buying-process、extra-costs、bank-valuation、old-building、floor-and-orientation、unauthorised-works、transaction-records、h-vs-p-mortgage、rent-or-buy。由 scratchpad 模板（同現有 guides 一樣嘅 head／JSON-LD／CTA）生成；guides 首頁改做 4 個分類；首頁加「睇晒全部 16 篇」；sitemap 22 個 URL。政策、稅率、銀行做法一律寫「以官方／銀行最新公佈為準」，數字例子標明「示意」。
+- **Email 預覽機制**（2026-10-22）：`sendQueuedEmailPreview`（drip cron 持鎖後行）。本機生成 HTML，經 wrangler 寫 `settings.email_preview_html` 同 `email_preview_queue`（`{"account_id":N,"subject":"…"}`），2 分鐘內寄出並刪 key；**只寄 admin 帳戶自己 email**、HTML ≤ 400KB。用嚟寄每週摘要等新 email 嘅樣本。
+- 沙田專頁：簡介改寫成具體內容；分區表同「要留意」排喺即時搜尋之前（用戶要求介紹排先）。首頁「睇晒全部買樓教學」唔顯示篇數。

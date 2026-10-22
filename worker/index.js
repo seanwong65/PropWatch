@@ -756,6 +756,22 @@ async function acquireDripLock(db) {
   ).bind(String(now + DRIP_LOCK_MS), now).run();
   return (r.meta?.changes || 0) > 0;
 }
+// Email 預覽（2026-10-22）：開發新 email（例如每週摘要）時，喺本機生成 HTML 樣本，
+// 經 wrangler 寫入 settings：email_preview_html（HTML）＋ email_preview_queue（{"account_id":N,"subject":"…"}）。
+// 下一個 drip cron（持鎖嗰個）就寄出並即刻刪走兩個 key。只會寄去 **admin 帳戶自己嘅 email**，
+// 唔接受任意收件人——Gmail 憑證只喺 worker，呢個係唯一唔使 admin token 又安全嘅寄樣本方法。
+async function sendQueuedEmailPreview(db, env) {
+  const raw = await getSetting(db, "email_preview_queue");
+  if (!raw) return;
+  const html = await getSetting(db, "email_preview_html");
+  await db.prepare("DELETE FROM settings WHERE key IN ('email_preview_queue', 'email_preview_html')").run();   // 先刪，唔會重覆寄
+  let q = {};
+  try { q = JSON.parse(raw) || {}; } catch (_) { return; }
+  const acc = await db.prepare("SELECT email, role FROM accounts WHERE id = ?").bind(Number(q.account_id) || 0).first();
+  if (!acc || acc.role !== "admin" || !acc.email || !html || html.length > 400000) return;
+  await sendEmail(env, acc.email, String(q.subject || "搵樓日記 email 預覽").slice(0, 150), html);
+  console.log("[email-preview] sent to admin account", q.account_id);
+}
 const EMAIL_CATCHUP_HOUR = 10;   // 09:00 寄信，過咗 10:00 都未見到就當佢冇跑
 async function checkEmailCronWatchdog(db, env) {
   if (hkHour() < EMAIL_CATCHUP_HOUR) return;
@@ -6480,6 +6496,7 @@ export default {
           await setSetting(env.DB, "cron_last_drip", new Date().toISOString());
           // 雙重觸發：已有另一個 invocation 行緊（或者啱啱行完）就收工，唔好再撞同一批單元
           if (!(await acquireDripLock(env.DB))) { console.log("[drip] 跳過：另一個 invocation 持有鎖（cron 雙重觸發）"); return; }
+          await sendQueuedEmailPreview(env.DB, env).catch((e) => console.error("email preview failed:", e?.message || e));
           // 順手睇下今日封 email 寄咗未（見 checkEmailCronWatchdog）。擺喺
           // syncBatch 之前：syncBatch 可以行足 45 秒，擺後面驚 invocation
           // 唔夠時間就走咗。查一個 setting 好平，唔會拖慢 drip。
