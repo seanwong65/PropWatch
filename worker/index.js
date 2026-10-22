@@ -1,3 +1,5 @@
+import { loadWeeklyInputs, computeWeekly, renderWeeklyHtml, weeklySubject, weeklyHeadline } from "./weekly.js";
+
 // 冇 Allow-Origin：由 fetch 出口統一按 allow-list reflect（見 applyCors）。
 const CORS = {
   "Access-Control-Allow-Methods": "GET, POST, PUT, PATCH, DELETE, OPTIONS",
@@ -195,6 +197,10 @@ const HS_HEADERS = {
 
 function hkDateStr(offsetDays = 0) {
   return new Date(Date.now() + 8 * 3600000 + offsetDays * 86400000).toISOString().slice(0, 10);
+}
+// 香港時間嘅星期幾（0=日 … 6=六）
+function hkDow() {
+  return new Date(Date.now() + 8 * 3600000).getUTCDay();
 }
 // 香港時間嘅鐘數（0–23）
 function hkHour() {
@@ -903,6 +909,9 @@ async function ensureAuthTables(db) {
   try { await db.prepare("ALTER TABLE accounts ADD COLUMN is_active INTEGER NOT NULL DEFAULT 1").run(); } catch (_) {}
   // 每日 email 訂閱狀態。DEFAULT 1 = 既有帳戶照收（唔可以靜靜幫人取消訂閱）。
   try { await db.prepare("ALTER TABLE accounts ADD COLUMN email_opt_in INTEGER NOT NULL DEFAULT 1").run(); } catch (_) {}
+  // 每週摘要（收費版，逐個帳戶）。DEFAULT 1 = 預設開（用戶 2026-10-22 決定）；
+  // 要同時 email_opt_in = 1 先寄（全局退訂優先）。
+  try { await db.prepare("ALTER TABLE accounts ADD COLUMN weekly_opt_in INTEGER NOT NULL DEFAULT 1").run(); } catch (_) {}
   // Unsubscribe 連結用嘅 per-account 隨機 token（256-bit）。email 內嘅退訂 link
   // 冇得行 auth（用戶喺 email client 撳，冇我哋嘅 token），所以靠呢個猜唔到嘅
   // token 做授權。Lazy generate（第一次寄信先開），revoke 就 set NULL。
@@ -5297,6 +5306,8 @@ async function syncOneEstate(db, estate) {
 const DRIP_CRON = "*/2 * * * *";
 // ⚠️ 同 wrangler.toml 個 crons 要完全一致，否則 scheduled() 分流唔到。
 const EMAIL_CRON = "0 1 * * *";   // 09:00 HKT
+// 每週摘要：逢星期六 10:00 HKT（＝週六 02:00 UTC）。⚠️ 同 wrangler.toml 要完全一致。
+const WEEKLY_CRON = "0 2 * * 6";
 // 要大過各個 scraper 自己嘅內部 deadline（利嘉閣 30s）+ 最後一頁嘅 10s，
 // 否則會喺人家 graceful bail（carry forward 上次嘅盤）之前就 abort，
 // 令「部分成功」變成「完全失敗」。一次只做一個 scrape 所以食得起。
@@ -5954,6 +5965,10 @@ async function sendDailyEmail(db, env, onlyAccountId = null, overrideEmail = nul
   // email_opt_in = 0 即係用戶撳過退訂（或者喺 ⚙️ 設定熄咗）——一定要喺呢度
   // 就篩走，唔可以靠寄之前再判斷，否則新加嘅寄信路徑好易漏咗個 check。
   // onlyAccountId：手動 trigger 測試單一帳戶用（唔影響正常 cron 全帳戶寄）。
+  // 星期六：有開每週摘要而且有最愛屋苑（即係週六 10:00 真係會收到摘要）嘅帳戶唔寄每日 email
+  // （用戶 2026-10-22 決定「只寄 weekly」）。冇最愛屋苑嘅照寄每日，免得當日乜都冇。
+  // 手動單一帳戶／force 唔受影響。
+  const satSkipWeekly = hkDow() === 6 && !onlyAccountId && !overrideEmail && !force ? 1 : 0;
   const { results: accounts } = await db.prepare(`
     SELECT a.id, a.username, a.email FROM accounts a
     WHERE a.email IS NOT NULL AND a.email != ''
@@ -5962,7 +5977,9 @@ async function sendDailyEmail(db, env, onlyAccountId = null, overrideEmail = nul
       AND (a.tier = 'paid' OR a.role = 'admin')
       AND EXISTS (SELECT 1 FROM account_estates ae WHERE ae.account_id = a.id)
       AND (? IS NULL OR a.id = ?)
-  `).bind(onlyAccountId, onlyAccountId).all();
+      AND NOT (? = 1 AND COALESCE(a.weekly_opt_in, 1) = 1
+               AND EXISTS (SELECT 1 FROM account_estates f WHERE f.account_id = a.id AND f.is_favourite = 1 AND f.paused_at IS NULL))
+  `).bind(onlyAccountId, onlyAccountId, satSkipWeekly).all();
   const out = [];
   for (const acc of accounts) {
     // 扣數出緊事就唔好照寄「今日動態」（見 PAYMENT_TROUBLE_STATUSES）。
@@ -6132,6 +6149,100 @@ async function runDailyEmailTask(env, { force = false } = {}) {
       "每日 email task（top-level）", [detail]);
     return { error: detail };
   }
+}
+
+// ── 每週摘要（收費版；逢星期六 10:00 HKT，WEEKLY_CRON）──────────────────────────
+// 只計用戶標咗 ⭐ 最愛嘅屋苑；邏輯喺 weekly.js（載入／計算／排版三層）。
+// 同每日 email 共用 daily_email_log 認領（day = "weekly-<日期>"），Cloudflare 雙重觸發都只寄一封。
+// 數據唔夠新（最愛屋苑嘅最新 snapshot 超過 1 日前）就唔寄，寧願冇信都唔好用舊數據扮「本週」，並通知 admin。
+async function sendWeeklySummary(db, env, { onlyAccountId = null, force = false, preview = false } = {}) {
+  if (!env?.GMAIL_REFRESH_TOKEN && !preview) return { error: "no GMAIL credentials" };
+  const wEnd = hkDateStr();
+  const day = `weekly-${wEnd}`;
+  const { results: accounts } = await db.prepare(`
+    SELECT a.id, a.username, a.email FROM accounts a
+    WHERE a.email IS NOT NULL AND a.email != ''
+      AND (a.is_active IS NULL OR a.is_active = 1)
+      AND (a.email_opt_in IS NULL OR a.email_opt_in = 1)
+      AND (a.tier = 'paid' OR a.role = 'admin')
+      AND (? IS NOT NULL OR COALESCE(a.weekly_opt_in, 1) = 1)
+      AND EXISTS (SELECT 1 FROM account_estates f WHERE f.account_id = a.id AND f.is_favourite = 1 AND f.paused_at IS NULL)
+      AND (? IS NULL OR a.id = ?)
+  `).bind(onlyAccountId, onlyAccountId, onlyAccountId).all();
+  const out = [];
+  for (const acc of accounts) {
+    const guard = !onlyAccountId && !force && !preview;
+    if (guard && !(await claimDailyEmail(db, acc.id, day))) { out.push({ account: acc.username, duplicate: true }); continue; }
+    try {
+      const w = computeWeekly(await loadWeeklyInputs(db, acc.id, wEnd, await getPrefs(db, acc.id)));
+      if (w.status !== "ok") {
+        if (guard) await db.prepare("DELETE FROM daily_email_log WHERE account_id = ? AND day = ?").bind(acc.id, day).run().catch(() => {});
+        out.push({ account: acc.username, skipped: w.reason, stale: w.stale });
+        continue;
+      }
+      const unsubUrl = `${WORKER_BASE}/api/unsubscribe?token=${await getUnsubToken(db, acc.id)}&kind=weekly`;
+      const html = renderWeeklyHtml(w, { appUrl: `${APP_BASE}/app`, unsubUrl, iconUrl: `${APP_BASE}/icons/icon-192.png` });
+      const subject = weeklySubject(w);
+      if (preview) { out.push({ account: acc.username, preview: true, subject, headline: weeklyHeadline(w), stale: w.stale, html }); continue; }
+      await sendEmail(env, acc.email, subject, html, {
+        "List-Unsubscribe": `<${unsubUrl}>`,
+        "List-Unsubscribe-Post": "List-Unsubscribe=One-Click",
+      });
+      if (guard) await markDailyEmailSent(db, acc.id, day);
+      out.push({ account: acc.username, to: acc.email, ok: true, stale: w.stale });
+    } catch (err) {
+      console.error(`Weekly summary to ${acc.username} failed:`, err.message);
+      out.push({ account: acc.username, error: err.message });
+      if (guard) await db.prepare("DELETE FROM daily_email_log WHERE account_id = ? AND day = ?").bind(acc.id, day).run().catch(() => {});
+    }
+  }
+  return { sent: out };
+}
+
+async function runWeeklySummaryTask(env, { force = false } = {}) {
+  const started = new Date().toISOString();
+  try { await setSetting(env.DB, "cron_last_weekly_start", started); } catch (_) {}
+  const finish = async (status, detail) => {
+    try { await setSetting(env.DB, "cron_last_weekly_done", JSON.stringify({ at: new Date().toISOString(), started, status, detail }).slice(0, 900)); } catch (_) {}
+  };
+  try {
+    await ensureMultiAccount(env.DB);
+    const res = await sendWeeklySummary(env.DB, env, { force });
+    const sent = res?.sent || [];
+    const failed = sent.filter((r) => r.error), skipped = sent.filter((r) => r.skipped), ok = sent.filter((r) => r.ok);
+    const partial = ok.filter((r) => r.stale?.length);
+    if (res?.error) {
+      await sendAdminAlert(env.DB, env, "🚨 搵樓日記每週摘要冇寄到", "每週摘要 task", [res.error]);
+    } else if (failed.length || skipped.length) {
+      await sendAdminAlert(env.DB, env, `⚠️ 搵樓日記每週摘要：${failed.length} 個寄失敗、${skipped.length} 個跳過`, "每週摘要 task", [
+        ...failed.map((f) => `${f.account}: ${f.error}`),
+        ...skipped.map((f) => `${f.account}: 跳過（${f.skipped}${f.stale?.length ? "：" + f.stale.join("、") : ""}）`)]);
+    } else if (partial.length) {
+      await sendAdminAlert(env.DB, env, "ℹ️ 搵樓日記每週摘要：部分屋苑數據過期", "每週摘要 task",
+        partial.map((r) => `${r.account}: ${r.stale.join("、")} 未計入`));
+    }
+    await finish("done", { ok: ok.length, failed: failed.length, skipped: skipped.length, duplicate: sent.filter((r) => r.duplicate).length });
+    return { ok: ok.length, failed: failed.length, skipped: skipped.length, sent };
+  } catch (e) {
+    const detail = _errDetail(e);
+    await finish("threw", detail);
+    await sendAdminAlert(env.DB, env, "🚨 搵樓日記每週摘要 task 整個失敗", "每週摘要 task（top-level）", [detail]);
+    return { error: detail };
+  }
+}
+// 補跑：週六過咗 11:00 都未見到 weekly cron 行過，就補一次（同每日 email 嘅 watchdog 一樣，由 drip cron 觸發）
+const WEEKLY_CATCHUP_HOUR = 11;
+async function checkWeeklyCronWatchdog(db, env) {
+  if (hkDow() !== 6 || hkHour() < WEEKLY_CATCHUP_HOUR) return;
+  const today = hkDateStr();
+  if (((await getSetting(db, "cron_last_weekly_start")) || "").slice(0, 10) === today) return;
+  if ((await getSetting(db, "weekly_catchup_day") || "") === today) return;
+  await setSetting(db, "weekly_catchup_day", today);
+  await sendAdminAlert(db, env, "⚠️ 搵樓日記每週摘要 cron 冇 fire，補跑緊", "每週摘要 watchdog（由 drip cron 觸發）",
+    [`${today} 10:00 嘅每週摘要 cron 冇跑過。而家即刻補跑一次。`],
+    "補跑唔成功嘅話，喺 worker/ 行 `npx wrangler deploy` 重新註冊 trigger。");
+  await runWeeklySummaryTask(env);
+  return true;
 }
 
 // ── 公開搜尋（未登入，首頁／search 頁）：即時問地產網，唔掂 D1 ─────────────────
@@ -6477,6 +6588,8 @@ export default {
     // 冇任何 fetch request 之前行,所以呢度都要 ensure(冪等,好快)。
     if (event.cron === EMAIL_CRON) {
       ctx.waitUntil(runDailyEmailTask(env));
+    } else if (event.cron === WEEKLY_CRON) {
+      ctx.waitUntil(runWeeklySummaryTask(env));
     } else if (event.cron === DRIP_CRON) {
       // Drip sync：一個 invocation 盡量做多個單元（跑到 DRIP_BATCH_TIME_BUDGET_MS
       // /DRIP_BATCH_SUBREQ_BUDGET 頂晒為止），全部搞定就 idle（唔會多打 portal）。
@@ -6504,6 +6617,7 @@ export default {
           // syncBatch 自己可以行 45 秒，夾埋容易爆 invocation 時間預算，
           // 兩樣都做唔完。下一轉（兩分鐘後）照樣會 sync，冇損失。
           if (await checkEmailCronWatchdog(env.DB, env).catch(() => false)) return;
+          if (await checkWeeklyCronWatchdog(env.DB, env).catch(() => false)) return;
           const r = await syncBatch(env.DB);
           // 行到呢度代表冇 D1 閃斷（或者重試之後過咗骨）→ 清 streak
           if (Number(await getSetting(env.DB, "drip_d1_streak") || 0) > 0) {
@@ -6769,13 +6883,18 @@ export default {
       // 喺 POST（確認頁個掣，或者 List-Unsubscribe-Post One-Click）。
       if ((method === "GET" || method === "POST") && path === "/api/unsubscribe") {
         let token = url.searchParams.get("token") || "";
+        // kind=weekly：每週摘要嘅退訂連結，只關每週摘要（weekly_opt_in），唔郁每日 email。
+        // 白名單：其他值一律當全部（email_opt_in）。
+        let kind = url.searchParams.get("kind") === "weekly" ? "weekly" : "all";
         if (method === "POST" && !token) {
           // 確認頁個 form POST：token 喺 body。One-Click 就照喺 query string。
           try {
             const form = await request.formData();
             token = String(form.get("token") || "");
+            kind = String(form.get("kind") || "") === "weekly" ? "weekly" : "all";
           } catch (_) { /* 唔係 form body：當冇 token */ }
         }
+        const what = kind === "weekly" ? "每週摘要" : "每日通知 email";
         const acc = token
           ? await db.prepare("SELECT id FROM accounts WHERE unsub_token = ?").bind(token).first()
           : null;
@@ -6790,24 +6909,25 @@ export default {
         if (method === "GET") {
           return htmlPage(200, "取消訂閱 — 搵樓日記",
             `<p style="color:#cbd5e1;font-size:14px;line-height:1.6;margin:0 0 18px">
-               確認取消搵樓日記 <b>每日通知 email</b>？<br>
+               確認取消搵樓日記 <b>${what}</b>？<br>
                <span style="color:#94a3b8;font-size:13px">帳戶同數據唔會受影響，之後想收返可以喺 ⚙️ 設定自己開返。</span></p>
              <form method="POST" action="/api/unsubscribe">
                <input type="hidden" name="token" value="${_escHtmlW(token)}">
+               <input type="hidden" name="kind" value="${kind}">
                <button type="submit" style="width:100%;background:#dc2626;color:#fff;border:none;border-radius:10px;padding:12px;font-size:15px;font-weight:600;cursor:pointer;font-family:inherit">確認取消訂閱</button>
              </form>
              <p style="margin:14px 0 0;text-align:center">
                <a href="${APP_BASE}" style="color:#94a3b8;font-size:13px">唔係，返去 搵樓日記</a></p>`);
         }
 
-        await db.prepare("UPDATE accounts SET email_opt_in = 0 WHERE id = ?").bind(acc.id).run();
+        await db.prepare(`UPDATE accounts SET ${kind === "weekly" ? "weekly_opt_in" : "email_opt_in"} = 0 WHERE id = ?`).bind(acc.id).run();
         return htmlPage(200, "已取消訂閱 — 搵樓日記",
           `<p style="color:#4ade80;font-size:15px;font-weight:600;margin:0 0 10px">✓ 已取消訂閱</p>
            <p style="color:#cbd5e1;font-size:14px;line-height:1.6;margin:0">
-             以後唔會再收到每日通知 email。</p>
+             以後唔會再收到${what}。</p>
            <p style="color:#94a3b8;font-size:13px;line-height:1.6;margin:12px 0 0">
              想收返？登入 <a href="${APP_BASE}" style="color:#60a5fa">搵樓日記</a> →
-             ⚙️ 設定 → 開返「每日 email 通知」。</p>`);
+             ⚙️ 設定 → 開返「${kind === "weekly" ? "每週摘要" : "每日 email 通知"}」。</p>`);
       }
 
       // Login endpoint — public
@@ -7017,6 +7137,19 @@ export default {
       // 唔使等第二日 09:00 先知有冇修好。同 /api/send-today-email 唔同：
       // 嗰個淨係 sendDailyEmail，跳過咗 reconcile 同 alert 邏輯 —— 即係
       // cron 出事嗰段佢係測唔到嘅（就係咁先查極查唔到）。
+      // 每週摘要手動驗證：body { account_id?, preview? }。有 account_id＝只寄嗰個帳戶（唔受一週一封限制）；
+      // preview＝淨係回 subject／html，唔寄、唔認領。冇 account_id＝行返 cron 嘅正式路徑（一週一封）。
+      if (method === "POST" && path === "/api/admin/run-weekly-task") {
+        if (!isAdminSession(session)) return json(403, { error: "admin only" });
+        const b = await request.json().catch(() => ({}));
+        const aid = Number(b.account_id) || null;
+        if (b.preview) {
+          if (!aid) return json(400, { error: "preview 要指定 account_id" });
+          return json(200, await sendWeeklySummary(db, env, { onlyAccountId: aid, preview: true }));
+        }
+        const r = aid ? await sendWeeklySummary(db, env, { onlyAccountId: aid }) : await runWeeklySummaryTask(env);
+        return json(200, { ok: !r?.error, result: aid ? { ...r, sent: (r.sent || []).map(({ html, ...x }) => x) } : r });
+      }
       if (method === "POST" && path === "/api/admin/run-email-task") {
         if (!isAdminSession(session)) return json(403, { error: "admin only" });
         const r = await runDailyEmailTask(env, { force: true });   // 手動驗證路徑：唔受「一日一封」限制
@@ -9586,11 +9719,12 @@ export default {
         // email_opt_in 唔存喺 prefs JSON，係 accounts 一個欄位——cron 寄信要用
         // SQL 直接篩（WHERE email_opt_in = 1），唔可以要逐個帳戶 parse JSON。
         // 呢度一齊回，前端一個 request 就攞齊個 popup 要嘅嘢。
-        const acc = await db.prepare("SELECT email, email_opt_in FROM accounts WHERE id = ?")
+        const acc = await db.prepare("SELECT email, email_opt_in, weekly_opt_in FROM accounts WHERE id = ?")
           .bind(session.account_id).first();
         return json(200, {
           prefs,
           email_opt_in: acc?.email_opt_in == null ? true : acc.email_opt_in === 1,
+          weekly_opt_in: acc?.weekly_opt_in == null ? true : acc.weekly_opt_in === 1,
           has_email: !!acc?.email,
         });
       }
@@ -9622,11 +9756,16 @@ export default {
           await db.prepare("UPDATE accounts SET email_opt_in = ? WHERE id = ?")
             .bind(body.email_opt_in ? 1 : 0, session.account_id).run();
         }
-        const accAfter = await db.prepare("SELECT email_opt_in FROM accounts WHERE id = ?")
+        if (typeof body.weekly_opt_in === "boolean") {
+          await db.prepare("UPDATE accounts SET weekly_opt_in = ? WHERE id = ?")
+            .bind(body.weekly_opt_in ? 1 : 0, session.account_id).run();
+        }
+        const accAfter = await db.prepare("SELECT email_opt_in, weekly_opt_in FROM accounts WHERE id = ?")
           .bind(session.account_id).first();
         return json(200, {
           ok: true, prefs,
           email_opt_in: accAfter?.email_opt_in == null ? true : accAfter.email_opt_in === 1,
+          weekly_opt_in: accAfter?.weekly_opt_in == null ? true : accAfter.weekly_opt_in === 1,
         });
       }
 
