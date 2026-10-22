@@ -407,3 +407,7 @@ drip sync（`*/2`）同樣被雙重觸發：兩個 invocation 同時揀同一批
 - 生成器：`tools/area/gen.py`（讀 `tools/area/data.py`），改內容就改 data 再行 `python3 tools/area/gen.py`（輸出去 `frontend/area/`，含共用 `area.css`）。**唔好直接改 `frontend/area/*.html`**，會俾下次生成蓋過。
 - 屋苑例子全部用中原即時搜尋核對過喺嗰區有放盤（`tools/area/verify.json`）；港鐵站同分區係人手寫，改之前核對。
 - 頁面：簡介 → 分區／交通／屋苑表（屋苑連 `/search?kw=`）→「喺X買樓要留意乜」（成段一個 `<details>`）→ 即時買盤（`PublicSearch.mount(el,{embedded:true,hook:true,initial:{area}})`）→ 租盤＋附近地區 → FAQ（JSON-LD FAQPage）。
+
+## Google Search Console 驗證（2026-10-22）
+
+`frontend/googledfea0625fe9a57c1.html.html`（**故意兩個 .html**）：Cloudflare Pages 會將真正嘅 `x.html` 由 `/x.html` 308 轉去 `/x`，Google HTML 檔驗證唔接受轉址；改名之後 `/googledfea0625fe9a57c1.html` 直接回 200、內容一字不改。**唔好刪亦唔好改名**，刪咗 Search Console 會失去驗證。
