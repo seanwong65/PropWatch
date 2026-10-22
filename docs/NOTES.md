@@ -400,3 +400,10 @@ drip sync（`*/2`）同樣被雙重觸發：兩個 invocation 同時揀同一批
 - 教學第二批（2026-10-22，10 篇）：saleable-area、buying-process、extra-costs、bank-valuation、old-building、floor-and-orientation、unauthorised-works、transaction-records、h-vs-p-mortgage、rent-or-buy。由 scratchpad 模板（同現有 guides 一樣嘅 head／JSON-LD／CTA）生成；guides 首頁改做 4 個分類；首頁加「睇晒全部 16 篇」；sitemap 22 個 URL。政策、稅率、銀行做法一律寫「以官方／銀行最新公佈為準」，數字例子標明「示意」。
 - **Email 預覽機制**（2026-10-22）：`sendQueuedEmailPreview`（drip cron 持鎖後行）。本機生成 HTML，經 wrangler 寫 `settings.email_preview_html` 同 `email_preview_queue`（`{"account_id":N,"subject":"…"}`），2 分鐘內寄出並刪 key；**只寄 admin 帳戶自己 email**、HTML ≤ 400KB。用嚟寄每週摘要等新 email 嘅樣本。
 - 沙田專頁：簡介改寫成具體內容；分區表同「要留意」排喺即時搜尋之前（用戶要求介紹排先）。首頁「睇晒全部買樓教學」唔顯示篇數。
+
+## 地區專頁（2026-10-22）
+
+- `/area/`（總覽，港島／九龍／新界／離島）＋ 19 區 `/area/<slug>`（同 `/search` 嘅 19 個 area code 一一對應）。已入 sitemap（42 個 URL），`/search` 嘅地區連結、全站 footer「各區二手樓」都指去呢度。
+- 生成器：`tools/area/gen.py`（讀 `tools/area/data.py`），改內容就改 data 再行 `python3 tools/area/gen.py`（輸出去 `frontend/area/`，含共用 `area.css`）。**唔好直接改 `frontend/area/*.html`**，會俾下次生成蓋過。
+- 屋苑例子全部用中原即時搜尋核對過喺嗰區有放盤（`tools/area/verify.json`）；港鐵站同分區係人手寫，改之前核對。
+- 頁面：簡介 → 分區／交通／屋苑表（屋苑連 `/search?kw=`）→「喺X買樓要留意乜」（成段一個 `<details>`）→ 即時買盤（`PublicSearch.mount(el,{embedded:true,hook:true,initial:{area}})`）→ 租盤＋附近地區 → FAQ（JSON-LD FAQPage）。

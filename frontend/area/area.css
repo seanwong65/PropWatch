@@ -1,0 +1,21 @@
+/* 地區專頁（/area/*）共用樣式 */
+.area-intro { color: var(--muted); font-size: 0.95rem; line-height: 1.85; margin: 0.4rem 0 1rem; }
+.area-sec { margin: 2.2rem 0 0; font-size: 0.92rem; line-height: 1.85; color: var(--text); }
+.area-sec h2 { font-size: 1.15rem; margin: 0 0 0.6rem; }
+.area-sec a { color: var(--accent2); }
+.area-table-wrap { overflow-x: auto; border: 1px solid var(--border); border-radius: 14px; background: var(--surface); }
+.area-table { width: 100%; border-collapse: collapse; min-width: 520px; font-size: 0.88rem; }
+.area-table th { background: var(--surface2); color: var(--muted); text-align: left; padding: 0.55rem 0.8rem; font-size: 0.8rem; }
+.area-table td { padding: 0.6rem 0.8rem; border-top: 1px solid var(--border); vertical-align: top; }
+.area-chips { display: flex; flex-wrap: wrap; gap: 0.45rem; }
+.area-chips a { background: var(--surface); border: 1px solid var(--border-strong, rgba(30,80,130,0.22)); border-radius: 999px; padding: 0.25rem 0.75rem; text-decoration: none; color: var(--text); font-size: 0.86rem; }
+.area-sec details { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 0.7rem 1rem; margin-bottom: 0.5rem; }
+.area-sec summary { cursor: pointer; font-weight: 700; }
+.area-sec details p { margin: 0.45rem 0 0; color: var(--muted); }
+.area-group { background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: 0.8rem 1.1rem; }
+.area-sec details.area-group { padding: 0.8rem 1.1rem; margin: 0; }
+.area-group > summary { cursor: pointer; list-style: revert; }
+.area-group > summary h2 { display: inline; margin: 0; font-size: 1.15rem; }
+.area-group[open] > summary { margin-bottom: 0.4rem; }
+.area-group ul { margin: 0.2rem 0; padding-left: 1.2rem; }
+.area-group li { margin: 0.35rem 0; }
