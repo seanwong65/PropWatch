@@ -1,0 +1,518 @@
+{
+ "1001": {
+  "寶翠園": {
+   "total": 43,
+   "match": 12,
+   "estate": "寶翠園",
+   "err": null
+  },
+  "帝后華庭": {
+   "total": 14,
+   "match": 12,
+   "estate": "帝后華庭",
+   "err": null
+  },
+  "縉城峰": {
+   "total": 15,
+   "match": 12,
+   "estate": "縉城峰",
+   "err": null
+  },
+  "雍景臺": {
+   "total": 7,
+   "match": 7,
+   "estate": "雍景臺",
+   "err": null
+  },
+  "寶馬山": {
+   "total": 0,
+   "match": 0,
+   "estate": null,
+   "err": null
+  }
+ },
+ "1002": {
+  "會景閣": {
+   "total": 24,
+   "match": 12,
+   "estate": "",
+   "err": null
+  },
+  "星域軒": {
+   "total": 9,
+   "match": 9,
+   "estate": "星域軒",
+   "err": null
+  },
+  "禮頓山": {
+   "total": 18,
+   "match": 12,
+   "estate": "禮頓山",
+   "err": null
+  },
+  "嘉薈軒": {
+   "total": 33,
+   "match": 12,
+   "estate": "",
+   "err": null
+  },
+  "樂活道": {
+   "total": 55,
+   "match": 0,
+   "estate": "樂陶苑",
+   "err": null
+  }
+ },
+ "1003": {
+  "海怡半島": {
+   "total": 165,
+   "match": 12,
+   "estate": "海怡半島",
+   "err": null
+  },
+  "置富花園": {
+   "total": 45,
+   "match": 12,
+   "estate": "置富花園",
+   "err": null
+  },
+  "貝沙灣": {
+   "total": 121,
+   "match": 12,
+   "estate": "貝沙灣",
+   "err": null
+  },
+  "碧瑤灣": {
+   "total": 33,
+   "match": 12,
+   "estate": "碧瑤灣",
+   "err": null
+  }
+ },
+ "1004": {
+  "太古城": {
+   "total": 368,
+   "match": 11,
+   "estate": "太古城",
+   "err": null
+  },
+  "康怡花園": {
+   "total": 119,
+   "match": 12,
+   "estate": "康怡花園",
+   "err": null
+  },
+  "杏花邨": {
+   "total": 88,
+   "match": 12,
+   "estate": "杏花邨",
+   "err": null
+  },
+  "城市花園": {
+   "total": 53,
+   "match": 7,
+   "estate": "城市花園",
+   "err": null
+  },
+  "嘉亨灣": {
+   "total": 122,
+   "match": 12,
+   "estate": "嘉亨灣",
+   "err": null
+  }
+ },
+ "2005": {
+  "君臨天下": {
+   "total": 57,
+   "match": 12,
+   "estate": "君臨天下",
+   "err": null
+  },
+  "擎天半島": {
+   "total": 58,
+   "match": 12,
+   "estate": "擎天半島",
+   "err": null
+  },
+  "帝峰·皇殿": {
+   "total": null,
+   "match": 0,
+   "estate": null,
+   "err": "搜尋條件唔啱"
+  },
+  "富榮花園": {
+   "total": 15,
+   "match": 12,
+   "estate": "富榮花園",
+   "err": null
+  },
+  "君匯港": {
+   "total": 69,
+   "match": 12,
+   "estate": "君匯港",
+   "err": null
+  }
+ },
+ "2006": {
+  "美孚新邨": {
+   "total": 316,
+   "match": 12,
+   "estate": "美孚新邨",
+   "err": null
+  },
+  "宇晴軒": {
+   "total": 75,
+   "match": 12,
+   "estate": "宇晴軒",
+   "err": null
+  },
+  "昇悅居": {
+   "total": 47,
+   "match": 12,
+   "estate": "昇悅居",
+   "err": null
+  },
+  "泓景臺": {
+   "total": 91,
+   "match": 12,
+   "estate": "泓景臺",
+   "err": null
+  },
+  "碧海藍天": {
+   "total": 40,
+   "match": 12,
+   "estate": "碧海藍天",
+   "err": null
+  }
+ },
+ "2007": {
+  "淘大花園": {
+   "total": 84,
+   "match": 12,
+   "estate": "淘大花園",
+   "err": null
+  },
+  "德福花園": {
+   "total": 79,
+   "match": 12,
+   "estate": "德福花園",
+   "err": null
+  },
+  "麗港城": {
+   "total": 106,
+   "match": 12,
+   "estate": "麗港城",
+   "err": null
+  },
+  "匯景花園": {
+   "total": 43,
+   "match": 12,
+   "estate": "匯景花園",
+   "err": null
+  },
+  "凱匯": {
+   "total": 88,
+   "match": 0,
+   "estate": "凱滙",
+   "err": null
+  }
+ },
+ "2008": {
+  "星河明居": {
+   "total": 19,
+   "match": 12,
+   "estate": "星河明居",
+   "err": null
+  },
+  "現崇山": {
+   "total": 17,
+   "match": 12,
+   "estate": "現崇山",
+   "err": null
+  },
+  "翠竹花園": {
+   "total": 11,
+   "match": 11,
+   "estate": "翠竹花園",
+   "err": null
+  },
+  "富山": {
+   "total": 0,
+   "match": 0,
+   "estate": null,
+   "err": null
+  }
+ },
+ "2009": {
+  "黃埔花園": {
+   "total": 118,
+   "match": 12,
+   "estate": "黃埔花園",
+   "err": null
+  },
+  "海逸豪園": {
+   "total": 63,
+   "match": 12,
+   "estate": "海逸豪園",
+   "err": null
+  },
+  "半島豪庭": {
+   "total": 32,
+   "match": 12,
+   "estate": "半島豪庭",
+   "err": null
+  },
+  "啟德一號": {
+   "total": 115,
+   "match": 0,
+   "estate": "啟德1號",
+   "err": null
+  }
+ },
+ "2010": {
+  "日出康城": {
+   "total": 1264,
+   "match": 12,
+   "estate": "日出康城",
+   "err": null
+  },
+  "天晉": {
+   "total": 200,
+   "match": 12,
+   "estate": "天晉",
+   "err": null
+  },
+  "將軍澳中心": {
+   "total": 117,
+   "match": 12,
+   "estate": "將軍澳中心",
+   "err": null
+  },
+  "新都城": {
+   "total": 164,
+   "match": 12,
+   "estate": "新都城",
+   "err": null
+  },
+  "都會駅": {
+   "total": 74,
+   "match": 12,
+   "estate": "都會駅",
+   "err": null
+  }
+ },
+ "3010": {
+  "匡湖居": {
+   "total": 38,
+   "match": 12,
+   "estate": "匡湖居",
+   "err": null
+  },
+  "清水灣半島": {
+   "total": 0,
+   "match": 0,
+   "estate": null,
+   "err": null
+  },
+  "西貢苑": {
+   "total": 2,
+   "match": 2,
+   "estate": "西貢苑",
+   "err": null
+  },
+  "海天灣": {
+   "total": 0,
+   "match": 0,
+   "estate": null,
+   "err": null
+  }
+ },
+ "3011": {
+  "荃灣中心": {
+   "total": 97,
+   "match": 12,
+   "estate": "荃灣中心",
+   "err": null
+  },
+  "綠楊新邨": {
+   "total": 48,
+   "match": 12,
+   "estate": "綠楊新邨",
+   "err": null
+  },
+  "麗城花園": {
+   "total": 84,
+   "match": 12,
+   "estate": "麗城花園",
+   "err": null
+  },
+  "珀麗灣": {
+   "total": 95,
+   "match": 12,
+   "estate": "珀麗灣",
+   "err": null
+  },
+  "海濱花園": {
+   "total": 52,
+   "match": 12,
+   "estate": "海濱花園",
+   "err": null
+  }
+ },
+ "3012": {
+  "盈翠半島": {
+   "total": 56,
+   "match": 12,
+   "estate": "盈翠半島",
+   "err": null
+  },
+  "灝景灣": {
+   "total": 37,
+   "match": 12,
+   "estate": "灝景灣",
+   "err": null
+  },
+  "新葵芳花園": {
+   "total": 28,
+   "match": 12,
+   "estate": "新葵芳花園",
+   "err": null
+  },
+  "華景山莊": {
+   "total": 0,
+   "match": 0,
+   "estate": null,
+   "err": null
+  }
+ },
+ "3013": {
+  "瓏門": {
+   "total": 236,
+   "match": 5,
+   "estate": "瓏門",
+   "err": null
+  },
+  "屯門市廣場": {
+   "total": 91,
+   "match": 12,
+   "estate": "屯門市廣場",
+   "err": null
+  },
+  "新屯門中心": {
+   "total": 43,
+   "match": 12,
+   "estate": "新屯門中心",
+   "err": null
+  },
+  "黃金海岸": {
+   "total": 22,
+   "match": 12,
+   "estate": "香港黃金海岸",
+   "err": null
+  }
+ },
+ "3014": {
+  "嘉湖山莊": {
+   "total": 370,
+   "match": 12,
+   "estate": "嘉湖山莊",
+   "err": null
+  },
+  "Yoho Town": {
+   "total": 385,
+   "match": 12,
+   "estate": "Yoho Town",
+   "err": null
+  },
+  "峻巒": {
+   "total": 238,
+   "match": 12,
+   "estate": "峻巒",
+   "err": null
+  },
+  "慧景軒": {
+   "total": 34,
+   "match": 12,
+   "estate": "慧景軒",
+   "err": null
+  }
+ },
+ "3015": {
+  "上水中心": {
+   "total": 21,
+   "match": 12,
+   "estate": "上水中心",
+   "err": null
+  },
+  "粉嶺中心": {
+   "total": 45,
+   "match": 12,
+   "estate": "粉嶺中心",
+   "err": null
+  },
+  "碧湖花園": {
+   "total": 21,
+   "match": 12,
+   "estate": "碧湖花園",
+   "err": null
+  },
+  "花都廣場": {
+   "total": 27,
+   "match": 12,
+   "estate": "花都廣場",
+   "err": null
+  }
+ },
+ "3016": {
+  "大埔中心": {
+   "total": 55,
+   "match": 12,
+   "estate": "大埔中心",
+   "err": null
+  },
+  "新達廣場": {
+   "total": 20,
+   "match": 12,
+   "estate": "新達廣場",
+   "err": null
+  },
+  "逸瓏灣": {
+   "total": 107,
+   "match": 12,
+   "estate": "逸瓏灣",
+   "err": null
+  },
+  "八號花園": {
+   "total": 11,
+   "match": 11,
+   "estate": "八號花園",
+   "err": null
+  }
+ },
+ "3018": {
+  "映灣園": {
+   "total": 183,
+   "match": 12,
+   "estate": "映灣園",
+   "err": null
+  },
+  "東堤灣畔": {
+   "total": 36,
+   "match": 12,
+   "estate": "東堤灣畔",
+   "err": null
+  },
+  "藍天海岸": {
+   "total": 100,
+   "match": 12,
+   "estate": "藍天海岸",
+   "err": null
+  },
+  "愉景灣": {
+   "total": 209,
+   "match": 12,
+   "estate": "愉景灣",
+   "err": null
+  }
+ }
+}
