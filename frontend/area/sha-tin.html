@@ -70,6 +70,12 @@
     .area-sec details { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 0.7rem 1rem; margin-bottom: 0.5rem; }
     .area-sec summary { cursor: pointer; font-weight: 700; }
     .area-sec details p { margin: 0.45rem 0 0; color: var(--muted); }
+    .area-group { background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: 0.8rem 1.1rem; }
+    .area-group > summary { cursor: pointer; list-style: revert; }
+    .area-group > summary h2 { display: inline; margin: 0; font-size: 1.15rem; }
+    .area-group[open] > summary { margin-bottom: 0.4rem; }
+    .area-group ul { margin: 0.2rem 0 0.2rem; padding-left: 1.2rem; }
+    .area-group li { margin: 0.35rem 0; }
   </style>
 </head>
 <body>
@@ -101,12 +107,16 @@
   </section>
 
   <section class="area-sec">
-    <h2>喺沙田買樓要留意乜？</h2>
-    <details><summary>大型屋苑成交多，比較有根據</summary><p>沙田第一城、新港城呢類大型屋苑放盤同成交都多，同座、相近面積嘅成交實用呎價好容易搵到，用嚟判斷叫價貴定平（點計見<a href="/guides/asking-vs-transaction">叫價同成交價差幾多先算抵？</a>）。</p></details>
-    <details><summary>同一屋苑唔同座差價可以好大</summary><p>望河、望山、對正馬路，同埋樓層高低，都會影響價錢，比較時盡量用同座、相近樓層嘅成交。</p></details>
-    <details><summary>先諗清楚返工路線</summary><p>東鐵綫同屯馬綫去嘅方向唔同，沙田市中心、大圍同馬鞍山去市區嘅路線同轉車次數都唔同。</p></details>
-    <details><summary>樓齡較高嘅屋苑</summary><p>留意大廈有冇大維修計劃同維修基金，管理費亦要計入預算。</p></details>
-    <details><summary>居屋盤</summary><p>沙田有唔少居屋，搜尋結果會標明「居屋未補」，價錢唔可以同私樓直接比較（見<a href="/guides/hos-premium">居屋未補地價點計？</a>）。</p></details>
+    <details class="area-group">
+      <summary><h2>喺沙田買樓要留意乜？</h2></summary>
+      <ul>
+        <li><b>大型屋苑成交多，比較有根據</b>：沙田第一城、新港城呢類大型屋苑放盤同成交都多，同座、相近面積嘅成交實用呎價好容易搵到，用嚟判斷叫價貴定平（點計見<a href="/guides/asking-vs-transaction">叫價同成交價差幾多先算抵？</a>）。</li>
+        <li><b>同一屋苑唔同座差價可以好大</b>：望河、望山、對正馬路，同埋樓層高低，都會影響價錢，比較時盡量用同座、相近樓層嘅成交。</li>
+        <li><b>先諗清楚返工路線</b>：東鐵綫同屯馬綫去嘅方向唔同，沙田市中心、大圍同馬鞍山去市區嘅路線同轉車次數都唔同。</li>
+        <li><b>樓齡較高嘅屋苑</b>：留意大廈有冇大維修計劃同維修基金，管理費亦要計入預算。</li>
+        <li><b>居屋盤</b>：沙田有唔少居屋，搜尋結果會標明「居屋未補」，價錢唔可以同私樓直接比較（見<a href="/guides/hos-premium">居屋未補地價點計？</a>）。</li>
+      </ul>
+    </details>
   </section>
 
   <section class="area-sec" style="margin-top:2.2rem">
