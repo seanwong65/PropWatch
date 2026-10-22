@@ -412,3 +412,16 @@ drip sync（`*/2`）同樣被雙重觸發：兩個 invocation 同時揀同一批
 
 `frontend/googledfea0625fe9a57c1.html.html`（**故意兩個 .html**）：Cloudflare Pages 會將真正嘅 `x.html` 由 `/x.html` 308 轉去 `/x`，Google HTML 檔驗證唔接受轉址；改名之後 `/googledfea0625fe9a57c1.html` 直接回 200、內容一字不改。**唔好刪亦唔好改名**，刪咗 Search Console 會失去驗證。
 - 租盤專頁（2026-10-22）：每區另有 `/area/<slug>-rent`（`gen.py` 嘅 `page(d, "R")`，租樓角度內容喺 `data.py` 嘅 `RENT`，加兩項通用租樓提示；即時搜尋 `initial:{deal:"R", area}`；屋苑連 `/search?deal=R&kw=`）。買盤頁同租盤頁互相連；總覽頁每區有租盤連結；sitemap 61 個 URL；footer 改叫「各區樓盤」。
+
+## 每週摘要（2026-10-23，收費版）
+
+- 逢**星期六 10:00 HKT**（cron `0 2 * * 6`＝`WEEKLY_CRON`，同 wrangler.toml 要一致）寄 `worker/weekly.js` 生成嘅 email；**只計 ⭐ 最愛屋苑**。免費用戶冇（用戶決定，唔做簡化版）。
+- 內容：一句總結、你留意緊嘅盤（心儀樓盤／睇樓記錄對應放盤）**本週有改價或下架先出**、值得留意（合睇樓偏好＋低過成交中位／長放再減）、最愛屋苑市況。冇「同座成交對比」。上週冇 snapshot 就寫「數據累積中」。
+- 三層：`loadWeeklyInputs`（讀 D1，全部 scope 返 account）→ `computeWeekly`（純計算，`tests/weekly.test.js`）→ `renderWeeklyHtml`（esc）。
+- **數據保護**：最愛屋苑最新 snapshot 超過 `WEEKLY_STALE_DAYS`(1) 日前就唔計；全部過期就唔寄（`skipped: stale_data`）並通知 admin。
+- 週六有開 weekly＋有最愛屋苑嘅帳戶，每日 email 當日唔寄（`sendDailyEmail` 嘅 `satSkipWeekly`）；冇最愛屋苑嘅照寄每日。`force`／單一帳戶手動唔受影響。
+- 防重覆：用 `daily_email_log`，day＝`weekly-<日期>`；失敗放返名額。週六 11:00 watchdog（`checkWeeklyCronWatchdog`，由 drip cron 觸發）未見 `cron_last_weekly_start` 就補跑。heartbeat：`cron_last_weekly_start/done`。
+- 開關：`accounts.weekly_opt_in`（預設 1），⚙️ 設定（只收費用戶見到）；`email_opt_in=0` 一律唔寄。退訂連結 `/api/unsubscribe?token=…&kind=weekly` 只關 weekly（白名單，其他值當全部）。
+- 手動驗證：`POST /api/admin/run-weekly-task`（admin）`{account_id, preview:true}` 回 subject／html 唔寄；`{account_id}` 寄嗰個帳戶；冇 account_id＝行 cron 正式路徑（一週一封）。
+- Phase 2（未做）：估值／朋友屋企、租金回報、睇樓進度、app 內存檔。
+
