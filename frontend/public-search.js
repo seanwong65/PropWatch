@@ -90,7 +90,7 @@ const GRID_HTML = `
 
 `;
 
-// root：畫落邊個元素；opts.embedded＝喺 app 入面（唔郁網址／標題）；opts.track(name)＝app 自己處理「追蹤」
+// root：畫落邊個元素；opts.embedded＝唔郁網址／標題（app、地區專頁）；opts.initial＝預設條件（例如 {area}）；opts.track(name)＝app 自己處理「追蹤」
 function mount(root, opts = {}) {
 const embedded = !!opts.embedded;
 const SRC = {
@@ -108,7 +108,8 @@ const AREAS = {
 };
 const MAX_PAGE = 10;                 // worker 都係最多 10 頁
 
-root.innerHTML = PANEL_HTML + (embedded ? "" : HOOK_HTML) + GRID_HTML;
+// opts.hook：嵌入模式都顯示「免費登記」提示（地區專頁用；app 入面唔要）
+root.innerHTML = PANEL_HTML + (embedded && !opts.hook ? "" : HOOK_HTML) + GRID_HTML;
 const $ = (id) => root.querySelector("#" + id);
 const form = $("ps-form");
 let runId = 0;                       // 新搜尋作廢舊 request 嘅結果
