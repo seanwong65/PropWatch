@@ -394,3 +394,5 @@ drip sync（`*/2`）同樣被雙重觸發：兩個 invocation 同時揀同一批
   `public-search.js`：冇條件時唔再用 JS 改 `document.title`（Google 會 render JS，會蓋過 SEO 標題）。PS_VER `20261022a`。
 - 新教學：`/guides/viewing-checklist`（睇樓清單）；guides 首頁、首頁教學區、about 加連結；sitemap 加新頁＋更新 lastmod。
 - 文案事實要同功能一致：免費 3 個屋苑／15 個睇樓記錄（`sec_free_*`）；改價記錄、時間軸、走勢圖、每日 email 係收費；價錢唔寫死（Stripe 動態）。
+- 2026-10-22（續）：分享預覽圖改用 `images/og-default.jpg`（1200×630，源檔 `docs/brand/og-default.svg`，`qlmanage` 渲染：SVG 要做正方形 1200×1200、內容置中再 `sips -c` 中間 630 行，否則 qlmanage 會放大）；全站 og:image／twitter:image／guides JSON-LD image 統一。
+  新教學：`/guides/negotiation`（點樣講價）、`/guides/hos-premium`（居屋未補地價）、`/guides/renting-checklist`（租樓注意事項）；guides 首頁、首頁教學區、sitemap 已加。政策／稅率類內容加咗「以官方最新公佈為準」。
