@@ -411,3 +411,4 @@ drip sync（`*/2`）同樣被雙重觸發：兩個 invocation 同時揀同一批
 ## Google Search Console 驗證（2026-10-22）
 
 `frontend/googledfea0625fe9a57c1.html.html`（**故意兩個 .html**）：Cloudflare Pages 會將真正嘅 `x.html` 由 `/x.html` 308 轉去 `/x`，Google HTML 檔驗證唔接受轉址；改名之後 `/googledfea0625fe9a57c1.html` 直接回 200、內容一字不改。**唔好刪亦唔好改名**，刪咗 Search Console 會失去驗證。
+- 租盤專頁（2026-10-22）：每區另有 `/area/<slug>-rent`（`gen.py` 嘅 `page(d, "R")`，租樓角度內容喺 `data.py` 嘅 `RENT`，加兩項通用租樓提示；即時搜尋 `initial:{deal:"R", area}`；屋苑連 `/search?deal=R&kw=`）。買盤頁同租盤頁互相連；總覽頁每區有租盤連結；sitemap 61 個 URL；footer 改叫「各區樓盤」。
