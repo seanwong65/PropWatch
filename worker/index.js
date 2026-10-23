@@ -5986,7 +5986,20 @@ function bargainToPick(b) {
   if (b.days_on_market != null && b.days_on_market >= 90) reasons.push(`擺賣 ${b.days_on_market} 日`);
   if (b.loss_zone) reasons.push("蝕讓區");
   return { name: b.estate_name || "", label: [b.building_name, b.floor, b.unit].filter(Boolean).join(" "), price: b.price,
-    size: b.size_net, beds: b.bedrooms, reasons, url: b.detail_url, source: b.source };
+    size: b.size_net, beds: b.bedrooms, reasons, url: b.detail_url, source: b.source, unit: b.unit, floorTier: b.floor };
+}
+// 同一個單位喺唔同地產網可能各有一條放盤（甚至座數寫法唔同，例如一邊 2座、一邊 3座）。
+// 「值得留意」只列一次：同屋苑、同單位字母、同樓層區、同價、面積差 ≤1% 當同一個盤，其他網站嘅連結併入 also。
+// 係啟發式（極少數真係兩個唔同單位撞晒價同面積都會併埋），只影響呢個列表嘅顯示，唔寫 DB。
+export function dedupePicks(picks) {
+  const out = [];
+  for (const p of picks) {
+    const same = out.find((q) => q.name === p.name && q.unit === p.unit && q.floorTier === p.floorTier && q.price === p.price
+      && q.size && p.size && Math.abs(q.size - p.size) / q.size <= 0.01);
+    if (same) { if (p.url) same.also.push({ url: p.url, source: p.source }); continue; }
+    out.push({ ...p, also: [] });
+  }
+  return out;
 }
 const srcNameOf = (src) => SOURCES.find((x) => x.id === src)?.label || "中原";
 function prefLabelOf(prefs) {
@@ -6212,7 +6225,7 @@ async function sendWeeklySummary(db, env, { onlyAccountId = null, force = false,
       }
       const unsubUrl = `${WORKER_BASE}/api/unsubscribe?token=${await getUnsubToken(db, acc.id)}&kind=weekly`;
       const prefs = await getPrefs(db, acc.id);
-      const picks = (await loadBargains(db, acc.id, prefs)).map(bargainToPick);
+      const picks = dedupePicks((await loadBargains(db, acc.id, prefs)).map(bargainToPick));
       const html = renderWeeklyHtml(w, { appUrl: `${APP_BASE}/app`, unsubUrl, iconUrl: `${APP_BASE}/icons/icon-192.png`,
         picks, prefLabel: prefLabelOf(prefs), srcName: srcNameOf });
       const subject = weeklySubject(w);
@@ -7191,7 +7204,7 @@ export default {
         const b = await request.json().catch(() => ({}));
         const aid = Number(b.account_id) || session.account_id;
         const { highlights, prefs, bargains } = await prepareDailyData(db, aid);
-        const picks = bargains.map(bargainToPick);
+        const picks = dedupePicks(bargains.map(bargainToPick));
         const unsubUrl = `${WORKER_BASE}/api/unsubscribe?token=${await getUnsubToken(db, aid)}`;
         const html = renderDailyHtml(highlights, picks, { appUrl: `${APP_BASE}/app`, unsubUrl, iconUrl: `${APP_BASE}/icons/icon-192.png`,
           prefLabel: prefLabelOf(prefs), srcName: srcNameOf });
