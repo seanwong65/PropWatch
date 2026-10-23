@@ -1108,10 +1108,8 @@
     .rstar-h { position: absolute; top: 0; bottom: 0; width: 50%; z-index: 2; cursor: pointer; }
     .rstar-l { left: 0; } .rstar-r { right: 0; }
     .rstar-row { display: flex; align-items: center; gap: 0.5rem; padding: 0.25rem 0; }
-    /* 手機／觸控：星星太細、半粒更加撳唔中 → 改為「數字分數」下拉揀（0.5–5.0，同原本 0.5 分一級完全一樣，
+    /* 手機／觸控：星星太細、半粒更加撳唔中 → 改為「－ 數字 ＋」揀分（0.5 分一級，同原本完全一樣，
        數據唔使轉），旁邊嘅星星純顯示。桌面（滑鼠）照舊撳星。 */
-    .rnum-sel { font-size: 1rem; padding: 0.35rem 0.5rem; border-radius: 10px; border: 1px solid var(--border);
-                background: var(--surface2); color: var(--text); min-width: 4.6rem; flex-shrink: 0; }
     .rnum-stars .rstar { width: 1.15rem; height: 1.2rem; line-height: 1.2rem; font-size: 1.05rem; }
     .rnum-stars { white-space: nowrap; }
     #vf-ratings .rnum-row { flex-wrap: wrap; row-gap: 0.25rem; padding: 0.4rem 0; }
@@ -1120,9 +1118,11 @@
     .rnum-step { width: 2.5rem; height: 2.5rem; border-radius: 50%; border: 1px solid var(--border); background: var(--surface2);
                  color: var(--text); font-size: 1.3rem; line-height: 1; cursor: pointer; padding: 0; flex-shrink: 0; }
     .rnum-step:active { background: var(--accent); color: #fff; }
-    .rnum-sel { text-align: center; height: 2.5rem; min-width: 5rem; }
+    .rnum-val { display: inline-flex; align-items: center; justify-content: center; height: 2.5rem; min-width: 5rem; padding: 0 0.6rem;
+                border-radius: 10px; border: 1px solid var(--border); background: var(--surface2); color: var(--text); font-size: 1.05rem; font-weight: 700; }
+    .rnum-val.none { color: var(--muted); font-weight: 400; font-size: 0.9rem; }
     .rstar-name { font-size: 0.85rem; color: var(--text); flex: 1; min-width: 0; }
-    .rstar-val { font-size: 0.78rem; color: var(--muted); width: 2.6rem; text-align: right; flex-shrink: 0; }
+    .rstar-val { font-size: 0.78rem; color: var(--muted); width: 3.2rem; text-align: right; flex-shrink: 0; }
     .viewing-photos-btn {
       margin-top: 0.3rem; font-family: inherit; font-size: 0.78rem; cursor: pointer;
       background: var(--surface2); color: var(--text); border: 1px solid var(--border);
@@ -6518,7 +6518,7 @@ function starsHtml(score, critId) {
 }
 
 // 桌面：撳半邊＝x.5／整粒；撳返同一個分數 = 取消評分（變返 NA），唔使另外一個清除掣。
-// 手機／觸控：改用下拉揀數字分數（setVfScore），星星淨係顯示。
+// 手機／觸控：改用「－ 數字 ＋」揀分（stepVfScore），星星淨係顯示。未評分顯示「未評分」。
 const _coarseUI = () => window.matchMedia('(pointer: coarse), (max-width: 520px)').matches;
 function setVfRating(critId, val) {
   if (_vfRatings[critId] === val) delete _vfRatings[critId];
@@ -6536,12 +6536,6 @@ function stepVfScore(critId, d) {
   }
   renderVfRatings();
 }
-function setVfScore(critId, v) {
-  const n = Number(v);
-  if (!v || !(n >= 0.5 && n <= 5)) delete _vfRatings[critId];
-  else _vfRatings[critId] = Math.round(n * 2) / 2;
-  renderVfRatings();
-}
 
 function renderVfRatings() {
   const box = document.getElementById('vf-ratings');
@@ -6552,7 +6546,6 @@ function renderVfRatings() {
   }
   const avg = ratingAvg(_vfRatings);
   const coarse = _coarseUI();
-  const scoreOpts = [5, 4.5, 4, 3.5, 3, 2.5, 2, 1.5, 1, 0.5];
   box.innerHTML = _ratingCriteria.map(c => {
     const s = _vfRatings[c.id];
     if (coarse) {
@@ -6562,9 +6555,7 @@ function renderVfRatings() {
       <span class="rnum-stars">${starsHtml(s)}</span>
       <div class="rnum-ctl">
         <button type="button" class="rnum-step" aria-label="減 0.5 分" onclick="stepVfScore(${cid}, -0.5)">−</button>
-        <select class="rnum-sel" aria-label="${escHtml(c.value)}評分" onchange="setVfScore(${cid}, this.value)">
-          <option value="">NA</option>${scoreOpts.map(v => `<option value="${v}"${s === v ? ' selected' : ''}>${v.toFixed(1)}</option>`).join('')}
-        </select>
+        <span class="rnum-val${s ? '' : ' none'}" aria-live="polite">${s ? s.toFixed(1) : '未評分'}</span>
         <button type="button" class="rnum-step" aria-label="加 0.5 分" onclick="stepVfScore(${cid}, 0.5)">＋</button>
       </div>
     </div>`;
@@ -6572,7 +6563,7 @@ function renderVfRatings() {
     return `<div class="rstar-row">
       <span class="rstar-name">${escHtml(c.value)}</span>
       <span>${starsHtml(s, c.id)}</span>
-      <span class="rstar-val">${s ? s.toFixed(1) : 'NA'}</span>
+      <span class="rstar-val">${s ? s.toFixed(1) : '未評分'}</span>
     </div>`;
   }).join('') + (avg != null
     ? `<div style="text-align:right;font-size:0.82rem;color:var(--muted);margin-top:0.35rem">
