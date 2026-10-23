@@ -1047,6 +1047,16 @@
     .vw-cover.loading { opacity: 0.6; cursor: progress; }
     .vw-cover img { display: block; width: 100%; height: 170px; object-fit: cover; }
     .vw-cover-n { position: absolute; right: 0.5rem; bottom: 0.5rem; background: rgba(15,28,46,0.65); color: #fff; font-size: 0.72rem; padding: 0.15rem 0.55rem; border-radius: 999px; }
+    /* 待跟進（主頁）：睇樓記錄資料未齊／未對應放盤 */
+    .todo-card { background: var(--glass-bg); border: 1px solid var(--border); border-left: 3px solid var(--accent); border-radius: 14px; padding: 0.65rem 0.9rem; margin-bottom: 0.8rem; }
+    .todo-head { display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; cursor: pointer; font-weight: 700; font-size: 0.9rem; }
+    .todo-sub { font-size: 0.76rem; color: var(--muted); margin: 0.2rem 0 0.35rem; line-height: 1.5; }
+    .todo-row { display: flex; flex-wrap: wrap; align-items: center; gap: 0.3rem 0.6rem; padding: 0.45rem 0; border-top: 1px solid var(--border); font-size: 0.82rem; }
+    .todo-row .todo-title { font-weight: 600; flex: 1 1 100%; }
+    .todo-tag { font-size: 0.7rem; padding: 1px 8px; border-radius: 999px; background: rgba(245,158,11,0.16); color: var(--accent); white-space: nowrap; }
+    .todo-btn { background: var(--brand); color: var(--brand-ink, #fff); border: none; border-radius: 999px; font-weight: 700; font-size: 0.74rem; padding: 0.25rem 0.8rem; cursor: pointer; }
+    .todo-x { background: none; border: none; color: var(--muted); font-size: 0.74rem; cursor: pointer; padding: 0.25rem 0.3rem; }
+    .todo-more { display: block; width: 100%; background: none; border: none; border-top: 1px solid var(--border); color: var(--accent2); font-size: 0.78rem; padding: 0.45rem 0 0.1rem; cursor: pointer; text-align: center; }
     .dj-tidy { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem 0.8rem; font-size: 0.8rem; line-height: 1.5; background: rgba(245,158,11,0.14); border-left: 3px solid var(--accent); border-radius: 6px; padding: 0.5rem 0.7rem; margin-bottom: 0.7rem; }
     .dj-tidy button { background: var(--brand); color: #fff; border: none; border-radius: 999px; font-weight: 700; padding: 0.3rem 0.9rem; cursor: pointer; }
     .dj-tag.dj-warn { background: rgba(245,158,11,0.18); color: #9a5b00; font-weight: 600; }
@@ -2965,6 +2975,7 @@ async function showDashboard(estates) {
         <button class="qa-btn" onclick="openMortgageModal()">
           <span class="qa-icon">🧮</span><span class="qa-label">按揭<br>計算機</span></button>
       </div>
+      <div id="viewing-todo"></div>
       <div class="highlights-section" id="highlights-section">
         <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:0.4rem;margin-bottom:0.75rem">
           <div style="display:flex;gap:0;border-bottom:2px solid var(--border)">
@@ -3603,6 +3614,84 @@ const _unitTitle = v => {
   return `${blk}${escHtml(String(v.floor))}樓${escHtml(String(v.unit))}室`;
 };
 
+// ── 待跟進（主頁）：提用戶邊啲睇樓記錄會令系統追蹤唔到改價 ──────────────────────────
+// 純前端由已載入嘅 _compsData 計（唔使額外 API／D1 讀取）：
+//  ① 欠核心資料（座／樓層／室／睇樓價）→ 配對唔到放盤，或者冇辦法同現價比；
+//  ② 有座同室但未確認對應放盤（linked_ref_no 空）→ 系統唔會追蹤呢個盤嘅改價／下架／成交。
+// 已成交（status=sold）嘅唔提；用戶可以撳 ✕ 唔再提醒（記喺呢部機 localStorage）。
+const _TODO_KEY = 'pw_todo_dismissed';
+let _todoOpen = false, _todoAll = false;
+function _todoDismissed() { try { return new Set(JSON.parse(localStorage.getItem(_TODO_KEY) || '[]')); } catch (_) { return new Set(); } }
+function viewingTodos() {
+  const hidden = _todoDismissed();
+  const out = [];
+  for (const v of _compsData || []) {
+    if (!v || v.status === 'sold' || hidden.has(v.id)) continue;
+    const missing = [];
+    if (!v.block) missing.push('座');
+    if (!v.floor) missing.push('樓層');
+    if (!v.unit) missing.push('室');
+    if (!v.price) missing.push(v.deal_type === 'R' ? '睇樓租金' : '睇樓價');
+    const needLink = !!(v.block && v.unit) && _linkedRefs(v).length === 0;
+    if (missing.length || needLink) out.push({ v, missing, needLink });
+  }
+  // 最近睇嘅排先（記憶仲新，跟進最容易）
+  return out.sort((a, b) => String(b.v.view_date || '').localeCompare(String(a.v.view_date || '')));
+}
+function renderViewingTodo() {
+  const el = document.getElementById('viewing-todo');
+  if (!el) return;
+  const todos = _compsScope ? [] : viewingTodos();
+  if (!todos.length) { el.innerHTML = ''; return; }
+  const shown = _todoOpen ? (_todoAll ? todos : todos.slice(0, 5)) : [];
+  const title = v => {
+    const blk = (v.block && String(v.block) !== v.estate_name) ? escHtml(String(v.block)) + '座' : '';
+    return `${escHtml(v.estate_name || '')} ${blk}${v.floor ? escHtml(String(v.floor)) + '樓' : ''}${v.unit ? escHtml(String(v.unit)) + '室' : ''}`.trim();
+  };
+  const rows = shown.map(({ v, missing, needLink }) => `
+    <div class="todo-row">
+      <div class="todo-title">${title(v)} <span style="font-weight:400;color:var(--muted)">· 睇樓 ${escHtml(String(v.view_date || '').slice(5))}</span></div>
+      ${missing.length ? `<span class="todo-tag">欠 ${missing.map(escHtml).join('、')}</span>` : ''}
+      ${needLink ? '<span class="todo-tag">未對應放盤</span>' : ''}
+      ${missing.length ? `<button class="todo-btn" onclick="todoFill(${Number(v.id)})">補資料</button>` : ''}
+      ${needLink ? `<button class="todo-btn" onclick="todoGo(${Number(v.id)})">去確認</button>` : ''}
+      <button class="todo-x" title="唔再提醒呢個記錄" onclick="todoDismiss(${Number(v.id)})">✕ 唔再提醒</button>
+    </div>`).join('');
+  el.innerHTML = `<div class="todo-card">
+    <div class="todo-head" onclick="_todoOpen=!_todoOpen;renderViewingTodo()"><span>📌 待跟進 <span style="color:var(--accent)">${todos.length}</span> 個睇樓記錄</span><span style="color:var(--muted);font-size:0.8rem">${_todoOpen ? '收起 ▴' : '睇下 ▾'}</span></div>
+    <div class="todo-sub">呢啲記錄資料未齊，或者未對應返放盤，系統追蹤唔到佢哋嘅<b>改價、下架、成交</b>。補返資料／確認對應放盤就會自動追蹤。</div>
+    ${rows}
+    ${_todoOpen && todos.length > 5 ? `<button class="todo-more" onclick="_todoAll=!_todoAll;renderViewingTodo()">${_todoAll ? '只睇最近 5 個 ▴' : `睇晒全部 ${todos.length} 個 ▾`}</button>` : ''}
+  </div>`;
+}
+function todoDismiss(id) {
+  const s = _todoDismissed(); s.add(Number(id));
+  try { localStorage.setItem(_TODO_KEY, JSON.stringify([...s])); } catch (_) { /* 私隱模式：今次有效，refresh 後會再出 */ }
+  renderViewingTodo();
+}
+// 補資料：開返個編輯 modal。要先攞埋完整記錄（comps 版欠啲欄位，直接開會洗走冇帶嘅欄位）
+async function todoFill(id) {
+  const v0 = _compsData.find(x => x.id === id);
+  if (!v0) return;
+  await ensureCompsEnriched(v0.estate_id);
+  const v = _compsData.find(x => x.id === id) || v0;
+  openViewingModal(v);
+}
+// 去確認：跳去睇樓日記，展開嗰張詳細卡（對應放盤喺入面 ✓）
+async function todoGo(id) {
+  const v = _compsData.find(x => x.id === id);
+  if (!v) return;
+  switchDashTab('comps');
+  const [y, m] = String(v.view_date || '').split('-');
+  _compsYear = y || _compsYear; _compsMonth = Number(m) || 0;
+  _compsDateFrom = ''; _compsDateTo = '';
+  await ensureCompsEnriched(v.estate_id);
+  renderCompsPanel();
+  const row = document.querySelector(`#comps-body .dj-row[data-vid="${id}"]`);
+  if (row && !row.classList.contains('open')) toggleCompsViewing(id);
+  document.querySelector(`#comps-body .dj-row[data-vid="${id}"]`)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+}
+
 async function loadViewingComps() {
   const body = document.getElementById('comps-body');
   try {
@@ -3626,6 +3715,7 @@ async function loadViewingComps() {
     window._viewingImgsMap = window._viewingImgsMap || {};
     window._matchListingsByEstate = window._matchListingsByEstate || {};
     renderCompsPanel();
+    renderViewingTodo();
   } catch (e) {
     if (body) body.innerHTML = `<span style="color:var(--down)">載入失敗：${escHtml(e.message)}</span>`;
   }
@@ -4752,13 +4842,12 @@ function renderBillingSummary() {
 // 側邊欄屋苑卡片嘅重點數字（後端 estate_stats，每日預先計好；免費版只收到在售數／叫價呎價／成交數）
 function estateCardMeta(e) {
   const st = e.stats;
-  const dist = e.district ? escHtml(e.district) : '';
   if (!st || !st.n) {   // 未有統計（新屋苑／未算）：用返舊版一行
-    return `<div class="estate-card-meta">${dist ? dist + '．' : ''}${e.today_count ?? 0}個盤</div>`;
+    return `<div class="estate-card-meta">${e.today_count ?? 0}個盤</div>`;
   }
   const num = (x) => Number(x) || 0;
   const lines = [];
-  lines.push(`${dist ? dist + '．' : ''}<b>${num(st.n)}</b>個盤${st.psf ? `．$${num(st.psf).toLocaleString()}/呎` : ''}`);
+  lines.push(`<b>${num(st.n)}</b>個盤${st.psf ? `．$${num(st.psf).toLocaleString()}/呎` : ''}`);
   if (isPaid()) {
     if (st.new == null) lines.push('<span title="需要多一個星期嘅數據先比較到">週變動：數據累積中</span>');
     else {
@@ -6622,6 +6711,7 @@ async function confirmViewingListing(viewingId, refNo) {
   const saved = api(`/api/viewings/${viewingId}`, { method: 'PATCH', body: JSON.stringify({ linked_ref_no: v.linked_ref_no }) }).catch(() => null);
   const cell = document.getElementById(`vmatch-${viewingId}`);
   if (cell) cell.innerHTML = _matchCellFor(v);
+  renderViewingTodo();   // 主頁「待跟進」即時更新
   // 相片存檔：✓ 咗（收費版）就存；取消 ✓ 就清走嗰個盤嘅存檔
   if (refNo && turnedOn && isPaid()) { await saved; archiveListingPhotos(viewingId, refNo); }
   else if (refNo && !turnedOn) {
