@@ -1,4 +1,5 @@
 import { loadWeeklyInputs, computeWeekly, renderWeeklyHtml, weeklySubject, weeklyHeadline } from "./weekly.js";
+import { renderDailyHtml, dailySubject } from "./daily.js";
 
 // 冇 Allow-Origin：由 fetch 出口統一按 allow-list reflect（見 applyCors）。
 const CORS = {
@@ -5961,6 +5962,43 @@ async function claimDailyEmail(db, accountId, day) {
 async function markDailyEmailSent(db, accountId, day) {
   await db.prepare("UPDATE daily_email_log SET sent_at = datetime('now') WHERE account_id = ? AND day = ?").bind(accountId, day).run().catch(() => {});
 }
+// 每日 email 嘅數據準備（動態＋跟睇樓偏好篩＋筍盤）。sendDailyEmail 同 admin 預覽（/api/admin/preview-daily）共用，
+// 兩邊一定要出同一份數據，所以抽咗出嚟。
+async function prepareDailyData(db, accId) {
+  const highlights = await getTodayHighlights(db, accId);
+  // 跟用戶睇樓偏好篩 email 內容（揀咗 ≤800萬 就唔會出 1000萬嘅盤，
+  // 同 dashboard 個 🎯 filter 一致）。「睇過嘅單位成交」唔篩——自己
+  // 睇過嘅嘢一定要出。
+  const prefs = await getPrefs(db, accId);
+  if (prefsUsable(prefs)) {
+    for (const e of highlights.byEstate) {
+      e.newTransactions = e.newTransactions.filter((r) => prefMatchRow(prefs, r));
+      e.priceChanges    = e.priceChanges.filter((r) => prefMatchRow(prefs, r));
+      e.newListings     = e.newListings.filter((r) => prefMatchRow(prefs, r));
+      e.removedListings = e.removedListings.filter((r) => prefMatchRow(prefs, r));
+    }
+    for (const e of highlights.byEstateRent || []) {
+      e.newRentTransactions = e.newRentTransactions.filter((r) => prefMatchRow(prefs, r, true));
+      e.rentPriceChanges    = e.rentPriceChanges.filter((r) => prefMatchRow(prefs, r, true));
+      e.newRentals          = e.newRentals.filter((r) => prefMatchRow(prefs, r, true));
+      e.removedRentals      = e.removedRentals.filter((r) => prefMatchRow(prefs, r, true));
+    }
+  }
+  // 筍盤 Top N（每個帳戶自己嘅 ⚙️ 設定；0=唔要；non-fatal）。
+  // 要先攞晒全部筍盤、跟睇樓偏好篩完，先至 slice top N——唔係咁做嘅話
+  // 「取 top 5 再篩」會令啱偏好嘅盤跌出榜（例：top 5 篩剩 2 個）。
+  let bargains = [];
+  try {
+    const emailTop = (await getConfig(db, accId)).email_bargain_top;
+    if (emailTop > 0) {
+      const radar = await computeBargainRadar(db, { limit: 100, accountId: accId });
+      bargains = radar.listings;
+      if (prefsUsable(prefs)) bargains = bargains.filter((r) => prefMatchRow(prefs, r));
+      bargains = bargains.slice(0, emailTop);
+    }
+  } catch (e) { /* non-fatal */ }
+  return { highlights, prefs, bargains };
+}
 async function sendDailyEmail(db, env, onlyAccountId = null, overrideEmail = null, skipAccountIds = null, force = false) {
   if (!env?.GMAIL_REFRESH_TOKEN) return { error: "no GMAIL credentials" };
   // 逐個有 email 嘅帳戶寄——各自用自己嘅訂閱/設定/雷達視角。
@@ -5999,38 +6037,7 @@ async function sendDailyEmail(db, env, onlyAccountId = null, overrideEmail = nul
       continue;
     }
     try {
-      const highlights = await getTodayHighlights(db, acc.id);
-      // 跟用戶睇樓偏好篩 email 內容（揀咗 ≤800萬 就唔會出 1000萬嘅盤，
-      // 同 dashboard 個 🎯 filter 一致）。「睇過嘅單位成交」唔篩——自己
-      // 睇過嘅嘢一定要出。
-      const prefs = await getPrefs(db, acc.id);
-      if (prefsUsable(prefs)) {
-        for (const e of highlights.byEstate) {
-          e.newTransactions = e.newTransactions.filter((r) => prefMatchRow(prefs, r));
-          e.priceChanges    = e.priceChanges.filter((r) => prefMatchRow(prefs, r));
-          e.newListings     = e.newListings.filter((r) => prefMatchRow(prefs, r));
-          e.removedListings = e.removedListings.filter((r) => prefMatchRow(prefs, r));
-        }
-        for (const e of highlights.byEstateRent || []) {
-          e.newRentTransactions = e.newRentTransactions.filter((r) => prefMatchRow(prefs, r, true));
-          e.rentPriceChanges    = e.rentPriceChanges.filter((r) => prefMatchRow(prefs, r, true));
-          e.newRentals          = e.newRentals.filter((r) => prefMatchRow(prefs, r, true));
-          e.removedRentals      = e.removedRentals.filter((r) => prefMatchRow(prefs, r, true));
-        }
-      }
-      // 筍盤 Top N（每個帳戶自己嘅 ⚙️ 設定；0=唔要；non-fatal）。
-      // 要先攞晒全部筍盤、跟睇樓偏好篩完，先至 slice top N——唔係咁做嘅話
-      // 「取 top 5 再篩」會令啱偏好嘅盤跌出榜（例：top 5 篩剩 2 個）。
-      let bargains = [];
-      try {
-        const emailTop = (await getConfig(db, acc.id)).email_bargain_top;
-        if (emailTop > 0) {
-          const radar = await computeBargainRadar(db, { limit: 100, accountId: acc.id });
-          bargains = radar.listings;
-          if (prefsUsable(prefs)) bargains = bargains.filter((r) => prefMatchRow(prefs, r));
-          bargains = bargains.slice(0, emailTop);
-        }
-      } catch (e) { /* non-fatal */ }
+      const { highlights, bargains } = await prepareDailyData(db, acc.id);
       const { byEstate, byEstateRent = [] } = highlights;
       const totalTxns    = byEstate.reduce((s, e) => s + e.newTransactions.length, 0);
       const totalPrice   = byEstate.reduce((s, e) => s + e.priceChanges.length, 0);
@@ -7152,6 +7159,34 @@ export default {
         }
         const r = aid ? await sendWeeklySummary(db, env, { onlyAccountId: aid }) : await runWeeklySummaryTask(env);
         return json(200, { ok: !r?.error, result: aid ? { ...r, sent: (r.sent || []).map(({ html, ...x }) => x) } : r });
+      }
+      // 每日 email 新版預覽（v2 排版，2026-10-23）：用 sendDailyEmail 同一份數據（prepareDailyData）＋
+      // 「值得留意」（weekly.js，daily 模式）。body { account_id?, send_to_self? }：
+      // 冇 send_to_self＝淨係回 subject／html；有＝寄去**呼叫者自己**嘅 email（admin），唔會寄俾其他人。
+      if (method === "POST" && path === "/api/admin/preview-daily") {
+        if (!isAdminSession(session)) return json(403, { error: "admin only" });
+        const b = await request.json().catch(() => ({}));
+        const aid = Number(b.account_id) || session.account_id;
+        const { highlights, prefs } = await prepareDailyData(db, aid);
+        const today = hkDateStr();
+        let picks = [], name = {}, stale = [];
+        try {
+          const w = computeWeekly(await loadWeeklyInputs(db, aid, today, prefs, { mode: "daily" }), { staleDays: 8 });
+          if (w.status === "ok") { picks = w.picks; name = w.name; stale = w.stale; }
+        } catch (e) { console.error("daily picks failed:", e?.message || e); }
+        const pmax = prefs?.price_max ? Number(prefs.price_max) * 1e4 : null;
+        const beds = /^\d$/.test(String(prefs?.beds ?? "")) ? prefs.beds : null;
+        const prefLabel = `${beds || "不限"}房、${pmax ? `$${(pmax / 1e4).toFixed(0)}萬` : "不限"}以下`;
+        const unsubUrl = `${WORKER_BASE}/api/unsubscribe?token=${await getUnsubToken(db, aid)}`;
+        const html = renderDailyHtml(highlights, picks, { appUrl: `${APP_BASE}/app`, unsubUrl, iconUrl: `${APP_BASE}/icons/icon-192.png`, name, prefLabel });
+        const subject = dailySubject(highlights, picks.length);
+        if (b.send_to_self) {
+          const me = await db.prepare("SELECT email FROM accounts WHERE id = ?").bind(session.account_id).first();
+          if (!me?.email) return json(400, { error: "你個帳戶冇 email" });
+          await sendEmail(env, me.email, `【樣本 v2】${subject}`.slice(0, 150), html);
+          return json(200, { ok: true, sent_to: "self", subject, picks: picks.length, stale });
+        }
+        return json(200, { subject, picks: picks.length, stale, html });
       }
       if (method === "POST" && path === "/api/admin/run-email-task") {
         if (!isAdminSession(session)) return json(403, { error: "admin only" });
