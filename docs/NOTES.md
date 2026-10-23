@@ -425,3 +425,10 @@ drip sync（`*/2`）同樣被雙重觸發：兩個 invocation 同時揀同一批
 - 手動驗證：`POST /api/admin/run-weekly-task`（admin）`{account_id, preview:true}` 回 subject／html 唔寄；`{account_id}` 寄嗰個帳戶；冇 account_id＝行 cron 正式路徑（一週一封）。
 - Phase 2（未做）：估值／朋友屋企、租金回報、睇樓進度、app 內存檔。
 
+## 中原十大屋苑（2026-10-23，俾公開樓市速報用）
+
+- 十個：太古城(1)、映灣園(2)、嘉湖山莊(6)、黃埔花園(16)、麗港城(30)、康怡花園(53)、海怡半島(54)、美孚新邨(55)、新都城(56)、沙田第一城(57)。名單係由週報推斷，非中原官方（用戶揀「以中原為準」）。
+- 掛喺**系統帳戶 `system-market`（id 17，role=`system`，冇 email、唔可以登入）**名下，全部 `is_favourite=1`，所以每日 sync。`getDailySyncEstateIds` 淨係呢度認 role=`system`（唔食 paid／admin 嘅估值掃描、email、tier gate），唔好將 system 加入其他 `a.role='admin'` 條件。
+- 唔掛 admin 帳戶：否則會塞滿用戶自己 sidebar、每日 email 同每週摘要。
+- 舊 estates row 有幾個係遺留（映灣園／嘉湖山莊原本 is_disabled、數據停喺 6–8 月；麗港城(42)／太古城(46) 係冇數據嘅重複 row，唔郁）。歷史由 2026-10-23 起累積，所以第一份速報「較上週」要等一個星期。
+

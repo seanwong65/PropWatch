@@ -5397,12 +5397,15 @@ export function pickRotationEstates(restIds, lastSynced, days = SYNC_ROTATE_DAYS
   return picked;
 }
 
+// role='system'（2026-10-23）：冇 email、唔可以登入嘅內部帳戶（system-market），名下嘅 ⭐ 屋苑
+// （中原十大屋苑，俾公開樓市速報用）要每日 sync，但唔想佢攞到 paid／admin 嘅其他權限
+// （估值掃描、email、tier gate 全部唔包）——所以淨係喺呢度加。
 async function getDailySyncEstateIds(db, today, activeEstateIds) {
   const { results: favRows } = await d1Retry(() => db.prepare(
     `SELECT DISTINCT ae.estate_id AS id FROM account_estates ae
      JOIN accounts a ON a.id = ae.account_id
      WHERE ae.is_favourite = 1 AND ae.paused_at IS NULL
-       AND (a.tier = 'paid' OR a.role = 'admin')
+       AND (a.tier = 'paid' OR a.role IN ('admin', 'system'))
        AND (a.is_active IS NULL OR a.is_active = 1)`
   ).all(), "dailySync/fav");
   const fav = new Set(favRows.map((r) => r.id));
