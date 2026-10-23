@@ -3633,6 +3633,12 @@ function viewingTodos() {
     if (!v.unit) missing.push('室');
     if (!v.price) missing.push(v.deal_type === 'R' ? '睇樓租金' : '睇樓價');
     let needLink = !!(v.block && v.unit) && _linkedRefs(v).length === 0;
+    // 睇樓超過一個月（⚙️ todo_link_max_days，預設 30 日）仲未對應＝多數已經賣咗／落架，對唔返，唔再提「未對應放盤」；
+    // 資料欠缺（missing）就唔受呢個限制，照提。
+    if (needLink && v.view_date) {
+      const ageDays = (Date.now() + 8 * 3600000 - Date.parse(String(v.view_date).slice(0, 10) + 'T00:00:00Z')) / 86400000;
+      if (ageDays > (_appCfg.todo_link_max_days ?? 30)) needLink = false;
+    }
     // 對應放盤已經逐個睇過、全部 ✕（dismissed_refs）＝你已經判斷過冇一個啱，唔使再提。
     // 如果呢個屋苑嘅候選放盤已經載入，就以候選為準（之後新出現、未 ✕ 嘅候選會再提）；未載入就當睇完。
     if (needLink) {
