@@ -30,7 +30,7 @@ const histPills = (segs, fmtFn) => {
     const last = i === segs.length - 1;
     return `<span style="display:inline-block;background:${last ? "#e4eefa" : "#f3f7fb"};border-radius:8px;padding:2px 7px;margin:2px 0;font-size:12px;color:${col};white-space:nowrap"><span style="color:#7a8ca0">${esc(String(s.start).slice(5))}</span> ${mark}${fmtFn(s.price)}</span>`;
   });
-  return `<div style="line-height:1.9">${pills.join('<span style="color:#b6c3d1;font-size:12px"> › </span>')}</div>`;
+  return `<div style="line-height:1.9">${pills.join('<span style="color:#1270ac;font-size:15px;font-weight:700"> → </span>')}</div>`;
 };
 const head = (text) => `<tr><td colspan="2" style="padding:10px 0 2px;font-weight:700;font-size:13px;color:#4f647a">${text}</td></tr>`;
 const more = (n) => (n > 0 ? `<tr><td colspan="2" style="padding:6px 0;border-top:1px solid #edf2f8;color:#7a8ca0;font-size:12.5px">另有 ${n} 個，返 app 睇全部</td></tr>` : "");
@@ -99,7 +99,7 @@ export function renderDailyHtml(h, picks, { appUrl, unsubUrl, iconUrl, prefLabel
   }
 
   // 一個屋苑（買或租）嘅動態：新成交、售價／租金變動、新放盤、下架（淨數目）。rentMode 只係換金額格式同標題 icon。
-  const estateBox = ({ title, tx = [], pc = [], nl = [], rm = [] }, rentMode) => {
+  const estateRows = ({ tx = [], pc = [], nl = [], rm = [] }, rentMode) => {
     if (!tx.length && !pc.length && !nl.length && !rm.length) return "";
     const money = rentMode ? rent : wan;
     let rows = "";
@@ -133,10 +133,17 @@ export function renderDailyHtml(h, picks, { appUrl, unsubUrl, iconUrl, prefLabel
       rows += more(nl.length - DAILY_LIST_CAP);
     }
     if (rm.length) rows += `<tr><td colspan="2" style="padding:8px 0 4px;border-top:1px solid #edf2f8;color:#7a8ca0;font-size:12.5px">❌ ${rm.length} 個${rentMode ? "租盤" : "盤"}下架</td></tr>`;
-    return box(title, rows);
+    return rows;
   };
-  const estates = (h.byEstate || []).map((e) => estateBox({ title: esc(e.estate), tx: e.newTransactions, pc: e.priceChanges, nl: e.newListings, rm: e.removedListings }, false)).join("");
-  const rentBoxes = (h.byEstateRent || []).map((e) => estateBox({ title: `🔑 ${esc(e.estate)}`, tx: e.newRentTransactions, pc: e.rentPriceChanges, nl: e.newRentals, rm: e.removedRentals }, true)).join("");
+  const estates = (h.byEstate || []).map((e) => {
+    const rows = estateRows({ tx: e.newTransactions, pc: e.priceChanges, nl: e.newListings, rm: e.removedListings }, false);
+    return rows ? box(esc(e.estate), rows) : "";
+  }).join("");
+  // 租盤：成個租盤動態包入一個大框，每個屋苑一個小標題
+  const rentRows = (h.byEstateRent || []).map((e) => {
+    const rows = estateRows({ tx: e.newRentTransactions, pc: e.rentPriceChanges, nl: e.newRentals, rm: e.removedRentals }, true);
+    return rows ? `<tr><td colspan="2" style="padding:14px 0 2px;font-weight:700;font-size:14.5px;color:#0f1c2e;border-top:2px solid #dde8f3">${esc(e.estate)}</td></tr>${rows}` : "";
+  }).join("");
 
   return `<!doctype html><html lang="zh-HK"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>搵樓日記每日通知</title>
@@ -148,7 +155,7 @@ export function renderDailyHtml(h, picks, { appUrl, unsubUrl, iconUrl, prefLabel
  ${watched.length ? box("❤️ 你留意緊嘅盤", watched.join("")) : ""}
  ${picks.length ? box(`✨ 值得留意 <span style="font-weight:400;font-size:12px;color:#4f647a">（${esc(prefLabel)}）</span>`, picks.map((p) => pickRowHtml(p, srcName)).join("")) : ""}
  ${estates}
- ${rentBoxes}
+ ${rentRows ? box("🔑 租盤動態", rentRows) : ""}
  <div style="text-align:center;margin:22px 0 8px"><a href="${esc(appUrl)}" style="background:#1270ac;color:#fff;text-decoration:none;padding:11px 22px;border-radius:999px;font-weight:700">打開搵樓日記睇詳情 →</a></div>
  <div style="font-size:11.5px;color:#7a8ca0;text-align:center;line-height:1.7">「值得留意」同 app 嘅抵買雷達一樣：你標咗 ⭐ 最愛嘅屋苑入面，合你睇樓偏好、呎價低過屋苑近期成交中位數最多嘅在售盤。係粗略基準，睇盤前自己覆核。<br>
  唔想收每日 email？<a href="${esc(unsubUrl)}" style="color:#7a8ca0">撳呢度取消訂閱</a>，或者喺 ⚙️ 設定關閉。</div>

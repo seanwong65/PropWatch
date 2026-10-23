@@ -431,4 +431,7 @@ drip sync（`*/2`）同樣被雙重觸發：兩個 invocation 同時揀同一批
 - 掛喺**系統帳戶 `system-market`（id 17，role=`system`，冇 email、唔可以登入）**名下，全部 `is_favourite=1`，所以每日 sync。`getDailySyncEstateIds` 淨係呢度認 role=`system`（唔食 paid／admin 嘅估值掃描、email、tier gate），唔好將 system 加入其他 `a.role='admin'` 條件。
 - 唔掛 admin 帳戶：否則會塞滿用戶自己 sidebar、每日 email 同每週摘要。
 - 舊 estates row 有幾個係遺留（映灣園／嘉湖山莊原本 is_disabled、數據停喺 6–8 月；麗港城(42)／太古城(46) 係冇數據嘅重複 row，唔郁）。歷史由 2026-10-23 起累積，所以第一份速報「較上週」要等一個星期。
+- ⚠️ **D1 寫入量（2026-10-23 教訓）**：D1 免費版每日 100k rows written。一個盤每日 sync 約寫 12 行（listings INSERT OR REPLACE 約 7＋listing_price_history upsert 約 5.4，連 index）。十大屋苑一日約 4,600 個盤 ⇒ 若全部每日 sync，約 +60–70k writes/日（加上原有 ~12k），長期處於 70–80%＋，一有 spike 就爆。首日加屋苑初次 sync 一個鐘寫咗 ~106k。
+  所以 `system-market` 名下屋苑**唔設 `is_favourite`**，行普通輪流 sync（約每 5 日一次，約 14k writes/日）；速報只需要「本週 vs 上週」，唔使每日。`getDailySyncEstateIds` 認 role='system' 嘅條件保留（要每日 sync 時將 is_favourite 設 1 即可，但要先確認 D1 額度／升級 Workers Paid）。
+  查 D1 用量：GraphQL `d1QueriesAdaptiveGroups`（dimensions.query、sum.rowsRead/rowsWritten，`databaseId` 過濾），用 wrangler OAuth token；`wrangler d1 insights` 喺 3.x 回空。
 
