@@ -190,7 +190,9 @@ const safeHref = (u) => (/^https:\/\//i.test(String(u || "")) ? esc(u) : "");
 // 來源同「抵買雷達」(computeBargainRadar) 一樣，index.js 負責轉換。
 export const pickRowHtml = (p, srcName = () => "") => `<tr><td style="${TD}">${esc(p.name)} ${esc(p.label)}<br><span style="color:#15803d;font-size:12.5px">${p.reasons.map(esc).join("・")}</span></td>`
   + `<td style="${TD};text-align:right;white-space:nowrap"><b>${wan(p.price)}</b><br><span style="color:#7a8ca0;font-size:12px">${Math.round(p.size || 0)}呎${p.beds != null ? `・${esc(p.beds)}房` : ""}</span>`
-  + `${safeHref(p.url) ? `<br><a href="${safeHref(p.url)}" style="color:#1270ac;font-size:12px;text-decoration:none">${esc(srcName(p.source))} ↗</a>` : ""}</td></tr>`;
+  + [{ url: p.url, source: p.source }, ...(p.also || [])].filter((l) => safeHref(l.url))
+      .map((l) => `<br><a href="${safeHref(l.url)}" style="color:#1270ac;font-size:12px;text-decoration:none">${esc(srcName(l.source))} ↗</a>`).join("")
+  + `</td></tr>`;
 
 export function renderWeeklyHtml(w, { appUrl, unsubUrl, iconUrl, picks = [], prefLabel = "", srcName = () => "" }) {
   const moveRow = (m) => {
