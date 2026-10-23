@@ -36,8 +36,8 @@
   <!-- LCP：hero 插圖（2026-09-25 由 3 頁 carousel 改做單張 hero + 文字並排）。
        張 <img> 排喺 ~150KB inline CSS 後面，唔 preload 嘅話瀏覽器要 parse 到
        嗰度先開始下載（Lighthouse 實測試過 carousel 版等咗 2.2 秒）。 -->
-  <link rel="preload" as="image" href="/images/hero-quiet-research-1168.webp"
-        imagesrcset="/images/hero-quiet-research-640.webp 640w, /images/hero-quiet-research-900.webp 900w, /images/hero-quiet-research-1168.webp 1168w"
+  <link rel="preload" as="image" href="/images/hero-couple-timeline-1168.webp"
+        imagesrcset="/images/hero-couple-timeline-640.webp 640w, /images/hero-couple-timeline-900.webp 900w, /images/hero-couple-timeline-1168.webp 1168w"
         imagesizes="(min-width: 860px) 50vw, calc(100vw - 2.5rem)" fetchpriority="high">
   <meta name="theme-color" content="#1270ac">
   <script type="application/ld+json">
@@ -344,17 +344,17 @@
       <div class="ld-hero-img">
         <div class="ld-hero-carousel" id="ld-hero-carousel" role="region" aria-label="功能截圖">
           <img class="ld-hero-slide active"
-               src="images/hero-quiet-research-1168.webp"
-               srcset="images/hero-quiet-research-640.webp 640w, images/hero-quiet-research-900.webp 900w, images/hero-quiet-research-1168.webp 1168w"
+               src="images/hero-couple-timeline-1168.webp"
+               srcset="images/hero-couple-timeline-640.webp 640w, images/hero-couple-timeline-900.webp 900w, images/hero-couple-timeline-1168.webp 1168w"
                sizes="(min-width: 860px) 50vw, calc(100vw - 2.5rem)"
                width="1168" height="784" fetchpriority="high"
-               alt="樓盤時間軸：已放盤 14 日，叫價喺第 7／30／90 日分別跌 2.1%／4.8%／7.3%">
+               alt="樓盤時間軸：已放盤 24 日，叫價喺第 7／30／60 日分別跌 2.1%／4.8%／6.5%">
           <img class="ld-hero-slide"
-               data-src="images/hero-estate-days-780.webp"
-               data-srcset="images/hero-estate-days-640.webp 640w, images/hero-estate-days-780.webp 780w"
+               data-src="images/hero-estate-days-v2-780.webp"
+               data-srcset="images/hero-estate-days-v2-640.webp 640w, images/hero-estate-days-v2-780.webp 780w"
                sizes="(min-width: 860px) 50vw, calc(100vw - 2.5rem)"
                width="780" height="493" fetchpriority="low"
-               alt="真實系統畫面：昇悅居最新放盤，按房數分類嘅售價／實呎價範圍">
+               alt="真實系統畫面：昇悅居最新放盤，按房數分類嘅售價／實呎價範圍，左邊屋苑卡片顯示盤數同本週變動">
           <img class="ld-hero-slide"
                data-src="images/pain-repost-900.webp"
                data-srcset="images/pain-repost-640.webp 640w, images/pain-repost-900.webp 900w, images/pain-repost-1168.webp 1168w"
@@ -368,11 +368,11 @@
                width="1712" height="1152" fetchpriority="low"
                alt="每次減價都記低：5 月 12 日、5 月 28 日、6 月 10 日逐次改價紀錄">
           <img class="ld-hero-slide"
-               data-src="images/pain-value-900.webp"
-               data-srcset="images/pain-value-640.webp 640w, images/pain-value-900.webp 900w, images/pain-value-1168.webp 1168w"
+               data-src="images/pain-value-v2-900.webp"
+               data-srcset="images/pain-value-v2-640.webp 640w, images/pain-value-v2-900.webp 900w, images/pain-value-v2-1168.webp 1168w"
                sizes="(min-width: 860px) 50vw, calc(100vw - 2.5rem)"
-               width="1712" height="1152" fetchpriority="low"
-               alt="呢個盤，平過屋苑中位：用成交中位數比較，唔使靠感覺">
+               width="1168" height="784" fetchpriority="low"
+               alt="呢個盤平過屋苑中位：叫價 HK$7,380,000，屋苑中位價 HK$8,070,000，平 8.5%">
           <img class="ld-hero-slide"
                data-src="images/trust-source-status-900.webp"
                data-srcset="images/trust-source-status-640.webp 640w, images/trust-source-status-900.webp 900w, images/trust-source-status-1168.webp 1168w"
@@ -410,28 +410,28 @@
         </div>
       </div>
       <div class="ld-feat-card">
-        <div class="ld-feat-card-shot"><img src="images/cap-multi-source-780.webp" srcset="images/cap-multi-source-640.webp 640w, images/cap-multi-source-780.webp 780w" sizes="(min-width: 860px) min(calc(45vw - 3rem), 770px), calc(90vw - 2rem)" width="780" height="493" alt="放盤列表：顯示放盤日數、減價次數、多個來源合併、下架配對成交" loading="lazy"></div>
+        <div class="ld-feat-card-shot"><img src="images/cap-multi-source-v2-625.webp" srcset="images/cap-multi-source-v2-480.webp 480w, images/cap-multi-source-v2-625.webp 625w" sizes="(min-width: 860px) min(calc(45vw - 3rem), 770px), calc(90vw - 2rem)" width="625" height="395" alt="放盤列表：每個盤顯示放盤日數、來源網站同售價，附歷史同類近成交" loading="lazy"></div>
         <div class="ld-feat-card-body">
           <div class="ld-feat-card-name">🕰️ 放盤列表：日數、減價、下架一次過睇</div>
           <p>每個盤跟住<b>真實放盤日數</b>、減過幾多次價。同一單位喺幾個網重複放會<b>自動合併做一行</b>，仲會自動配對返成交價。</p>
         </div>
       </div>
       <div class="ld-feat-card">
-        <div class="ld-feat-card-shot"><img src="images/cap-price-timeline-780.webp" srcset="images/cap-price-timeline-640.webp 640w, images/cap-price-timeline-780.webp 780w" sizes="(min-width: 860px) min(calc(45vw - 3rem), 770px), calc(90vw - 2rem)" width="780" height="493" alt="售價歷史：逐次改價記錄同總減幅" loading="lazy"></div>
+        <div class="ld-feat-card-shot"><img src="images/cap-price-timeline-v2-625.webp" srcset="images/cap-price-timeline-v2-480.webp 480w, images/cap-price-timeline-v2-625.webp 625w" sizes="(min-width: 860px) min(calc(45vw - 3rem), 770px), calc(90vw - 2rem)" width="625" height="395" alt="售價歷史：逐次改價記錄同總減幅" loading="lazy"></div>
         <div class="ld-feat-card-body">
           <div class="ld-feat-card-name">📉 售價歷史：每次改價都留低證據</div>
           <p>由我哋<b>首次見到嗰日</b>開始記，每次減價幾多、幾時減，一條時間線列曬。</p>
         </div>
       </div>
       <div class="ld-feat-card">
-        <div class="ld-feat-card-shot"><img src="images/cap-estate-analysis-780.webp" srcset="images/cap-estate-analysis-640.webp 640w, images/cap-estate-analysis-780.webp 780w" sizes="(min-width: 860px) min(calc(45vw - 3rem), 770px), calc(90vw - 2rem)" width="780" height="493" alt="樓盤分析：實用呎價趨勢，叫價同成交對照" loading="lazy"></div>
+        <div class="ld-feat-card-shot"><img src="images/cap-estate-analysis-v2-780.webp" srcset="images/cap-estate-analysis-v2-640.webp 640w, images/cap-estate-analysis-v2-780.webp 780w" sizes="(min-width: 860px) min(calc(45vw - 3rem), 770px), calc(90vw - 2rem)" width="780" height="493" alt="樓盤分析：實用呎價趨勢，叫價同成交對照" loading="lazy"></div>
         <div class="ld-feat-card-body">
           <div class="ld-feat-card-name">📊 樓盤分析：呎價走勢一眼睇</div>
           <p>成個屋苑嘅<b>叫價／成交呎價走勢圖</b>，按房數拆開睇，市況一路點變一眼睇晒。</p>
         </div>
       </div>
       <div class="ld-feat-card">
-        <div class="ld-feat-card-shot"><img src="images/cap-daily-activity-780.webp" srcset="images/cap-daily-activity-640.webp 640w, images/cap-daily-activity-780.webp 780w" sizes="(min-width: 860px) min(calc(45vw - 3rem), 770px), calc(90vw - 2rem)" width="780" height="493" alt="今日動態：睇過嘅放盤售價變動即時提示" loading="lazy"></div>
+        <div class="ld-feat-card-shot"><img src="images/cap-daily-activity-v2-625.webp" srcset="images/cap-daily-activity-v2-480.webp 480w, images/cap-daily-activity-v2-625.webp 625w" sizes="(min-width: 860px) min(calc(45vw - 3rem), 770px), calc(90vw - 2rem)" width="625" height="395" alt="動態：各屋苑嘅售價變動、新成交一目瞭然" loading="lazy"></div>
         <div class="ld-feat-card-body">
           <div class="ld-feat-card-name">🔔 今日動態：邊個盤有變動即刻知</div>
           <p>新放盤、減價、下架，同埋<b>你睇過嗰啲盤</b>嘅最新變動，一開 app 就見晒，唔使自己逐個翻查。</p>
@@ -470,7 +470,7 @@
         </div>
       </div>
       <div class="ld-pain">
-        <div class="ld-pain-shot"><img src="images/pain-value-900.webp" srcset="images/pain-value-640.webp 640w, images/pain-value-900.webp 900w, images/pain-value-1168.webp 1168w" sizes="(min-width: 860px) min(30vw, 380px), calc(100vw - 2.5rem)" width="1712" height="1152" alt="呢個盤，平過屋苑中位：用成交中位數比較，唔使靠感覺" loading="lazy"></div>
+        <div class="ld-pain-shot"><img src="images/pain-value-v2-900.webp" srcset="images/pain-value-v2-640.webp 640w, images/pain-value-v2-900.webp 900w, images/pain-value-v2-1168.webp 1168w" sizes="(min-width: 860px) min(30vw, 380px), calc(100vw - 2.5rem)" width="1168" height="784" alt="呢個盤平過屋苑中位：叫價 HK$7,380,000，屋苑中位價 HK$8,070,000，平 8.5%" loading="lazy"></div>
         <div class="ld-pain-body">
           <div class="ld-pain-quote">「呢個價已經好抵！」</div>
           <p><b>自動對比成交中位數</b>，貴定平即刻知。</p>
