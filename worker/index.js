@@ -634,6 +634,10 @@ const SEC_DEFS = [
     desc: "用戶寄意見時可以附圖（截圖）。相只係隨 email 寄去 hkbuyhouse@gmail.com，唔存落 D1／R2。設 0 = 唔准附圖。" },
   { key: "sec_feedback_img_max_kb", def: 700, min: 50, max: 3000, label: "意見回饋：每張相最大 KB",
     desc: "前端寄出前會自動壓細（最闊 1280px JPEG）；呢個係後端硬上限，超過即 400。" },
+  { key: "sec_heat_min_users", def: 5, min: 3, max: 50, label: "匿名熱度：最少幾多人先顯示",
+    desc: "「N 人追蹤呢個屋苑」「N 人收藏呢個盤」只喺人數達到呢個數先出，否則唔出任何數字（人太少用戶可以估到係邊個）。唔好調到低過 3。" },
+  { key: "sec_crowd_removed_min_users", def: 3, min: 2, max: 20, label: "眾人標記已下架：最少幾多人先提示",
+    desc: "同一個盤有 N 個唔同用戶手動標記咗「已下架」，其他用戶見到「N 位用戶標記咗已下架」提示（只係提示，唔會幫佢哋標記）。" },
   { key: "sec_free_max_estates", def: 3, min: 1, max: 50, label: "免費版：最多追蹤屋苑",
     desc: "免費用戶可以追蹤幾多個屋苑。" },
   { key: "sec_paid_max_estates", def: 15, min: 1, max: 100, label: "收費版：最多追蹤屋苑",
@@ -9814,6 +9818,42 @@ export default {
         }
         const cfg = await getConfig(db, session.account_id);
         return json(200, { ok: true, updated, items: CONFIG_DEFS.map((d) => ({ ...d, value: cfg[d.key] })) });
+      }
+
+      // ── 匿名群體訊號（2026-10-24）：屋苑幾多人追蹤、盤幾多人收藏、幾多人標記已下架 ──────────────
+      // 只回**彙總人數**（唔回任何 account／用戶名），而且達到門檻先回，否則該項唔出（防止少人時估到係邊個）。
+      // 屋苑 id → 數據：要過 canReadEstate（同其他 /api/estates/:id/* 一樣）。冇登入／冇權限一律 401／404。
+      if (method === "GET" && path.match(/^\/api\/estates\/\d+\/crowd$/)) {
+        const estateId = Number(path.split("/")[3]);
+        if (!(await canReadEstate(db, session, estateId))) return json(404, { error: "搵唔到屋苑" });
+        await ensureManualRemoved(db);
+        const cfg = await getSecCfg(db);
+        const k = cfg.sec_heat_min_users, kRm = cfg.sec_crowd_removed_min_users;
+        const real = "a.role != 'system' AND (a.is_active IS NULL OR a.is_active = 1)";   // 唔計內部系統帳戶／停用帳戶
+        const t = await db.prepare(
+          `SELECT COUNT(DISTINCT ae.account_id) AS n, COUNT(DISTINCT CASE WHEN ae.added_at >= date('now', '+8 hours', '-7 days') THEN ae.account_id END) AS n_week
+           FROM account_estates ae JOIN accounts a ON a.id = ae.account_id
+           WHERE ae.estate_id = ? AND ae.paused_at IS NULL AND ${real}`).bind(estateId).first();
+        const favs = {};
+        for (const r of (await db.prepare(
+          `SELECT lf.ref_no, COUNT(DISTINCT lf.account_id) AS c FROM listing_favourites lf JOIN accounts a ON a.id = lf.account_id
+           WHERE lf.estate_id = ? AND lf.deal = 'S' AND ${real} GROUP BY lf.ref_no HAVING c >= ?`).bind(estateId, k).all()).results) favs[r.ref_no] = r.c;
+        // 標記已下架：先按 ref_no 彙總（表細），再確認嗰啲 ref_no 真係屬於呢個屋苑，唔會洩漏其他屋苑嘅盤
+        const removed = {};
+        const marks = (await db.prepare(
+          `SELECT mr.ref_no, COUNT(DISTINCT mr.account_id) AS c FROM listing_manual_removed mr JOIN accounts a ON a.id = mr.account_id
+           WHERE ${real} GROUP BY mr.ref_no HAVING c >= ? LIMIT 200`).bind(kRm).all()).results;
+        if (marks.length) {
+          const ph = marks.map(() => "?").join(",");
+          const own = new Set((await db.prepare(`SELECT DISTINCT ref_no FROM listings WHERE estate_id = ? AND ref_no IN (${ph})`)
+            .bind(estateId, ...marks.map((m) => m.ref_no)).all()).results.map((r) => r.ref_no));
+          for (const m of marks) if (own.has(m.ref_no)) removed[m.ref_no] = m.c;
+        }
+        return json(200, {
+          trackers: (t?.n || 0) >= k ? t.n : null,
+          new_this_week: (t?.n_week || 0) >= k ? t.n_week : null,
+          favs, removed,
+        });
       }
 
       // ── 意見回饋（登入用戶）──────────────────────────────────────────────
