@@ -25,15 +25,12 @@ export const WEEKLY_STALE_DAYS = 1;
 const PREV_TOLERANCE_DAYS = 3;
 
 // ── 1. 讀 D1 ────────────────────────────────────────────────────────────────
-// opts.mode：'weekly'（預設，只計最愛屋苑、對比 7 日前）｜'daily'（每日 email 嘅「值得留意」：
-// 計所有追蹤屋苑、對比「上一次 sync」——輪流 sync 嘅屋苑可以隔幾日先有新 snapshot）。
-export async function loadWeeklyInputs(db, accountId, wEnd, prefs, opts = {}) {
+export async function loadWeeklyInputs(db, accountId, wEnd, prefs) {
   if (!isoDate(wEnd)) throw new Error("bad wEnd");
-  const daily = opts.mode === "daily";
   const { results: ests } = await db.prepare(
     `SELECT ae.estate_id AS id, e.name FROM account_estates ae JOIN estates e ON e.id = ae.estate_id
-     WHERE ae.account_id = ? AND ae.paused_at IS NULL ${daily ? "" : "AND ae.is_favourite = 1"}
-     ORDER BY ae.is_favourite DESC, ae.sort_order ASC, ae.estate_id ASC`).bind(accountId).all();
+     WHERE ae.account_id = ? AND ae.paused_at IS NULL AND ae.is_favourite = 1
+     ORDER BY ae.sort_order ASC, ae.estate_id ASC`).bind(accountId).all();
   if (!ests.length) return { favourites: [] };
   const ids = ests.map((e) => Number(e.id)).filter(Number.isInteger).join(",");
 
@@ -48,11 +45,9 @@ export async function loadWeeklyInputs(db, accountId, wEnd, prefs, opts = {}) {
   const snap = {};
   for (const e of ests) {
     const nowD = pick(e.id, wEnd);
-    // daily：上一份 snapshot（最多隔 8 日）；weekly：7 日前嗰份（容許偏差 PREV_TOLERANCE_DAYS）
-    let prevD = nowD ? pick(e.id, addDays(nowD, daily ? -1 : -7)) : null;
-    let m4D = !daily && nowD ? pick(e.id, addDays(nowD, -28)) : null;
-    if (prevD && daily && daysBetween(prevD, nowD) > 8) prevD = null;
-    if (prevD && !daily && Math.abs(daysBetween(prevD, addDays(nowD, -7))) > PREV_TOLERANCE_DAYS) prevD = null;
+    let prevD = nowD ? pick(e.id, addDays(nowD, -7)) : null;
+    let m4D = nowD ? pick(e.id, addDays(nowD, -28)) : null;
+    if (prevD && Math.abs(daysBetween(prevD, addDays(nowD, -7))) > PREV_TOLERANCE_DAYS) prevD = null;
     if (m4D && Math.abs(daysBetween(m4D, addDays(nowD, -28))) > PREV_TOLERANCE_DAYS * 2) m4D = null;
     snap[e.id] = { nowD, prevD, m4D };
   }
@@ -64,7 +59,7 @@ export async function loadWeeklyInputs(db, accountId, wEnd, prefs, opts = {}) {
     `SELECT estate_id, snapshot_date AS d, ref_no, building_name AS b, floor AS f, unit AS u, bedrooms AS beds,
             size_net AS s, price AS p, price_per_ft AS psf
      FROM listings WHERE ${conds.join(" OR ")}`).all()).results : [];
-  const prevWeek = addDays(wEnd, daily ? -9 : -7);
+  const prevWeek = addDays(wEnd, -7);
   const history = (await db.prepare(
     `SELECT estate_id, ref_no, price AS p, snapshot_date AS d FROM listing_price_history
      WHERE estate_id IN (${ids}) AND snapshot_date >= ? ORDER BY snapshot_date`).bind(prevWeek).all()).results;
@@ -81,24 +76,20 @@ export async function loadWeeklyInputs(db, accountId, wEnd, prefs, opts = {}) {
     `SELECT estate_id, view_date, block, floor, unit, size_net, linked_ref_no FROM viewings
      WHERE account_id = ? AND estate_id IN (${ids}) AND linked_ref_no IS NOT NULL AND linked_ref_no != ''
      ORDER BY view_date DESC LIMIT 40`).bind(accountId).all()).results;
-  return { favourites: ests, mode: daily ? "daily" : "weekly", wStart, wEnd, snap, listings, history, first, txns, txnFrom, favListings, viewings, prefs: prefs || {} };
+  return { favourites: ests, wStart, wEnd, snap, listings, history, first, txns, txnFrom, favListings, viewings, prefs: prefs || {} };
 }
 
 // ── 2. 計算（純函數）─────────────────────────────────────────────────────────
-export function computeWeekly(inp, opts = {}) {
+export function computeWeekly(inp) {
   if (!inp.favourites.length) return { status: "skip", reason: "no_favourites" };
-  const daily = inp.mode === "daily";
-  const staleDays = opts.staleDays ?? WEEKLY_STALE_DAYS;
-  const { wStart, wEnd, snap, listings, history, first, txns, txnFrom, favListings, viewings, prefs } = inp;
+  const { wStart, wEnd, snap, listings, history, first, txns, txnFrom, favListings, viewings } = inp;
   const name = Object.fromEntries(inp.favourites.map((e) => [e.id, e.name]));
-  const pmax = prefs.price_max ? Number(prefs.price_max) * 1e4 : null;
-  const beds = /^\d$/.test(String(prefs.beds ?? "")) ? Number(prefs.beds) : null;
 
   // 過期嘅屋苑唔計
   const stale = [];
   const fresh = inp.favourites.filter((e) => {
     const nd = snap[e.id]?.nowD;
-    const ok = nd && daysBetween(nd, wEnd) <= staleDays;
+    const ok = nd && daysBetween(nd, wEnd) <= WEEKLY_STALE_DAYS;
     if (!ok) stale.push(e.name);
     return ok;
   });
@@ -113,12 +104,7 @@ export function computeWeekly(inp, opts = {}) {
   const refsAt = (eid, d) => new Set(listings.filter((r) => r.estate_id === eid && r.d === d).map((r) => r.ref_no));
   const hist = {};
   for (const r of history) (hist[r.ref_no] ||= []).push(r);
-  // daily：只睇「上一次 sync 之後」先發生嘅事（冇咁做，同一個盤會日日出現喺「值得留意」）
-  const evFrom = (eid) => (daily ? snap[eid]?.prevD || wEnd : addDays(wStart, -1));
-  const priceCut = (ref, eid) => {
-    const h = (hist[ref] || []).filter((r) => r.d >= (eid ? evFrom(eid) : "0000"));
-    return h.length >= 2 && h[h.length - 1].p < h[0].p ? h : null;
-  };
+  const priceCut = (ref) => { const h = hist[ref] || []; return h.length >= 2 && h[h.length - 1].p < h[0].p ? h : null; };
 
   const cards = [];
   for (const e of fresh) {
@@ -171,35 +157,12 @@ export function computeWeekly(inp, opts = {}) {
     if (ch != null && Math.abs(ch) >= 0.05) moves.push({ ...t, kind: "price", from: t.wk, to: t.r.p, ch });
   }
 
-  // 本週值得留意：合偏好、低過屋苑成交中位 / 長放＋本週再減
-  const tmed = Object.fromEntries(cards.map((c) => [c.eid, c.tMed]));
-  const picks = [];
-  for (const e of fresh) {
-    for (const r of active(e.id, snap[e.id].nowD)) {
-      if (beds && r.beds !== beds) continue;
-      if (pmax && (r.p || 0) > pmax) continue;
-      if (!r.psf || !tmed[e.id]) continue;
-      const below = (1 - r.psf / tmed[e.id]) * 100;
-      const h = priceCut(r.ref_no, e.id);
-      const d = first[r.ref_no] ? daysBetween(first[r.ref_no], wEnd) : null;
-      const isNew = (first[r.ref_no] || "") >= (daily ? addDays(evFrom(e.id), 1) : wStart);
-      const when = daily ? "" : "本週";
-      const reasons = [];
-      // daily 要有新事件（新盤／減價）先入選；weekly 就算冇事件，低過成交中位 ≥8% 都入
-      if (below >= 8 && (!daily || isNew || h)) reasons.push(`呎價低過屋苑成交中位 ${below.toFixed(0)}%`);
-      if (h && d && d >= 60) reasons.push(`放咗 ${d} 日、${when}再減 ${((h[0].p - h[h.length - 1].p) / h[0].p * 100).toFixed(1)}%`);
-      if (isNew && below >= 3) reasons.push(`${when}新盤、低過成交中位`);
-      if (reasons.length) picks.push({ eid: e.id, r, reasons, score: below + (h ? 10 : 0) });
-    }
-  }
-  picks.sort((a, b) => b.score - a.score);
-
   const totTx = cards.reduce((s, c) => s + c.nTx, 0), totCut = cards.reduce((s, c) => s + c.nCut, 0), totNew = cards.reduce((s, c) => s + c.nNew, 0);
   const gapMed = median(cards.map((c) => c.gap).filter((g) => g != null));
   cards.sort((a, b) => b.activity - a.activity);
-  return { status: "ok", wStart, wEnd, cards, moves, picks: picks.slice(0, 3), stale,
+  return { status: "ok", wStart, wEnd, cards, moves, stale,
     totals: { tx: totTx, cut: totCut, newN: totNew, gap: gapMed },
-    beds, pmax, name };
+    name };
 }
 
 // ── 3. 排版 ─────────────────────────────────────────────────────────────────
@@ -222,23 +185,24 @@ export function weeklyHeadline(w) {
 export const weeklySubject = (w) => `搵樓日記每週摘要（${mdLabel(w.wStart)}–${mdLabel(w.wEnd)}）：${w.totals.newN} 新盤・${w.totals.cut} 減價・${w.totals.tx} 成交`;
 
 export const box = (title, rows) => `<h2 style="font-size:15px;margin:18px 0 6px">${title}</h2><div style="background:#fff;border:1px solid #dde8f3;border-radius:14px;padding:4px 14px"><table role="presentation" style="width:100%;border-collapse:collapse;font-size:13.5px;color:#22344a">${rows}</table></div>`;
-// 「值得留意」一行（每週摘要同每日 email 共用）
-export const pickRowHtml = (name, p) => `<tr><td style="${TD}">${esc(name)} ${esc([p.r.b, p.r.f, p.r.u].filter(Boolean).join(" "))}<br><span style="color:#15803d;font-size:12.5px">${p.reasons.map(esc).join("；")}</span></td>`
-  + `<td style="${TD};text-align:right;white-space:nowrap"><b>${wan(p.r.p)}</b><br><span style="color:#7a8ca0;font-size:12px">${Math.round(p.r.s || 0)}呎・${esc(p.r.beds ?? "-")}房</span></td></tr>`;
+const safeHref = (u) => (/^https:\/\//i.test(String(u || "")) ? esc(u) : "");
+// 「值得留意」一行（每週摘要同每日 email 共用）。pick＝{ name, label, price, size, beds, reasons[], url, source }；
+// 來源同「抵買雷達」(computeBargainRadar) 一樣，index.js 負責轉換。
+export const pickRowHtml = (p, srcName = () => "") => `<tr><td style="${TD}">${esc(p.name)} ${esc(p.label)}<br><span style="color:#15803d;font-size:12.5px">${p.reasons.map(esc).join("・")}</span></td>`
+  + `<td style="${TD};text-align:right;white-space:nowrap"><b>${wan(p.price)}</b><br><span style="color:#7a8ca0;font-size:12px">${Math.round(p.size || 0)}呎${p.beds != null ? `・${esc(p.beds)}房` : ""}</span>`
+  + `${safeHref(p.url) ? `<br><a href="${safeHref(p.url)}" style="color:#1270ac;font-size:12px;text-decoration:none">${esc(srcName(p.source))} ↗</a>` : ""}</td></tr>`;
 
-export function renderWeeklyHtml(w, { appUrl, unsubUrl, iconUrl }) {
+export function renderWeeklyHtml(w, { appUrl, unsubUrl, iconUrl, picks = [], prefLabel = "", srcName = () => "" }) {
   const moveRow = (m) => {
     const nm = w.name[m.eid] || "";
     const txt = m.kind === "gone" ? '<span style="color:#cf2020;font-weight:700">已下架</span>' : `${wan(m.from)} → <b>${wan(m.to)}</b> ${arrow(m.ch)}`;
     return `<tr><td style="${TD}">${m.icon} ${esc(nm)} ${esc(m.label)}</td><td style="${TD};text-align:right;white-space:nowrap">${txt}</td></tr>`;
   };
-  const pickRow = (p) => pickRowHtml(w.name[p.eid], p);
   const estRow = (c) => {
     const note = c.gap == null ? "" : c.gap >= 5 ? `叫價高過成交 ${c.gap.toFixed(1)}%，有講價空間` : c.gap <= 1 ? "叫價貼近成交，業主少讓步" : `叫價高過成交 ${c.gap.toFixed(1)}%`;
     return `<tr><td style="padding:8px 0;border-top:1px solid #edf2f8;vertical-align:top"><b>${esc(c.name)}</b> <span style="font-size:12px">${c.temp}</span><br><span style="color:#7a8ca0;font-size:12.5px">${esc(note)}</span></td>`
       + `<td style="padding:8px 0;border-top:1px solid #edf2f8;text-align:right;font-size:12.5px;line-height:1.6;white-space:nowrap">${c.aNow ? `$${Math.round(c.aNow).toLocaleString("en-US")}/呎 ${arrow(pct(c.aNow, c.aPrev))}` : "-"}<br>放盤 ${c.nNow}・減價 ${c.nCut}・成交 ${c.nTx}</td></tr>`;
   };
-  const prefLabel = `${w.beds || "不限"}房、${w.pmax ? wan(w.pmax) : "不限"}以下`;
   return `<!doctype html><html lang="zh-HK"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>搵樓日記每週摘要</title>
 <body style="margin:0;background:#eef6fd;font-family:-apple-system,'PingFang HK','Heiti TC',sans-serif;color:#0f1c2e">
@@ -247,7 +211,7 @@ export function renderWeeklyHtml(w, { appUrl, unsubUrl, iconUrl }) {
   <div style="font-size:19px;font-weight:800">📊 每週摘要</div><div style="font-size:13px;color:#4f647a">${mdLabel(w.wStart)} 至 ${mdLabel(w.wEnd)}</div></td></tr></table>
  <div style="background:#1270ac;color:#fff;border-radius:14px;padding:12px 16px;margin:12px 0 4px;font-size:14px;line-height:1.7">${esc(weeklyHeadline(w))}</div>
  ${w.moves.length ? box("❤️ 你留意緊嘅盤：本週有變動", w.moves.map(moveRow).join("")) : ""}
- ${w.picks.length ? box(`✨ 值得留意 <span style="font-weight:400;font-size:12px;color:#4f647a">（${esc(prefLabel)}）</span>`, w.picks.map(pickRow).join("")) : ""}
+ ${picks.length ? box(`✨ 值得留意 <span style="font-weight:400;font-size:12px;color:#4f647a">（${esc(prefLabel)}）</span>`, picks.map((p) => pickRowHtml(p, srcName)).join("")) : ""}
  ${box("🏢 最愛屋苑市況", w.cards.map(estRow).join(""))}
  <div style="text-align:center;margin:22px 0 8px"><a href="${esc(appUrl)}" style="background:#1270ac;color:#fff;text-decoration:none;padding:11px 22px;border-radius:999px;font-weight:700">打開搵樓日記睇詳情 →</a></div>
  <div style="font-size:11.5px;color:#7a8ca0;text-align:center;line-height:1.7">只計你喺搵樓日記標咗 ⭐ 最愛嘅屋苑。叫價以實用呎價中位數計；成交對比用近 90 日已登記成交。${w.stale.length ? `<br>${esc(w.stale.join("、"))} 嘅放盤數據未更新，今次未計入。` : ""}<br>

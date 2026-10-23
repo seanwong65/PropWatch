@@ -41,19 +41,18 @@ describe("computeWeekly", () => {
     const c = computeWeekly(i).cards[0];
     expect(c.hasPrev).toBe(false); expect(c.aPrev).toBeNull(); expect(c.nRemoved).toBe(0);
   });
-  it("值得留意：跟房數同預算篩", () => {
-    const w = computeWeekly(base());
-    // A：放咗 84 日、本週再減價；B：呎價低過成交中位 ≥8%。兩個都合 2 房／800 萬，A 分數較高排先
-    expect(w.picks.map((p) => p.r.ref_no)).toEqual(["A", "B"]);
-    const i = base(); i.prefs = { price_max: 600 };
-    expect(computeWeekly(i).picks).toEqual([]);
-  });
 });
 
 describe("renderWeeklyHtml", () => {
   it("動態字串全部 escape", () => {
     const w = computeWeekly(base());
-    const html = renderWeeklyHtml(w, { appUrl: "https://x/app", unsubUrl: "https://x/u?a=1&kind=weekly", iconUrl: "https://x/i.png" });
+    const picks = [{ name: "泓景臺<b>", label: "6座 低層 B室", price: 7580000, size: 473, beds: 2, reasons: ["呎價低過屋苑成交中位 9%"], url: "https://hk.centanet.com/x", source: "centanet" },
+      { name: "X", label: "Y", price: 1, size: 1, beds: 1, reasons: [], url: "javascript:alert(1)", source: "midland" }];
+    const html = renderWeeklyHtml(w, { appUrl: "https://x/app", unsubUrl: "https://x/u?a=1&kind=weekly", iconUrl: "https://x/i.png",
+      picks, prefLabel: "2房、$800萬以下", srcName: (s) => ({ centanet: "中原" }[s] || s) });
+    expect(html).toContain("中原 ↗");                    // 值得留意有連結，顯示來源網站
+    expect(html).not.toContain("javascript:");           // 非 https 連結一律唔出
+    expect(html).toContain("泓景臺&lt;b&gt;");           // 屋苑名 escape
     expect(html).not.toContain("<img src=x");
     expect(html).toContain("&lt;img src=x");
     expect(html).toContain("kind=weekly");
