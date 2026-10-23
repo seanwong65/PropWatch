@@ -2,15 +2,14 @@
 // 同舊版 buildEmailHtml 嘅分別（用戶 2026-10-23 決定／建議）：
 //   - 「💎 筍盤」改做「✨ 值得留意」（同每週摘要共用，數據仍然係抵買雷達 computeBargainRadar，只計最愛屋苑）
 //   - 你睇過／心儀嘅盤（變價、下架、單位成交）擺最頂，一行一個
-//   - 每屋苑：新成交、新放盤各最多 DAILY_LIST_CAP 行，多出嚟寫「另有 N 個」
-//   - 售價變動：跌／升幅 < DAILY_MIN_MOVE_PCT 唔逐條列（只計入數目）
+//   - 每屋苑：新成交、新放盤各最多 listCap 行，多出嚟寫「另有 N 個」
+//   - 售價變動：跌／升幅 < minMovePct 唔逐條列（只計入數目）
 //   - 已下架（唔係你睇過嘅）：淨係報數目，唔逐條列
 //   - 租盤：同買盤一樣逐項列（新租盤、租金變動、租務成交、下架數目）
-// ⚠️ 兩個數字參數而家寫死喺度（預覽用）；正式切換前要搬入 CONFIG_DEFS（⚙️ 設定可改＋有說明）。
+// 兩個數字（每項最多幾行、變價逐條列門檻）係 per-account ⚙️ 設定（email_list_cap／email_min_move_pct），
+// 由 index.js 嘅 buildDailyEmail 傳入 listCap／minMovePct。
 import { esc, wan, arrow, TD, box, pickRowHtml } from "./weekly.js";
 
-export const DAILY_LIST_CAP = 5;
-export const DAILY_MIN_MOVE_PCT = 3;
 
 const safeHref = (u) => (/^https:\/\//i.test(String(u || "")) ? esc(u) : "");
 const rent = (p) => (p ? `$${Math.round(p).toLocaleString("en-US")}/月` : "-");
@@ -69,7 +68,7 @@ export const dailySubject = (h, nPicks) => {
 };
 
 // srcName：source id → 網站名（中原／美聯／香港置業／利嘉閣），由 index.js 用 SOURCES registry 傳入
-export function renderDailyHtml(h, picks, { appUrl, unsubUrl, iconUrl, prefLabel = "", srcName = () => "原網站" }) {
+export function renderDailyHtml(h, picks, { appUrl, unsubUrl, iconUrl, prefLabel = "", srcName = () => "原網站", listCap = 5, minMovePct = 3 }) {
   const watched = [];
   for (const c of h.linkedPriceChanges || []) {
     const ch = pctChg(c.new_price, c.old_price);
@@ -105,32 +104,32 @@ export function renderDailyHtml(h, picks, { appUrl, unsubUrl, iconUrl, prefLabel
     let rows = "";
     if (tx.length) {
       rows += head(`🏠 ${rentMode ? "租務成交" : "新成交"} (${tx.length})`);
-      for (const t of tx.slice(0, DAILY_LIST_CAP)) {
+      for (const t of tx.slice(0, listCap)) {
         const yrs = t.held_days ? t.held_days / 365 : null;
         const gainTxt = t.gain_pct != null
           ? ` <span style="color:${t.gain_pct >= 0 ? "#15803d" : "#cf2020"};font-weight:700">${t.gain_pct >= 0 ? "▲" : "▼"}${Math.abs(t.gain_pct).toFixed(1)}%</span>` : "";
         rows += row(lab(t.building, t.floor, t.unit), `<b>${money(t.price)}</b>${gainTxt}`,
           `${esc(sizePsf(t.size_net, t.price_per_ft))}・${rentMode ? "租" : "成交"} ${esc(t.reg_date || "-")}${yrs ? `・持有 ${yrs.toFixed(1)} 年` : ""}`);
       }
-      rows += more(tx.length - DAILY_LIST_CAP);
+      rows += more(tx.length - listCap);
     }
-    const big = pc.filter((l) => Math.abs(pctChg(l.new_price, l.old_price) ?? 0) >= DAILY_MIN_MOVE_PCT);
+    const big = pc.filter((l) => Math.abs(pctChg(l.new_price, l.old_price) ?? 0) >= minMovePct);
     if (pc.length) {
       rows += head(`💰 ${rentMode ? "租金變動" : "售價變動"} (${pc.length})`);
-      for (const l of big.slice(0, DAILY_LIST_CAP)) {
+      for (const l of big.slice(0, listCap)) {
         rows += row(lab(l.building_name, l.floor, l.unit), `${money(l.old_price)} → <b>${money(l.new_price)}</b> ${arrow(pctChg(l.new_price, l.old_price))}`,
           `${esc(sizePsf(l.size_net, l.price_per_ft))}${link(l.detail_url, srcName(l.source))}`);
       }
-      const hidden = pc.length - Math.min(big.length, DAILY_LIST_CAP);
-      if (hidden > 0) rows += `<tr><td colspan="2" style="padding:6px 0;border-top:1px solid #edf2f8;color:#7a8ca0;font-size:12.5px">另有 ${hidden} 個細幅變動（${DAILY_MIN_MOVE_PCT}% 以下）</td></tr>`;
+      const hidden = pc.length - Math.min(big.length, listCap);
+      if (hidden > 0) rows += `<tr><td colspan="2" style="padding:6px 0;border-top:1px solid #edf2f8;color:#7a8ca0;font-size:12.5px">另有 ${hidden} 個細幅變動（${minMovePct}% 以下）</td></tr>`;
     }
     if (nl.length) {
       rows += head(`🆕 ${rentMode ? "新租盤" : "新放盤"} (${nl.length})`);
-      for (const l of nl.slice(0, DAILY_LIST_CAP)) {
+      for (const l of nl.slice(0, listCap)) {
         rows += row(lab(l.building_name, l.floor, l.unit), `<b>${money(l.price)}</b>`,
           `${l.bedrooms ?? "-"}房・${esc(sizePsf(l.size_net, l.price_per_ft))}${link(l.detail_url, srcName(l.source))}`);
       }
-      rows += more(nl.length - DAILY_LIST_CAP);
+      rows += more(nl.length - listCap);
     }
     if (rm.length) rows += `<tr><td colspan="2" style="padding:8px 0 4px;border-top:1px solid #edf2f8;color:#7a8ca0;font-size:12.5px">❌ ${rm.length} 個${rentMode ? "租盤" : "盤"}下架</td></tr>`;
     return rows;

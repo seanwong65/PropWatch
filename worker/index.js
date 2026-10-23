@@ -3716,9 +3716,15 @@ const CONFIG_DEFS = [
   { key: "bargain_below_pct", label: "筍盤門檻（%）", def: 8, min: 1, max: 50,
     groups: ["抵買雷達", "每日 Email"],
     desc: "呎價要低過同苑成交中位數幾多% 先算筍盤（抵買雷達＋每日 email）。" },
-  { key: "email_bargain_top", label: "Email 筍盤數目", def: 5, min: 0, max: 20,
+  { key: "email_bargain_top", label: "Email「值得留意」數目", def: 5, min: 0, max: 20,
     groups: ["每日 Email"],
-    desc: "每日 email「今日筍盤」最多列幾多個；設 0 成段唔出。" },
+    desc: "每日 email／每週摘要「✨ 值得留意」（即抵買雷達）最多列幾多個；設 0 成段唔出。" },
+  { key: "email_list_cap", label: "Email 每項最多列幾多行", def: 5, min: 1, max: 50,
+    groups: ["每日 Email"],
+    desc: "每日 email 每個屋苑嘅「新成交／售價變動／新放盤」各最多逐條列幾多行，多出嘅寫「另有 N 個」。" },
+  { key: "email_min_move_pct", label: "Email 變價逐條列門檻（%）", def: 3, min: 0, max: 50,
+    groups: ["每日 Email"],
+    desc: "每日 email 售價／租金變動，升跌幅少過呢個% 就唔逐條列，只寫「另有 N 個細幅變動」。設 0 = 全部逐條列。" },
   { key: "new_txn_max_age_days", label: "新成交最大登記日數", def: 90, min: 1, max: 3650,
     groups: ["每日 Email", "今日動態"],
     desc: "成交登記日超過呢個日數就唔當「新成交」（每日 email／今日動態）。防止新 source（利嘉閣／香港置業）首次抓返一大堆舊成交時被當成新成交。" },
@@ -4757,6 +4763,8 @@ async function getTodayHighlights(db, accountId) {
   };
 }
 
+// ⚠️ 舊版每日 email（深色）：2026-10-23 起已由 daily.js 嘅 renderDailyHtml 取代，暫時保留做後備（出事可以喺
+// buildDailyEmail 轉返用），確認新版穩定後刪走。
 function buildEmailHtml(highlights, bargains = [], unsubUrl = null) {
   const fmt = (p) => p ? `$${(p / 1e4).toFixed(0)}萬` : "-";
   // 租盤價錢係實數（月租），唔似買盤咁要 ×萬——兩個 fmt 唔可以共用，
@@ -6032,6 +6040,18 @@ async function prepareDailyData(db, accId) {
   const bargains = await loadBargains(db, accId, prefs);
   return { highlights, prefs, bargains };
 }
+// 每日 email v2 一封信（主旨＋HTML）：sendDailyEmail 同 admin 預覽（/api/admin/preview-daily）共用，
+// 兩邊永遠係同一份。picks＝抵買雷達（loadBargains）去重後嘅「✨ 值得留意」。
+async function buildDailyEmail(db, accId, unsubUrl) {
+  const { highlights, prefs, bargains } = await prepareDailyData(db, accId);
+  const picks = dedupePicks(bargains.map(bargainToPick));
+  const cfg = await getConfig(db, accId);
+  const html = renderDailyHtml(highlights, picks, {
+    appUrl: `${APP_BASE}/app`, unsubUrl, iconUrl: `${APP_BASE}/icons/icon-192.png`,
+    prefLabel: prefLabelOf(prefs), srcName: srcNameOf, listCap: cfg.email_list_cap, minMovePct: cfg.email_min_move_pct,
+  });
+  return { subject: dailySubject(highlights, picks.length), html };
+}
 async function sendDailyEmail(db, env, onlyAccountId = null, overrideEmail = null, skipAccountIds = null, force = false) {
   if (!env?.GMAIL_REFRESH_TOKEN) return { error: "no GMAIL credentials" };
   // 逐個有 email 嘅帳戶寄——各自用自己嘅訂閱/設定/雷達視角。
@@ -6070,50 +6090,14 @@ async function sendDailyEmail(db, env, onlyAccountId = null, overrideEmail = nul
       continue;
     }
     try {
-      const { highlights, bargains } = await prepareDailyData(db, acc.id);
-      const { byEstate, byEstateRent = [] } = highlights;
-      const totalTxns    = byEstate.reduce((s, e) => s + e.newTransactions.length, 0);
-      const totalPrice   = byEstate.reduce((s, e) => s + e.priceChanges.length, 0);
-      const totalNew     = byEstate.reduce((s, e) => s + e.newListings.length, 0);
-      const totalDel     = byEstate.reduce((s, e) => s + e.removedListings.length, 0);
-      const totalViewed  = byEstate.reduce((s, e) => s + e.viewedTxns.length, 0);
-      const totalRentTxns    = byEstateRent.reduce((s, e) => s + e.newRentTransactions.length, 0);
-      const totalRentPrice   = byEstateRent.reduce((s, e) => s + e.rentPriceChanges.length, 0);
-      const totalRentNew     = byEstateRent.reduce((s, e) => s + e.newRentals.length, 0);
-      const totalRentDel     = byEstateRent.reduce((s, e) => s + e.removedRentals.length, 0);
-      const totalRentViewed  = byEstateRent.reduce((s, e) => s + e.viewedRentTxns.length, 0);
-      // 「睇過嘅放盤」兩段唔喺 byEstate 入面（獨立擺 email 頂），要另計——
-      // 唔計嘅話，如果今日淨係得呢兩類動態，subject 會寫「今日無更新」但
-      // 內文其實有嘢。
-      const totalLinkedPrice = (highlights.linkedPriceChanges || []).length;
-      const totalLinkedDel   = (highlights.linkedRemoved || []).length;
-      const totalLinkedRentPrice = (highlights.linkedRentPriceChanges || []).length;
-      const totalLinkedRentDel   = (highlights.linkedRentRemoved || []).length;
-      const hasChanges = totalTxns + totalPrice + totalNew + totalDel + totalViewed
-        + totalLinkedPrice + totalLinkedDel
-        + totalRentTxns + totalRentPrice + totalRentNew + totalRentDel + totalRentViewed
-        + totalLinkedRentPrice + totalLinkedRentDel > 0;
-      const parts = [];
-      if (totalViewed) parts.push(`${totalViewed} 個睇過嘅單位成交`);
-      if (totalLinkedDel)   parts.push(`${totalLinkedDel} 個睇過嘅放盤下架`);
-      if (totalLinkedPrice) parts.push(`${totalLinkedPrice} 個睇過嘅放盤變價`);
-      if (totalTxns)   parts.push(`${totalTxns} 個新成交`);
-      if (totalPrice)  parts.push(`${totalPrice} 個價格變動`);
-      if (totalNew)    parts.push(`${totalNew} 個新放盤`);
-      if (totalDel)    parts.push(`${totalDel} 個已下架`);
-      if (totalRentTxns || totalRentPrice || totalRentNew || totalRentDel || totalRentViewed
-        || totalLinkedRentPrice || totalLinkedRentDel) {
-        parts.push(`${totalRentTxns + totalRentPrice + totalRentNew + totalRentDel + totalRentViewed + totalLinkedRentPrice + totalLinkedRentDel} 個租盤動態`);
-      }
-      if (bargains.length) parts.push(`${bargains.length} 個筍盤`);
-      const subject = hasChanges || bargains.length ? `搵樓日記通知：${parts.join("、")}` : "搵樓日記通知：今日無更新";
       const toEmail = overrideEmail || acc.email;
       // 退訂：footer link（人手撳）+ List-Unsubscribe header（Gmail/Outlook 自己
       // 個「取消訂閱」掣）。One-Click 指定 POST，所以 email client 唔會因為掃
       // link 而靜靜退訂——同 footer 個 GET link 行確認頁係同一個理由。
       const unsubTok = await getUnsubToken(db, acc.id);
       const unsubUrl = `${WORKER_BASE}/api/unsubscribe?token=${unsubTok}`;
-      await sendEmail(env, toEmail, subject, buildEmailHtml(highlights, bargains, unsubUrl), {
+      const { subject, html } = await buildDailyEmail(db, acc.id, unsubUrl);
+      await sendEmail(env, toEmail, subject, html, {
         "List-Unsubscribe": `<${unsubUrl}>`,
         "List-Unsubscribe-Post": "List-Unsubscribe=One-Click",
       });
@@ -7196,26 +7180,22 @@ export default {
         const r = aid ? await sendWeeklySummary(db, env, { onlyAccountId: aid }) : await runWeeklySummaryTask(env);
         return json(200, { ok: !r?.error, result: aid ? { ...r, sent: (r.sent || []).map(({ html, ...x }) => x) } : r });
       }
-      // 每日 email 新版預覽（v2 排版，2026-10-23）：用 sendDailyEmail 同一份數據（prepareDailyData）＋
+      // 每日 email 預覽（v2，已經係正式版）：同 sendDailyEmail 用同一個 buildDailyEmail，
       // 「值得留意」（＝抵買雷達 loadBargains，同每週摘要一樣）。body { account_id?, send_to_self? }：
       // 冇 send_to_self＝淨係回 subject／html；有＝寄去**呼叫者自己**嘅 email（admin），唔會寄俾其他人。
       if (method === "POST" && path === "/api/admin/preview-daily") {
         if (!isAdminSession(session)) return json(403, { error: "admin only" });
         const b = await request.json().catch(() => ({}));
         const aid = Number(b.account_id) || session.account_id;
-        const { highlights, prefs, bargains } = await prepareDailyData(db, aid);
-        const picks = dedupePicks(bargains.map(bargainToPick));
         const unsubUrl = `${WORKER_BASE}/api/unsubscribe?token=${await getUnsubToken(db, aid)}`;
-        const html = renderDailyHtml(highlights, picks, { appUrl: `${APP_BASE}/app`, unsubUrl, iconUrl: `${APP_BASE}/icons/icon-192.png`,
-          prefLabel: prefLabelOf(prefs), srcName: srcNameOf });
-        const subject = dailySubject(highlights, picks.length);
+        const { subject, html } = await buildDailyEmail(db, aid, unsubUrl);
         if (b.send_to_self) {
           const me = await db.prepare("SELECT email FROM accounts WHERE id = ?").bind(session.account_id).first();
           if (!me?.email) return json(400, { error: "你個帳戶冇 email" });
-          await sendEmail(env, me.email, `【樣本 v2】${subject}`.slice(0, 150), html);
-          return json(200, { ok: true, sent_to: "self", subject, picks: picks.length });
+          await sendEmail(env, me.email, `【樣本】${subject}`.slice(0, 150), html);
+          return json(200, { ok: true, sent_to: "self", subject });
         }
-        return json(200, { subject, picks: picks.length, html });
+        return json(200, { subject, html });
       }
       if (method === "POST" && path === "/api/admin/run-email-task") {
         if (!isAdminSession(session)) return json(403, { error: "admin only" });

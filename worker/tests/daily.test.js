@@ -49,6 +49,12 @@ describe("renderDailyHtml", () => {
     const f = fixture(); f.byEstate[0].priceChanges.push({ building_name: "1座", floor: "低層", unit: "A室", new_price: 7790000, old_price: 7800000 });
     expect(renderDailyHtml(f, [], opts)).toContain("另有 1 個細幅變動");
   });
+  it("行數上限、變價門檻跟設定（listCap／minMovePct）", () => {
+    const h2 = renderDailyHtml(fixture(), [], { ...opts, listCap: 2, minMovePct: 0 });
+    expect(h2).toContain("另有 5 個，返 app 睇全部");     // 黃埔 7 宗成交，上限 2
+    const f = fixture(); f.byEstate[0].priceChanges.push({ building_name: "1座", floor: "低層", unit: "A室", new_price: 7790000, old_price: 7800000 });
+    expect(renderDailyHtml(f, [], { ...opts, minMovePct: 0 })).not.toContain("細幅變動");
+  });
   it("標題／主旨", () => {
     expect(dailyHeadline(fixture())).toContain("你留意緊嘅盤有 1 個變動");
     expect(dailySubject(fixture(), 2)).toContain("2 個值得留意");
