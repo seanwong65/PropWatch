@@ -3632,7 +3632,21 @@ function viewingTodos() {
     if (!v.floor) missing.push('樓層');
     if (!v.unit) missing.push('室');
     if (!v.price) missing.push(v.deal_type === 'R' ? '睇樓租金' : '睇樓價');
-    const needLink = !!(v.block && v.unit) && _linkedRefs(v).length === 0;
+    let needLink = !!(v.block && v.unit) && _linkedRefs(v).length === 0;
+    // 對應放盤已經逐個睇過、全部 ✕（dismissed_refs）＝你已經判斷過冇一個啱，唔使再提。
+    // 如果呢個屋苑嘅候選放盤已經載入，就以候選為準（之後新出現、未 ✕ 嘅候選會再提）；未載入就當睇完。
+    if (needLink) {
+      let dismissed = new Set();
+      try { dismissed = new Set(JSON.parse(v.dismissed_refs || '[]')); } catch (_) { /* 當冇 */ }
+      if (dismissed.size) {
+        const pool = (v.deal_type !== 'R' && _matchUnitsLoaded[v.estate_id]?.has(_normMatchUnit(v.unit)))
+          ? (window._matchListingsByEstate || {})[v.estate_id] : null;
+        if (pool) {
+          const save = allListings; allListings = pool;
+          try { needLink = findMatchingListings(v).some(l => !dismissed.has(l.ref_no)); } finally { allListings = save; }
+        } else needLink = false;
+      }
+    }
     if (missing.length || needLink) out.push({ v, missing, needLink });
   }
   // 最近睇嘅排先（記憶仲新，跟進最容易）
@@ -6692,6 +6706,7 @@ async function dismissViewingListing(viewingId, refNo, reverse = false) {
   api(`/api/viewings/${viewingId}`, { method: 'PATCH', body: JSON.stringify({ dismissed_refs: v.dismissed_refs }) }).catch(() => {});
   const cell = document.getElementById(`vmatch-${viewingId}`);
   if (cell) cell.innerHTML = _matchCellFor(v);
+  renderViewingTodo();   // 全部 ✕ 咗就唔再出喺「待跟進」
 }
 
 // Toggle：撳未揀嘅 → 加入（同一 source 其他選項會變暗）；撳已揀嘅 → 移除。
