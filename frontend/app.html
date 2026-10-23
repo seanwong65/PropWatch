@@ -1108,17 +1108,19 @@
     .rstar-h { position: absolute; top: 0; bottom: 0; width: 50%; z-index: 2; cursor: pointer; }
     .rstar-l { left: 0; } .rstar-r { right: 0; }
     .rstar-row { display: flex; align-items: center; gap: 0.5rem; padding: 0.25rem 0; }
-    /* 手機／觸控：星星放大、撳一粒星＝整分（唔再分左右半邊，太細撳唔中）；半分改為「再撳一次」，見 setVfRating */
-    .vf-rate-hint { display: none; font-size: 0.74rem; color: var(--muted); margin: -0.1rem 0 0.35rem; }
-    @media (pointer: coarse), (max-width: 520px) {
-      #vf-ratings .rstar { width: 2.3rem; height: 2.3rem; line-height: 2.3rem; font-size: 2.1rem; }
-      #vf-ratings .rstar-l { display: none; }
-      #vf-ratings .rstar-r { width: 100%; }
-      #vf-ratings .rstar-row { padding: 0.35rem 0; gap: 0.3rem; flex-wrap: wrap; }
-      #vf-ratings .rstar-name { flex: 1 1 100%; font-size: 0.9rem; }
-      #vf-ratings .rstar-val { margin-left: auto; }
-      .vf-rate-hint { display: block; }
-    }
+    /* 手機／觸控：星星太細、半粒更加撳唔中 → 改為「數字分數」下拉揀（0.5–5.0，同原本 0.5 分一級完全一樣，
+       數據唔使轉），旁邊嘅星星純顯示。桌面（滑鼠）照舊撳星。 */
+    .rnum-sel { font-size: 1rem; padding: 0.35rem 0.5rem; border-radius: 10px; border: 1px solid var(--border);
+                background: var(--surface2); color: var(--text); min-width: 4.6rem; flex-shrink: 0; }
+    .rnum-stars .rstar { width: 1.15rem; height: 1.2rem; line-height: 1.2rem; font-size: 1.05rem; }
+    .rnum-stars { white-space: nowrap; }
+    #vf-ratings .rnum-row { flex-wrap: wrap; row-gap: 0.25rem; padding: 0.4rem 0; }
+    #vf-ratings .rnum-row .rstar-name { flex: 1 1 auto; font-size: 0.9rem; }
+    .rnum-ctl { display: flex; align-items: center; gap: 0.35rem; flex: 1 1 100%; justify-content: flex-end; }
+    .rnum-step { width: 2.5rem; height: 2.5rem; border-radius: 50%; border: 1px solid var(--border); background: var(--surface2);
+                 color: var(--text); font-size: 1.3rem; line-height: 1; cursor: pointer; padding: 0; flex-shrink: 0; }
+    .rnum-step:active { background: var(--accent); color: #fff; }
+    .rnum-sel { text-align: center; height: 2.5rem; min-width: 5rem; }
     .rstar-name { font-size: 0.85rem; color: var(--text); flex: 1; min-width: 0; }
     .rstar-val { font-size: 0.78rem; color: var(--muted); width: 2.6rem; text-align: right; flex-shrink: 0; }
     .viewing-photos-btn {
@@ -2339,7 +2341,6 @@
         <span>睇樓評分</span>
         <span onclick="openRatingCritEditor()" style="font-size:0.75rem;color:var(--accent2);cursor:pointer;font-weight:400">✏️ 編輯選項</span>
       </label>
-      <div class="vf-rate-hint">撳星＝整分；再撳同一粒星＝半分；再撳＝清除（NA）</div>
       <div id="vf-ratings" style="margin-bottom:0.7rem"></div>
 
       <label class="vf-label" style="display:flex;align-items:center;justify-content:space-between;gap:0.5rem">
@@ -6517,17 +6518,28 @@ function starsHtml(score, critId) {
 }
 
 // 桌面：撳半邊＝x.5／整粒；撳返同一個分數 = 取消評分（變返 NA），唔使另外一個清除掣。
-// 觸控：星星只有整粒 click target（val＝整數），一撳整分、再撳同一粒＝半分、再撳＝清除。
+// 手機／觸控：改用下拉揀數字分數（setVfScore），星星淨係顯示。
 const _coarseUI = () => window.matchMedia('(pointer: coarse), (max-width: 520px)').matches;
 function setVfRating(critId, val) {
-  const cur = _vfRatings[critId];
-  if (_coarseUI()) {
-    const whole = Math.ceil(val);
-    if (cur === whole) _vfRatings[critId] = whole - 0.5;
-    else if (cur === whole - 0.5) delete _vfRatings[critId];
-    else _vfRatings[critId] = whole;
-  } else if (cur === val) delete _vfRatings[critId];
+  if (_vfRatings[critId] === val) delete _vfRatings[critId];
   else _vfRatings[critId] = val;
+  renderVfRatings();
+}
+// ＋／－：每次 0.5 分。由 NA 撳＋／－都由 3.0 開始（中間位，去高去低都近）；減到 0.5 再減＝清除（NA）
+function stepVfScore(critId, d) {
+  const cur = _vfRatings[critId];
+  if (cur == null) _vfRatings[critId] = 3;
+  else {
+    const n = Math.round((cur + d) * 2) / 2;
+    if (n < 0.5) delete _vfRatings[critId];
+    else _vfRatings[critId] = Math.min(5, n);
+  }
+  renderVfRatings();
+}
+function setVfScore(critId, v) {
+  const n = Number(v);
+  if (!v || !(n >= 0.5 && n <= 5)) delete _vfRatings[critId];
+  else _vfRatings[critId] = Math.round(n * 2) / 2;
   renderVfRatings();
 }
 
@@ -6539,8 +6551,24 @@ function renderVfRatings() {
     return;
   }
   const avg = ratingAvg(_vfRatings);
+  const coarse = _coarseUI();
+  const scoreOpts = [5, 4.5, 4, 3.5, 3, 2.5, 2, 1.5, 1, 0.5];
   box.innerHTML = _ratingCriteria.map(c => {
     const s = _vfRatings[c.id];
+    if (coarse) {
+      const cid = Number(c.id);
+      return `<div class="rstar-row rnum-row">
+      <span class="rstar-name">${escHtml(c.value)}</span>
+      <span class="rnum-stars">${starsHtml(s)}</span>
+      <div class="rnum-ctl">
+        <button type="button" class="rnum-step" aria-label="減 0.5 分" onclick="stepVfScore(${cid}, -0.5)">−</button>
+        <select class="rnum-sel" aria-label="${escHtml(c.value)}評分" onchange="setVfScore(${cid}, this.value)">
+          <option value="">NA</option>${scoreOpts.map(v => `<option value="${v}"${s === v ? ' selected' : ''}>${v.toFixed(1)}</option>`).join('')}
+        </select>
+        <button type="button" class="rnum-step" aria-label="加 0.5 分" onclick="stepVfScore(${cid}, 0.5)">＋</button>
+      </div>
+    </div>`;
+    }
     return `<div class="rstar-row">
       <span class="rstar-name">${escHtml(c.value)}</span>
       <span>${starsHtml(s, c.id)}</span>
