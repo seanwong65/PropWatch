@@ -958,32 +958,25 @@
       background: var(--brand); color: var(--brand-ink); border-radius: 999px;
       font-size: 0.65rem; font-weight: 700; padding: 0.1rem 0.5rem; white-space: nowrap;
     }
-    /* 免費 vs 收費對比（升級 modal）：兩張計劃卡，✓ 綠／✗ 紅，收費卡加邊框＋徽章 */
-    .cmp-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-top: 0.6rem; align-items: stretch; }
-    @media (max-width: 640px) { .cmp-grid { grid-template-columns: 1fr; } .cmp-paid { order: -1; } }
-    .cmp-col { position: relative; display: flex; flex-direction: column; border: 1px solid var(--border); border-radius: 16px; padding: 1.1rem 1rem 1rem; background: var(--surface2); }
-    .cmp-paid { border: 2px solid var(--brand); background: var(--glass-bg); }
-    .cmp-badge { position: absolute; top: -0.65rem; left: 50%; transform: translateX(-50%); background: var(--brand); color: var(--brand-ink, #fff);
-                 border-radius: 999px; font-size: 0.7rem; font-weight: 700; padding: 0.15rem 0.7rem; white-space: nowrap; }
-    .cmp-badge.soft { background: var(--border); color: var(--muted); }
-    .cmp-name { font-size: 1.2rem; font-weight: 800; }
-    .cmp-tag { font-size: 0.8rem; color: var(--muted); margin: 0.2rem 0 0.7rem; min-height: 2.2em; line-height: 1.45; }
-    .cmp-price { font-size: 2rem; font-weight: 800; line-height: 1.1; }
-    .cmp-price small { font-size: 0.9rem; font-weight: 600; color: var(--muted); }
-    .cmp-save { display: inline-block; margin-left: 0.4rem; background: #15803d; color: #fff; border-radius: 6px; font-size: 0.72rem; font-weight: 700; padding: 0.1rem 0.45rem; vertical-align: middle; }
-    .cmp-sub { font-size: 0.76rem; color: var(--muted); margin: 0.25rem 0 0.7rem; min-height: 1.2em; }
-    .cmp-iv { display: flex; gap: 0.4rem; margin-bottom: 0.7rem; }
-    .cmp-iv button { flex: 1; font-family: inherit; font-size: 0.8rem; padding: 0.4rem 0.3rem; border-radius: 10px; border: 1px solid var(--border); background: var(--surface2); color: var(--text); cursor: pointer; line-height: 1.35; }
+    /* 免費 vs 收費對比表（升級 modal）：左右兩欄對比，收費欄淡藍底＋藍框 */
+    .cmp-table { width: 100%; border-collapse: separate; border-spacing: 0; margin-top: 0.6rem; font-size: 0.9rem; }
+    .cmp-table th { padding: 0.55rem 0.4rem; font-size: 0.95rem; font-weight: 800; text-align: center; vertical-align: bottom; }
+    .cmp-table th:first-child { text-align: left; }
+    .cmp-table th small { display: block; font-size: 0.7rem; font-weight: 400; color: var(--muted); }
+    .cmp-table td { padding: 0.5rem 0.4rem; border-top: 1px solid var(--border); text-align: center; }
+    .cmp-table td:first-child { text-align: left; }
+    .cmp-table .pc { background: var(--brand-soft); border-left: 2px solid var(--brand); border-right: 2px solid var(--brand); width: 5.2rem; }
+    .cmp-table th.pc { border-top: 2px solid var(--brand); border-radius: 12px 12px 0 0; color: var(--brand); }
+    .cmp-table tr:last-child td.pc { border-bottom: 2px solid var(--brand); border-radius: 0 0 12px 12px; }
+    .cmp-table .fc { width: 5.2rem; }
+    .cmp-table .ok { color: #15803d; font-weight: 800; font-size: 1.05rem; } .cmp-table .no { color: #cf2020; font-weight: 800; font-size: 1.05rem; }
+    .cmp-table .nt { font-size: 0.8rem; color: var(--text); }
+    .cmp-buy { margin-top: 1rem; }
+    .cmp-iv { display: flex; gap: 0.5rem; margin-bottom: 0.7rem; }
+    .cmp-iv button { flex: 1; font-family: inherit; font-size: 0.86rem; padding: 0.5rem 0.3rem; border-radius: 10px; border: 1px solid var(--border); background: var(--surface2); color: var(--text); cursor: pointer; line-height: 1.35; }
     .cmp-iv button.active { border-color: var(--brand); background: var(--brand-soft); font-weight: 700; }
-    .cmp-iv button small { display: block; font-size: 0.68rem; font-weight: 400; color: var(--muted); }
-    .cmp-cta { width: 100%; font-family: inherit; font-size: 0.98rem; font-weight: 700; padding: 0.7rem; border-radius: 10px; border: 1px solid var(--brand); cursor: pointer; background: var(--brand); color: var(--brand-ink, #fff); }
-    .cmp-cta.ghost { background: transparent; color: var(--brand); cursor: default; }
-    .cmp-list { list-style: none; margin: 1rem 0 0; padding: 0; font-size: 0.86rem; }
-    .cmp-list li { display: flex; gap: 0.5rem; padding: 0.32rem 0; line-height: 1.45; align-items: flex-start; }
-    .cmp-list .ck { flex: 0 0 1.1rem; font-weight: 800; }
-    .cmp-list .ok { color: #15803d; } .cmp-list .no { color: #cf2020; }
-    .cmp-list li.off span:last-child { color: var(--muted); }
-    .cmp-list li u { text-decoration: none; color: var(--muted); font-size: 0.78rem; }
+    .cmp-iv button small { display: block; font-size: 0.7rem; font-weight: 400; color: var(--muted); }
+    .cmp-cta { width: 100%; font-family: inherit; font-size: 1rem; font-weight: 700; padding: 0.75rem; border-radius: 10px; border: 1px solid var(--brand); cursor: pointer; background: var(--brand); color: var(--brand-ink, #fff); }
     /* Viewings tab */
     .viewings-list { padding: 0.75rem 0; }
     .viewing-date-group { margin-bottom: 0.75rem; }
@@ -2099,7 +2092,7 @@
 </div>
 
 <div class="modal-overlay" id="upgradeModalOverlay" style="display:none;z-index:650" onclick="if(event.target===this)closeUpgrade()">
-  <div class="modal" style="max-width:760px;max-height:92vh;overflow-y:auto">
+  <div class="modal" style="max-width:520px;max-height:92vh;overflow-y:auto">
     <button class="modal-close" onclick="closeUpgrade()">✕</button>
     <div class="modal-title">⭐ 升級收費版</div>
     <div id="upgradeBody"></div>
@@ -2603,120 +2596,50 @@ let _freeMaxEstates = 3;
 let _maxViewingImgs = null;   // null = 無限（收費版）；免費版由 /api/config 帶返實際上限
 const isPaid = () => _tier === 'paid';
 
-// 免費／收費對比表：[功能, 免費, 收費]。true／false＝✓／✗；字串＝✓ 並附註（{n} 換成免費版屋苑上限）。
+// 免費／收費對比表：[功能, 免費, 收費]。true／false＝✓／✗；字串＝直接顯示（{n}＝免費版屋苑上限）。
 // 分界線同 server 端 gate 一致（見 project_propwatch_tiers）：今日 snapshot＋成交＋睇樓記錄免費，時間軸／推送／分析收費。
 const COMPARE_FEATURES = [
-  ['四網放盤搜尋（買盤＋租盤）', true, true],
-  ['放盤列表＋篩選、成交記錄、市場溫度', true, true],
-  ['睇樓記錄（評分、相片、備註）', true, true],
-  ['追蹤屋苑', '{n} 個', '更多屋苑'],
-  ['放盤時間軸：放盤日數、改價次數、原價、幾時下架', false, true],
-  ['呎價走勢圖：叫價／成交走勢＋大市對照', false, true],
+  ['四網放盤搜尋', true, true],
+  ['放盤列表、成交記錄', true, true],
+  ['睇樓記錄', true, true],
+  ['追蹤屋苑', '{n} 個', '更多'],
+  ['放盤時間軸（日數、改價、下架）', false, true],
+  ['呎價走勢圖', false, true],
   ['心儀樓盤改價記錄', false, true],
-  ['每日 email、每週摘要＋Telegram 減價提示', false, true],
-  ['抵買雷達、相對市價分層、批量估值', false, true],
-  ['「朋友屋企」資產監察', false, true],
-  ['睇樓對應放盤相片自動存檔', false, true],
+  ['Email＋Telegram 推送', false, true],
+  ['抵買雷達、估值', false, true],
+  ['朋友屋企監察', false, true],
 ];
-
-// 免費版喺睇樓記錄卡直接顯示嘅示範（取代原本一粒鎖頭掣）：同真正「價格尺」（priceRulerHtml）
-// 一樣嘅 class 同版面，但數字全部寫死、同用戶任何數據無關，並且用大字 watermark
-// 標明係示範，免得誤會成佢自己嘅單位。
-function priceRulerSampleHtml() {
-  const lo = 14400, span = 3300;                       // 示範尺 $14.4k – $17.7k
-  const P = x => ((x - lo) / span);
-  const AT  = p => `calc(32px + (100% - 32px) * ${p.toFixed(4)})`;
-  const WID = w => `calc((100% - 32px) * ${w.toFixed(4)})`;
-  const band = (cls, a, m, b) => `<div class="pr-band pr-${cls}" style="left:${AT(P(a))};width:${WID(P(b) - P(a))}"></div>
-      <div class="pr-mid pr-${cls}" style="left:${AT(P(m))}"></div>`;
-  const ruler = `<div class="pr-ruler" style="width:100%;max-width:300px"><div class="pr-zone">
-      <div class="pr-row"><span class="pr-lbl">成交</span><div class="pr-track"></div>${band('sold', 15406, 16035, 16634)}</div>
-      <div class="pr-row"><span class="pr-lbl">在售</span><div class="pr-track"></div>${band('ask', 14827, 16293, 17408)}</div>
-      <div class="pr-needle pr-hs" style="left:${AT(P(15200))}"></div>
-      <div class="pr-needle pr-you" style="left:${AT(P(15400))}"></div>
-      <div class="pr-cap pr-hs" style="left:${AT(0.12)}">估值<span class="v">$15.2k</span></div>
-      <div class="pr-cap pr-you" style="left:${AT(0.42)}">叫價<span class="v">$15.4k</span></div>
-      <div class="pr-axis"><span>$14.4k</span><span>$17.7k</span></div>
-    </div></div>`;
-  const info = `<div class="pr-info" style="border-left:none;padding-left:0;border-top:1px solid var(--border);padding-top:0.5rem">
-      <div style="white-space:nowrap"><span class="vw-kw vw-kw-sold" style="font-weight:600">成交</span> $15,406–$16,634 · 中位 <b>$16,035</b> · 6宗</div>
-      <div style="margin-top:0.3rem;white-space:nowrap"><span class="vw-kw vw-kw-you" style="font-weight:600">叫價</span> $14,827–$17,408 · 中位 <b>$16,293</b> · 23個</div>
-      <div class="vw-verdict" style="background:rgba(52,211,153,0.14);border-left:3px solid var(--up)">
-        <span style="font-size:0.68rem;color:var(--muted);font-weight:600;display:block;margin-bottom:0.1rem">📊 分析</span>
-        <div><span class="gain-pos" style="font-size:0.88rem;font-weight:700">低<span class="vw-kw vw-kw-sold">成交</span>中位數 3.5%</span></div>
-        <div style="margin-top:0.15rem"><span class="gain-pos" style="font-size:0.88rem;font-weight:700">低<span class="vw-kw vw-kw-you">叫價</span>中位數 5.0%</span></div>
-      </div>
-    </div>`;
-  return `<div onclick="showUpgrade('相對市價／類近在售')" role="button" tabindex="0" style="position:relative;border:2px dashed var(--brand);border-radius:var(--radius-lg, 10px);padding:0.7rem 0.8rem 0.8rem;margin-bottom:0.9rem;overflow:hidden;cursor:pointer">
-    <div style="display:flex;align-items:center;gap:0.5rem;margin-bottom:0.5rem">
-      <span style="background:var(--brand);color:#fff;font-weight:800;font-size:0.95rem;letter-spacing:0.12em;padding:0.1rem 0.6rem;border-radius:4px">SAMPLE 示範</span>
-      <span style="font-size:0.74rem;color:var(--muted)">示範數據，唔係你嘅單位</span>
-    </div>
-    <div style="opacity:0.92">
-      <div style="font-size:0.78rem;font-weight:700;margin-bottom:0.4rem">價格尺：一眼睇你嘅叫價貴定平</div>
-      <div class="pr-flex" style="flex-direction:column;gap:0.6rem">${ruler}${info}</div>
-    </div>
-    <div aria-hidden="true" style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;pointer-events:none;
-      font-size:3.4rem;font-weight:900;letter-spacing:0.2em;color:var(--brand);opacity:0.16;transform:rotate(-12deg);white-space:nowrap">SAMPLE</div>
-    <button type="button" style="margin-top:0.7rem;background:var(--brand);color:#fff;border:none;border-radius:999px;font-weight:700;font-size:0.88rem;padding:0.4rem 0.95rem;cursor:pointer">⭐ 升級收費版，睇你自己單位嘅價格尺</button>
-  </div>`;
-}
-
 let _cmpIv = 'year';
-function cmpPick(iv) { _cmpIv = iv; const el = document.getElementById('cmpPaidBox'); if (el) el.innerHTML = cmpPaidInner(); }
-function cmpList(col) {   // col: 1＝免費, 2＝收費
-  return COMPARE_FEATURES.map(f => {
-    const v = f[col];
-    const on = v !== false;
-    const note = typeof v === 'string' ? ` <u>· ${escHtml(v.replace('{n}', _freeMaxEstates))}</u>` : '';
-    return `<li class="${on ? '' : 'off'}"><span class="ck ${on ? 'ok' : 'no'}">${on ? '✓' : '✗'}</span><span>${escHtml(f[0])}${note}</span></li>`;
-  }).join('');
+function cmpPick(iv) { _cmpIv = iv; const el = document.getElementById('cmpBuy'); if (el) el.innerHTML = cmpBuyInner(); }
+function cmpCell(v) {
+  if (typeof v === 'string') return `<span class="nt">${escHtml(v.replace('{n}', _freeMaxEstates))}</span>`;
+  return v ? '<span class="ok">✓</span>' : '<span class="no">✗</span>';
 }
-// 收費卡入面會變嘅部分（年／月切換）：價錢載到先出，未載到顯示「載入緊價錢…」
-function cmpPaidInner() {
+// 價錢＋升級掣（年／月切換）：價錢載到先出
+function cmpBuyInner() {
   const plans = _billing?.plans || {};
-  if (!plans.month && !plans.year) return `<div class="cmp-price" style="font-size:1rem;color:var(--muted)">載入緊價錢…</div>`;
+  if (!plans.month && !plans.year) return `<div style="text-align:center;color:var(--muted);font-size:0.85rem">載入緊價錢…</div>`;
   if (!plans[_cmpIv]) _cmpIv = plans.year ? 'year' : 'month';
   const saving = (plans.month && plans.year) ? Math.round((1 - plans.year.amount_cents / (plans.month.amount_cents * 12)) * 100) : 0;
-  const perMonth = _cmpIv === 'year' ? Math.round(plans.year.amount_cents / 12) : plans.month.amount_cents;
   const ivBtn = (iv, label, sub) => plans[iv] ? `<button type="button" class="${_cmpIv === iv ? 'active' : ''}" onclick="cmpPick('${iv}')">${label} ${money(plans[iv].amount_cents)}<small>${sub}</small></button>` : '';
   return `
-    ${plans.month && plans.year ? `<div class="cmp-iv">${ivBtn('year', '年費', saving > 0 ? `平 ${saving}%` : '一年')}${ivBtn('month', '月費', '隨時取消')}</div>` : ''}
-    <div class="cmp-price">${money(perMonth)}<small> /月</small>${_cmpIv === 'year' && saving > 0 ? `<span class="cmp-save">平 ${saving}%</span>` : ''}</div>
-    <div class="cmp-sub">${_cmpIv === 'year' ? `按年收費 ${money(plans.year.amount_cents)}` : '按月收費，隨時取消'}</div>
+    ${plans.month && plans.year ? `<div class="cmp-iv">${ivBtn('year', '年費', saving > 0 ? `平 ${saving}%・約 ${money(Math.round(plans.year.amount_cents / 12))}/月` : '一年')}${ivBtn('month', '月費', '隨時取消')}</div>` : ''}
     <button type="button" class="cmp-cta" onclick="startCheckout(_cmpIv)">升級收費版</button>`;
 }
 function showUpgrade(feature, msg) {
   document.getElementById('upgradeBody').innerHTML = `
-    ${msg ? `<div style="background:rgba(245,158,11,0.12);border:1px solid var(--accent);border-radius:6px;padding:0.55rem 0.7rem;font-size:0.85rem;margin-bottom:0.6rem">${escHtml(msg)}</div>` : ''}
-    <div style="color:var(--muted);font-size:0.84rem">
-      ${/* 前端 lock UI 傳靚 label 且冇 msg；後端 402 傳內部 key + msg，嗰陣個 banner 已經講咗，唔好再出個 key 出嚟。*/ ''}
-      ${(feature && !msg) ? `想用「${escHtml(feature)}」？` : ''}免費版睇到今日有咩盤賣；收費版加埋歷史、推送同分析工具。
-    </div>
-    <div class="cmp-grid">
-      <div class="cmp-col">
-        <span class="cmp-badge soft">你而家用緊</span>
-        <div class="cmp-name">免費版</div>
-        <div class="cmp-tag">睇今日有咩盤賣，開始記錄你嘅睇樓</div>
-        <div class="cmp-price">HK$0<small> /永久</small></div>
-        <div class="cmp-sub">唔使信用卡</div>
-        <button type="button" class="cmp-cta ghost" disabled>目前方案</button>
-        <ul class="cmp-list">${cmpList(1)}</ul>
-      </div>
-      <div class="cmp-col cmp-paid">
-        <span class="cmp-badge">推薦</span>
-        <div class="cmp-name">收費版</div>
-        <div class="cmp-tag">睇到每個盤嘅歷史，有變動主動通知你</div>
-        <div id="cmpPaidBox">${cmpPaidInner()}</div>
-        <ul class="cmp-list">${cmpList(2)}</ul>
-      </div>
-    </div>
-    <div style="margin-top:0.9rem;color:var(--muted);font-size:0.74rem;text-align:center">
-      Stripe 安全付款・隨時自己喺「管理訂閱」取消
-    </div>`;
+    ${msg ? `<div style="background:rgba(245,158,11,0.12);border:1px solid var(--accent);border-radius:6px;padding:0.55rem 0.7rem;font-size:0.85rem;margin-bottom:0.4rem">${escHtml(msg)}</div>` : ''}
+    ${(feature && !msg) ? `<div style="color:var(--muted);font-size:0.84rem">「${escHtml(feature)}」係收費版功能。</div>` : ''}
+    <table class="cmp-table">
+      <thead><tr><th></th><th class="fc">免費版<small>HK$0</small></th><th class="pc">收費版<small>推薦</small></th></tr></thead>
+      <tbody>${COMPARE_FEATURES.map(f => `<tr><td>${escHtml(f[0])}</td><td class="fc">${cmpCell(f[1])}</td><td class="pc">${cmpCell(f[2])}</td></tr>`).join('')}</tbody>
+    </table>
+    <div class="cmp-buy" id="cmpBuy">${cmpBuyInner()}</div>
+    <div style="margin-top:0.7rem;color:var(--muted);font-size:0.72rem;text-align:center">Stripe 安全付款・隨時取消</div>`;
   document.getElementById('upgradeModalOverlay').style.display = 'flex';
   // 價錢可能仲未載到（未 call 過 /api/billing）——攞完再 render 一次
-  if (!_billing) loadBilling().then(() => { const el = document.getElementById('cmpPaidBox'); if (el) el.innerHTML = cmpPaidInner(); });
+  if (!_billing) loadBilling().then(() => { const el = document.getElementById('cmpBuy'); if (el) el.innerHTML = cmpBuyInner(); });
 }
 function closeUpgrade() { document.getElementById('upgradeModalOverlay').style.display = 'none'; }
 
