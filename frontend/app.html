@@ -4749,6 +4749,36 @@ function renderBillingSummary() {
       : `<div style="color:var(--muted);font-size:0.78rem;margin-top:0.4rem">由管理員直接開通，冇付款記錄</div>`}`;
 }
 
+// 側邊欄屋苑卡片嘅重點數字（後端 estate_stats，每日預先計好；免費版只收到在售數／叫價呎價／成交數）
+function estateCardMeta(e) {
+  const st = e.stats;
+  const dist = e.district ? escHtml(e.district) : '';
+  if (!st || !st.n) {   // 未有統計（新屋苑／未算）：用返舊版一行
+    return `<div class="estate-card-meta">${dist ? dist + '．' : ''}${e.today_count ?? 0}個盤．最近3個月${e.txn_3m_count ?? 0}宗成交</div>`;
+  }
+  const num = (x) => Number(x) || 0;
+  const arrow = (a, b, goodDown) => {
+    if (!a || !b) return '';
+    const v = (a / b - 1) * 100;
+    if (Math.abs(v) < 0.05) return '';
+    const bad = goodDown ? v > 0 : v < 0;
+    return ` <span style="color:var(--${bad ? 'down' : 'up'});font-weight:700">${v > 0 ? '▲' : '▼'}${Math.abs(v).toFixed(1)}%</span>`;
+  };
+  const stale = st.as_of && (Date.now() - Date.parse(st.as_of)) > 3 * 86400000;   // 輪流 sync 嘅屋苑可能隔幾日先更新
+  const lines = [];
+  lines.push(`${dist ? dist + '．' : ''}<b>${num(st.n)}</b>個盤${st.psf ? `．$${num(st.psf).toLocaleString()}/呎${arrow(st.psf, st.psf_prev, true)}` : ''}`);
+  if (isPaid()) {
+    if (st.new == null) lines.push('<span title="需要多一個星期嘅數據先比較到">週變動：數據累積中</span>');
+    else {
+      const span = st.span_days > 9 ? `近${num(st.span_days)}日` : '本週';
+      lines.push(`${span}：新盤 <b>${num(st.new)}</b>．減價 <b style="color:var(--up)">${num(st.cuts)}</b>．下架 <b>${num(st.removed)}</b>`);
+    }
+  }
+  const gap = isPaid() && st.gap != null ? `．叫價${st.gap >= 0 ? '高' : '低'}過成交 ${Math.abs(st.gap).toFixed(1)}%` : '';
+  lines.push(`近3個月 <b>${num(e.txn_3m_count ?? st.tx_n)}</b> 宗成交${gap}`);
+  return `<div class="estate-card-meta" style="line-height:1.55">${lines.map(l => `<div>${l}</div>`).join('')}${stale ? `<div style="opacity:0.7">資料更新至 ${escHtml(st.as_of.slice(5))}</div>` : ''}</div>`;
+}
+
 async function loadEstates() {
   const list = document.getElementById("estateList");
   // /api/config 帶住 tier（free／paid）。同 /api/estates 一齊飛，但畫主頁前一定要等到——
@@ -4787,9 +4817,7 @@ async function loadEstates() {
                 onclick="toggleFavourite(event,${e.id})" title="標記最愛">★</button>
         <button class="estate-card-delete" onclick="deleteEstate(event,${e.id})">✕</button>
         <div class="estate-card-name">${escHtml(e.name)}</div>
-        <div class="estate-card-meta">
-          ${e.district ? escHtml(e.district) + '．' : ''}${e.today_count ?? 0}個盤．最近3個月${e.txn_3m_count ?? 0}宗成交
-        </div>
+        ${estateCardMeta(e)}
       </div>
     `).join('');
     // 有暫停咗嘅就喺列表頂解釋一次，唔好淨係得個 badge 冇下文
