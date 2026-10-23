@@ -256,7 +256,13 @@
       box-shadow: var(--glass-inner), var(--shadow); padding: 1.9rem 2rem 1.7rem; margin: 0.5rem 0 1.2rem;
     }
     .ld-search-h { font-size: 1.4rem; font-weight: 800; margin: 0 0 0.35rem; }
-    .ld-search-sub { margin: 0 0 1.2rem; color: var(--muted); font-size: 0.95rem; }
+    .ld-search-sub { margin: 0 0 0.8rem; color: var(--muted); font-size: 0.95rem; }
+    /* 賣點：我哋唔係地產經紀（唔推銷、唔收佣）——首頁最頂就要見到 */
+    .ld-notagent { display: flex; flex-wrap: wrap; align-items: center; gap: 0.25rem 0.55rem; margin: 0 0 1.2rem; padding: 0.5rem 0.9rem;
+                   background: rgba(21,128,61,0.09); border: 1px solid rgba(21,128,61,0.28); border-radius: 12px; font-size: 0.88rem; line-height: 1.55; color: var(--text); }
+    .ld-notagent b { color: #15803d; }
+    .ld-notagent .nw { white-space: nowrap; }
+    .ld-notagent .nw + .nw { color: var(--muted); }
     .ld-search-form { display: grid; grid-template-columns: auto minmax(0, 1fr) minmax(0, 8.5rem) minmax(0, 8.5rem) auto; gap: 0.75rem; align-items: center; }
     .ld-seg { display: inline-flex; background: var(--surface2); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 3px; }
     .ld-seg label { position: relative; }
@@ -296,6 +302,7 @@
     <section class="ld-search" aria-labelledby="ld-search-h">
       <h2 class="ld-search-h" id="ld-search-h">🔍 一次過搵晒四大地產網</h2>
       <p class="ld-search-sub">中原、美聯、香港置業、利嘉閣嘅放盤，一個搜尋睇晒。免登入。</p>
+      <div class="ld-notagent"><span class="nw">🛡️ <b>我哋唔係地產經紀</b></span><span class="nw">✓ 唔推銷樓盤</span><span class="nw">✓ 唔收佣</span><span class="nw">✓ 唔會搵你電話</span></div>
       <form class="ld-search-form" action="/search" method="get" role="search">
         <div class="ld-seg" role="radiogroup" aria-label="買盤定租盤">
           <label><input type="radio" name="deal" value="S" checked><span>買盤</span></label>
@@ -487,6 +494,11 @@
       <tr><td>貴定平</td><td><b class="ld-tick">✓</b> 自動對比成交中位數</td><td>自己揭成交</td></tr>
       <tr><td>你嘅電話</td><td><b class="ld-tick">✓</b> 唔會攞，亦冇經紀</td><td>留低等經紀跟進</td></tr>
     </table></div>
+
+    <div class="ld-trust-section">
+      <h2 class="ld-h2">我哋唔係地產經紀</h2>
+      <p>搵樓日記係買家自己用嘅搵樓工具：<b>唔收佣、唔促成交易、唔會推銷任何樓盤</b>，亦唔會將你嘅資料交俾經紀或者第三方。正因為我哋同成交冇利益關係，先可以老實話你知——邊個盤放咗好耐、減過幾多次價、邊個價錢貼近成交。</p>
+    </div>
 
     <div class="ld-trust-section">
       <h2 class="ld-h2">老實監察，唔扮即時</h2>
