@@ -4757,16 +4757,8 @@ function estateCardMeta(e) {
     return `<div class="estate-card-meta">${dist ? dist + '．' : ''}${e.today_count ?? 0}個盤．最近3個月${e.txn_3m_count ?? 0}宗成交</div>`;
   }
   const num = (x) => Number(x) || 0;
-  const arrow = (a, b, goodDown) => {
-    if (!a || !b) return '';
-    const v = (a / b - 1) * 100;
-    if (Math.abs(v) < 0.05) return '';
-    const bad = goodDown ? v > 0 : v < 0;
-    return ` <span style="color:var(--${bad ? 'down' : 'up'});font-weight:700">${v > 0 ? '▲' : '▼'}${Math.abs(v).toFixed(1)}%</span>`;
-  };
-  const stale = st.as_of && (Date.now() - Date.parse(st.as_of)) > 3 * 86400000;   // 輪流 sync 嘅屋苑可能隔幾日先更新
   const lines = [];
-  lines.push(`${dist ? dist + '．' : ''}<b>${num(st.n)}</b>個盤${st.psf ? `．$${num(st.psf).toLocaleString()}/呎${arrow(st.psf, st.psf_prev, true)}` : ''}`);
+  lines.push(`${dist ? dist + '．' : ''}<b>${num(st.n)}</b>個盤${st.psf ? `．$${num(st.psf).toLocaleString()}/呎` : ''}`);
   if (isPaid()) {
     if (st.new == null) lines.push('<span title="需要多一個星期嘅數據先比較到">週變動：數據累積中</span>');
     else {
@@ -4774,9 +4766,8 @@ function estateCardMeta(e) {
       lines.push(`${span}：新盤 <b>${num(st.new)}</b>．減價 <b style="color:var(--up)">${num(st.cuts)}</b>．下架 <b>${num(st.removed)}</b>`);
     }
   }
-  const gap = isPaid() && st.gap != null ? `．叫價${st.gap >= 0 ? '高' : '低'}過成交 ${Math.abs(st.gap).toFixed(1)}%` : '';
-  lines.push(`近3個月 <b>${num(e.txn_3m_count ?? st.tx_n)}</b> 宗成交${gap}`);
-  return `<div class="estate-card-meta" style="line-height:1.55">${lines.map(l => `<div>${l}</div>`).join('')}${stale ? `<div style="opacity:0.7">資料更新至 ${escHtml(st.as_of.slice(5))}</div>` : ''}</div>`;
+  lines.push(`近3個月 <b>${num(e.txn_3m_count ?? st.tx_n)}</b> 宗成交`);
+  return `<div class="estate-card-meta" style="line-height:1.55">${lines.map(l => `<div>${l}</div>`).join('')}</div>`;
 }
 
 async function loadEstates() {
