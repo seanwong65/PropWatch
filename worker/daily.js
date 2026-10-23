@@ -56,13 +56,14 @@ export const dailySubject = (h, nPicks) => {
   return parts.length ? `搵樓日記通知：${parts.join("・")}` : "搵樓日記通知：今日無更新";
 };
 
-export function renderDailyHtml(h, picks, { appUrl, unsubUrl, iconUrl, name = {}, prefLabel = "" }) {
+// srcName：source id → 網站名（中原／美聯／香港置業／利嘉閣），由 index.js 用 SOURCES registry 傳入
+export function renderDailyHtml(h, picks, { appUrl, unsubUrl, iconUrl, name = {}, prefLabel = "", srcName = () => "原網站" }) {
   const watched = [];
   for (const c of h.linkedPriceChanges || []) {
     const ch = pctChg(c.new_price, c.old_price);
     watched.push(row(`🏷️ ${lab(c.estate_name, c.building_name, c.floor, c.l_unit)}`,
       `${wan(c.old_price)} → <b>${wan(c.new_price)}</b> ${arrow(ch)}`,
-      `${esc(sizePsf(c.size_net, c.price_per_ft))}${c.view_price ? `・睇樓價 ${wan(c.view_price)}` : ""}${link(c.detail_url, "原網站")}`));
+      `${esc(sizePsf(c.size_net, c.price_per_ft))}${c.view_price ? `・睇樓價 ${wan(c.view_price)}` : ""}${link(c.detail_url, srcName(c.source))}`));
   }
   for (const c of h.linkedRemoved || []) {
     watched.push(row(`🚫 ${lab(c.estate_name, c.building_name, c.floor, c.l_unit)}`, '<span style="color:#cf2020;font-weight:700">已下架</span>',
@@ -105,7 +106,7 @@ export function renderDailyHtml(h, picks, { appUrl, unsubUrl, iconUrl, name = {}
       rows += head(`💰 售價變動 (${pc.length})`);
       for (const l of big.slice(0, DAILY_LIST_CAP)) {
         rows += row(lab(l.building_name, l.floor, l.unit), `${wan(l.old_price)} → <b>${wan(l.new_price)}</b> ${arrow(pctChg(l.new_price, l.old_price))}`,
-          `${esc(sizePsf(l.size_net, l.price_per_ft))}${link(l.detail_url, "原網站")}`);
+          `${esc(sizePsf(l.size_net, l.price_per_ft))}${link(l.detail_url, srcName(l.source))}`);
       }
       const hidden = pc.length - Math.min(big.length, DAILY_LIST_CAP);
       if (hidden > 0) rows += `<tr><td colspan="2" style="padding:6px 0;border-top:1px solid #edf2f8;color:#7a8ca0;font-size:12.5px">另有 ${hidden} 個細幅變價（${DAILY_MIN_MOVE_PCT}% 以下）</td></tr>`;
@@ -114,7 +115,7 @@ export function renderDailyHtml(h, picks, { appUrl, unsubUrl, iconUrl, name = {}
       rows += head(`🆕 新放盤 (${nl.length})`);
       for (const l of nl.slice(0, DAILY_LIST_CAP)) {
         rows += row(lab(l.building_name, l.floor, l.unit), `<b>${wan(l.price)}</b>`,
-          `${l.bedrooms ?? "-"}房・${esc(sizePsf(l.size_net, l.price_per_ft))}${link(l.detail_url, "原網站")}`);
+          `${l.bedrooms ?? "-"}房・${esc(sizePsf(l.size_net, l.price_per_ft))}${link(l.detail_url, srcName(l.source))}`);
       }
       rows += more(nl.length - DAILY_LIST_CAP);
     }

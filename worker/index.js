@@ -7178,7 +7178,8 @@ export default {
         const beds = /^\d$/.test(String(prefs?.beds ?? "")) ? prefs.beds : null;
         const prefLabel = `${beds || "不限"}房、${pmax ? `$${(pmax / 1e4).toFixed(0)}萬` : "不限"}以下`;
         const unsubUrl = `${WORKER_BASE}/api/unsubscribe?token=${await getUnsubToken(db, aid)}`;
-        const html = renderDailyHtml(highlights, picks, { appUrl: `${APP_BASE}/app`, unsubUrl, iconUrl: `${APP_BASE}/icons/icon-192.png`, name, prefLabel });
+        const html = renderDailyHtml(highlights, picks, { appUrl: `${APP_BASE}/app`, unsubUrl, iconUrl: `${APP_BASE}/icons/icon-192.png`, name, prefLabel,
+          srcName: (src) => SOURCES.find((x) => x.id === src)?.label || "中原" });
         const subject = dailySubject(highlights, picks.length);
         if (b.send_to_self) {
           const me = await db.prepare("SELECT email FROM accounts WHERE id = ?").bind(session.account_id).first();
