@@ -5035,6 +5035,30 @@ async function trackEstate(name, bigestcode, district, isBigest) {
   }
 }
 
+// ── 匿名群體訊號（後端 GET /api/estates/:id/crowd：只回彙總人數，達門檻先有）──
+let _crowd = { trackers: null, new_this_week: null, favs: {}, removed: {} };
+function crowdEstateChip() {
+  if (!_crowd.trackers) return '';
+  const wk = _crowd.new_this_week ? `（本週新增 ${Number(_crowd.new_this_week)} 人）` : '';
+  return ` · <span title="只顯示人數，唔會顯示邊個" style="color:var(--accent2)">👥 ${Number(_crowd.trackers)} 人追蹤${wk}</span>`;
+}
+// 一個盤（或合併盤嘅多個 ref）嘅群體標籤：N 人收藏、N 位用戶標記咗已下架
+function crowdTag(l) {
+  const refs = l._combined ? (l.sources || []).map(x => x.ref_no).filter(Boolean) : [l.ref_no].filter(Boolean);
+  const favs = Math.max(0, ...refs.map(r => Number(_crowd.favs?.[r]) || 0));
+  const rm = Math.max(0, ...refs.map(r => Number(_crowd.removed?.[r]) || 0));
+  const out = [];
+  if (favs) out.push(`<span style="color:var(--accent2)" title="只顯示人數">❤️ ${favs} 人收藏</span>`);
+  if (rm && !l.removed_date && !l.manual_removed_at) out.push(`<span style="color:var(--down)" title="其他用戶標記，未必準確；你可以自己覆核，或者撳「標記已下架」">⚠️ ${rm} 位用戶標記咗已下架</span>`);
+  return out.length ? `<div class="lc-meta" style="gap:0.5rem">${out.join('')}</div>` : '';
+}
+// 「⚑ 回報」：用意見回饋彈窗，預填盤資料同類別（數據有誤）
+function reportListing(refNo) {
+  const l = allListings.find(x => x.ref_no === refNo) || {};
+  const head = `【${_viewingEstateName || ''} ${l.building_name || ''} ${l.floor || ''} ${l.unit || ''}｜${sourceLabel(l.source)}｜${refNo}】`.replace(/\s+/g, ' ');
+  openFeedbackModal({ category: '數據有誤', text: head + '\n請講下個問題（例如：同另一個盤係同一個單位／價錢或面積唔啱／已經下架）：', ctx: `listing=${refNo} estate=${activeEstateId}` });
+}
+
 // ── Estate detail ──────────────────────────────────────────────
 async function showEstate(id, name, district) {
   const _est = (estatesById && estatesById[id]) || {};
@@ -5057,10 +5081,12 @@ async function showEstate(id, name, district) {
     // 用戶反映呢一格成日 load 得慢，仲要企喺「最新放盤」上面，等佢等到
     // 連睇盤都被拖累。而家最新放盤淨係等 listings／group-overrides 呢兩個
     // 輕嘢，趨勢圖／市場溫度留返俾用戶真係撳「樓盤分析」先攞（switchTab）。
-    const [{ listings }, overridesRes] = await Promise.all([
+    const [{ listings }, overridesRes, crowdRes] = await Promise.all([
       api(`/api/estates/${id}/listings`),
       api(`/api/estates/${id}/group-overrides`).catch(() => ({ overrides: [] })),
+      api(`/api/estates/${id}/crowd`).catch(() => null),   // 匿名群體訊號，攞唔到就當冇
     ]);
+    _crowd = crowdRes || { trackers: null, new_this_week: null, favs: {}, removed: {} };
     groupOverrides = {};
     for (const o of (overridesRes.overrides || [])) groupOverrides[o.ref_no] = o;
 
@@ -5114,7 +5140,7 @@ async function showEstate(id, name, district) {
       <div class="estate-header" style="display:flex;align-items:flex-start;justify-content:space-between">
         <div>
           <div class="estate-title">${escHtml(name)}</div>
-          <div class="estate-sub">${district ? escHtml(district) + ' · ' : ''}共 ${listings.length} 個在售單位</div>
+          <div class="estate-sub">${district ? escHtml(district) + ' · ' : ''}共 ${listings.length} 個在售單位${crowdEstateChip()}</div>
           <div id="estate-info-bar"></div>
         </div>
         <button class="sync-btn" style="background:var(--brand);border-color:var(--brand);color:var(--brand-ink);white-space:nowrap;flex-shrink:0;margin-top:0.2rem" onclick="openViewingModal()">＋ 新增睇樓</button>
@@ -7133,8 +7159,15 @@ function renderAbEvents() {
 let _fbCat = '功能建議';
 let _fbImgs = [];            // [{ blob, thumb }]；blob＝壓細咗嘅 JPEG，thumb＝data URL 縮圖（CSP img-src 淨係准 self／data:）
 const FB_MAX_IMGS = 3, FB_MAX_BYTES = 650 * 1024;   // 後端硬上限係 sec_feedback_img_max_kb（預設 700KB）；呢度壓到 650KB 以內
-function openFeedbackModal() {
+let _fbCtx = '';
+function openFeedbackModal(opt) {
   _fbImgs = []; fbRenderThumbs();
+  _fbCtx = (opt && opt.ctx) || '';
+  const cat = (opt && opt.category) || '功能建議';
+  _fbCat = cat;
+  document.querySelectorAll('#fb-cats .filter-chip').forEach(b => b.classList.toggle('active', b.dataset.cat === cat));
+  document.getElementById('fb-text').value = (opt && opt.text) || '';
+  fbCount();
   document.getElementById('fb-form').style.display = '';
   document.getElementById('fb-done').style.display = 'none';
   document.getElementById('fb-error').style.display = 'none';
@@ -7202,7 +7235,7 @@ async function submitFeedback() {
     // multipart（有相）：唔可以用 api()（佢固定 JSON Content-Type）。context：瀏覽器類型＋畫面闊度，方便重現問題（後端截 300 字）
     const fd = new FormData();
     fd.append('category', _fbCat); fd.append('message', message);
-    fd.append('context', `${navigator.userAgent} ・ ${window.innerWidth}px`);
+    fd.append('context', `${_fbCtx ? _fbCtx + ' ・ ' : ''}${navigator.userAgent} ・ ${window.innerWidth}px`);
     _fbImgs.forEach((im, i) => fd.append('images', im.blob, `screenshot-${i + 1}.jpg`));
     const token = getToken();
     const res = await fetch(API + '/api/feedback', { method: 'POST', headers: token ? { Authorization: 'Bearer ' + token } : {}, body: fd });
@@ -9723,7 +9756,9 @@ function renderListingCards(el, displayRows) {
           ? `<a href="${safeUrl(l.detail_url)}" target="_blank" class="detail-link lc-src" data-vref="${escHtml(l.ref_no||'')}" onclick="event.stopPropagation();trackListingClick('${escJsAttr(l.ref_no||'')}')">${escHtml(sourceLabel(l.source))} ↗</a>${visitedMark(l.ref_no)}`
           : `<span class="lc-src" style="color:var(--muted)">${escHtml(sourceLabel(l.source))}</span>`);
 
-    const btns = manualBtn + lineBtn + histBtn + groupBtn;
+    const reportBtn = (!l._combined && l.ref_no)
+      ? `<button class="history-btn lc-btn" title="回報數據問題／重複盤" onclick="event.stopPropagation();reportListing('${escJsAttr(l.ref_no)}')">⚑ 回報</button>` : '';
+    const btns = manualBtn + lineBtn + histBtn + groupBtn + reportBtn;
     return `
     <div class="lc-card${l._combined ? ' lc-combined' : ''}"${removed ? ' style="opacity:0.55"' : ''}>
       ${favBtnHtml(refs, 'S')}
@@ -9737,6 +9772,7 @@ function renderListingCards(el, displayRows) {
           <span>座向 ${escHtml(l.direction||'-')}</span>
         </div>
         ${dateLine}
+        ${crowdTag(l)}
         <div class="lc-badges">${srcLinks}</div>
         ${btns ? `<div class="lc-actions">${btns}</div>` : ''}
       </div>
@@ -9877,6 +9913,7 @@ function renderListingsTable() {
             : l.manual_removed_at
               ? `<div style="color:var(--down);font-size:0.75rem">已下架(手動)</div>`
               : domBadge(l)}
+          ${crowdTag(l)}
           ${manualBtn}
         </td>
         <td>${unitCell(l)}</td>
