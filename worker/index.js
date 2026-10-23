@@ -628,6 +628,8 @@ const SEC_DEFS = [
     desc: "用戶撳 ♡ 收藏嘅放盤上限（免費同收費一樣）。純粹防濫用；每個收藏列表時會查一次最新價同下架狀態。" },
   { key: "sec_auth_rpm", def: 10, min: 3, max: 120, label: "登入／註冊每分鐘上限",
     desc: "login/register/忘記密碼：每個 IP 每分鐘試嘅次數，擋暴力試密碼。" },
+  { key: "sec_feedback_daily_max", def: 5, min: 1, max: 100, label: "意見回饋：每個帳戶每日最多幾多次",
+    desc: "已登入用戶喺 app 入面寄意見俾我哋（email 去 hkbuyhouse@gmail.com）嘅每日上限，防止有人用嚟洗信箱。每條意見都會存落 D1，所以唔會因為 email 失敗而漏咗。" },
   { key: "sec_free_max_estates", def: 3, min: 1, max: 50, label: "免費版：最多追蹤屋苑",
     desc: "免費用戶可以追蹤幾多個屋苑。" },
   { key: "sec_paid_max_estates", def: 15, min: 1, max: 100, label: "收費版：最多追蹤屋苑",
@@ -6275,6 +6277,41 @@ async function checkWeeklyCronWatchdog(db, env) {
   return true;
 }
 
+
+// ── 意見回饋（登入後 app 入面「💬」）────────────────────────────────────────────
+// 用戶寄意見 → 先存落 D1（唔會因為 email 失敗而漏咗）→ 再 email 去 FEEDBACK_TO，Reply-To 係用戶註冊 email，
+// 直接 reply 就覆到用戶。淨係登入用戶（唔開新公開 route）；每帳戶每日上限 sec_feedback_daily_max。
+const FEEDBACK_TO = "hkbuyhouse@gmail.com";
+const FEEDBACK_CATEGORIES = ["功能建議", "問題回報", "數據有誤", "其他"];
+let _feedbackReady = false;
+async function ensureFeedbackTable(db) {
+  if (_feedbackReady) return;
+  await db.prepare(`CREATE TABLE IF NOT EXISTS feedback (
+    id INTEGER PRIMARY KEY AUTOINCREMENT, account_id INTEGER NOT NULL, category TEXT NOT NULL, message TEXT NOT NULL,
+    context TEXT, emailed INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL DEFAULT (datetime('now')))`).run();
+  _feedbackReady = true;
+}
+// 輸入驗證（白名單）：category 要喺名單、message 5–2000 字（去咗控制字元），context（瀏覽器資料）≤300 字。
+export function parseFeedback(body) {
+  const category = String(body?.category ?? "");
+  if (!FEEDBACK_CATEGORIES.includes(category)) return { error: "請揀意見類別" };
+  const clean = (x) => String(x ?? "").replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g, "").trim();
+  const message = clean(body?.message);
+  if ([...message].length < 5) return { error: "意見太短，請多寫幾個字" };
+  if ([...message].length > 2000) return { error: "意見太長（最多 2000 字）" };
+  return { category, message, context: clean(body?.context).slice(0, 300) };
+}
+function buildFeedbackEmail({ acc, tier, category, message, context, at }) {
+  const row = (k, v) => `<tr><td style="padding:3px 12px 3px 0;color:#7a8ca0;white-space:nowrap">${k}</td><td style="padding:3px 0">${_escHtmlW(v)}</td></tr>`;
+  return `<!doctype html><html lang="zh-HK"><meta charset="utf-8"><body style="margin:0;background:#eef6fd;font-family:-apple-system,'PingFang HK','Heiti TC',sans-serif;color:#0f1c2e">
+<div style="max-width:560px;margin:0 auto;padding:18px 14px 30px">
+ <div style="font-size:18px;font-weight:800;margin-bottom:10px">💬 用戶意見：${_escHtmlW(category)}</div>
+ <div style="background:#fff;border:1px solid #dde8f3;border-radius:14px;padding:14px 16px;font-size:14.5px;line-height:1.75;white-space:pre-wrap">${_escHtmlW(message)}</div>
+ <table role="presentation" style="margin-top:14px;font-size:12.5px;border-collapse:collapse">${row("用戶", acc.username)}${row("Email", acc.email || "（冇）")}${row("版本", tier)}${row("時間", at)}${context ? row("瀏覽器", context) : ""}</table>
+ <div style="margin-top:14px;font-size:12px;color:#7a8ca0">直接 Reply 就會覆到用戶（Reply-To 已設為佢註冊嘅 email）。</div>
+</div></body></html>`;
+}
+
 // ── 公開搜尋（未登入，首頁／search 頁）：即時問地產網，唔掂 D1 ─────────────────
 // 用戶決定（2026-10-10）：未登入嘅搜尋搜嘅係地產網本身，唔係我哋 DB；結果連返原網站。
 // 每個網站一個請求（前端並行打 4 次 /api/public/search?src=…）：利嘉閣每頁 0.4–1.1MB，
@@ -9752,6 +9789,40 @@ export default {
         }
         const cfg = await getConfig(db, session.account_id);
         return json(200, { ok: true, updated, items: CONFIG_DEFS.map((d) => ({ ...d, value: cfg[d.key] })) });
+      }
+
+      // ── 意見回饋（登入用戶）──────────────────────────────────────────────
+      if (method === "POST" && path === "/api/feedback") {
+        const body = await request.json().catch(() => null);
+        const f = parseFeedback(body);
+        if (f.error) return json(400, { error: f.error });
+        await ensureFeedbackTable(db);
+        const secCfg = await getSecCfg(db);
+        const used = await db.prepare("SELECT COUNT(*) AS c FROM feedback WHERE account_id = ? AND created_at > datetime('now', '-1 day')")
+          .bind(session.account_id).first();
+        if ((used?.c || 0) >= secCfg.sec_feedback_daily_max) return json(429, { error: "今日寄咗好多次意見，聽日再寄啦，多謝你。" });
+        const ins = await db.prepare("INSERT INTO feedback (account_id, category, message, context) VALUES (?, ?, ?, ?)")
+          .bind(session.account_id, f.category, f.message, f.context || null).run();
+        const acc = await db.prepare("SELECT username, email FROM accounts WHERE id = ?").bind(session.account_id).first() || {};
+        try {
+          const replyTo = /^[^\s@<>",;]+@[^\s@<>",;]+$/.test(acc.email || "") ? acc.email : null;
+          await sendEmail(env, FEEDBACK_TO, `【搵樓日記意見】${f.category}｜${acc.username || "?"}`.slice(0, 150),
+            buildFeedbackEmail({ acc, tier: isPaidSession(session) ? "收費版" : "免費版", category: f.category, message: f.message, context: f.context, at: new Date(Date.now() + 8 * 3600000).toISOString().slice(0, 16).replace("T", " ") + " HKT" }),
+            replyTo ? { "Reply-To": replyTo } : {});
+          await db.prepare("UPDATE feedback SET emailed = 1 WHERE id = ?").bind(ins.meta?.last_row_id).run();
+        } catch (e) {
+          console.error("feedback email failed:", e?.message || e);   // 已存落 D1，admin 可以喺 /api/admin/feedback 睇返
+        }
+        return json(200, { ok: true });
+      }
+      // admin 睇返意見（email 寄失敗都唔會漏）
+      if (method === "GET" && path === "/api/admin/feedback") {
+        if (!isAdminSession(session)) return json(403, { error: "admin only" });
+        await ensureFeedbackTable(db);
+        const { results } = await db.prepare(
+          `SELECT f.id, f.created_at, f.category, f.message, f.emailed, a.username FROM feedback f
+           LEFT JOIN accounts a ON a.id = f.account_id ORDER BY f.id DESC LIMIT 100`).all();
+        return json(200, { feedback: results });
       }
 
       // ── 睇樓偏好（首次登入 popup + filter auto-apply）──
