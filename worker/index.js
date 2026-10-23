@@ -630,6 +630,10 @@ const SEC_DEFS = [
     desc: "login/register/忘記密碼：每個 IP 每分鐘試嘅次數，擋暴力試密碼。" },
   { key: "sec_feedback_daily_max", def: 5, min: 1, max: 100, label: "意見回饋：每個帳戶每日最多幾多次",
     desc: "已登入用戶喺 app 入面寄意見俾我哋（email 去 hkbuyhouse@gmail.com）嘅每日上限，防止有人用嚟洗信箱。每條意見都會存落 D1，所以唔會因為 email 失敗而漏咗。" },
+  { key: "sec_feedback_max_images", def: 3, min: 0, max: 5, label: "意見回饋：每次最多幾多張相",
+    desc: "用戶寄意見時可以附圖（截圖）。相只係隨 email 寄去 hkbuyhouse@gmail.com，唔存落 D1／R2。設 0 = 唔准附圖。" },
+  { key: "sec_feedback_img_max_kb", def: 700, min: 50, max: 3000, label: "意見回饋：每張相最大 KB",
+    desc: "前端寄出前會自動壓細（最闊 1280px JPEG）；呢個係後端硬上限，超過即 400。" },
   { key: "sec_free_max_estates", def: 3, min: 1, max: 50, label: "免費版：最多追蹤屋苑",
     desc: "免費用戶可以追蹤幾多個屋苑。" },
   { key: "sec_paid_max_estates", def: 15, min: 1, max: 100, label: "收費版：最多追蹤屋苑",
@@ -4052,17 +4056,19 @@ async function gmailAccessToken(env) {
 }
 
 // UTF-8 → base64（btoa 本身唔食多字節字元）
-function _b64utf8(str) {
-  const bytes = new TextEncoder().encode(str);
+function _b64utf8(str) { return _b64bytes(new TextEncoder().encode(str)); }
+// bytes → base64。分塊 fromCharCode（逐 byte 字串累加喺幾 MB 嘅附件上 CPU 太貴，Workers 有 CPU 時間上限）。
+function _b64bytes(bytes) {
   let bin = "";
-  for (const b of bytes) bin += String.fromCharCode(b);
+  for (let i = 0; i < bytes.length; i += 8192) bin += String.fromCharCode.apply(null, bytes.subarray(i, i + 8192));
   return btoa(bin);
 }
 
 // extraHeaders：額外 MIME header（例如 List-Unsubscribe）。值一律當唔可信處理
 // ——剝走 CR/LF，否則有人喺 email 值入面塞 \r\n 就可以注入自訂 header／改收件人
 // （email header injection）。
-async function sendEmail(env, to, subject, html, extraHeaders = {}) {
+// attachments：[{ filename, mime, bytes }]。filename 由 caller 固定生成（唔可以用用戶提供嘅檔名），內容 base64＋76 字換行。
+async function sendEmail(env, to, subject, html, extraHeaders = {}, attachments = []) {
   // Test env 全部 email 一律唔寄——test D1 係 production 嘅完整 copy，連晒
   // 真實用戶嘅 email 地址，如果 test worker 自己嗰個 cron 都寄一份「今日
   // 動態」，用戶會一日收兩次同樣嘅信。喺呢個最低層 choke point 度擋，
@@ -4082,17 +4088,28 @@ async function sendEmail(env, to, subject, html, extraHeaders = {}) {
   // 淨係准 ASCII，之前 From 個「搵樓日記」直接寫 raw UTF-8，Gmail send API
   // 冇事，但去到某啲 mail client（用戶截圖嗰個）解唔到就變晒亂碼。
   // body 用 base64 transfer encoding。
-  const mime = [
+  const head = [
     `From: =?UTF-8?B?${_b64utf8("搵樓日記")}?= <hkbuyhouse@gmail.com>`,
     `To: ${String(to).replace(/[\r\n]/g, "")}`,
     `Subject: =?UTF-8?B?${_b64utf8(subject)}?=`,
     ...hdrLines,
     `MIME-Version: 1.0`,
-    `Content-Type: text/html; charset=UTF-8`,
-    `Content-Transfer-Encoding: base64`,
-    ``,
-    _b64utf8(html),
-  ].join("\r\n");
+  ];
+  let mime;
+  if (!attachments.length) {
+    mime = [...head, `Content-Type: text/html; charset=UTF-8`, `Content-Transfer-Encoding: base64`, ``, _b64utf8(html)].join("\r\n");
+  } else {
+    const bd = "pw" + Array.from(crypto.getRandomValues(new Uint8Array(12)), (b) => b.toString(16).padStart(2, "0")).join("");
+    const parts = [`--${bd}`, `Content-Type: text/html; charset=UTF-8`, `Content-Transfer-Encoding: base64`, ``, _b64utf8(html)];
+    for (const a of attachments) {
+      const fn = String(a.filename).replace(/[^A-Za-z0-9._-]/g, "_");
+      parts.push(`--${bd}`, `Content-Type: ${String(a.mime).replace(/[^A-Za-z0-9/+.-]/g, "")}; name="${fn}"`,
+        `Content-Disposition: attachment; filename="${fn}"`, `Content-Transfer-Encoding: base64`, ``,
+        _b64bytes(a.bytes).replace(/(.{76})/g, "$1\r\n"));
+    }
+    parts.push(`--${bd}--`);
+    mime = [...head, `Content-Type: multipart/mixed; boundary="${bd}"`, ``, ...parts].join("\r\n");
+  }
   const raw = _b64utf8(mime).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
   const res = await fetch("https://gmail.googleapis.com/gmail/v1/users/me/messages/send", {
     method: "POST",
@@ -6288,7 +6305,8 @@ async function ensureFeedbackTable(db) {
   if (_feedbackReady) return;
   await db.prepare(`CREATE TABLE IF NOT EXISTS feedback (
     id INTEGER PRIMARY KEY AUTOINCREMENT, account_id INTEGER NOT NULL, category TEXT NOT NULL, message TEXT NOT NULL,
-    context TEXT, emailed INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL DEFAULT (datetime('now')))`).run();
+    context TEXT, emailed INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL DEFAULT (datetime('now')), images INTEGER NOT NULL DEFAULT 0)`).run();
+  try { await db.prepare("ALTER TABLE feedback ADD COLUMN images INTEGER NOT NULL DEFAULT 0").run(); } catch (_) { /* 已有 */ }
   _feedbackReady = true;
 }
 // 輸入驗證（白名單）：category 要喺名單、message 5–2000 字（去咗控制字元），context（瀏覽器資料）≤300 字。
@@ -6301,13 +6319,20 @@ export function parseFeedback(body) {
   if ([...message].length > 2000) return { error: "意見太長（最多 2000 字）" };
   return { category, message, context: clean(body?.context).slice(0, 300) };
 }
-function buildFeedbackEmail({ acc, tier, category, message, context, at }) {
+// 附圖驗證：只准 JPEG／PNG／WebP（睇檔頭 magic bytes，唔信 client 報嘅 content-type／副檔名）。
+export function sniffImage(b) {
+  if (b.length > 12 && b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff) return { mime: "image/jpeg", ext: "jpg" };
+  if (b.length > 12 && b[0] === 0x89 && b[1] === 0x50 && b[2] === 0x4e && b[3] === 0x47 && b[4] === 0x0d && b[5] === 0x0a && b[6] === 0x1a && b[7] === 0x0a) return { mime: "image/png", ext: "png" };
+  if (b.length > 12 && b[0] === 0x52 && b[1] === 0x49 && b[2] === 0x46 && b[3] === 0x46 && b[8] === 0x57 && b[9] === 0x45 && b[10] === 0x42 && b[11] === 0x50) return { mime: "image/webp", ext: "webp" };
+  return null;
+}
+function buildFeedbackEmail({ acc, tier, category, message, context, at, nImages = 0 }) {
   const row = (k, v) => `<tr><td style="padding:3px 12px 3px 0;color:#7a8ca0;white-space:nowrap">${k}</td><td style="padding:3px 0">${_escHtmlW(v)}</td></tr>`;
   return `<!doctype html><html lang="zh-HK"><meta charset="utf-8"><body style="margin:0;background:#eef6fd;font-family:-apple-system,'PingFang HK','Heiti TC',sans-serif;color:#0f1c2e">
 <div style="max-width:560px;margin:0 auto;padding:18px 14px 30px">
  <div style="font-size:18px;font-weight:800;margin-bottom:10px">💬 用戶意見：${_escHtmlW(category)}</div>
  <div style="background:#fff;border:1px solid #dde8f3;border-radius:14px;padding:14px 16px;font-size:14.5px;line-height:1.75;white-space:pre-wrap">${_escHtmlW(message)}</div>
- <table role="presentation" style="margin-top:14px;font-size:12.5px;border-collapse:collapse">${row("用戶", acc.username)}${row("Email", acc.email || "（冇）")}${row("版本", tier)}${row("時間", at)}${context ? row("瀏覽器", context) : ""}</table>
+ <table role="presentation" style="margin-top:14px;font-size:12.5px;border-collapse:collapse">${row("用戶", acc.username)}${row("Email", acc.email || "（冇）")}${row("版本", tier)}${row("時間", at)}${context ? row("瀏覽器", context) : ""}${nImages ? row("附圖", `${nImages} 張（見附件）`) : ""}</table>
  <div style="margin-top:14px;font-size:12px;color:#7a8ca0">直接 Reply 就會覆到用戶（Reply-To 已設為佢註冊嘅 email）。</div>
 </div></body></html>`;
 }
@@ -9793,22 +9818,43 @@ export default {
 
       // ── 意見回饋（登入用戶）──────────────────────────────────────────────
       if (method === "POST" && path === "/api/feedback") {
-        const body = await request.json().catch(() => null);
+        const secCfg = await getSecCfg(db);
+        const maxImgs = secCfg.sec_feedback_max_images, maxKb = secCfg.sec_feedback_img_max_kb;
+        // multipart（附圖）或 JSON（純文字）。附圖總大小有硬上限，Content-Length 太大即 413，唔會讀入記憶體。
+        let body = null, files = [];
+        if ((request.headers.get("Content-Type") || "").startsWith("multipart/form-data")) {
+          const cl = Number(request.headers.get("Content-Length") || 0);
+          if (!cl || cl > (maxImgs * maxKb * 1024) + 65536) return json(413, { error: "附圖太大" });
+          const form = await request.formData().catch(() => null);
+          if (!form) return json(400, { error: "格式唔啱" });
+          body = { category: form.get("category"), message: form.get("message"), context: form.get("context") };
+          files = form.getAll("images").filter((x) => x && typeof x === "object" && typeof x.arrayBuffer === "function");
+        } else {
+          body = await request.json().catch(() => null);
+        }
         const f = parseFeedback(body);
         if (f.error) return json(400, { error: f.error });
+        if (files.length > maxImgs) return json(400, { error: maxImgs ? `最多附 ${maxImgs} 張相` : "暫時唔支援附圖" });
+        const attachments = [];
+        for (const [i, file] of files.entries()) {
+          if (file.size > maxKb * 1024) return json(400, { error: `每張相最大 ${maxKb} KB` });
+          const bytes = new Uint8Array(await file.arrayBuffer());
+          const kind = sniffImage(bytes);
+          if (!kind) return json(400, { error: "只接受 JPG／PNG／WebP 相" });
+          attachments.push({ filename: `screenshot-${i + 1}.${kind.ext}`, mime: kind.mime, bytes });
+        }
         await ensureFeedbackTable(db);
-        const secCfg = await getSecCfg(db);
         const used = await db.prepare("SELECT COUNT(*) AS c FROM feedback WHERE account_id = ? AND created_at > datetime('now', '-1 day')")
           .bind(session.account_id).first();
         if ((used?.c || 0) >= secCfg.sec_feedback_daily_max) return json(429, { error: "今日寄咗好多次意見，聽日再寄啦，多謝你。" });
-        const ins = await db.prepare("INSERT INTO feedback (account_id, category, message, context) VALUES (?, ?, ?, ?)")
-          .bind(session.account_id, f.category, f.message, f.context || null).run();
+        const ins = await db.prepare("INSERT INTO feedback (account_id, category, message, context, images) VALUES (?, ?, ?, ?, ?)")
+          .bind(session.account_id, f.category, f.message, f.context || null, attachments.length).run();
         const acc = await db.prepare("SELECT username, email FROM accounts WHERE id = ?").bind(session.account_id).first() || {};
         try {
           const replyTo = /^[^\s@<>",;]+@[^\s@<>",;]+$/.test(acc.email || "") ? acc.email : null;
           await sendEmail(env, FEEDBACK_TO, `【搵樓日記意見】${f.category}｜${acc.username || "?"}`.slice(0, 150),
-            buildFeedbackEmail({ acc, tier: isPaidSession(session) ? "收費版" : "免費版", category: f.category, message: f.message, context: f.context, at: new Date(Date.now() + 8 * 3600000).toISOString().slice(0, 16).replace("T", " ") + " HKT" }),
-            replyTo ? { "Reply-To": replyTo } : {});
+            buildFeedbackEmail({ acc, tier: isPaidSession(session) ? "收費版" : "免費版", category: f.category, message: f.message, context: f.context, nImages: attachments.length, at: new Date(Date.now() + 8 * 3600000).toISOString().slice(0, 16).replace("T", " ") + " HKT" }),
+            replyTo ? { "Reply-To": replyTo } : {}, attachments);
           await db.prepare("UPDATE feedback SET emailed = 1 WHERE id = ?").bind(ins.meta?.last_row_id).run();
         } catch (e) {
           console.error("feedback email failed:", e?.message || e);   // 已存落 D1，admin 可以喺 /api/admin/feedback 睇返
@@ -9820,7 +9866,7 @@ export default {
         if (!isAdminSession(session)) return json(403, { error: "admin only" });
         await ensureFeedbackTable(db);
         const { results } = await db.prepare(
-          `SELECT f.id, f.created_at, f.category, f.message, f.emailed, a.username FROM feedback f
+          `SELECT f.id, f.created_at, f.category, f.message, f.emailed, f.images, a.username FROM feedback f
            LEFT JOIN accounts a ON a.id = f.account_id ORDER BY f.id DESC LIMIT 100`).all();
         return json(200, { feedback: results });
       }
