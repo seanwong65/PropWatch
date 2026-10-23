@@ -5080,13 +5080,6 @@ function crowdTag(l) {
   if (rm && !l.removed_date && !l.manual_removed_at) out.push(`<span style="color:var(--down)" title="其他用戶標記，未必準確；你可以自己覆核，或者撳「標記已下架」">⚠️ ${rm} 位用戶標記咗已下架</span>`);
   return out.length ? `<div class="lc-meta" style="gap:0.5rem">${out.join('')}</div>` : '';
 }
-// 「⚑ 回報」：用意見回饋彈窗，預填盤資料同類別（數據有誤）
-function reportListing(refNo) {
-  const l = allListings.find(x => x.ref_no === refNo) || {};
-  const head = `【${_viewingEstateName || ''} ${l.building_name || ''} ${l.floor || ''} ${l.unit || ''}｜${sourceLabel(l.source)}｜${refNo}】`.replace(/\s+/g, ' ');
-  openFeedbackModal({ category: '數據有誤', text: head + '\n請講下個問題（例如：同另一個盤係同一個單位／價錢或面積唔啱／已經下架）：', ctx: `listing=${refNo} estate=${activeEstateId}` });
-}
-
 // ── Estate detail ──────────────────────────────────────────────
 async function showEstate(id, name, district) {
   const _est = (estatesById && estatesById[id]) || {};
@@ -9784,9 +9777,7 @@ function renderListingCards(el, displayRows) {
           ? `<a href="${safeUrl(l.detail_url)}" target="_blank" class="detail-link lc-src" data-vref="${escHtml(l.ref_no||'')}" onclick="event.stopPropagation();trackListingClick('${escJsAttr(l.ref_no||'')}')">${escHtml(sourceLabel(l.source))} ↗</a>${visitedMark(l.ref_no)}`
           : `<span class="lc-src" style="color:var(--muted)">${escHtml(sourceLabel(l.source))}</span>`);
 
-    const reportBtn = (!l._combined && l.ref_no)
-      ? `<button class="history-btn lc-btn" title="回報數據問題／重複盤" onclick="event.stopPropagation();reportListing('${escJsAttr(l.ref_no)}')">⚑ 回報</button>` : '';
-    const btns = manualBtn + lineBtn + histBtn + groupBtn + reportBtn;
+    const btns = manualBtn + lineBtn + histBtn + groupBtn;
     return `
     <div class="lc-card${l._combined ? ' lc-combined' : ''}"${removed ? ' style="opacity:0.55"' : ''}>
       ${favBtnHtml(refs, 'S')}
