@@ -1,5 +1,6 @@
 import { loadWeeklyInputs, computeWeekly, renderWeeklyHtml, weeklySubject, weeklyHeadline } from "./weekly.js";
 import { renderDailyHtml, dailySubject } from "./daily.js";
+import { ensureEstateStats, refreshEstateStats } from "./estateStats.js";
 
 // 冇 Allow-Origin：由 fetch 出口統一按 allow-list reflect（見 applyCors）。
 const CORS = {
@@ -6739,6 +6740,15 @@ export default {
           // 唔搶同步單元嘅 invocation，亦唔影響 09:00 email（另一條 cron）。
           // 估值出事唔好拖累 drip：一般錯誤淨係 log，D1 閃斷照交返下面處理。
           if (r.idle && !r.beforeWindow) {
+            // 屋苑卡片重點數字：有新 snapshot 先重算；最多每 30 分鐘睇一次（好平，但冇需要每 2 分鐘問）
+            try {
+              const last = Date.parse(await getSetting(env.DB, "estate_stats_checked_at") || "") || 0;
+              if (Date.now() - last > 30 * 60000) {
+                await setSetting(env.DB, "estate_stats_checked_at", new Date().toISOString());
+                const rs = await refreshEstateStats(env.DB, { limit: 8 });
+                if (rs.due > rs.done) await setSetting(env.DB, "estate_stats_checked_at", "");   // 仲有嘢未算，下一轉繼續
+              }
+            } catch (e) { if (isD1QuotaExceeded(e)) throw e; console.error("estate stats refresh failed:", e?.message || e); }
             try {
               const h = await hsScanStep(env.DB);
               if (h.finished && h.state) {
@@ -7263,6 +7273,11 @@ export default {
         }
         return json(200, { subject, html });
       }
+      // 重算屋苑卡片重點數字（estate_stats）。平時由 drip cron 閒時自動做；呢度俾 admin 即時刷新／驗證。
+      if (method === "POST" && path === "/api/admin/refresh-estate-stats") {
+        if (!isAdminSession(session)) return json(403, { error: "admin only" });
+        return json(200, await refreshEstateStats(db, { limit: 60 }));
+      }
       if (method === "POST" && path === "/api/admin/run-email-task") {
         if (!isAdminSession(session)) return json(403, { error: "admin only" });
         const r = await runDailyEmailTask(env, { force: true });   // 手動驗證路徑：唔受「一日一封」限制
@@ -7321,6 +7336,24 @@ export default {
           )
           .bind(session.account_id)
           .all();
+        // 免費版＝今日 snapshot＋成交：淨係畀「在售數、叫價呎價、近 3 月成交數」；
+        // 本週變動（新盤／減價／下架／呎價升跌）同「叫價 vs 成交」係時間軸／分析，收費先有（server 端 gate，唔靠前端收埋）。
+        // 「重點數字」由 cron 預先算好（estateStats.js）。獨立 query＋try/catch：表未建／D1 出事都唔可以拖垮側邊欄。
+        const paid = isPaidSession(session);
+        const statsBy = new Map();
+        try {
+          await ensureEstateStats(db);
+          const ids = results.map((r) => Number(r.id)).filter(Number.isInteger);
+          if (ids.length) {
+            for (const r of (await db.prepare(`SELECT estate_id, data FROM estate_stats WHERE estate_id IN (${ids.join(",")})`).all()).results) {
+              try { statsBy.set(r.estate_id, JSON.parse(r.data)); } catch (_) { /* 當冇 */ }
+            }
+          }
+        } catch (e) { console.error("estate_stats read failed:", e?.message || e); }
+        for (const r of results) {
+          const st = statsBy.get(r.id) || null;
+          r.stats = st && !paid ? { as_of: st.as_of, n: st.n, psf: st.psf, tx_n: st.tx_n } : st;
+        }
         return json(200, { estates: results });
       }
 
