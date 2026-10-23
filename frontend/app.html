@@ -4754,7 +4754,7 @@ function estateCardMeta(e) {
   const st = e.stats;
   const dist = e.district ? escHtml(e.district) : '';
   if (!st || !st.n) {   // 未有統計（新屋苑／未算）：用返舊版一行
-    return `<div class="estate-card-meta">${dist ? dist + '．' : ''}${e.today_count ?? 0}個盤．最近3個月${e.txn_3m_count ?? 0}宗成交</div>`;
+    return `<div class="estate-card-meta">${dist ? dist + '．' : ''}${e.today_count ?? 0}個盤</div>`;
   }
   const num = (x) => Number(x) || 0;
   const lines = [];
@@ -4766,7 +4766,6 @@ function estateCardMeta(e) {
       lines.push(`${span}：新盤 <b>${num(st.new)}</b>．減價 <b style="color:var(--up)">${num(st.cuts)}</b>．下架 <b>${num(st.removed)}</b>`);
     }
   }
-  lines.push(`近3個月 <b>${num(e.txn_3m_count ?? st.tx_n)}</b> 宗成交`);
   return `<div class="estate-card-meta" style="line-height:1.55">${lines.map(l => `<div>${l}</div>`).join('')}</div>`;
 }
 
