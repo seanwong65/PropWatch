@@ -1756,6 +1756,7 @@
     <!-- 唔好喺呢度 inline 覆蓋 background／border-color：原本寫死 --surface2 +
          --border（深色時代嘅淡值），白底之下同頁面幾乎一樣色，粒掣搵唔到。
          交返 .sync-btn 處理（佢用 --btn2-* 有足夠視覺重量）。 -->
+    <button class="sync-btn" id="feedback-btn" onclick="openFeedbackModal()" style="display:none;font-size:1rem;padding:0.35rem 0.6rem" title="意見回饋">💬</button>
     <button class="sync-btn" onclick="openSettingsModal()" style="font-size:1rem;padding:0.35rem 0.6rem" title="設定">⚙️</button>
     <button class="sync-btn" id="logout-btn" onclick="doLogout()" style="display:none" title="登出">登出</button>
   </div>
@@ -2153,6 +2154,38 @@
       </div>
       <p style="font-size:0.78rem;color:var(--muted);margin:0.25rem 0 0.75rem">睇實際用量嚟決定上限點調（喺「🛠 系統設定」改）。⚠️ = 已經撞頂。</p>
       <div id="settings-usage" style="font-size:0.82rem;color:var(--muted)">未載入</div>
+    </div>
+  </div>
+</div>
+
+<!-- 意見回饋（登入用戶；後端 POST /api/feedback → 存 D1 ＋ email 去 hkbuyhouse@gmail.com） -->
+<div class="modal-overlay" id="feedbackModalOverlay" style="display:none" onclick="if(event.target===this)closeFeedbackModal()">
+  <div class="modal" style="max-width:440px;max-height:90vh;overflow-y:auto">
+    <button class="modal-close" onclick="closeFeedbackModal()">✕</button>
+    <div class="modal-title">💬 意見回饋</div>
+    <div id="fb-form">
+      <p class="modal-sub" style="margin-bottom:0.6rem">想加咩功能、邊度唔好用、數據有錯，都歡迎講。我哋會直接收到，有需要會用你註冊嘅 email 回覆你。</p>
+      <label class="vf-label">類別</label>
+      <div id="fb-cats" style="display:flex;flex-wrap:wrap;gap:0.4rem">
+        <button type="button" class="filter-chip active" data-cat="功能建議" onclick="fbPickCat(this)">💡 功能建議</button>
+        <button type="button" class="filter-chip" data-cat="問題回報" onclick="fbPickCat(this)">🐞 問題回報</button>
+        <button type="button" class="filter-chip" data-cat="數據有誤" onclick="fbPickCat(this)">📊 數據有誤</button>
+        <button type="button" class="filter-chip" data-cat="其他" onclick="fbPickCat(this)">其他</button>
+      </div>
+      <label class="vf-label" for="fb-text">你想講咩</label>
+      <textarea id="fb-text" maxlength="2000" rows="6" placeholder="例如：想加「兩個屋苑比較」；或者：某屋苑今日嘅放盤數目好似唔啱…"
+        style="width:100%;box-sizing:border-box;padding:0.6rem 0.7rem;border:1px solid var(--border);border-radius:10px;background:var(--surface2);color:var(--text);font:inherit;font-size:0.9rem;resize:vertical" oninput="fbCount()"></textarea>
+      <div style="display:flex;justify-content:space-between;font-size:0.74rem;color:var(--muted);margin-top:0.25rem">
+        <span>我哋會一齊收到你嘅用戶名、email 同瀏覽器類型，方便跟進。</span><span id="fb-count">0 / 2000</span>
+      </div>
+      <div id="fb-error" style="display:none;color:var(--down);font-size:0.82rem;margin-top:0.5rem"></div>
+      <button class="vf-submit" id="fb-submit" style="margin-top:0.9rem" onclick="submitFeedback()">寄出意見</button>
+    </div>
+    <div id="fb-done" style="display:none;text-align:center;padding:1.2rem 0 0.4rem">
+      <div style="font-size:2rem">🙏</div>
+      <div style="font-weight:700;margin:0.3rem 0">多謝你！已經收到</div>
+      <div style="font-size:0.84rem;color:var(--muted)">我哋會睇，有需要會用你註冊嘅 email 回覆你。</div>
+      <button class="vf-submit" style="margin-top:1rem" onclick="closeFeedbackModal()">閂咗佢</button>
     </div>
   </div>
 </div>
@@ -2699,6 +2732,12 @@ function hideLoginScreen() {
     history.replaceState(null, "", location.pathname + (q.toString() ? "?" + q : ""));
   }
   document.getElementById("logout-btn").style.display = "";
+  document.getElementById("feedback-btn").style.display = "";
+  // 內容頁／email 嘅「意見回饋」連結（/app#feedback）：登入後直接開意見彈窗
+  if (location.hash === "#feedback") {
+    history.replaceState(null, "", location.pathname + location.search);
+    openFeedbackModal();
+  }
 }
 
 // login 頁有兩個 mode:登入(預設)/註冊。註冊成功後端直接發 session,
@@ -7084,6 +7123,41 @@ function renderAbEvents() {
     </table></div>`;
 }
 
+// ── 意見回饋 ──
+let _fbCat = '功能建議';
+function openFeedbackModal() {
+  document.getElementById('fb-form').style.display = '';
+  document.getElementById('fb-done').style.display = 'none';
+  document.getElementById('fb-error').style.display = 'none';
+  document.getElementById('feedbackModalOverlay').style.display = 'flex';
+  document.getElementById('fb-text').focus();
+}
+function closeFeedbackModal() { document.getElementById('feedbackModalOverlay').style.display = 'none'; }
+function fbPickCat(btn) {
+  _fbCat = btn.dataset.cat;
+  document.querySelectorAll('#fb-cats .filter-chip').forEach(b => b.classList.toggle('active', b === btn));
+}
+function fbCount() {
+  document.getElementById('fb-count').textContent = [...document.getElementById('fb-text').value].length + ' / 2000';
+}
+async function submitFeedback() {
+  const ta = document.getElementById('fb-text'), err = document.getElementById('fb-error'), btn = document.getElementById('fb-submit');
+  const message = ta.value.trim();
+  err.style.display = 'none';
+  if ([...message].length < 5) { err.textContent = '意見太短，請多寫幾個字'; err.style.display = 'block'; return; }
+  btn.disabled = true; btn.textContent = '寄緊…';
+  try {
+    // context：瀏覽器類型＋畫面闊度，方便重現問題（後端截 300 字）
+    await api('/api/feedback', { method: 'POST', body: JSON.stringify({ category: _fbCat, message,
+      context: `${navigator.userAgent} ・ ${window.innerWidth}px` }) });
+    ta.value = ''; fbCount();
+    document.getElementById('fb-form').style.display = 'none';
+    document.getElementById('fb-done').style.display = '';
+  } catch (e) {
+    err.textContent = e.message || '寄唔到，遲啲再試下'; err.style.display = 'block';
+  } finally { btn.disabled = false; btn.textContent = '寄出意見'; }
+}
+
 async function openSettingsModal() {
   document.getElementById('settingsModalOverlay').style.display = 'flex';
   loadMyShares();
@@ -10253,6 +10327,7 @@ if (getToken()) {
     location.replace("/mortgage-calculator");
   } else if (h === "#login" || h === "#register") {
     document.getElementById("logout-btn").style.display = "none";
+    document.getElementById("feedback-btn").style.display = "none";
     openAuth(h.slice(1));
     // 喺計算機頁撳咗「用 X 萬做我嘅買盤預算」：同首頁彈窗未登入時一樣嘅提示
     const wan = parseInt(new URLSearchParams(location.search).get("mc_budget"), 10);
