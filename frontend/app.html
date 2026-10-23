@@ -2178,6 +2178,12 @@
       <div style="display:flex;justify-content:space-between;font-size:0.74rem;color:var(--muted);margin-top:0.25rem">
         <span>我哋會一齊收到你嘅用戶名、email 同瀏覽器類型，方便跟進。</span><span id="fb-count">0 / 2000</span>
       </div>
+      <div style="margin-top:0.7rem;display:flex;align-items:center;gap:0.6rem;flex-wrap:wrap">
+        <button type="button" class="filter-chip" id="fb-attach-btn" onclick="document.getElementById('fb-file').click()">📎 加截圖（最多 3 張）</button>
+        <input type="file" id="fb-file" accept="image/*" multiple style="display:none" onchange="fbAddFiles(this.files); this.value=''">
+        <span style="font-size:0.74rem;color:var(--muted)">亦可以喺上面框 Ctrl／⌘+V 直接貼截圖</span>
+      </div>
+      <div id="fb-thumbs" style="display:flex;gap:0.5rem;flex-wrap:wrap;margin-top:0.5rem"></div>
       <div id="fb-error" style="display:none;color:var(--down);font-size:0.82rem;margin-top:0.5rem"></div>
       <button class="vf-submit" id="fb-submit" style="margin-top:0.9rem" onclick="submitFeedback()">寄出意見</button>
     </div>
@@ -7125,7 +7131,10 @@ function renderAbEvents() {
 
 // ── 意見回饋 ──
 let _fbCat = '功能建議';
+let _fbImgs = [];            // [{ blob, thumb }]；blob＝壓細咗嘅 JPEG，thumb＝data URL 縮圖（CSP img-src 淨係准 self／data:）
+const FB_MAX_IMGS = 3, FB_MAX_BYTES = 650 * 1024;   // 後端硬上限係 sec_feedback_img_max_kb（預設 700KB）；呢度壓到 650KB 以內
 function openFeedbackModal() {
+  _fbImgs = []; fbRenderThumbs();
   document.getElementById('fb-form').style.display = '';
   document.getElementById('fb-done').style.display = 'none';
   document.getElementById('fb-error').style.display = 'none';
@@ -7137,6 +7146,49 @@ function fbPickCat(btn) {
   _fbCat = btn.dataset.cat;
   document.querySelectorAll('#fb-cats .filter-chip').forEach(b => b.classList.toggle('active', b === btn));
 }
+// 相：讀入 → 畫去 canvas（最闊 1280px）→ 轉 JPEG，太大就降質素／尺寸再試，確保 <650KB
+async function fbCompress(file) {
+  const url = await new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(r.result); r.onerror = rej; r.readAsDataURL(file); });
+  const img = await new Promise((res, rej) => { const i = new Image(); i.onload = () => res(i); i.onerror = () => rej(new Error('呢張相讀唔到')); i.src = url; });
+  for (const [maxDim, q] of [[1280, 0.75], [1280, 0.6], [1000, 0.6], [800, 0.55]]) {
+    const k = Math.min(1, maxDim / Math.max(img.width, img.height));
+    const c = document.createElement('canvas'); c.width = Math.round(img.width * k); c.height = Math.round(img.height * k);
+    const ctx = c.getContext('2d'); ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, c.width, c.height); ctx.drawImage(img, 0, 0, c.width, c.height);
+    const blob = await new Promise(r => c.toBlob(r, 'image/jpeg', q));
+    if (blob && blob.size <= FB_MAX_BYTES) {
+      const t = document.createElement('canvas'), tk = 120 / Math.max(c.width, c.height);
+      t.width = Math.round(c.width * tk); t.height = Math.round(c.height * tk); t.getContext('2d').drawImage(c, 0, 0, t.width, t.height);
+      return { blob, thumb: t.toDataURL('image/jpeg', 0.7) };
+    }
+  }
+  throw new Error('呢張相太大，壓唔細');
+}
+async function fbAddFiles(fileList) {
+  const err = document.getElementById('fb-error'); err.style.display = 'none';
+  for (const f of [...fileList]) {
+    if (_fbImgs.length >= FB_MAX_IMGS) { err.textContent = `最多附 ${FB_MAX_IMGS} 張相`; err.style.display = 'block'; break; }
+    if (!f.type.startsWith('image/')) { err.textContent = '淨係可以附圖片'; err.style.display = 'block'; continue; }
+    try { _fbImgs.push(await fbCompress(f)); fbRenderThumbs(); }
+    catch (e) { err.textContent = e.message; err.style.display = 'block'; }
+  }
+}
+function fbRenderThumbs() {
+  const box = document.getElementById('fb-thumbs');
+  box.innerHTML = '';
+  _fbImgs.forEach((im, i) => {
+    const w = document.createElement('div'); w.style.cssText = 'position:relative';
+    const el = document.createElement('img'); el.src = im.thumb; el.alt = ''; el.style.cssText = 'height:64px;border-radius:8px;border:1px solid var(--border);display:block';
+    const x = document.createElement('button'); x.type = 'button'; x.textContent = '✕'; x.title = '移除';
+    x.style.cssText = 'position:absolute;top:-6px;right:-6px;width:20px;height:20px;border-radius:50%;border:none;background:#0f1c2e;color:#fff;font-size:11px;cursor:pointer;line-height:20px;padding:0';
+    x.onclick = () => { _fbImgs.splice(i, 1); fbRenderThumbs(); };
+    w.append(el, x); box.append(w);
+  });
+  document.getElementById('fb-attach-btn').style.display = _fbImgs.length >= FB_MAX_IMGS ? 'none' : '';
+}
+document.getElementById('fb-text')?.addEventListener('paste', (e) => {
+  const imgs = [...(e.clipboardData?.files || [])].filter(f => f.type.startsWith('image/'));
+  if (imgs.length) { e.preventDefault(); fbAddFiles(imgs); }
+});
 function fbCount() {
   document.getElementById('fb-count').textContent = [...document.getElementById('fb-text').value].length + ' / 2000';
 }
@@ -7147,10 +7199,17 @@ async function submitFeedback() {
   if ([...message].length < 5) { err.textContent = '意見太短，請多寫幾個字'; err.style.display = 'block'; return; }
   btn.disabled = true; btn.textContent = '寄緊…';
   try {
-    // context：瀏覽器類型＋畫面闊度，方便重現問題（後端截 300 字）
-    await api('/api/feedback', { method: 'POST', body: JSON.stringify({ category: _fbCat, message,
-      context: `${navigator.userAgent} ・ ${window.innerWidth}px` }) });
-    ta.value = ''; fbCount();
+    // multipart（有相）：唔可以用 api()（佢固定 JSON Content-Type）。context：瀏覽器類型＋畫面闊度，方便重現問題（後端截 300 字）
+    const fd = new FormData();
+    fd.append('category', _fbCat); fd.append('message', message);
+    fd.append('context', `${navigator.userAgent} ・ ${window.innerWidth}px`);
+    _fbImgs.forEach((im, i) => fd.append('images', im.blob, `screenshot-${i + 1}.jpg`));
+    const token = getToken();
+    const res = await fetch(API + '/api/feedback', { method: 'POST', headers: token ? { Authorization: 'Bearer ' + token } : {}, body: fd });
+    if (res.status === 401) { showLoginScreen(); throw new Error('請先登入'); }
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || '寄唔到，遲啲再試下');
+    ta.value = ''; fbCount(); _fbImgs = []; fbRenderThumbs();
     document.getElementById('fb-form').style.display = 'none';
     document.getElementById('fb-done').style.display = '';
   } catch (e) {
