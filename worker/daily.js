@@ -149,14 +149,14 @@ export function renderDailyHtml(h, picks, { appUrl, unsubUrl, iconUrl, prefLabel
 <title>搵樓日記每日通知</title>
 <body style="margin:0;background:#eef6fd;font-family:-apple-system,'PingFang HK','Heiti TC',sans-serif;color:#0f1c2e">
 <div style="max-width:560px;margin:0 auto;padding:18px 14px 30px">
- <table role="presentation" style="border-collapse:collapse"><tr><td style="padding-right:10px"><img src="${esc(iconUrl)}" width="44" height="44" alt="" style="border-radius:10px;display:block"></td><td>
-  <div style="font-size:19px;font-weight:800">🏙️ 每日通知</div><div style="font-size:13px;color:#4f647a">${esc(h.date || "")}</div></td></tr></table>
+ <table role="presentation" style="border-collapse:collapse;width:100%"><tr><td style="padding-right:10px;width:44px"><img src="${esc(iconUrl)}" width="44" height="44" alt="" style="border-radius:10px;display:block"></td><td>
+  <div style="font-size:19px;font-weight:800">🏙️ 每日通知</div><div style="font-size:13px;color:#4f647a">${esc(h.date || "")}</div></td><td style="text-align:right;vertical-align:middle;padding-left:8px"><a href="${esc(appUrl)}" style="background:#1270ac;color:#fff;text-decoration:none;padding:7px 13px;border-radius:999px;font-weight:700;font-size:13px;white-space:nowrap;display:inline-block">打開 app →</a></td></tr></table>
  <div style="background:#1270ac;color:#fff;border-radius:14px;padding:12px 16px;margin:12px 0 4px;font-size:14px;line-height:1.7">${esc(dailyHeadline(h))}</div>
  ${watched.length ? box("❤️ 你睇過嘅盤", watched.join("")) : ""}
  ${picks.length ? box(`✨ 值得留意 <span style="font-weight:400;font-size:12px;color:#4f647a">（${esc(prefLabel)}）</span>`, picks.map((p) => pickRowHtml(p, srcName)).join("")) : ""}
  ${saleRows ? box("🏢 買盤動態", saleRows) : ""}
  ${rentRows ? box("🔑 租盤動態", rentRows) : ""}
- <div style="text-align:center;margin:22px 0 8px"><a href="${esc(appUrl)}" style="background:#1270ac;color:#fff;text-decoration:none;padding:11px 22px;border-radius:999px;font-weight:700">打開搵樓日記睇詳情 →</a></div>
+ <div style="text-align:center;margin:28px 0 38px"><a href="${esc(appUrl)}" style="background:#1270ac;color:#fff;text-decoration:none;padding:11px 22px;border-radius:999px;font-weight:700">打開搵樓日記睇詳情 →</a></div>
  <div style="font-size:11.5px;color:#7a8ca0;text-align:center;line-height:1.7">「值得留意」同 app 嘅抵買雷達一樣：你標咗 ⭐ 最愛嘅屋苑入面，合你睇樓偏好、呎價低過屋苑近期成交中位數最多嘅在售盤。係粗略基準，睇盤前自己覆核。<br>
  唔想收每日 email？<a href="${esc(unsubUrl)}" style="color:#7a8ca0">撳呢度取消訂閱</a>，或者喺 ⚙️ 設定關閉。</div>
 </div></body></html>`;

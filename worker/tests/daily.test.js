@@ -73,3 +73,12 @@ describe("dedupePicks", () => {
     expect(dedupePicks([pick(), pick({ unit: "G室" })])).toHaveLength(2);
   });
 });
+
+describe("email 頂部 app 連結", () => {
+  it("每日通知 header 有「打開 app」掣，喺 headline 之前", () => {
+    const html = renderDailyHtml(fixture(), [pick()], opts);
+    const top = html.indexOf("打開 app →"), headline = html.indexOf("你睇過嘅盤有 1 個變動");
+    expect(top).toBeGreaterThan(0); expect(top).toBeLessThan(headline);
+    expect(html).toContain("margin:28px 0 38px");
+  });
+});
