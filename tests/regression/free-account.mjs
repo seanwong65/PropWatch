@@ -97,6 +97,14 @@ if (mine) {
 }
 for (const id of created) await call("睇樓 刪除", `/api/viewings/${id}`, { method: "DELETE" });
 
+// 座數可以留空（單幢屋苑）：API 照收，唔報錯；前端會用屋苑名補（見 NOTES「座數」）
+const nb = await call("睇樓 新增（冇座數）", "/api/viewings", { method: "POST", body: { estate_id: E, view_date: "2026-10-25", floor: "10", unit: "B", size_net: 400, price: 6000000, notes: "[REGTEST] no block", deal_type: "S" } });
+if (nb?.id) {
+  const lst = await call("睇樓 列表（含冇座數）", "/api/viewings/all");
+  check("冇座數記錄見到、唔爆", !!lst?.viewings?.find((v) => v.id === nb.id));
+  await call("睇樓 刪除（冇座數）", `/api/viewings/${nb.id}`, { method: "DELETE" });
+}
+
 // ── 6. 朋友屋企：免費上限（預設 3，由 /api/config 讀）──
 const cap = cfg.freeMaxFriendHomes ?? 3, have = (await call("朋友屋企 現有", "/api/friend-homes"))?.homes?.length || 0;
 if (have + 1 <= cap) {
