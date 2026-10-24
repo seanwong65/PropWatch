@@ -56,7 +56,7 @@ describe("renderDailyHtml", () => {
     expect(renderDailyHtml(f, [], { ...opts, minMovePct: 0 })).not.toContain("細幅變動");
   });
   it("標題／主旨", () => {
-    expect(dailyHeadline(fixture())).toContain("你留意緊嘅盤有 1 個變動");
+    expect(dailyHeadline(fixture())).toContain("你睇過嘅盤有 1 個變動");
     expect(dailySubject(fixture(), 2)).toContain("2 個值得留意");
     expect(dailySubject({}, 0)).toBe("搵樓日記通知：今日無更新");
   });

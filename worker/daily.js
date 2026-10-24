@@ -48,7 +48,7 @@ export function dailyCounts(h) {
 export function dailyHeadline(h) {
   const c = dailyCounts(h);
   const parts = [];
-  if (c.watched) parts.push(`你留意緊嘅盤有 ${c.watched} 個變動`);
+  if (c.watched) parts.push(`你睇過嘅盤有 ${c.watched} 個變動`);
   if (c.newN) parts.push(`${c.newN} 個新放盤`);
   if (c.price) parts.push(`${c.price} 個變價`);
   if (c.tx) parts.push(`${c.tx} 宗新成交`);
@@ -59,7 +59,7 @@ export function dailyHeadline(h) {
 export const dailySubject = (h, nPicks) => {
   const c = dailyCounts(h);
   const parts = [];
-  if (c.watched) parts.push(`${c.watched} 個留意緊嘅盤有變動`);
+  if (c.watched) parts.push(`${c.watched} 個睇過嘅盤有變動`);
   if (c.newN) parts.push(`${c.newN} 新放盤`);
   if (c.price) parts.push(`${c.price} 變價`);
   if (c.tx) parts.push(`${c.tx} 新成交`);
@@ -152,7 +152,7 @@ export function renderDailyHtml(h, picks, { appUrl, unsubUrl, iconUrl, prefLabel
  <table role="presentation" style="border-collapse:collapse"><tr><td style="padding-right:10px"><img src="${esc(iconUrl)}" width="44" height="44" alt="" style="border-radius:10px;display:block"></td><td>
   <div style="font-size:19px;font-weight:800">🏙️ 每日通知</div><div style="font-size:13px;color:#4f647a">${esc(h.date || "")}</div></td></tr></table>
  <div style="background:#1270ac;color:#fff;border-radius:14px;padding:12px 16px;margin:12px 0 4px;font-size:14px;line-height:1.7">${esc(dailyHeadline(h))}</div>
- ${watched.length ? box("❤️ 你留意緊嘅盤", watched.join("")) : ""}
+ ${watched.length ? box("❤️ 你睇過嘅盤", watched.join("")) : ""}
  ${picks.length ? box(`✨ 值得留意 <span style="font-weight:400;font-size:12px;color:#4f647a">（${esc(prefLabel)}）</span>`, picks.map((p) => pickRowHtml(p, srcName)).join("")) : ""}
  ${saleRows ? box("🏢 買盤動態", saleRows) : ""}
  ${rentRows ? box("🔑 租盤動態", rentRows) : ""}

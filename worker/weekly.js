@@ -208,7 +208,7 @@ export function weeklyHeadline(w) {
   const t = w.totals;
   return `你 ${w.cards.length} 個最愛屋苑本週：新盤 ${t.newN} 個、減價 ${t.cut} 個、新錄得成交 ${t.tx} 宗`
     + (t.gap != null ? `；叫價平均${t.gap >= 0 ? "高" : "低"}過成交 ${Math.abs(t.gap).toFixed(1)}%` : "") + "。"
-    + (w.moves.length ? `你留意緊嘅盤有 ${w.moves.length} 個有變動。` : "");
+    + (w.moves.length ? `你睇過嘅盤有 ${w.moves.length} 個有變動。` : "");
 }
 export const weeklySubject = (w) => `搵樓日記每週摘要（${mdLabel(w.wStart)}–${mdLabel(w.wEnd)}）：${w.totals.newN} 新盤・${w.totals.cut} 減價・${w.totals.tx} 成交`;
 
@@ -233,7 +233,7 @@ export function renderWeeklyHtml(w, { appUrl, unsubUrl, iconUrl, prefLabel = "",
     + `<td style="${TD};text-align:right;white-space:nowrap">${wan(c.from)} → <b>${wan(c.to)}</b><br><span style="color:#15803d;font-weight:700">▼${c.pct.toFixed(1)}%</span></td></tr>`;
   const estRow = (c) => {
     const note = c.gap == null ? "" : c.gap >= 5 ? `叫價高過成交 ${c.gap.toFixed(1)}%，有講價空間` : c.gap <= 1 ? "叫價貼近成交，業主少讓步" : `叫價高過成交 ${c.gap.toFixed(1)}%`;
-    const extra = [c.trend4 != null ? `4 週呎價 ${arrow(c.trend4)}` : null, c.months != null ? `去貨約 ${c.months < 1 ? "<1" : Math.round(c.months)} 個月` : null].filter(Boolean).join("・");
+    const extra = c.trend4 != null ? `4 週呎價 ${arrow(c.trend4)}` : "";   // 去貨月數唔顯示（用戶決定）；c.months 仍然有計，之後要用隨時可以出
     return `<tr><td style="padding:8px 0;border-top:1px solid #edf2f8;vertical-align:top"><b>${esc(c.name)}</b> <span style="font-size:12px">${c.temp}</span><br><span style="color:#7a8ca0;font-size:12.5px">${esc(note)}</span>${extra ? `<br><span style="color:#4f647a;font-size:12.5px">${extra}</span>` : ""}</td>`
       + `<td style="padding:8px 0;border-top:1px solid #edf2f8;text-align:right;font-size:12.5px;line-height:1.6;white-space:nowrap">${c.aNow ? `$${Math.round(c.aNow).toLocaleString("en-US")}/呎 ${arrow(pct(c.aNow, c.aPrev))}` : "-"}<br>放盤 ${c.nNow}・減價 ${c.nCut}・成交 ${c.nTx}</td></tr>`;
   };
@@ -247,10 +247,10 @@ export function renderWeeklyHtml(w, { appUrl, unsubUrl, iconUrl, prefLabel = "",
  <table role="presentation" style="border-collapse:collapse"><tr><td style="padding-right:10px"><img src="${esc(iconUrl)}" width="44" height="44" alt="" style="border-radius:10px;display:block"></td><td>
   <div style="font-size:19px;font-weight:800">📊 每週摘要</div><div style="font-size:13px;color:#4f647a">${mdLabel(w.wStart)} 至 ${mdLabel(w.wEnd)}</div></td></tr></table>
  <div style="background:#1270ac;color:#fff;border-radius:14px;padding:12px 16px;margin:12px 0 4px;font-size:14px;line-height:1.7">${esc(weeklyHeadline(w))}</div>
- ${w.moves.length ? box("❤️ 你留意緊嘅盤：本週有變動", w.moves.map(moveRow).join("")) : ""}
+ ${w.moves.length ? box("❤️ 你睇過嘅盤", w.moves.map(moveRow).join("")) : ""}
  ${w.topCuts.length ? box("📉 本週減價最大", w.topCuts.map(cutRow).join("")) : ""}
  ${budgetBox}
- ${box("🏢 最愛屋苑市況", w.cards.map(estRow).join(""))}
+ ${box("🏢 屋苑市況", w.cards.map(estRow).join(""))}
  ${w.weekTxns.length ? box(`🏠 本週新錄得成交${w.weekTxnTotal > w.weekTxns.length ? `（共 ${w.weekTxnTotal} 宗，列最近 ${w.weekTxns.length} 宗）` : ""}`, w.weekTxns.map(txRow).join("")) : ""}
  <div style="text-align:center;margin:22px 0 8px"><a href="${esc(appUrl)}" style="background:#1270ac;color:#fff;text-decoration:none;padding:11px 22px;border-radius:999px;font-weight:700">打開搵樓日記睇詳情 →</a></div>
  <div style="font-size:11.5px;color:#7a8ca0;text-align:center;line-height:1.7">只計你喺搵樓日記標咗 ⭐ 最愛嘅屋苑。叫價以實用呎價中位數計；成交對比用近 90 日已登記成交。${w.stale.length ? `<br>${esc(w.stale.join("、"))} 嘅放盤數據未更新，今次未計入。` : ""}<br>
