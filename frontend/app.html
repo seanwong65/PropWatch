@@ -2303,8 +2303,8 @@
 
       <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:0.6rem">
         <div>
-          <label class="vf-label">座數<span>*</span></label>
-          <input class="vf-input" type="text" id="vf-block" placeholder="例：3座" required>
+          <label class="vf-label">座數</label>
+          <input class="vf-input" type="text" id="vf-block" placeholder="例：3座（冇座數留空）">
         </div>
         <div>
           <label class="vf-label">樓層<span>*</span></label>
@@ -8104,7 +8104,8 @@ function openViewingModal(viewing = null, readOnly = false) {
   document.querySelector('#viewingModalOverlay .modal-title').textContent = viewing ? (readOnly ? '👁 查看睇樓記錄' : '✏️ 更改睇樓記錄') : '＋ 新增睇樓記錄';
   const today = new Date(Date.now() + 8*3600000).toISOString().slice(0,10);
   document.getElementById('vf-date').value = viewing ? viewing.view_date : today;
-  document.getElementById('vf-block').value = viewing ? (viewing.block || '') : '';
+  // 單幢屋苑冇座數：block 存成屋苑名（見儲存），編輯時唔好將屋苑名當座數顯示出嚟
+  document.getElementById('vf-block').value = viewing ? (String(viewing.block || '') === String(_viewingEstateName || viewing.estate_name || '') ? '' : (viewing.block || '')) : '';
   document.getElementById('vf-floor').value = viewing ? viewing.floor : '';
   document.getElementById('vf-unit').value = viewing ? viewing.unit : '';
   document.getElementById('vf-size').value = viewing ? (viewing.size_net || '') : '';
@@ -8453,7 +8454,7 @@ async function submitViewing(e) {
     const body = {
       estate_id: vfEstId,
       view_date: val('vf-date') || hkTodayStr(),
-      block: document.getElementById('vf-block').value.trim(),
+      block: document.getElementById('vf-block').value.trim() || String(vfEstName || '').trim(),   // 冇座數（單幢屋苑）：用屋苑名，同放盤／成交配對一致
       floor: document.getElementById('vf-floor').value.trim(),
       unit: document.getElementById('vf-unit').value.trim(),
       size_net: parseInt(document.getElementById('vf-size').value) || 0,
