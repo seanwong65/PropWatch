@@ -2618,6 +2618,49 @@ const COMPARE_FEATURES = [   // 按重要性排（最影響升級決定嘅放前
   ['恒生估值', false, true],
   ['對應放盤相片自動存檔', false, true],
 ];
+// 免費版喺睇樓記錄卡直接顯示嘅示範（取代原本一粒鎖頭掣）：同真正「價格尺」（priceRulerHtml）
+// 一樣嘅 class 同版面，但數字全部寫死、同用戶任何數據無關，並且用大字 watermark
+// 標明係示範，免得誤會成佢自己嘅單位。
+function priceRulerSampleHtml() {
+  const lo = 14400, span = 3300;                       // 示範尺 $14.4k – $17.7k
+  const P = x => ((x - lo) / span);
+  const AT  = p => `calc(32px + (100% - 32px) * ${p.toFixed(4)})`;
+  const WID = w => `calc((100% - 32px) * ${w.toFixed(4)})`;
+  const band = (cls, a, m, b) => `<div class="pr-band pr-${cls}" style="left:${AT(P(a))};width:${WID(P(b) - P(a))}"></div>
+      <div class="pr-mid pr-${cls}" style="left:${AT(P(m))}"></div>`;
+  const ruler = `<div class="pr-ruler" style="width:100%;max-width:300px"><div class="pr-zone">
+      <div class="pr-row"><span class="pr-lbl">成交</span><div class="pr-track"></div>${band('sold', 15406, 16035, 16634)}</div>
+      <div class="pr-row"><span class="pr-lbl">在售</span><div class="pr-track"></div>${band('ask', 14827, 16293, 17408)}</div>
+      <div class="pr-needle pr-hs" style="left:${AT(P(15200))}"></div>
+      <div class="pr-needle pr-you" style="left:${AT(P(15400))}"></div>
+      <div class="pr-cap pr-hs" style="left:${AT(0.12)}">估值<span class="v">$15.2k</span></div>
+      <div class="pr-cap pr-you" style="left:${AT(0.42)}">叫價<span class="v">$15.4k</span></div>
+      <div class="pr-axis"><span>$14.4k</span><span>$17.7k</span></div>
+    </div></div>`;
+  const info = `<div class="pr-info" style="border-left:none;padding-left:0;border-top:1px solid var(--border);padding-top:0.5rem">
+      <div style="white-space:nowrap"><span class="vw-kw vw-kw-sold" style="font-weight:600">成交</span> $15,406–$16,634 · 中位 <b>$16,035</b> · 6宗</div>
+      <div style="margin-top:0.3rem;white-space:nowrap"><span class="vw-kw vw-kw-you" style="font-weight:600">叫價</span> $14,827–$17,408 · 中位 <b>$16,293</b> · 23個</div>
+      <div class="vw-verdict" style="background:rgba(52,211,153,0.14);border-left:3px solid var(--up)">
+        <span style="font-size:0.68rem;color:var(--muted);font-weight:600;display:block;margin-bottom:0.1rem">📊 分析</span>
+        <div><span class="gain-pos" style="font-size:0.88rem;font-weight:700">低<span class="vw-kw vw-kw-sold">成交</span>中位數 3.5%</span></div>
+        <div style="margin-top:0.15rem"><span class="gain-pos" style="font-size:0.88rem;font-weight:700">低<span class="vw-kw vw-kw-you">叫價</span>中位數 5.0%</span></div>
+      </div>
+    </div>`;
+  return `<div onclick="showUpgrade('相對市價／類近在售')" role="button" tabindex="0" style="position:relative;border:2px dashed var(--brand);border-radius:var(--radius-lg, 10px);padding:0.7rem 0.8rem 0.8rem;margin-bottom:0.9rem;overflow:hidden;cursor:pointer">
+    <div style="display:flex;align-items:center;gap:0.5rem;margin-bottom:0.5rem">
+      <span style="background:var(--brand);color:#fff;font-weight:800;font-size:0.95rem;letter-spacing:0.12em;padding:0.1rem 0.6rem;border-radius:4px">SAMPLE 示範</span>
+      <span style="font-size:0.74rem;color:var(--muted)">示範數據，唔係你嘅單位</span>
+    </div>
+    <div style="opacity:0.92">
+      <div style="font-size:0.78rem;font-weight:700;margin-bottom:0.4rem">價格尺：一眼睇你嘅叫價貴定平</div>
+      <div class="pr-flex" style="flex-direction:column;gap:0.6rem">${ruler}${info}</div>
+    </div>
+    <div aria-hidden="true" style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;pointer-events:none;
+      font-size:3.4rem;font-weight:900;letter-spacing:0.2em;color:var(--brand);opacity:0.16;transform:rotate(-12deg);white-space:nowrap">SAMPLE</div>
+    <button type="button" style="margin-top:0.7rem;background:var(--brand);color:#fff;border:none;border-radius:999px;font-weight:700;font-size:0.88rem;padding:0.4rem 0.95rem;cursor:pointer">⭐ 升級收費版，睇你自己單位嘅價格尺</button>
+  </div>`;
+}
+
 let _cmpIv = 'year';
 function cmpPick(iv) { _cmpIv = iv; const el = document.getElementById('cmpBuy'); if (el) el.innerHTML = cmpBuyInner(); }
 function cmpCell(v) {
