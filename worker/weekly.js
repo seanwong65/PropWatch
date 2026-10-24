@@ -58,7 +58,7 @@ export async function loadWeeklyInputs(db, accountId, wEnd, prefs) {
   });
   const listings = conds.length ? (await db.prepare(
     `SELECT estate_id, snapshot_date AS d, source, ref_no, building_name AS b, floor AS f, unit AS u, bedrooms AS beds,
-            size_net AS s, price AS p, price_per_ft AS psf
+            size_net AS s, price AS p, price_per_ft AS psf, detail_url AS url
      FROM listings WHERE ${conds.join(" OR ")}`).all()).results : [];
   const txnFrom = addDays(wEnd, -90);
   const txns = (await db.prepare(
@@ -77,6 +77,7 @@ export async function loadWeeklyInputs(db, accountId, wEnd, prefs) {
 export function computeWeekly(inp) {
   if (!inp.favourites.length) return { status: "skip", reason: "no_favourites" };
   const { wStart, wEnd, snap, listings, txns, txnFrom, favListings, viewings } = inp;
+  const prefs = inp.prefs || {};
   const name = Object.fromEntries(inp.favourites.map((e) => [e.id, e.name]));
 
   // 過期嘅屋苑唔計
@@ -101,6 +102,18 @@ export function computeWeekly(inp) {
   const prevPrice = {};   // ref_no → 上週嗰份 snapshot 嘅價（俾「你留意緊嘅盤」比較用）
   for (const r of listings) if (snap[r.estate_id] && r.d === snap[r.estate_id].prevD) prevPrice[r.ref_no] = r.p;
 
+  // 睇樓偏好（跟每日 email 一樣：價錢單位萬、房數 '1'..'4+'、實用呎）
+  const prefsUsable = !!(prefs.price_min || prefs.price_max || prefs.beds || prefs.size_min || prefs.size_max);
+  const prefOk = (r) => {
+    if (prefs.price_max && r.p > prefs.price_max * 1e4) return false;
+    if (prefs.price_min && r.p < prefs.price_min * 1e4) return false;
+    if (prefs.beds && r.beds != null && (prefs.beds === "4+" ? r.beds < 4 : String(r.beds) !== String(prefs.beds))) return false;
+    if (prefs.size_min && r.s != null && r.s < prefs.size_min) return false;
+    if (prefs.size_max && r.s != null && r.s > prefs.size_max) return false;
+    return true;
+  };
+  const cutRows = [];                    // 本週減價（逐個盤）
+  let budgetNow = 0, budgetPrev = 0, budgetPrevOk = true;
   const cards = [];
   for (const e of fresh) {
     const { nowD, prevD, m4D } = snap[e.id];
@@ -119,18 +132,21 @@ export function computeWeekly(inp) {
       if (!both.has(r.source)) continue;
       const pv = mPrev.get(ref);
       if (!pv) newN++;
-      else if (r.p && pv.p && r.p < pv.p) cuts.push((pv.p - r.p) / pv.p * 100);
+      else if (r.p && pv.p && r.p < pv.p) { cuts.push((pv.p - r.p) / pv.p * 100); cutRows.push({ eid: e.id, name: e.name, r, from: pv.p, to: r.p, pct: (pv.p - r.p) / pv.p * 100 }); }
     }
     for (const [ref, r] of mPrev) if (both.has(r.source) && !mNow.has(ref)) removed++;
     const refsNow = new Set(mNow.keys());
     const cutRatio = refsNow.size ? cuts.length / refsNow.size * 100 : 0;
     const sup = prevD ? pct(now.length, prev.length) : null;
+    if (prefsUsable) { budgetNow += now.filter(prefOk).length; if (prevD) budgetPrev += prev.filter(prefOk).length; else budgetPrevOk = false; }
+    const tx30 = txns.filter((t) => t.estate_id === e.id && (t.reg_date || "") >= addDays(wEnd, -30)).length;
     const trend4 = pct(aNow, aM4);
     const bp = +((gap ?? 0) >= 5) + +(cutRatio >= 5) + +((sup ?? 0) >= 5) + +((trend4 ?? 0) <= -1);
     const sp = +(gap != null && gap <= 1) + +(cutRatio < 2) + +((sup ?? 0) <= -5) + +((trend4 ?? 0) >= 1);
     const temp = bp - sp >= 2 ? "🥶" : sp - bp >= 2 ? "🔥" : "😐";
     cards.push({ eid: e.id, name: e.name, nNow: now.length, aNow, aPrev: prevD ? aPrev : null, tMed, gap,
       nCut: cuts.length, nTx: txw.length, nNew: newN, nRemoved: removed, temp, hasPrev: !!prevD,
+      trend4: m4D ? trend4 : null, months: tx30 ? now.length / tx30 : null,
       activity: cuts.length + txw.length + newN + removed });
   }
 
@@ -162,7 +178,17 @@ export function computeWeekly(inp) {
   const totTx = cards.reduce((s, c) => s + c.nTx, 0), totCut = cards.reduce((s, c) => s + c.nCut, 0), totNew = cards.reduce((s, c) => s + c.nNew, 0);
   const gapMed = median(cards.map((c) => c.gap).filter((g) => g != null));
   cards.sort((a, b) => b.activity - a.activity);
-  return { status: "ok", wStart, wEnd, cards, moves, stale,
+  // 📉 本週減價最大 Top 3（合偏好）
+  const topCuts = cutRows.filter((x) => !prefsUsable || prefOk(x.r)).sort((a, b) => b.pct - a.pct).slice(0, 3)
+    .map((x) => ({ eid: x.eid, name: x.name, label: [x.r.b, x.r.f, x.r.u].filter(Boolean).join(" "), from: x.from, to: x.to, pct: x.pct, size: x.r.s, beds: x.r.beds, url: x.r.url, source: x.r.source }));
+  // 🏠 本週新錄得成交（近 90 日登記）逐宗，同該屋苑叫價呎價中位比
+  const aNowBy = Object.fromEntries(cards.map((c) => [c.eid, c.aNow]));
+  const wkTx = txns.filter((t) => (t.first_seen || "") >= wStart && (t.reg_date || "") >= txnFrom && fresh.some((e) => e.id === t.estate_id))
+    .sort((a, b) => String(b.reg_date).localeCompare(String(a.reg_date)));
+  const weekTxns = wkTx.slice(0, 8).map((t) => ({ eid: t.estate_id, name: name[t.estate_id], label: [t.b, t.f, t.u].filter(Boolean).join(" "), p: t.p, psf: t.psf, reg: t.reg_date,
+    vs: t.psf && aNowBy[t.estate_id] ? (t.psf / aNowBy[t.estate_id] - 1) * 100 : null }));
+  const budget = prefsUsable ? { now: budgetNow, delta: budgetPrevOk ? budgetNow - budgetPrev : null } : null;
+  return { status: "ok", wStart, wEnd, cards, moves, topCuts, weekTxns, weekTxnTotal: wkTx.length, budget, stale,
     totals: { tx: totTx, cut: totCut, newN: totNew, gap: gapMed },
     name };
 }
@@ -196,17 +222,24 @@ export const pickRowHtml = (p, srcName = () => "") => `<tr><td style="${TD}">${e
       .map((l) => `<br><a href="${safeHref(l.url)}" style="color:#1270ac;font-size:12px;text-decoration:none">${esc(srcName(l.source))} ↗</a>`).join("")
   + `</td></tr>`;
 
-export function renderWeeklyHtml(w, { appUrl, unsubUrl, iconUrl, picks = [], prefLabel = "", srcName = () => "" }) {
+export function renderWeeklyHtml(w, { appUrl, unsubUrl, iconUrl, prefLabel = "", srcName = () => "" }) {
   const moveRow = (m) => {
     const nm = w.name[m.eid] || "";
     const txt = m.kind === "gone" ? '<span style="color:#cf2020;font-weight:700">已下架</span>' : `${wan(m.from)} → <b>${wan(m.to)}</b> ${arrow(m.ch)}`;
     return `<tr><td style="${TD}">${m.icon} ${esc(nm)} ${esc(m.label)}</td><td style="${TD};text-align:right;white-space:nowrap">${txt}</td></tr>`;
   };
+  const link = (u, src) => (/^https:\/\//i.test(String(u || "")) ? ` <a href="${esc(u)}" style="color:#1270ac;font-size:12px;text-decoration:none">${esc(srcName(src))} ↗</a>` : "");
+  const cutRow = (c) => `<tr><td style="${TD}">${esc(c.name)} ${esc(c.label)}<br><span style="color:#7a8ca0;font-size:12.5px">${Math.round(c.size || 0)}呎${c.beds != null ? `・${esc(c.beds)}房` : ""}${link(c.url, c.source)}</span></td>`
+    + `<td style="${TD};text-align:right;white-space:nowrap">${wan(c.from)} → <b>${wan(c.to)}</b><br><span style="color:#15803d;font-weight:700">▼${c.pct.toFixed(1)}%</span></td></tr>`;
   const estRow = (c) => {
     const note = c.gap == null ? "" : c.gap >= 5 ? `叫價高過成交 ${c.gap.toFixed(1)}%，有講價空間` : c.gap <= 1 ? "叫價貼近成交，業主少讓步" : `叫價高過成交 ${c.gap.toFixed(1)}%`;
-    return `<tr><td style="padding:8px 0;border-top:1px solid #edf2f8;vertical-align:top"><b>${esc(c.name)}</b> <span style="font-size:12px">${c.temp}</span><br><span style="color:#7a8ca0;font-size:12.5px">${esc(note)}</span></td>`
+    const extra = [c.trend4 != null ? `4 週呎價 ${arrow(c.trend4)}` : null, c.months != null ? `去貨約 ${c.months < 1 ? "<1" : Math.round(c.months)} 個月` : null].filter(Boolean).join("・");
+    return `<tr><td style="padding:8px 0;border-top:1px solid #edf2f8;vertical-align:top"><b>${esc(c.name)}</b> <span style="font-size:12px">${c.temp}</span><br><span style="color:#7a8ca0;font-size:12.5px">${esc(note)}</span>${extra ? `<br><span style="color:#4f647a;font-size:12.5px">${extra}</span>` : ""}</td>`
       + `<td style="padding:8px 0;border-top:1px solid #edf2f8;text-align:right;font-size:12.5px;line-height:1.6;white-space:nowrap">${c.aNow ? `$${Math.round(c.aNow).toLocaleString("en-US")}/呎 ${arrow(pct(c.aNow, c.aPrev))}` : "-"}<br>放盤 ${c.nNow}・減價 ${c.nCut}・成交 ${c.nTx}</td></tr>`;
   };
+  const txRow = (t) => `<tr><td style="${TD}">${esc(t.name)} ${esc(t.label)}<br><span style="color:#7a8ca0;font-size:12.5px">成交 ${esc(t.reg || "-")}${t.psf ? `・$${Math.round(t.psf).toLocaleString("en-US")}/呎` : ""}</span></td>`
+    + `<td style="${TD};text-align:right;white-space:nowrap"><b>${wan(t.p)}</b>${t.vs != null ? `<br><span style="font-size:12px;color:#4f647a">比叫價中位 ${t.vs >= 0 ? "高" : "低"} ${Math.abs(t.vs).toFixed(1)}%</span>` : ""}</td></tr>`;
+  const budgetBox = w.budget ? `<div style="background:#fff;border:1px solid #dde8f3;border-radius:14px;padding:10px 14px;margin-top:12px;font-size:13.5px;color:#22344a">🎯 你預算內嘅盤（${esc(prefLabel)}）：<b>${w.budget.now} 個</b>${w.budget.delta != null ? `，較上週 ${w.budget.delta > 0 ? `<span style="color:#15803d;font-weight:700">+${w.budget.delta}</span>` : w.budget.delta < 0 ? `<span style="color:#cf2020;font-weight:700">${w.budget.delta}</span>` : "冇變"}` : ""}</div>` : "";
   return `<!doctype html><html lang="zh-HK"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>搵樓日記每週摘要</title>
 <body style="margin:0;background:#eef6fd;font-family:-apple-system,'PingFang HK','Heiti TC',sans-serif;color:#0f1c2e">
@@ -215,8 +248,10 @@ export function renderWeeklyHtml(w, { appUrl, unsubUrl, iconUrl, picks = [], pre
   <div style="font-size:19px;font-weight:800">📊 每週摘要</div><div style="font-size:13px;color:#4f647a">${mdLabel(w.wStart)} 至 ${mdLabel(w.wEnd)}</div></td></tr></table>
  <div style="background:#1270ac;color:#fff;border-radius:14px;padding:12px 16px;margin:12px 0 4px;font-size:14px;line-height:1.7">${esc(weeklyHeadline(w))}</div>
  ${w.moves.length ? box("❤️ 你留意緊嘅盤：本週有變動", w.moves.map(moveRow).join("")) : ""}
- ${picks.length ? box(`✨ 值得留意 <span style="font-weight:400;font-size:12px;color:#4f647a">（${esc(prefLabel)}）</span>`, picks.map((p) => pickRowHtml(p, srcName)).join("")) : ""}
+ ${w.topCuts.length ? box("📉 本週減價最大", w.topCuts.map(cutRow).join("")) : ""}
+ ${budgetBox}
  ${box("🏢 最愛屋苑市況", w.cards.map(estRow).join(""))}
+ ${w.weekTxns.length ? box(`🏠 本週新錄得成交${w.weekTxnTotal > w.weekTxns.length ? `（共 ${w.weekTxnTotal} 宗，列最近 ${w.weekTxns.length} 宗）` : ""}`, w.weekTxns.map(txRow).join("")) : ""}
  <div style="text-align:center;margin:22px 0 8px"><a href="${esc(appUrl)}" style="background:#1270ac;color:#fff;text-decoration:none;padding:11px 22px;border-radius:999px;font-weight:700">打開搵樓日記睇詳情 →</a></div>
  <div style="font-size:11.5px;color:#7a8ca0;text-align:center;line-height:1.7">只計你喺搵樓日記標咗 ⭐ 最愛嘅屋苑。叫價以實用呎價中位數計；成交對比用近 90 日已登記成交。${w.stale.length ? `<br>${esc(w.stale.join("、"))} 嘅放盤數據未更新，今次未計入。` : ""}<br>
  唔想收每週摘要？<a href="${esc(unsubUrl)}" style="color:#7a8ca0">撳呢度取消</a>，或者喺 ⚙️ 設定熄咗「每週摘要」。</div>

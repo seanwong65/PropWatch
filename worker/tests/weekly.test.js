@@ -7,7 +7,7 @@ const base = () => ({
   wStart: "2026-10-18", wEnd: "2026-10-24", txnFrom: "2026-07-26",
   snap: { 1: { nowD: "2026-10-24", prevD: "2026-10-17", m4D: null } },
   listings: [
-    { estate_id: 1, d: "2026-10-24", source: "centanet", ref_no: "A", b: "8座", f: "10樓", u: "H室", beds: 2, s: 500, p: 7850000, psf: 15700 },
+    { estate_id: 1, d: "2026-10-24", source: "centanet", ref_no: "A", b: "8座", f: "10樓", u: "H室", beds: 2, s: 500, p: 7850000, psf: 15700, url: "https://hk.centanet.com/x" },
     { estate_id: 1, d: "2026-10-24", source: "centanet", ref_no: "B", b: "3座", f: "5樓", u: "A室", beds: 2, s: 480, p: 7000000, psf: 14583 },
     { estate_id: 1, d: "2026-10-17", source: "centanet", ref_no: "A", b: "8座", f: "10樓", u: "H室", beds: 2, s: 500, p: 7980000, psf: 15960 },
     { estate_id: 1, d: "2026-10-17", source: "centanet", ref_no: "C", b: "1座", f: "2樓", u: "B室", beds: 2, s: 450, p: 6500000, psf: 14444 },
@@ -34,6 +34,15 @@ describe("computeWeekly", () => {
     expect(kinds).toEqual({ A: "price", C: "gone" });
     expect(w.moves.find((m) => m.ref === "A").ch).toBeCloseTo(-1.63, 1);
   });
+  it("本週減價最大、預算內盤數、新成交一覽", () => {
+    const w = computeWeekly(base());
+    expect(w.topCuts.map((c) => c.label)).toEqual(["8座 10樓 H室"]);
+    expect(w.topCuts[0].pct).toBeCloseTo(1.63, 1);
+    expect(w.budget).toEqual({ now: 2, delta: 0 });          // 2房、≤800萬：本週 A、B；上週 A、C
+    expect(w.weekTxnTotal).toBe(1);
+    expect(w.weekTxns[0]).toMatchObject({ label: "1座 3樓 A室", p: 7000000 });
+    expect(w.weekTxns[0].vs).toBeCloseTo((16000 / w.cards[0].aNow - 1) * 100, 5);
+  });
   it("冇上週 snapshot → 唔扮有比較（aPrev null）", () => {
     const i = base(); i.snap[1].prevD = null;
     const c = computeWeekly(i).cards[0];
@@ -44,13 +53,12 @@ describe("computeWeekly", () => {
 describe("renderWeeklyHtml", () => {
   it("動態字串全部 escape", () => {
     const w = computeWeekly(base());
-    const picks = [{ name: "泓景臺<b>", label: "6座 低層 B室", price: 7580000, size: 473, beds: 2, reasons: ["呎價低過屋苑成交中位 9%"], url: "https://hk.centanet.com/x", source: "centanet" },
-      { name: "X", label: "Y", price: 1, size: 1, beds: 1, reasons: [], url: "javascript:alert(1)", source: "midland" }];
     const html = renderWeeklyHtml(w, { appUrl: "https://x/app", unsubUrl: "https://x/u?a=1&kind=weekly", iconUrl: "https://x/i.png",
-      picks, prefLabel: "2房、$800萬以下", srcName: (s) => ({ centanet: "中原" }[s] || s) });
-    expect(html).toContain("中原 ↗");                    // 值得留意有連結，顯示來源網站
-    expect(html).not.toContain("javascript:");           // 非 https 連結一律唔出
-    expect(html).toContain("泓景臺&lt;b&gt;");           // 屋苑名 escape
+      prefLabel: "2房、$800萬以下", srcName: (s) => ({ centanet: "中原" }[s] || s) });
+    expect(html).toContain("中原 ↗");                    // 減價 Top 3 有連結，顯示來源網站
+    expect(html).not.toContain("<img src=x");            // 屋苑名 escape
+    expect(html).toContain("&lt;img src=x");
+    expect(html).not.toContain("值得留意");               // 已由每日 email 獨佔
     expect(html).not.toContain("<img src=x");
     expect(html).toContain("&lt;img src=x");
     expect(html).toContain("kind=weekly");
