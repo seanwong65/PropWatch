@@ -1251,7 +1251,10 @@
     .lc-badges { display: flex; gap: 0.35rem 0.5rem; flex-wrap: wrap; margin-top: auto; padding-top: 0.3rem; align-items: center; }
     .lc-src { font-size: 0.72rem; white-space: nowrap; }
     .lc-sub { font-size: 0.72rem; color: var(--muted); }
-    .lc-lock { cursor: pointer; }
+    /* 上盤日期 🔒：要似個掣（藍色小膠囊），唔好同旁邊文字一樣 */
+    .lc-lock { cursor: pointer; display: inline-flex; align-items: center; gap: 0.2rem; font-size: 0.72rem; font-weight: 600; color: var(--brand);
+               background: var(--brand-soft); border: 1px solid var(--brand); border-radius: 999px; padding: 0.05rem 0.55rem; line-height: 1.5; }
+    .lc-lock:hover { background: var(--brand); color: var(--brand-ink, #fff); }
     /* 合併行喺表格度係一抹綠底，卡片跟返同一個訊號 */
     .lc-combined { background: rgba(28,158,232,0.07); }
     .lc-actions { display: flex; gap: 0.3rem; flex-wrap: wrap; padding-top: 0.4rem; }
@@ -2598,22 +2601,23 @@ const isPaid = () => _tier === 'paid';
 
 // 免費／收費對比表：[功能, 免費, 收費]。true／false＝✓／✗；字串＝直接顯示（{n}＝免費版屋苑上限）。
 // 分界線同 server 端 gate 一致（見 project_propwatch_tiers）：今日 snapshot＋成交＋睇樓記錄免費，時間軸／推送／分析收費。
+let _freeMaxFriends = 3;   // /api/config 帶返
 const COMPARE_FEATURES = [
   ['四網放盤搜尋', true, true],
   ['放盤列表、成交記錄', true, true],
   ['睇樓記錄', true, true],
-  ['追蹤屋苑', '{n} 個', '更多'],
+  ['追蹤屋苑', '{n} 個', '10+'],
   ['放盤時間軸（日數、改價、下架）', false, true],
   ['呎價走勢圖', false, true],
   ['心儀樓盤改價記錄', false, true],
   ['Email＋Telegram 推送', false, true],
-  ['抵買雷達、估值', false, true],
-  ['朋友屋企監察', false, true],
+  ['相對市價、估值', false, true],
+  ['朋友屋企', '{f} 個', '更多'],
 ];
 let _cmpIv = 'year';
 function cmpPick(iv) { _cmpIv = iv; const el = document.getElementById('cmpBuy'); if (el) el.innerHTML = cmpBuyInner(); }
 function cmpCell(v) {
-  if (typeof v === 'string') return `<span class="nt">${escHtml(v.replace('{n}', _freeMaxEstates))}</span>`;
+  if (typeof v === 'string') return `<span class="nt">${escHtml(v.replace('{n}', _freeMaxEstates).replace('{f}', _freeMaxFriends))}</span>`;
   return v ? '<span class="ok">✓</span>' : '<span class="no">✗</span>';
 }
 // 價錢＋升級掣（年／月切換）：價錢載到先出
@@ -3162,14 +3166,7 @@ function switchDashTab(tab) {
   if (histBtn) histBtn.style.display = tab === 'today' ? '' : 'none';
   if (tab === 'today' && !_todayLoaded) loadTodayHighlights();
   // 免費版：分析／朋友屋企 tab 照見到（唔收埋），撳入去見個鎖 + 升級。
-  const LOCKED_DASH_TABS = {
-    friends:['朋友屋企', '記低朋友／自己住邊個單位，自動追成交、估值、相對市價'],
-  };
-  if (!isPaid() && LOCKED_DASH_TABS[tab]) {
-    const panel = document.getElementById('dash-panel-' + tab);
-    if (panel) panel.innerHTML = lockPanel(...LOCKED_DASH_TABS[tab]);
-    return;
-  }
+  // 朋友屋企 2026-10-24 起免費版都可用（有數量上限，後端控制）；暫時冇鎖住嘅 tab。
   if (tab === 'comps' && !_compsLoaded) { _compsLoaded = true; loadViewingComps(); }
   // 抵買雷達 tab 暫時隱藏（每次載入食 D1 額度）；想恢復：拿走 #dash-tab-radar 嘅 hidden／display:none 同下面呢行嘅 `false &&`。
   if (false && tab === 'radar' && !_radarLoaded) { _radarLoaded = true; loadBargainRadar(); }
@@ -4787,7 +4784,7 @@ let _cfgGroup = '全部';   // 設定 modal 揀緊嘅分類
 let _userRole = 'user';   // 'admin' 先可以改「分析參數」；一般 user 得睇樓偏好
 async function loadAppConfig() {
   try {
-    const { items, groups, role, tier, freeMaxEstates, maxViewingImgs } = await api('/api/config');
+    const { items, groups, role, tier, freeMaxEstates, freeMaxFriendHomes, maxViewingImgs } = await api('/api/config');
     _cfgDefs = items || [];
     _cfgGroups = groups || [];
     _appCfg = Object.fromEntries(_cfgDefs.map(d => [d.key, d.value]));
@@ -4795,6 +4792,7 @@ async function loadAppConfig() {
     const tierChanged = !!tier && tier !== _tier;
     if (tier) _tier = tier;
     if (freeMaxEstates) _freeMaxEstates = freeMaxEstates;
+    if (freeMaxFriendHomes) _freeMaxFriends = freeMaxFriendHomes;
     _maxViewingImgs = maxViewingImgs ?? null;
     applyRoleToSettings();
     applyTierToChrome();
