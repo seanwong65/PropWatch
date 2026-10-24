@@ -464,3 +464,9 @@ drip sync（`*/2`）同樣被雙重觸發：兩個 invocation 同時揀同一批
   D1 read replication（要改用 Sessions API＋處理寫後讀一致）、authenticate session 短 cache（令登出／降級遲幾秒生效）。
 - **Schema 版本閘**（`SCHEMA_VERSION` ＋ `settings.schema_version`）：cold isolate 之前要行 ~45 條 DDL（≈7 秒），而家版本一樣就全部跳過（cold 只多 1 次往返）。
   ⚠️ **加／改任何 `ensure*`（新表／欄／index）一定要 bump `SCHEMA_VERSION`**，否則 production 唔會行嗰段 DDL。`onceDb`／`ddlOnce` 要放喺檔案頂（module 載入時已經會用）。
+
+## 免費版恒生估值試用（2026-10-25）
+- 免費用戶終身 `sec_free_hs_trials`（預設 1）次，**只可以喺自己睇樓記錄詳情撳「試用估值」先查**（唔自動；收費版先有自動查／成交表查／歷史）。
+- Server：`GET /api/hangseng-valuation?…&trial=<viewing id>`。驗 viewing 係自己嘅＋座／層／室同 estateId 一致，之後 `settings.hs_trial_<accountId>`（已用次數）用 UPDATE 條件原子搶名額；查唔到數據（404／throw）退返次數；成功寫 `hs_trial_at_<accountId>`（時間，之後可以睇試用後幾耐升級）。
+- `/api/config` 回 `hsTrialCap`／`hsTrialsLeft`；前端 `_hsTrialsLeft`，用完自動變 🔒；升級對比表「恒生估值」免費欄顯示「試用 N 次」。
+- 重設某帳戶次數：`UPDATE settings SET value='0' WHERE key='hs_trial_<id>'`。

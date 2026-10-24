@@ -51,6 +51,10 @@ for (const [n, p] of [["trends", `/api/estates/${E}/trends`], ["rental-trends", 
   ["hangseng-valuation", "/api/hangseng-valuation"], ["hangseng-valuation-history", "/api/hangseng-valuation-history"], ["history-highlights", "/api/history-highlights"],
   ["viewings/comps", "/api/viewings/comps"], ["bargain-radar", "/api/bargain-radar"], ["estate-comps", "/api/estate-comps"], ["listing history", "/api/listings/ABC123/history"]])
   await call("402 " + n, p, { expect: [402] });
+// 恒生估值：免費版只有「試用」（?trial=自己嘅睇樓記錄 id，server 驗單位＋計次數）。呢度只測唔會消耗次數嘅部分。
+await call("402 恒生估值 無 trial", `/api/hangseng-valuation?estate=x&estateId=${E}&block=1&floor=1&flat=A`, { expect: [402] });
+await call("402 恒生估值 trial 唔屬於自己", `/api/hangseng-valuation?estate=x&estateId=${E}&block=1&floor=1&flat=A&trial=99999999`, { expect: [402] });
+check("config 有試用次數欄位", typeof cfg.hsTrialCap === "number" && typeof cfg.hsTrialsLeft === "number");
 await call("402 adv-search 放盤日數", "/api/adv-search", { method: "POST", body: { deal: "S", dom_min: 30 }, expect: [402] });
 const L = await call("listings（收費欄位）", `/api/estates/${E}/listings`);
 check("免費 listings tierLimited", L?.tierLimited === true);
