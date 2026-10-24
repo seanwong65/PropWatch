@@ -494,14 +494,11 @@ const MC_FORM_HTML = `
 
 <div id="mc-out" style="margin-top:1rem"></div>
 
-<p style="font-size:0.72rem;color:var(--muted);margin:1rem 0 0;line-height:1.5">
-  印花稅按稅務局 2026-02-26 起嘅稅階計；按揭成數同保費按按證保險現行規定
-  （保費表 2024 年 10 月版，取「浮息＋一次過付清」）。SSD／BSD／NRSD 已經
-  喺 2024-02-28 撤銷，壓力測試亦喺 2025-02-28 取消，所以呢度唔會再計。
-  律師費同代理佣金冇官方公價，上面兩格可以改成你收到嘅報價。花紅計法
-  （兩年平均封頂底薪 3 倍）同「出租封 7 成」都係市場慣例，唔係監管
-  規定，各行做法唔一樣。實際批核以銀行為準。
-</p>
+<ul style="font-size:0.74rem;color:var(--muted);margin:1rem 0 0;padding-left:1.1rem;line-height:1.6">
+  <li><b style="color:var(--text)">印花稅</b>按 2026-02-26 起稅階；<b style="color:var(--text)">按揭成數／保費</b>按按證保險現行規定。</li>
+  <li>SSD／BSD／NRSD、壓力測試已取消，<b style="color:var(--text)">唔再計</b>。</li>
+  <li>律師費、佣金可自己改；花紅、租金計法係市場慣例。<b style="color:var(--text)">實際批核以銀行為準。</b></li>
+</ul>
 `;
 function mountMortgageForm(hostId = "mc-form-host") {
   const host = document.getElementById(hostId);
