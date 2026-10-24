@@ -465,11 +465,13 @@ drip sync（`*/2`）同樣被雙重觸發：兩個 invocation 同時揀同一批
 - **Schema 版本閘**（`SCHEMA_VERSION` ＋ `settings.schema_version`）：cold isolate 之前要行 ~45 條 DDL（≈7 秒），而家版本一樣就全部跳過（cold 只多 1 次往返）。
   ⚠️ **加／改任何 `ensure*`（新表／欄／index）一定要 bump `SCHEMA_VERSION`**，否則 production 唔會行嗰段 DDL。`onceDb`／`ddlOnce` 要放喺檔案頂（module 載入時已經會用）。
 
-## 免費版恒生估值試用（2026-10-25）
-- 免費用戶終身 `sec_free_hs_trials`（預設 1）次，**只可以喺自己睇樓記錄詳情撳「試用估值」先查**（唔自動；收費版先有自動查／成交表查／歷史）。
-- Server：`GET /api/hangseng-valuation?…&trial=<viewing id>`。驗 viewing 係自己嘅＋座／層／室同 estateId 一致，之後 `settings.hs_trial_<accountId>`（已用次數）用 UPDATE 條件原子搶名額；查唔到數據（404／throw）退返次數；成功寫 `hs_trial_at_<accountId>`（時間，之後可以睇試用後幾耐升級）。
-- `/api/config` 回 `hsTrialCap`／`hsTrialsLeft`；前端 `_hsTrialsLeft`，用完自動變 🔒；升級對比表「恒生估值」免費欄顯示「試用 N 次」。
-- 重設某帳戶次數：`UPDATE settings SET value='0' WHERE key='hs_trial_<id>'`。
+## 免費版恒生估值試查（2026-10-25，用戶改為「每個盤查一次」）
+- 免費用戶：**每個單位手動查一次**（睇樓記錄詳情「試查估值（每盤 1 次）」，撳先有確認框）；**查到定查唔到都算一次**，之後唔再俾查。唔自動查（收費版先有自動：儲存睇樓後、今日動態）。
+- 記錄喺 `hs_free_tries(account_id, estate_id, unit_key, result)`，PK 即係原子鎖；`unit_key` 由睇樓記錄座／層／室砌（`hsUnitKey`），所以刪咗再加同一單位唔會重置。`result`：`ok`／`nodata`。我哋自己出錯（throw）先退返（刪 row）。
+- 另有帳戶總上限 `sec_free_hs_trials`（預設 20，防農場；超出 402 唔記錄）。⚠️ getSecCfg 有 60 秒 isolate cache，改設定最多遲 60 秒。
+- Server：`GET /api/hangseng-valuation?…&trial=<viewing id>` 驗 viewing 係自己＋單位一致；`/api/viewings*`（免費）回 `hs_tried`（null／ok／nodata）；`/api/config` 回 `hsTrialCap`、`hsTrialsLeft`（總上限仲剩幾多）。
+- 前端：有 `hs_price` 顯示估值；`hs_tried` 且冇價 →「查無資料（免費版每盤查一次，已用）」；總上限用完 →「估值 🔒」；對比表免費欄「每盤試 1 次」、收費欄「自動查」。
+- 加咗新表 → `SCHEMA_VERSION` 已 bump 到 2026-10-25b。
 
 ## 座數（睇樓記錄）可留空（2026-10-25）
 - 單幢屋苑冇座數。表單座數可選；**留空儲存時前端用屋苑名做 `block`**（production 已有 5 條咁嘅記錄，顯示會隱藏同屋苑名一樣嘅 block；放盤配對用 `building_name`＝屋苑名）。
