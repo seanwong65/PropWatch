@@ -48,15 +48,28 @@ export async function ensureEstateStats(db) {
 }
 
 const SNAP_COLS = "l.source, l.snapshot_date AS d, l.ref_no, l.building_name AS b, l.floor AS f, l.unit AS u, l.size_net AS s, l.price AS p, l.price_per_ft AS psf";
-export async function computeEstateStats(db, estateId) {
+const isoDate = (d) => /^\d{4}-\d{2}-\d{2}$/.test(String(d || ""));
+const addDays = (d, n) => new Date(Date.parse(d + "T00:00:00Z") + n * DAY).toISOString().slice(0, 10);
+// ⚠️ 效能（2026-10-24 教訓）：唔好寫 `snapshot_date = (SELECT MAX(snapshot_date) ... WHERE source = l.source)` 呢種 correlated subquery
+// ——SQLite 會逐行（屋苑全部歷史 snapshot ~1.5–3 萬行）計一次，一次重算食 ~2 萬 rows read；24 個屋苑一刷就過百萬。
+// 改為：每個 source 用 scalar subquery 各 seek 一次 MAX（走 idx_listings_estate_src_date），再用「確實日期」攞嗰日嗰批 rows。
+// `sources` 由 caller 傳入（index.js 嘅 SOURCES），做 SQL literal 前一定驗證係 [a-z]+。
+export async function computeEstateStats(db, estateId, sources) {
   const id = Number(estateId);
-  const now = (await db.prepare(
+  const srcs = sources.filter((x) => /^[a-z]+$/.test(x));
+  const latestRow = await db.prepare(
+    `SELECT ${srcs.map((x, i) => `(SELECT MAX(snapshot_date) FROM listings WHERE estate_id = ?1 AND source = '${x}') AS d${i}`).join(", ")}`).bind(id).first();
+  const latest = srcs.map((x, i) => [x, latestRow?.[`d${i}`]]).filter(([, d]) => isoDate(d));
+  if (!latest.length) return null;
+  const prevRow = await db.prepare(
+    `SELECT ${latest.map(([x], i) => `(SELECT MAX(snapshot_date) FROM listings WHERE estate_id = ?1 AND source = '${x}' AND snapshot_date <= ?${i + 2}) AS p${i}`).join(", ")}`)
+    .bind(id, ...latest.map(([, d]) => addDays(d, -7))).first();
+  const prevPairs = latest.map(([x], i) => [x, prevRow?.[`p${i}`]]).filter(([, d]) => isoDate(d));
+  const rowsFor = async (pairs) => (!pairs.length ? [] : (await db.prepare(
     `SELECT ${SNAP_COLS} FROM listings l WHERE l.estate_id = ?1 AND l.price > 0
-     AND l.snapshot_date = (SELECT MAX(snapshot_date) FROM listings WHERE estate_id = ?1 AND source = l.source)`).bind(id).all()).results;
-  const prev = (await db.prepare(
-    `SELECT ${SNAP_COLS} FROM listings l WHERE l.estate_id = ?1 AND l.price > 0
-     AND l.snapshot_date = (SELECT MAX(snapshot_date) FROM listings WHERE estate_id = ?1 AND source = l.source
-       AND snapshot_date <= date((SELECT MAX(snapshot_date) FROM listings WHERE estate_id = ?1 AND source = l.source), '-7 days'))`).bind(id).all()).results;
+     AND (${pairs.map(([x, d]) => `(l.source = '${x}' AND l.snapshot_date = '${d}')`).join(" OR ")})`).bind(id).all()).results);
+  const now = await rowsFor(latest);
+  const prev = await rowsFor(prevPairs);
   const txPsf = (await db.prepare(
     `SELECT price_per_ft AS psf FROM transactions WHERE estate_id = ? AND price_per_ft > 0 AND reg_date >= date('now', '+8 hours', '-3 months')`)
     .bind(id).all()).results.map((r) => r.psf);
@@ -64,7 +77,7 @@ export async function computeEstateStats(db, estateId) {
 }
 
 // 有新 snapshot 嘅屋苑先重算（as_of 落後最新 snapshot）。limit 控制一次 invocation 嘅工作量。
-export async function refreshEstateStats(db, { limit = 6 } = {}) {
+export async function refreshEstateStats(db, { limit = 6, sources = ["centanet", "midland", "hkp", "ricacorp"] } = {}) {
   await ensureEstateStats(db);
   const { results } = await db.prepare(
     `SELECT e.id, st.as_of, (SELECT MAX(snapshot_date) FROM listings l WHERE l.estate_id = e.id) AS lmax
@@ -74,7 +87,7 @@ export async function refreshEstateStats(db, { limit = 6 } = {}) {
   const due = results.filter((r) => r.lmax && (!r.as_of || r.lmax > r.as_of)).slice(0, limit);
   let done = 0;
   for (const r of due) {
-    const st = await computeEstateStats(db, r.id);
+    const st = await computeEstateStats(db, r.id, sources);
     if (!st) continue;
     await db.prepare(
       `INSERT INTO estate_stats (estate_id, as_of, data, updated_at) VALUES (?, ?, ?, datetime('now'))

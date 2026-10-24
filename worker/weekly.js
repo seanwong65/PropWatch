@@ -35,10 +35,11 @@ export async function loadWeeklyInputs(db, accountId, wEnd, prefs) {
   const ids = ests.map((e) => Number(e.id)).filter(Number.isInteger).join(",");
 
   const wStart = addDays(wEnd, -6);
+  // 有 snapshot 嘅日子：用 sync_log（每屋苑每 source 每日一行，好細），唔好 GROUP BY listings（會掃晒屋苑近 40 日全部放盤，
+  // 一個屋苑 ~3 萬 rows read）。sync_date 同 listings.snapshot_date 係同一日。
   const { results: dateRows } = await db.prepare(
-    `SELECT estate_id, snapshot_date AS d FROM listings
-     WHERE estate_id IN (${ids}) AND snapshot_date >= ? AND snapshot_date <= ?
-     GROUP BY estate_id, snapshot_date`).bind(addDays(wEnd, -40), wEnd).all();
+    `SELECT DISTINCT estate_id, sync_date AS d FROM sync_log
+     WHERE estate_id IN (${ids}) AND kind = 'listings' AND ok = 1 AND sync_date >= ? AND sync_date <= ?`).bind(addDays(wEnd, -40), wEnd).all();
   const dates = {};
   for (const r of dateRows) (dates[r.estate_id] ||= []).push(r.d);
   const pick = (eid, target) => (dates[eid] || []).filter((d) => d <= target).sort().pop() || null;
@@ -56,33 +57,26 @@ export async function loadWeeklyInputs(db, accountId, wEnd, prefs) {
     return `(estate_id = ${Number(e.id)} AND snapshot_date IN (${ds.map((d) => `'${d}'`).join(",")}))`;
   });
   const listings = conds.length ? (await db.prepare(
-    `SELECT estate_id, snapshot_date AS d, ref_no, building_name AS b, floor AS f, unit AS u, bedrooms AS beds,
+    `SELECT estate_id, snapshot_date AS d, source, ref_no, building_name AS b, floor AS f, unit AS u, bedrooms AS beds,
             size_net AS s, price AS p, price_per_ft AS psf
      FROM listings WHERE ${conds.join(" OR ")}`).all()).results : [];
-  const prevWeek = addDays(wEnd, -7);
-  const history = (await db.prepare(
-    `SELECT estate_id, ref_no, price AS p, snapshot_date AS d FROM listing_price_history
-     WHERE estate_id IN (${ids}) AND snapshot_date >= ? ORDER BY snapshot_date`).bind(prevWeek).all()).results;
-  const first = {};
-  for (const r of (await db.prepare(
-    `SELECT ref_no, MIN(snapshot_date) AS fs FROM listing_price_history WHERE estate_id IN (${ids}) GROUP BY ref_no`).all()).results) first[r.ref_no] = r.fs;
   const txnFrom = addDays(wEnd, -90);
   const txns = (await db.prepare(
     `SELECT estate_id, building AS b, floor AS f, unit AS u, price AS p, size_net AS s, price_per_ft AS psf, reg_date, first_seen
-     FROM transactions WHERE estate_id IN (${ids}) AND (reg_date >= ? OR first_seen >= ?)`).bind(txnFrom, wStart).all()).results;
+     FROM transactions WHERE estate_id IN (${ids}) AND reg_date >= ?`).bind(txnFrom).all()).results;   // OR first_seen 會令 index 用唔到；新成交一向只計近 90 日登記（同每日 email new_txn_max_age_days 一致）
   const favListings = (await db.prepare(
     `SELECT estate_id, ref_no FROM listing_favourites WHERE account_id = ? AND deal = 'S' AND estate_id IN (${ids})`).bind(accountId).all()).results;
   const viewings = (await db.prepare(
     `SELECT estate_id, view_date, block, floor, unit, size_net, linked_ref_no FROM viewings
      WHERE account_id = ? AND estate_id IN (${ids}) AND linked_ref_no IS NOT NULL AND linked_ref_no != ''
      ORDER BY view_date DESC LIMIT 40`).bind(accountId).all()).results;
-  return { favourites: ests, wStart, wEnd, snap, listings, history, first, txns, txnFrom, favListings, viewings, prefs: prefs || {} };
+  return { favourites: ests, wStart, wEnd, snap, listings, txns, txnFrom, favListings, viewings, prefs: prefs || {} };
 }
 
 // ── 2. 計算（純函數）─────────────────────────────────────────────────────────
 export function computeWeekly(inp) {
   if (!inp.favourites.length) return { status: "skip", reason: "no_favourites" };
-  const { wStart, wEnd, snap, listings, history, first, txns, txnFrom, favListings, viewings } = inp;
+  const { wStart, wEnd, snap, listings, txns, txnFrom, favListings, viewings } = inp;
   const name = Object.fromEntries(inp.favourites.map((e) => [e.id, e.name]));
 
   // 過期嘅屋苑唔計
@@ -101,10 +95,11 @@ export function computeWeekly(inp) {
     for (const r of listings) if (r.estate_id === eid && r.d === d && (r.p || 0) > 0 && !seen.has(unitKey(r))) seen.set(unitKey(r), r);
     return [...seen.values()];
   };
-  const refsAt = (eid, d) => new Set(listings.filter((r) => r.estate_id === eid && r.d === d).map((r) => r.ref_no));
-  const hist = {};
-  for (const r of history) (hist[r.ref_no] ||= []).push(r);
-  const priceCut = (ref) => { const h = hist[ref] || []; return h.length >= 2 && h[h.length - 1].p < h[0].p ? h : null; };
+  // 新盤／下架／減價：全部由「最新 vs 上週」兩份 snapshot 比（唔使掃 listing_price_history 大表）。
+  // 只比兩份都有 snapshot 嘅 source，否則新加入嘅 source 會令全部盤變新盤。
+  const priceMap = (eid, d) => new Map(listings.filter((r) => r.estate_id === eid && r.d === d).map((r) => [r.ref_no, r]));
+  const prevPrice = {};   // ref_no → 上週嗰份 snapshot 嘅價（俾「你留意緊嘅盤」比較用）
+  for (const r of listings) if (snap[r.estate_id] && r.d === snap[r.estate_id].prevD) prevPrice[r.ref_no] = r.p;
 
   const cards = [];
   for (const e of fresh) {
@@ -116,10 +111,18 @@ export function computeWeekly(inp) {
     const txw = txns.filter((t) => t.estate_id === e.id && (t.first_seen || "") >= wStart);
     const tMed = median(tx90.map((t) => t.psf));
     const gap = pct(aNow, tMed);
-    const refsNow = refsAt(e.id, nowD), refsPrev = prevD ? refsAt(e.id, prevD) : new Set();
-    const cuts = [...refsNow].map((ref) => { const h = priceCut(ref); return h ? (h[0].p - h[h.length - 1].p) / h[0].p * 100 : null; }).filter((x) => x != null);
-    const newN = [...refsNow].filter((r) => (first[r] || "") >= wStart).length;
-    const removed = [...refsPrev].filter((r) => !refsNow.has(r)).length;
+    const mNow = priceMap(e.id, nowD), mPrev = prevD ? priceMap(e.id, prevD) : new Map();
+    const both = new Set([...mNow.values()].map((r) => r.source).filter((src) => [...mPrev.values()].some((x) => x.source === src)));
+    let newN = 0, removed = 0;
+    const cuts = [];
+    for (const [ref, r] of mNow) {
+      if (!both.has(r.source)) continue;
+      const pv = mPrev.get(ref);
+      if (!pv) newN++;
+      else if (r.p && pv.p && r.p < pv.p) cuts.push((pv.p - r.p) / pv.p * 100);
+    }
+    for (const [ref, r] of mPrev) if (both.has(r.source) && !mNow.has(ref)) removed++;
+    const refsNow = new Set(mNow.keys());
     const cutRatio = refsNow.size ? cuts.length / refsNow.size * 100 : 0;
     const sup = prevD ? pct(now.length, prev.length) : null;
     const trend4 = pct(aNow, aM4);
@@ -138,16 +141,15 @@ export function computeWeekly(inp) {
   const tracked = [];
   for (const f of favListings) {
     if (!snap[f.estate_id]?.nowD || !fresh.some((e) => e.id === f.estate_id)) continue;
-    const r = nowListing[f.ref_no], h = hist[f.ref_no] || [];
-    tracked.push({ icon: "♥", eid: f.estate_id, ref: f.ref_no, r, wk: h[0]?.p ?? null,
+    const r = nowListing[f.ref_no];
+    tracked.push({ icon: "♥", eid: f.estate_id, ref: f.ref_no, r, wk: prevPrice[f.ref_no] ?? null,
       label: r ? [r.b, r.f, r.u].filter(Boolean).join(" ") : "" });
   }
   for (const v of viewings) {
     if (!snap[v.estate_id]?.nowD || !fresh.some((e) => e.id === v.estate_id)) continue;
     const refs = String(v.linked_ref_no).split(",").filter(Boolean);
     const ref = refs.find((x) => nowListing[x]) || refs[0];
-    const h = refs.map((x) => hist[x]).find(Boolean) || [];
-    tracked.push({ icon: "📝", eid: v.estate_id, ref, r: nowListing[ref], wk: h[0]?.p ?? null,
+    tracked.push({ icon: "📝", eid: v.estate_id, ref, r: nowListing[ref], wk: prevPrice[ref] ?? null,
       label: `${v.block ?? ""}座 ${v.floor ?? ""}樓 ${v.unit ?? ""}室` });
   }
   const moves = [];

@@ -6750,7 +6750,7 @@ export default {
               const last = Date.parse(await getSetting(env.DB, "estate_stats_checked_at") || "") || 0;
               if (Date.now() - last > 30 * 60000) {
                 await setSetting(env.DB, "estate_stats_checked_at", new Date().toISOString());
-                const rs = await refreshEstateStats(env.DB, { limit: 8 });
+                const rs = await refreshEstateStats(env.DB, { limit: 8, sources: SOURCES.map((x) => x.id) });
                 if (rs.due > rs.done) await setSetting(env.DB, "estate_stats_checked_at", "");   // 仲有嘢未算，下一轉繼續
               }
             } catch (e) { if (isD1QuotaExceeded(e)) throw e; console.error("estate stats refresh failed:", e?.message || e); }
@@ -7281,7 +7281,7 @@ export default {
       // 重算屋苑卡片重點數字（estate_stats）。平時由 drip cron 閒時自動做；呢度俾 admin 即時刷新／驗證。
       if (method === "POST" && path === "/api/admin/refresh-estate-stats") {
         if (!isAdminSession(session)) return json(403, { error: "admin only" });
-        return json(200, await refreshEstateStats(db, { limit: 60 }));
+        return json(200, await refreshEstateStats(db, { limit: 60, sources: SOURCES.map((x) => x.id) }));
       }
       if (method === "POST" && path === "/api/admin/run-email-task") {
         if (!isAdminSession(session)) return json(403, { error: "admin only" });
