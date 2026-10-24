@@ -3076,9 +3076,12 @@ async function handleStripeEvent(db, env, event, ctx) {
           .bind(obj.customer, acc.id).run();
       }
       let tier = "paid";
+      let ivLabel = "";
       if (obj.subscription) {
         const sub = await stripeRequest(env, "GET", `subscriptions/${obj.subscription}`);
         tier = await applySubscription(db, acc.id, sub);
+        const iv = sub?.items?.data?.[0]?.price?.recurring?.interval;
+        ivLabel = iv === "year" ? "年費" : iv === "month" ? "月費" : "";
       } else {
         await db.prepare("UPDATE accounts SET tier='paid' WHERE id=?").bind(acc.id).run();
         await applyTierEstateLimit(db, acc.id, true);
@@ -3087,6 +3090,11 @@ async function handleStripeEvent(db, env, event, ctx) {
         accountId: acc.id, email: acc.email, amount: obj.amount_total,
         currency: obj.currency, summary: `訂閱成功 → ${tier}`,
       });
+      if (tier === "paid") {   // 呢個 event 只喺「新訂閱」嗰刻出（續費唔會再觸發），Stripe 重試由 payment_events 去重
+        const c = await accountCounts(db);
+        const amt = obj.amount_total != null ? `${String(obj.currency || "hkd").toUpperCase()} ${(obj.amount_total / 100).toLocaleString("en-US", { maximumFractionDigits: 2 })}` : "";
+        notifyOwner(env, ctx, `💰 搵樓日記：新收費用戶\n${maskEmail(acc.email)}\n${[ivLabel, amt].filter(Boolean).join(" ")}\n累計收費用戶 ${c.paid} / ${c.total}`);
+      }
       return;
     }
 
@@ -4196,6 +4204,26 @@ async function sendTelegram(env, text) {
   });
   if (!res.ok) throw new Error(`telegram ${res.status}: ${(await res.text()).slice(0, 300)}`);
   return true;
+}
+
+// ── 營運通知（Telegram）：新用戶註冊／新收費用戶（2026-10-24，用戶要求系統初期即時知）──────────────
+// 只通知 owner（TELEGRAM_CHAT_ID）。email 打碼（j***7@hotmail.com），唔將完整個人資料送去第三方。
+// 一律背景發（ctx.waitUntil），失敗只 log，唔可以影響註冊／Stripe webhook 回應；test env 唔發。
+export const maskEmail = (e) => {
+  const [l, d] = String(e || "").split("@");
+  if (!d) return "（冇 email）";
+  return `${l.length <= 2 ? l[0] + "*" : l[0] + "***" + l.slice(-1)}@${d}`;
+};
+function notifyOwner(env, ctx, text) {
+  if (env?.IS_TEST_ENV) return;
+  const job = Promise.resolve().then(() => sendTelegram(env, text)).catch((e) => console.error("owner notify failed:", e?.message || e));
+  if (ctx?.waitUntil) ctx.waitUntil(job);
+}
+async function accountCounts(db) {
+  const r = await db.prepare(
+    `SELECT COUNT(*) AS total, SUM(CASE WHEN tier = 'paid' THEN 1 ELSE 0 END) AS paid
+     FROM accounts WHERE role != 'system' AND role != 'admin'`).first().catch(() => null);
+  return { total: r?.total || 0, paid: r?.paid || 0 };
 }
 
 // 通知 admin。① Telegram（主，獨立於 Gmail）② email 畀所有 admin 帳戶（次）。
@@ -7161,6 +7189,10 @@ export default {
         const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
         await db.prepare("INSERT INTO sessions (token, account_id, created_at, expires_at) VALUES (?, ?, ?, ?)")
           .bind(token, ins.meta.last_row_id, now2, expiresAt).run();
+        if (role !== "admin") {
+          const c = await accountCounts(db);
+          notifyOwner(env, ctx, `🆕 搵樓日記：新用戶註冊\n${maskEmail(em)}\n累計 ${c.total} 個用戶（收費 ${c.paid}）`);
+        }
         return json(200, { token, email: em, role, tier: "free" });
       }
 
@@ -7285,6 +7317,15 @@ export default {
       if (method === "POST" && path === "/api/admin/refresh-estate-stats") {
         if (!isAdminSession(session)) return json(403, { error: "admin only" });
         return json(200, await refreshEstateStats(db, { limit: 60, sources: SOURCES.map((x) => x.id) }));
+      }
+      // 驗證「新用戶／新收費用戶」Telegram 通知有冇通：發兩條【測試】訊息去 owner（格式同真實一樣）。admin only。
+      if (method === "POST" && path === "/api/admin/test-owner-notify") {
+        if (!isAdminSession(session)) return json(403, { error: "admin only" });
+        if (!(env.TELEGRAM_BOT_TOKEN && env.TELEGRAM_CHAT_ID)) return json(200, { ok: false, error: "Telegram secret 未設定" });
+        const c = await accountCounts(db);
+        await sendTelegram(env, `【測試】🆕 搵樓日記：新用戶註冊\n${maskEmail("example.user@gmail.com")}\n累計 ${c.total} 個用戶（收費 ${c.paid}）`);
+        await sendTelegram(env, `【測試】💰 搵樓日記：新收費用戶\n${maskEmail("example.user@gmail.com")}\n年費 HKD 400\n累計收費用戶 ${c.paid} / ${c.total}`);
+        return json(200, { ok: true });
       }
       if (method === "POST" && path === "/api/admin/run-email-task") {
         if (!isAdminSession(session)) return json(403, { error: "admin only" });

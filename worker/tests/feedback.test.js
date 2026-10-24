@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { parseFeedback, sniffImage } from "../index.js";
+import { parseFeedback, sniffImage, maskEmail } from "../index.js";
 
 describe("parseFeedback", () => {
   it("正常意見", () => {
@@ -37,5 +37,15 @@ describe("sniffImage（附圖只信檔頭）", () => {
     expect(sniffImage(new TextEncoder().encode("<svg xmlns='http://www.w3.org/2000/svg'></svg>"))).toBeNull();
     expect(sniffImage(new TextEncoder().encode("<html><script>alert(1)</script>"))).toBeNull();
     expect(sniffImage(new Uint8Array([0xff, 0xd8, 0xff]))).toBeNull();
+  });
+});
+
+describe("maskEmail（Telegram 通知打碼）", () => {
+  it("保留頭尾字元同域名", () => {
+    expect(maskEmail("johnwong777@hotmail.com")).toBe("j***7@hotmail.com");
+    expect(maskEmail("ab@x.com")).toBe("a*@x.com");
+    expect(maskEmail("a@x.com")).toBe("a*@x.com");
+    expect(maskEmail("")).toBe("（冇 email）");
+    expect(maskEmail("no-at-sign")).toBe("（冇 email）");
   });
 });
