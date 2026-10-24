@@ -470,3 +470,8 @@ drip sync（`*/2`）同樣被雙重觸發：兩個 invocation 同時揀同一批
 - Server：`GET /api/hangseng-valuation?…&trial=<viewing id>`。驗 viewing 係自己嘅＋座／層／室同 estateId 一致，之後 `settings.hs_trial_<accountId>`（已用次數）用 UPDATE 條件原子搶名額；查唔到數據（404／throw）退返次數；成功寫 `hs_trial_at_<accountId>`（時間，之後可以睇試用後幾耐升級）。
 - `/api/config` 回 `hsTrialCap`／`hsTrialsLeft`；前端 `_hsTrialsLeft`，用完自動變 🔒；升級對比表「恒生估值」免費欄顯示「試用 N 次」。
 - 重設某帳戶次數：`UPDATE settings SET value='0' WHERE key='hs_trial_<id>'`。
+
+## 座數（睇樓記錄）可留空（2026-10-25）
+- 單幢屋苑冇座數。表單座數可選；**留空儲存時前端用屋苑名做 `block`**（production 已有 5 條咁嘅記錄，顯示會隱藏同屋苑名一樣嘅 block；放盤配對用 `building_name`＝屋苑名）。
+- 修咗：成交比對 SQL 之前將 block 補成「X座」，單幢屋苑成交嘅 `building`＝屋苑名（冇「座」）永遠對唔到 → 上手成交、「你睇過嘅盤有新成交」email／今日動態都收唔到。而家 `t.building IN (X座, block)`（4 處：viewings GET 兩個 subquery、daily email 買／租、今日動態）。
+- 仍然冇處理：block 完全 NULL／空（舊 API 或手改）嘅記錄在 comps 唔會判 sold、frontend 當「座未填」——production 0 條，新 UI 唔會產生。

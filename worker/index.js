@@ -4530,7 +4530,7 @@ async function getTodayHighlights(db, accountId) {
       JOIN estates e ON e.id = t.estate_id
       JOIN viewings v ON v.estate_id = t.estate_id
         AND v.account_id = ?
-        AND t.building = CASE WHEN v.block LIKE '%座' THEN v.block ELSE v.block || '座' END
+        AND t.building IN (CASE WHEN v.block LIKE '%座' THEN v.block ELSE v.block || '座' END, v.block)
         AND t.floor    = CASE WHEN v.floor LIKE '%樓' OR v.floor LIKE '%層' THEN v.floor ELSE v.floor || '樓' END
         AND t.unit     = CASE WHEN v.unit LIKE '%室' OR v.unit LIKE '%號' THEN v.unit ELSE v.unit || '室' END
       WHERE t.first_seen = ?
@@ -4723,7 +4723,7 @@ async function getTodayHighlights(db, accountId) {
         JOIN viewings v ON v.estate_id = t.estate_id
           AND v.account_id = ?
           AND v.deal_type = 'R'
-          AND t.building = CASE WHEN v.block LIKE '%座' THEN v.block ELSE v.block || '座' END
+          AND t.building IN (CASE WHEN v.block LIKE '%座' THEN v.block ELSE v.block || '座' END, v.block)
           AND t.floor    = CASE WHEN v.floor LIKE '%樓' OR v.floor LIKE '%層' THEN v.floor ELSE v.floor || '樓' END
           AND t.unit     = CASE WHEN v.unit LIKE '%室' OR v.unit LIKE '%號' THEN v.unit ELSE v.unit || '室' END
         WHERE t.first_seen = ?
@@ -8776,7 +8776,7 @@ export default {
             JOIN estates e ON e.id = t.estate_id
             JOIN viewings v ON v.estate_id = t.estate_id
               AND v.account_id = ?
-              AND t.building = CASE WHEN v.block LIKE '%座' THEN v.block ELSE v.block || '座' END
+              AND t.building IN (CASE WHEN v.block LIKE '%座' THEN v.block ELSE v.block || '座' END, v.block)
               AND t.floor    = CASE WHEN v.floor LIKE '%樓' OR v.floor LIKE '%層' THEN v.floor ELSE v.floor || '樓' END
               AND t.unit     = CASE WHEN v.unit LIKE '%室' OR v.unit LIKE '%號' THEN v.unit ELSE v.unit || '室' END
             WHERE t.first_seen >= ? AND t.first_seen <= ?
@@ -9413,11 +9413,11 @@ export default {
           ) v
           LEFT JOIN transactions t ON COALESCE(v.deal_type, 'S') = 'S' AND t.id = (
             SELECT x.id FROM transactions x
-            WHERE x.estate_id = v.estate_id AND x.building = v._b AND x.floor = v._f AND x.unit = v._u
+            WHERE x.estate_id = v.estate_id AND x.building IN (v._b, v.block) AND x.floor = v._f AND x.unit = v._u
             ORDER BY x.reg_date DESC LIMIT 1)
           LEFT JOIN rental_transactions rt ON v.deal_type = 'R' AND rt.id = (
             SELECT x.id FROM rental_transactions x
-            WHERE x.estate_id = v.estate_id AND x.building = v._b AND x.floor = v._f AND x.unit = v._u
+            WHERE x.estate_id = v.estate_id AND x.building IN (v._b, v.block) AND x.floor = v._f AND x.unit = v._u
             ORDER BY x.reg_date DESC LIMIT 1)
           ORDER BY v.view_date DESC, v.created_at DESC
         `).bind(...(estateId ? [session.account_id, estateId] : [session.account_id])).all();
