@@ -105,6 +105,12 @@ if (nb?.id) {
   await call("睇樓 刪除（冇座數）", `/api/viewings/${nb.id}`, { method: "DELETE" });
 }
 
+// 待跟進「唔再提醒」同步 server（每週摘要 email 先尊重到）：viewings/all 帶 todo_dismissed 陣列；POST 空 ids → 400；唔識亂記別人 id
+check("viewings/all 帶 todo_dismissed", Array.isArray(all?.todo_dismissed));
+await call("400 todo-dismissed 空", "/api/todo-dismissed", { method: "POST", body: { ids: [] }, expect: [400] });
+const td = await call("todo-dismissed 只記自己嘅 id", "/api/todo-dismissed", { method: "POST", body: { ids: [99999999] } });
+check("別人／唔存在嘅 id 唔會被記", !(td?.ids || []).includes(99999999));
+
 // ── 6. 朋友屋企：免費上限（預設 3，由 /api/config 讀）──
 const cap = cfg.freeMaxFriendHomes ?? 3, have = (await call("朋友屋企 現有", "/api/friend-homes"))?.homes?.length || 0;
 if (have + 1 <= cap) {

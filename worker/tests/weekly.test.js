@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { computeWeekly, renderWeeklyHtml, weeklyHeadline, weeklySubject } from "../weekly.js";
+import { computeWeekly, renderWeeklyHtml, weeklyHeadline, weeklySubject, weeklyTodos } from "../weekly.js";
 
 // 2026-10-24（六）寄信；本週 = 10-18 ~ 10-24，上週 snapshot = 10-17
 const base = () => ({
@@ -64,5 +64,54 @@ describe("renderWeeklyHtml", () => {
     expect(html).toContain("kind=weekly");
     expect(weeklySubject(w)).toContain("10月18日–10月24日");
     expect(weeklyHeadline(w)).toContain("你 1 個最愛屋苑本週");
+  });
+});
+
+// ── 待跟進（睇樓記錄欠資料／未對應放盤）──
+const V = (o = {}) => ({ id: 1, estate_name: "泓景臺", view_date: "2026-10-20", block: "8座", floor: "10", unit: "H", price: 7800000, deal_type: "S", linked_ref_no: "ABC123", dismissed_refs: null, sold: 0, ...o });
+const T = (vs, extra = {}) => weeklyTodos({ viewings: vs, dismissed: [], linkMaxDays: 30, today: "2026-10-24", ...extra });
+const infoOf = (vs, extra) => T(vs, extra).items.map((i) => [i.id, i.missing.join("+"), i.needLink]);
+
+describe("weeklyTodos", () => {
+  it("填齊＋已對應 → 唔提", () => expect(T([V()]).total).toBe(0));
+  it("欠樓層／室／價／座各自列明；租盤叫睇樓租金", () => {
+    expect(infoOf([V({ floor: "", unit: "", price: 0, block: "", linked_ref_no: null })])).toEqual([[1, "座+樓層+室+睇樓價", false]]);
+    expect(infoOf([V({ price: 0, deal_type: "R" })])).toEqual([[1, "睇樓租金", false]]);
+  });
+  it("未對應放盤：要有座＋室、冇 linked_ref_no", () => {
+    expect(infoOf([V({ linked_ref_no: "" })])).toEqual([[1, "", true]]);
+    expect(infoOf([V({ linked_ref_no: null, unit: "" })])).toEqual([[1, "室", false]]);   // 欠室 → 冇得對應，淨係提欠室
+  });
+  it("睇樓超過 30 日唔再提「未對應」，但欠資料照提", () => {
+    expect(T([V({ view_date: "2026-09-01", linked_ref_no: null })]).total).toBe(0);
+    expect(infoOf([V({ view_date: "2026-09-01", linked_ref_no: null, price: 0 })])).toEqual([[1, "睇樓價", false]]);
+    expect(T([V({ view_date: "2026-09-01", linked_ref_no: null })], { linkMaxDays: 90 }).total).toBe(1);   // ⚙️ todo_link_max_days 跟設定
+  });
+  it("已成交、用戶 ✕ 唔再提醒、全部放盤都 ✕ 過 → 唔提", () => {
+    expect(T([V({ sold: 1, price: 0 })]).total).toBe(0);
+    expect(T([V({ price: 0 })], { dismissed: [1] }).total).toBe(0);
+    expect(T([V({ linked_ref_no: null, dismissed_refs: '["X1","X2"]' })]).total).toBe(0);
+  });
+  it("最近睇嘅排先", () => {
+    const r = T([V({ id: 1, view_date: "2026-10-01", price: 0 }), V({ id: 2, view_date: "2026-10-22", price: 0 }), V({ id: 3, view_date: "2026-10-10", price: 0 })]);
+    expect(r.items.map((i) => i.id)).toEqual([2, 3, 1]);
+  });
+});
+
+describe("每週摘要：待跟進 section", () => {
+  const opts = { appUrl: "https://x/app", unsubUrl: "https://x/u", iconUrl: "https://x/i.png" };
+  const withTodo = (n) => { const inp = base(); inp.todoViewings = Array.from({ length: n }, (_, i) => V({ id: i + 1, estate_name: "宇晴軒<img src=x onerror=alert(9)>", view_date: `2026-10-${String(10 + i).padStart(2, "0")}`, price: 0, linked_ref_no: "R" })); inp.todoDismissed = []; return renderWeeklyHtml(computeWeekly(inp), opts); };
+  it("最多列 5 條，其餘寫「另有 N 個」；標題寫總數；動態字串 escape", () => {
+    const html = withTodo(8);
+    expect(html).toContain("有 8 個睇樓記錄等你跟進");
+    expect(html.match(/欠 睇樓價/g).length).toBe(5);
+    expect(html).toContain("另有 3 個，返 app 睇全部");
+    expect(html).toContain("返 app 補資料");
+    expect(html).not.toContain("<img src=x"); expect(html).toContain("&lt;img src=x");
+  });
+  it("冇待辦就唔出呢個 section", () => {
+    expect(withTodo(0)).not.toContain("等你跟進");
+    const inp = base();   // 冇 todoViewings 欄位（舊 caller）亦唔爆
+    expect(renderWeeklyHtml(computeWeekly(inp), opts)).not.toContain("等你跟進");
   });
 });
