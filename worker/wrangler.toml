@@ -30,7 +30,7 @@ database_id = "b4330ef2-78c4-48be-ae88-b1d94614faad"
 #                   ——sync_log 同 saveXxx 都 idempotent——但白撞 portal）。
 #   "0 1 * * *"   = 09:00 HKT → "今日動態" email (separate invocation)
 #                   要喺抓數據(06:00 開工，實測 ~19 分鐘)之後先寄。
-#   "0 2 * * 6"   = 逢星期六 10:00 HKT → 每週摘要（收費版；當日取代每日 email）。
+#   "0 2 * * 7"   = 逢星期六 10:00 HKT → 每週摘要（收費版；當日取代每日 email）。
 #                   index.js 個 WEEKLY_CRON 要完全一致。
 #
 # ⚠️ Workers Free 上限係每個 account 5 個 cron trigger，但個限制係計 expression
@@ -41,7 +41,7 @@ database_id = "b4330ef2-78c4-48be-ae88-b1d94614faad"
 # ⚠️ 改呢條 expression 一定要同時改 index.js 個 DRIP_CRON 常數——
 # scheduled() 靠 `event.cron === DRIP_CRON` 分流，唔一致 drip sync 會完全唔行。
 [triggers]
-crons = ["*/2 * * * *", "0 1 * * *", "0 2 * * 6"]
+crons = ["*/2 * * * *", "0 1 * * *", "0 2 * * 7"]
 
 # Workers Logs。之前完全冇開,所以 cron 出事嗰陣 console.error 一句都攞唔返,
 # 查「收唔到 email 又冇 alert」淨係得 GraphQL 個 invocation 數字睇,查唔到

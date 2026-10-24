@@ -5343,7 +5343,9 @@ const DRIP_CRON = "*/2 * * * *";
 // ⚠️ 同 wrangler.toml 個 crons 要完全一致，否則 scheduled() 分流唔到。
 const EMAIL_CRON = "0 1 * * *";   // 09:00 HKT
 // 每週摘要：逢星期六 10:00 HKT（＝週六 02:00 UTC）。⚠️ 同 wrangler.toml 要完全一致。
-const WEEKLY_CRON = "0 2 * * 6";
+// ⚠️ Cloudflare cron 嘅星期係 1–7（1＝星期日、7＝星期六），唔係一般 cron 嘅 0–6：
+// 之前寫 "6" 變咗星期五（2026-10-23 星期五 10:00 HKT 已經誤發咗一次），所以而家用 7。
+const WEEKLY_CRON = "0 2 * * 7";
 // 要大過各個 scraper 自己嘅內部 deadline（利嘉閣 30s）+ 最後一頁嘅 10s，
 // 否則會喺人家 graceful bail（carry forward 上次嘅盤）之前就 abort，
 // 令「部分成功」變成「完全失敗」。一次只做一個 scrape 所以食得起。
