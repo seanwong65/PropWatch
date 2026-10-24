@@ -6234,17 +6234,16 @@ async function sendWeeklySummary(db, env, { onlyAccountId = null, force = false,
     const guard = !onlyAccountId && !force && !preview;
     if (guard && !(await claimDailyEmail(db, acc.id, day))) { out.push({ account: acc.username, duplicate: true }); continue; }
     try {
-      const w = computeWeekly(await loadWeeklyInputs(db, acc.id, wEnd));
+      const prefs = await getPrefs(db, acc.id);
+      const w = computeWeekly(await loadWeeklyInputs(db, acc.id, wEnd, prefs));
       if (w.status !== "ok") {
         if (guard) await db.prepare("DELETE FROM daily_email_log WHERE account_id = ? AND day = ?").bind(acc.id, day).run().catch(() => {});
         out.push({ account: acc.username, skipped: w.reason, stale: w.stale });
         continue;
       }
       const unsubUrl = `${WORKER_BASE}/api/unsubscribe?token=${await getUnsubToken(db, acc.id)}&kind=weekly`;
-      const prefs = await getPrefs(db, acc.id);
-      const picks = dedupePicks((await loadBargains(db, acc.id, prefs)).map(bargainToPick));
       const html = renderWeeklyHtml(w, { appUrl: `${APP_BASE}/app`, unsubUrl, iconUrl: `${APP_BASE}/icons/icon-192.png`,
-        picks, prefLabel: prefLabelOf(prefs), srcName: srcNameOf });
+        prefLabel: prefLabelOf(prefs), srcName: srcNameOf });
       const subject = weeklySubject(w);
       if (preview) { out.push({ account: acc.username, preview: true, subject, headline: weeklyHeadline(w), stale: w.stale, html }); continue; }
       await sendEmail(env, acc.email, subject, html, {
