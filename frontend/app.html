@@ -2603,7 +2603,6 @@ const isPaid = () => _tier === 'paid';
 // 分界線同 server 端 gate 一致（見 project_propwatch_tiers）：今日 snapshot＋成交＋睇樓記錄免費，時間軸／推送／分析收費。
 let _freeMaxFriends = 3;   // /api/config 帶返
 const COMPARE_FEATURES = [
-  ['四網放盤搜尋', true, true],
   ['放盤列表、成交記錄', true, true],
   ['睇樓記錄', true, true],
   ['追蹤屋苑', '有上限', '10+'],
@@ -3987,7 +3986,11 @@ function renderCompsPanel() {
   if (!srcRows.length) {
     body.innerHTML = filterBarHtml + (_compsScope
       ? `<div class="dj"><div class="dj-empty">${_compsData.length ? '冇符合嘅睇樓記錄' : '未有睇樓記錄<br><small>按「新增睇樓」新增第一個記錄</small>'}</div></div>`
-      : '<div class="dj"><div class="dj-empty">未有睇樓記錄。喺屋苑頁「睇樓記錄」新增，呢度就會顯示。</div></div>');
+      : `<div class="dj"><div class="dj-empty">
+          <div style="margin-bottom:0.7rem">未有睇樓記錄。去搵樓，睇完樓再喺度記低，呢度就會顯示。</div>
+          <button class="vf-submit" style="width:auto;padding:0.5rem 1.2rem;margin:0 0.3rem 0.3rem 0" onclick="openPublicSearch()">🔍 去搵樓</button>
+          <button class="filter-chip" onclick="openEstatePicker('add')">📝 新增睇樓記錄</button>
+        </div></div>`);
     return;
   }
   const bounds = _compsDateBounds();
@@ -4877,6 +4880,7 @@ function estateCardMeta(e) {
   return `<div class="estate-card-meta" style="line-height:1.55">${lines.map(l => `<div>${l}</div>`).join('')}</div>`;
 }
 
+let _autoSearchDone = false;
 async function loadEstates() {
   const list = document.getElementById("estateList");
   // /api/config 帶住 tier（free／paid）。同 /api/estates 一齊飛，但畫主頁前一定要等到——
@@ -4888,7 +4892,10 @@ async function loadEstates() {
     estates.forEach(e => { estatesById[e.id] = e; });
     if (!estates.length) {
       list.innerHTML = '<div class="sidebar-empty">未追蹤任何屋苑<br><small>在上方搜尋並新增</small></div>';
-      document.getElementById("main").innerHTML = '<div class="welcome"><div class="welcome-icon">🏠</div><h2>追蹤香港樓市動態</h2><p>在左側搜尋屋苑名稱，系統每日自動更新售價，並顯示趨勢走勢。</p></div>';
+      // 咩都未有（新用戶）：唔好留個空白畫面，直接帶去「搵樓」頁（四大地產網一次過搜尋）；每次載入頁面只自動帶一次，
+      // 之後用戶撳「← 返去日記」會見到下面嘅歡迎畫面（有「去搵樓」掣），唔會彈返去。
+      document.getElementById("main").innerHTML = '<div class="welcome"><div class="welcome-icon">🏠</div><h2>追蹤香港樓市動態</h2><p>在左側搜尋屋苑名稱，系統每日自動更新售價，並顯示趨勢走勢。</p><button class="vf-submit" style="width:auto;padding:0.6rem 1.4rem;margin-top:0.8rem" onclick="openPublicSearch()">🔍 去搵樓</button></div>';
+      if (!_autoSearchDone) { _autoSearchDone = true; openPublicSearch(); }
       return;
     }
     await cfgReady;
