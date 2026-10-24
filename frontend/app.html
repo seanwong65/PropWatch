@@ -1933,7 +1933,7 @@
       <input type="checkbox" id="pref-email-optin" checked style="accent-color:var(--accent)"> 我要收每日通知 email
     </label>
     </div>
-    <div id="pref-free-email-note" style="display:none;margin-top:1.1rem;font-size:0.8rem;color:var(--muted)">📧 每日 email 同每週摘要係收費版功能。<a href="#" onclick="event.preventDefault();closePrefsModal();showUpgrade('每日 email')" style="color:var(--accent2)">睇下收費版有咩</a></div>
+    <div id="pref-free-email-note" style="display:none;margin-top:1.1rem;font-size:0.8rem;color:var(--muted)">📧 每日 email 同每週摘要係收費版功能。<a href="#" onclick="event.preventDefault();showUpgrade('每日 email')" style="color:var(--accent2)">睇下收費版有咩</a></div>
     <div id="pref-weekly-wrap" style="display:none;margin-top:0.75rem">
       <p style="font-size:0.78rem;color:var(--muted);margin:0 0 0.5rem">📊 每週摘要（收費版）：逢星期六 10:00 寄你最愛屋苑嘅一週市況同你留意緊嘅盤變動，<b>當日取代每日 email</b>。只計你標咗 ⭐ 最愛嘅屋苑。</p>
       <label style="display:flex;align-items:center;gap:0.45rem;font-size:0.85rem;color:var(--text);cursor:pointer">
@@ -2605,6 +2605,7 @@ const isPaid = () => _tier === 'paid';
 // 免費／收費對比表：[功能, 免費, 收費]。只列「有分別」嘅功能（兩邊都有嘅，例如放盤列表、成交記錄、睇樓記錄、四網搜尋，唔列）。true／false＝✓／✗；字串＝直接顯示（{n}＝免費版屋苑上限）。
 // 分界線同 server 端 gate 一致（見 project_propwatch_tiers）：今日 snapshot＋成交＋睇樓記錄免費，時間軸／推送／分析收費。
 let _freeMaxFriends = 3;   // /api/config 帶返
+let _hsTrialsLeft = 0, _hsTrialCap = 0;   // 免費版恒生估值試用（server 計數，/api/config 帶返）
 const COMPARE_FEATURES = [   // 按重要性排（最影響升級決定嘅放前面）；唔列朋友屋企（用戶決定）
   ['放盤時間軸（日數、改價、下架）', false, true],
   ['每日 email、每週摘要', false, true],
@@ -2664,7 +2665,7 @@ function priceRulerSampleHtml() {
 let _cmpIv = 'year';
 function cmpPick(iv) { _cmpIv = iv; const el = document.getElementById('cmpBuy'); if (el) el.innerHTML = cmpBuyInner(); }
 function cmpCell(v) {
-  if (typeof v === 'string') return `<span class="nt">${escHtml(v.replace('{n}', _freeMaxEstates).replace('{f}', _freeMaxFriends))}</span>`;
+  if (typeof v === 'string') return `<span class="nt">${escHtml(v.replace('{n}', _freeMaxEstates).replace('{f}', _freeMaxFriends).replace('{t}', _hsTrialCap))}</span>`;
   return v ? '<span class="ok">✓</span>' : '<span class="no">✗</span>';
 }
 // 價錢＋升級掣（年／月切換）：價錢載到先出
@@ -4835,7 +4836,7 @@ let _cfgGroup = '全部';   // 設定 modal 揀緊嘅分類
 let _userRole = 'user';   // 'admin' 先可以改「分析參數」；一般 user 得睇樓偏好
 async function loadAppConfig() {
   try {
-    const { items, groups, role, tier, freeMaxEstates, freeMaxFriendHomes, maxViewingImgs } = await api('/api/config');
+    const { items, groups, role, tier, freeMaxEstates, freeMaxFriendHomes, maxViewingImgs, hsTrialCap, hsTrialsLeft } = await api('/api/config');
     _cfgDefs = items || [];
     _cfgGroups = groups || [];
     _appCfg = Object.fromEntries(_cfgDefs.map(d => [d.key, d.value]));
@@ -4844,6 +4845,8 @@ async function loadAppConfig() {
     if (tier) _tier = tier;
     if (freeMaxEstates) _freeMaxEstates = freeMaxEstates;
     if (freeMaxFriendHomes) _freeMaxFriends = freeMaxFriendHomes;
+    _hsTrialCap = hsTrialCap || 0; _hsTrialsLeft = hsTrialsLeft || 0;
+    { const f = COMPARE_FEATURES.find(x => x[0] === '恒生估值'); if (f) f[1] = _hsTrialCap > 0 ? '試用 {t} 次' : false; }
     _maxViewingImgs = maxViewingImgs ?? null;
     applyRoleToSettings();
     applyTierToChrome();
@@ -5613,7 +5616,10 @@ function priceRulerHtml(v) {
     ? vhsLineHtml(v.hs_price, v.price)
     // 屋苑 id 跟返張卡自己嗰個（v.estate_id），唔可以淨靠 _viewingEstateId——
     // dashboard「睇過嘅盤」係跨屋苑，嗰度個全局係 null／上一個屋苑，會查錯苑。
-    : !isPaid() ? `<span class="lc-lock" onclick="showUpgrade('恒生估值')">估值 🔒</span>`
+    : !isPaid() ? (_hsTrialsLeft > 0
+        // 免費試用：要佢自己撳先查（唔自動），用完變鎖
+        ? `<button class="hs-val-btn hs-trial-btn" onclick="manualFetchViewingHSVal(${v.id},${v.estate_id || _viewingEstateId},'${escJsAttr(v.block||'')}','${escJsAttr(v.floor||'')}','${escJsAttr(v.unit||'')}',${v.price||0})">試用估值（免費 ${_hsTrialsLeft} 次）</button>`
+        : `<span class="lc-lock" onclick="showUpgrade('恒生估值')">估值 🔒</span>`)
     : `<button class="hs-val-btn" onclick="manualFetchViewingHSVal(${v.id},${v.estate_id || _viewingEstateId},'${escJsAttr(v.block||'')}','${escJsAttr(v.floor||'')}','${escJsAttr(v.unit||'')}',${v.price||0})">查估值</button>`;
   // wrapper 用 flex 逼 hsValHtml/hsDiffHtml 兩個 block-level 元素企埋同一行；
   // 呢個 style 喺 fetchViewingHSVal 之後唔會俾人覆蓋（佢哋淨係更新內容）。
@@ -8488,13 +8494,15 @@ async function submitViewing(e) {
   }
 }
 
+// 回傳 'ok' | 'nodata' | 'paywall' | 'error'（自動查嘅 caller 唔理佢）。免費版只會由「試用估值」掣呼叫（?trial=睇樓記錄 id，server 驗＋計次數）。
 async function fetchViewingHSVal(viewingId, block, floor, unit, price, estate = { id: _viewingEstateId, name: _viewingEstateName }) {
-  if (!viewingId || !estate.name || !block || !floor || !unit) return;
+  if (!viewingId || !estate.name || !block || !floor || !unit) return 'nodata';
   try {
     const floorNum = String(floor).replace(/[^0-9]/g, '');
     const flatLetter = String(unit).replace(/[^A-Za-z0-9]/g, '');
-    if (!floorNum || !flatLetter) return;
+    if (!floorNum || !flatLetter) return 'nodata';
     const params = new URLSearchParams({ estate: estate.name, block, floor: floorNum, flat: flatLetter, estateId: estate.id });
+    if (!isPaid()) params.set('trial', viewingId);
     const data = await api(`/api/hangseng-valuation?${params}`);
     if (data.price) {
       await api(`/api/viewings/${viewingId}`, { method: 'PATCH', body: JSON.stringify({ hs_price: Number(data.price) }) });
@@ -8502,12 +8510,28 @@ async function fetchViewingHSVal(viewingId, block, floor, unit, price, estate = 
       if (v) v.hs_price = Number(data.price);   // 個 map 都要更新——條尺個估值針下次 render 先會啱
       const cell = document.getElementById(`vhs-${viewingId}`);
       if (cell) cell.innerHTML = vhsLineHtml(Number(data.price), price);
+      if (!isPaid() && _hsTrialsLeft > 0) hsTrialUsed();
+      return 'ok';
     }
-  } catch {}
+    return 'nodata';
+  } catch (e) { return e && e.paywall ? 'paywall' : (e && e.status === 404 ? 'nodata' : 'error'); }
+}
+
+// 試用用完：其他睇樓卡嘅「試用」掣即刻變鎖（唔使等重載）
+function hsTrialUsed() {
+  _hsTrialsLeft = Math.max(0, _hsTrialsLeft - 1);
+  document.querySelectorAll('.hs-trial-btn').forEach(b => {
+    if (_hsTrialsLeft > 0) b.textContent = `試用估值（免費 ${_hsTrialsLeft} 次）`;
+    else b.outerHTML = `<span class="lc-lock" onclick="showUpgrade('恒生估值')">估值 🔒</span>`;
+  });
 }
 
 async function manualFetchViewingHSVal(viewingId, estateId, block, floor, unit, price) {
   const cell = document.getElementById(`vhs-${viewingId}`);
+  if (!isPaid()) {
+    // 一次性試用：確認先查，免得手滑用咗
+    if (!confirm(`試用恒生估值（免費 ${_hsTrialsLeft} 次，用完要升級收費版）。查呢個單位？`)) return;
+  }
   if (cell) cell.innerHTML = '<span style="color:var(--muted);font-size:0.75rem">查詢中…</span>';
   const prevEstateId = _viewingEstateId;
   const prevName = _viewingEstateName;
@@ -8517,11 +8541,14 @@ async function manualFetchViewingHSVal(viewingId, estateId, block, floor, unit, 
     const titleEl = document.querySelector('.estate-title');
     if (titleEl) _viewingEstateName = titleEl.textContent.trim();
   }
-  await fetchViewingHSVal(viewingId, block, floor, unit, price);
+  const st = await fetchViewingHSVal(viewingId, block, floor, unit, price);
   if (!prevEstateId) _viewingEstateId = null;
   if (!prevName) _viewingEstateName = '';
-  if (cell && !cell.innerHTML.includes('萬') && isPaid()) {
-    cell.innerHTML = '<span style="color:var(--muted);font-size:0.75rem">查無資料</span>';
+  if (cell && st === 'paywall') {
+    _hsTrialsLeft = 0;   // server 話冇次數（例如另一部機用咗）
+    cell.innerHTML = `<span class="lc-lock" onclick="showUpgrade('恒生估值')">估值 🔒</span>`;
+  } else if (cell && st !== 'ok') {
+    cell.innerHTML = `<span style="color:var(--muted);font-size:0.75rem">查無資料${isPaid() ? '' : '（冇用到試用次數）'}</span>`;
   }
 }
 

@@ -664,6 +664,8 @@ const SEC_DEFS = [
     desc: "同一個盤有 N 個唔同用戶手動標記咗「已下架」，其他用戶見到「N 位用戶標記咗已下架」提示（只係提示，唔會幫佢哋標記）。" },
   { key: "sec_free_max_friend_homes", def: 3, min: 1, max: 100, label: "免費版：最多朋友屋企",
     desc: "免費用戶可以記低幾多個「朋友屋企」。每個會外抓過往成交同恒生估值，所以要有上限（2026-10-24 起免費版可用）。" },
+  { key: "sec_free_hs_trials", def: 1, min: 0, max: 20, label: "免費版：恒生估值試用次數",
+    desc: "免費用戶終身可以試查幾多次恒生估值（收費功能嘅試用）。只可以喺自己嘅睇樓記錄入面手動撳先查，唔自動查；查唔到數據唔計次數。0 = 完全唔俾試。" },
   { key: "sec_paid_max_friend_homes", def: 30, min: 1, max: 500, label: "收費版：最多朋友屋企",
     desc: "收費用戶（含 admin 以外）可以記低幾多個「朋友屋企」，純粹防濫用嘅安全上限。" },
   { key: "sec_free_max_estates", def: 3, min: 1, max: 50, label: "免費版：最多追蹤屋苑",
@@ -1007,6 +1009,13 @@ const isAdminSession = (session) => (session?.role || "user") === "admin";
 // 邊個 portal 都睇到嘅嘢(而家有咩盤、幾錢)免費;我哋 scrape 咗經年先儲到嘅
 // 歷史(放盤日數/改價/下架/趨勢)同主動推送(email/alert)先收費。
 // admin 永遠當 paid(方便自己用同測試)。
+// 免費版恒生估值試用次數：settings 一行 hs_trial_<accountId> = 已用次數（文字）。
+const hsTrialKey = (accountId) => `hs_trial_${Number(accountId)}`;
+async function hsTrialsUsed(db, accountId) {
+  const r = await db.prepare("SELECT value FROM settings WHERE key = ?").bind(hsTrialKey(accountId)).first();
+  return Math.max(0, parseInt(r?.value, 10) || 0);
+}
+
 const isPaidSession = (session) => isAdminSession(session) || (session?.tier || "free") === "paid";
 // ── 心儀樓盤（2026-10-12）─────────────────────────────────────────────
 // 用戶喺放盤卡撳 ♡ 收藏。snap 係收藏嗰刻由 DB 攞嘅快照（唔信 client 傳嚟嘅欄位）；
@@ -8492,41 +8501,76 @@ export default {
       }
 
       if (method === "GET" && path === "/api/hangseng-valuation") {
-        if (!isPaidSession(session)) return paywall("估值");
         const estateId   = url.searchParams.get("estateId");
         const estateName = url.searchParams.get("estate");
         const blockNum   = url.searchParams.get("block");
         const floorNum   = url.searchParams.get("floor");
         const flatLetter = url.searchParams.get("flat");
-        if (!estateName || !blockNum || !floorNum || !flatLetter)
-          return json(400, { error: "Missing params" });
-
-        // Check D1 cache first
-        if (estateId) {
-          const cached = await db.prepare(
-            "SELECT price, saleable_area, valuation_date FROM hangseng_valuations WHERE estate_id=? AND building=? AND floor=? AND flat=?"
-          ).bind(estateId, blockNum, floorNum, flatLetter).first();
-          if (cached) {
-            // Log to history once per day
-            const todayEntry = await db.prepare(
-              "SELECT id FROM hangseng_valuation_history WHERE estate_id=? AND building=? AND floor=? AND flat=? AND date(fetched_at,'+8 hours')=date('now','+8 hours') LIMIT 1"
-            ).bind(estateId, blockNum, floorNum, flatLetter).first();
-            if (!todayEntry) {
-              await db.prepare(
-                "INSERT INTO hangseng_valuation_history (estate_id, building, floor, flat, price, saleable_area, valuation_date) VALUES (?,?,?,?,?,?,?)"
-              ).bind(estateId, blockNum, floorNum, flatLetter, cached.price, cached.saleable_area, cached.valuation_date).run();
-            }
-            return json(200, { price: String(cached.price), saleableArea: String(cached.saleable_area), valuationDate: cached.valuation_date, cached: true });
+        // 收費版無限。免費版：只可以用「試用」——?trial=<自己嘅睇樓記錄 id>，而且估值嗰個單位要同嗰條記錄一致
+        // （唔係嘅話一個帳戶可以逐個單位試晒），次數 sec_free_hs_trials 終身計，查唔到數據會退返。
+        let trialKey = null;
+        const refundTrial = async () => {
+          if (!trialKey) return;
+          await db.prepare("UPDATE settings SET value = CAST(MAX(CAST(value AS INTEGER) - 1, 0) AS TEXT) WHERE key = ?").bind(trialKey).run();
+          trialKey = null;
+        };
+        if (!isPaidSession(session)) {
+          const vid = Number(url.searchParams.get("trial"));
+          if (!Number.isInteger(vid) || vid <= 0 || !estateId) return paywall("估值");
+          const own = await db.prepare("SELECT estate_id, block, floor, unit, deal_type FROM viewings WHERE id = ? AND account_id = ?")
+            .bind(vid, session.account_id).first();
+          const alnum = (x) => String(x ?? "").replace(/[^A-Za-z0-9]/g, "").toUpperCase();
+          if (!own || own.deal_type === "R" || String(own.estate_id) !== String(estateId)
+              || alnum(own.block) !== alnum(blockNum) || alnum(own.floor) !== alnum(floorNum) || alnum(own.unit) !== alnum(flatLetter))
+            return paywall("估值");
+          const cap = (await getSecCfg(db)).sec_free_hs_trials;
+          const key = hsTrialKey(session.account_id);
+          await db.prepare("INSERT OR IGNORE INTO settings (key, value) VALUES (?, '0')").bind(key).run();
+          // 原子搶名額：UPDATE 條件入面比較次數，兩個同時嚟嘅 request 只有一個贏
+          const claim = await db.prepare("UPDATE settings SET value = CAST(CAST(value AS INTEGER) + 1 AS TEXT) WHERE key = ? AND CAST(value AS INTEGER) < ?")
+            .bind(key, cap).run();
+          if (!claim.meta.changes) {
+            return json(402, { error: cap > 0 ? `免費版可以試用 ${cap} 次恒生估值，你已經用咗，升級收費版可以無限查。` : "呢個係收費版功能", upgrade: true, feature: "估值" });
           }
+          trialKey = key;
         }
+        if (!estateName || !blockNum || !floorNum || !flatLetter) { await refundTrial(); return json(400, { error: "Missing params" }); }
+        const done = async (body) => {
+          if (trialKey) await db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)").bind(`hs_trial_at_${session.account_id}`, new Date().toISOString()).run();
+          return json(200, body);
+        };
 
-        const result = await getHangSengValuation(estateName, blockNum, floorNum, flatLetter);
-        if (!result) return json(404, { error: "Not found" });
+        try {
+          // Check D1 cache first
+          if (estateId) {
+            const cached = await db.prepare(
+              "SELECT price, saleable_area, valuation_date FROM hangseng_valuations WHERE estate_id=? AND building=? AND floor=? AND flat=?"
+            ).bind(estateId, blockNum, floorNum, flatLetter).first();
+            if (cached) {
+              // Log to history once per day
+              const todayEntry = await db.prepare(
+                "SELECT id FROM hangseng_valuation_history WHERE estate_id=? AND building=? AND floor=? AND flat=? AND date(fetched_at,'+8 hours')=date('now','+8 hours') LIMIT 1"
+              ).bind(estateId, blockNum, floorNum, flatLetter).first();
+              if (!todayEntry) {
+                await db.prepare(
+                  "INSERT INTO hangseng_valuation_history (estate_id, building, floor, flat, price, saleable_area, valuation_date) VALUES (?,?,?,?,?,?,?)"
+                ).bind(estateId, blockNum, floorNum, flatLetter, cached.price, cached.saleable_area, cached.valuation_date).run();
+              }
+              return await done({ price: String(cached.price), saleableArea: String(cached.saleable_area), valuationDate: cached.valuation_date, cached: true });
+            }
+          }
 
-        // Save to D1 (latest + history once per day)
-        if (estateId) await saveHangSengValuation(db, estateId, blockNum, floorNum, flatLetter, result);
+          const result = await getHangSengValuation(estateName, blockNum, floorNum, flatLetter);
+          if (!result) { await refundTrial(); return json(404, { error: "Not found" }); }
 
-        return json(200, result);
+          // Save to D1 (latest + history once per day)
+          if (estateId) await saveHangSengValuation(db, estateId, blockNum, floorNum, flatLetter, result);
+
+          return await done(result);
+        } catch (e) {
+          await refundTrial().catch(() => {});
+          throw e;
+        }
       }
 
       if (method === "GET" && path === "/api/hangseng-valuation-history") {
@@ -9945,6 +9989,9 @@ export default {
           tier: paid ? "paid" : "free",
           freeMaxEstates: sc.sec_free_max_estates,
           freeMaxFriendHomes: sc.sec_free_max_friend_homes,
+          // 免費版恒生估值試用：cap＝總次數、left＝仲剩幾多（收費版前端唔使睇）
+          hsTrialCap: sc.sec_free_hs_trials,
+          hsTrialsLeft: paid ? 0 : Math.max(0, sc.sec_free_hs_trials - await hsTrialsUsed(db, session.account_id)),
           // 睇緊呢個帳戶實際受邊個上限管（前端顯示 "N / M" 用）。
           // 上限本身係 sec_*（服務端真相），前端呢兩個純粹顯示，改極都冇用。
           maxEstates: paid ? sc.sec_paid_max_estates : sc.sec_free_max_estates,
