@@ -8535,28 +8535,21 @@ async function manualFetchViewingHSVal(viewingId, estateId, block, floor, unit, 
   const cell = document.getElementById(`vhs-${viewingId}`);
   const prevCellHtml = cell ? cell.innerHTML : '';
   if (!isPaid()) {
-    // 一次性試用：確認先查，免得手滑用咗
+    // 免費版每個盤查一次：確認先查，免得手滑用咗
     if (!confirm('免費版每個盤可以查一次恒生估值（查唔到數據都算一次）。查呢個單位？')) return;
   }
   if (cell) cell.innerHTML = '<span style="color:var(--muted);font-size:0.75rem">查詢中…</span>';
-  const prevEstateId = _viewingEstateId;
-  const prevName = _viewingEstateName;
-  // Temporarily set estate context if needed
-  if (!_viewingEstateId) _viewingEstateId = estateId;
-  if (!_viewingEstateName) {
-    const titleEl = document.querySelector('.estate-title');
-    if (titleEl) _viewingEstateName = titleEl.textContent.trim();
-  }
-  const st = await fetchViewingHSVal(viewingId, block, floor, unit, price);
-  if (!prevEstateId) _viewingEstateId = null;
-  if (!prevName) _viewingEstateName = '';
+  // 屋苑名：跨屋苑頁（睇樓日記）冇「目前屋苑」，要用 estateId 查返；之前攞唔到名就靜靜唔查，畫面卻顯示「查無資料」
+  const estName = (typeof dashboardEstates !== 'undefined' && (dashboardEstates.find(e => Number(e.id) === Number(estateId)) || {}).name)
+    || _viewingEstateName || (document.querySelector('.estate-title')?.textContent || '').trim();
+  const st = await fetchViewingHSVal(viewingId, block, floor, unit, price, { id: estateId, name: estName });
   if (cell && st === 'paywall') {
     _hsTrialsLeft = 0;   // server 話冇次數（例如另一部機用咗）
     cell.innerHTML = `<span class="lc-lock" onclick="showUpgrade('恒生估值')">估值 🔒</span>`;
-  } else if (cell && st === 'error') {
-    // 我哋自己出錯（網絡／server）：server 冇扣，用返原本個掣
+  } else if (cell && (st === 'error' || st === 'skip')) {
+    // 冇發出請求（資料唔齊）或者我哋自己出錯：server 冇扣，用返原本個掣
     cell.innerHTML = prevCellHtml;
-    toast?.('暫時查唔到，請稍後再試（冇用到次數）');
+    toast(st === 'skip' ? '呢條記錄未夠資料查估值（要有屋苑、座、樓層、室）' : '暫時查唔到，請稍後再試（冇用到次數）');
   } else if (cell && st !== 'ok') {
     cell.innerHTML = `<span style="color:var(--muted);font-size:0.75rem">查無資料${isPaid() ? '' : '（免費版每盤查一次，已用）'}</span>`;
   }
