@@ -415,7 +415,7 @@ drip sync（`*/2`）同樣被雙重觸發：兩個 invocation 同時揀同一批
 
 ## 每週摘要（2026-10-23，收費版）
 
-- 逢**星期六 10:00 HKT**（cron `0 2 * * 6`＝`WEEKLY_CRON`，同 wrangler.toml 要一致）寄 `worker/weekly.js` 生成嘅 email；**只計 ⭐ 最愛屋苑**。免費用戶冇（用戶決定，唔做簡化版）。
+- 逢**星期六 10:00 HKT**（cron `0 2 * * 7`＝`WEEKLY_CRON`（⚠️ Cloudflare 星期係 1–7，1＝日、7＝六；2026-10-23 寫 `6` 變咗星期五誤發一次，已改），同 wrangler.toml 要一致）寄 `worker/weekly.js` 生成嘅 email；**只計 ⭐ 最愛屋苑**。免費用戶冇（用戶決定，唔做簡化版）。
 - 內容：一句總結、你留意緊嘅盤（心儀樓盤／睇樓記錄對應放盤）**本週有改價或下架先出**、值得留意（合睇樓偏好＋低過成交中位／長放再減）、最愛屋苑市況。冇「同座成交對比」。上週冇 snapshot 就寫「數據累積中」。
 - 三層：`loadWeeklyInputs`（讀 D1，全部 scope 返 account）→ `computeWeekly`（純計算，`tests/weekly.test.js`）→ `renderWeeklyHtml`（esc）。
 - **數據保護**：最愛屋苑最新 snapshot 超過 `WEEKLY_STALE_DAYS`(1) 日前就唔計；全部過期就唔寄（`skipped: stale_data`）並通知 admin。
