@@ -1251,10 +1251,10 @@
     .lc-badges { display: flex; gap: 0.35rem 0.5rem; flex-wrap: wrap; margin-top: auto; padding-top: 0.3rem; align-items: center; }
     .lc-src { font-size: 0.72rem; white-space: nowrap; }
     .lc-sub { font-size: 0.72rem; color: var(--muted); }
-    /* 上盤日期 🔒：要似個掣（藍色小膠囊），唔好同旁邊文字一樣 */
-    .lc-lock { cursor: pointer; display: inline-flex; align-items: center; gap: 0.2rem; font-size: 0.72rem; font-weight: 600; color: var(--brand);
-               background: var(--brand-soft); border: 1px solid var(--brand); border-radius: 999px; padding: 0.05rem 0.55rem; line-height: 1.5; }
-    .lc-lock:hover { background: var(--brand); color: var(--brand-ink, #fff); }
+    /* 上盤日期 🔒：要似個掣，而且唔好同旁邊藍色「標記已下架」撞色 → 用琥珀色（升級／收費提示色） */
+    .lc-lock { cursor: pointer; display: inline-flex; align-items: center; gap: 0.2rem; font-size: 0.72rem; font-weight: 700; color: #b45309;
+               background: rgba(245,158,11,0.16); border: 1px solid #d97706; border-radius: 999px; padding: 0.05rem 0.55rem; line-height: 1.5; }
+    .lc-lock:hover { background: #d97706; color: #fff; }
     /* 合併行喺表格度係一抹綠底，卡片跟返同一個訊號 */
     .lc-combined { background: rgba(28,158,232,0.07); }
     .lc-actions { display: flex; gap: 0.3rem; flex-wrap: wrap; padding-top: 0.4rem; }
@@ -2606,13 +2606,13 @@ const COMPARE_FEATURES = [
   ['四網放盤搜尋', true, true],
   ['放盤列表、成交記錄', true, true],
   ['睇樓記錄', true, true],
-  ['追蹤屋苑', '{n} 個', '10+'],
+  ['追蹤屋苑', '有上限', '10+'],
   ['放盤時間軸（日數、改價、下架）', false, true],
   ['呎價走勢圖', false, true],
   ['心儀樓盤改價記錄', false, true],
   ['Email＋Telegram 推送', false, true],
   ['相對市價、估值', false, true],
-  ['朋友屋企', '{f} 個', '更多'],
+  ['朋友屋企', '有上限', '更多'],
 ];
 let _cmpIv = 'year';
 function cmpPick(iv) { _cmpIv = iv; const el = document.getElementById('cmpBuy'); if (el) el.innerHTML = cmpBuyInner(); }
