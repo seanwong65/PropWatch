@@ -462,3 +462,5 @@ drip sync（`*/2`）同樣被雙重觸發：兩個 invocation 同時揀同一批
 - ⚠️ **新增 `ensure*` 一律經 `onceDb`**，唔准每個 request 重行 DDL。寫新 handler 要數「連續幾多次 await D1」，能夠 `Promise.all`／`db.batch` 就合併。
 - 未做（要用戶決定）：Smart Placement（worker 搬去 D1 附近，但 scrape／公開搜尋會由美國出 IP，可能被地產網封）、
   D1 read replication（要改用 Sessions API＋處理寫後讀一致）、authenticate session 短 cache（令登出／降級遲幾秒生效）。
+- **Schema 版本閘**（`SCHEMA_VERSION` ＋ `settings.schema_version`）：cold isolate 之前要行 ~45 條 DDL（≈7 秒），而家版本一樣就全部跳過（cold 只多 1 次往返）。
+  ⚠️ **加／改任何 `ensure*`（新表／欄／index）一定要 bump `SCHEMA_VERSION`**，否則 production 唔會行嗰段 DDL。`onceDb`／`ddlOnce` 要放喺檔案頂（module 載入時已經會用）。

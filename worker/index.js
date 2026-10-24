@@ -2,6 +2,28 @@ import { loadWeeklyInputs, computeWeekly, renderWeeklyHtml, weeklySubject, weekl
 import { renderDailyHtml, dailySubject } from "./daily.js";
 import { ensureEstateStats, refreshEstateStats } from "./estateStats.js";
 
+// ⚠️ 效能（2026-10-25）：D1 主庫喺 ENAM（北美東部），worker 喺香港／台灣 edge 行，
+// 每條 D1 query 都係一次跨太平洋往返（~200ms）。「CREATE TABLE IF NOT EXISTS」呢類 DDL
+// 一個 isolate 行一次就夠，所以全部經 onceDb／ddlOnce 做「每個 isolate 一次」——
+// 之前每個 request 都重行，單單 ensureRentalTables 就 15 條 query，撳開睇樓詳情要等 5 秒。
+// 失敗就唔記（下個 request 再試）；同一刻幾個 request 撞埋嚟會共用同一個 promise。
+const _onceMarks = [];
+function onceDb(fn) {
+  let p = null;
+  _onceMarks.push(() => { p = Promise.resolve(); });
+  return (db, ...a) => {
+    if (!p) p = fn(db, ...a).catch((e) => { p = null; throw e; });
+    return p;
+  };
+}
+const _ddlDone = new Set();
+async function ddlOnce(db, key, sql) {
+  if (_ddlDone.has(key)) return;
+  await db.prepare(sql).run().catch(() => {});   // 已有欄位會 throw，照舊當冇事
+  _ddlDone.add(key);
+}
+
+
 // 冇 Allow-Origin：由 fetch 出口統一按 allow-list reflect（見 applyCors）。
 const CORS = {
   "Access-Control-Allow-Methods": "GET, POST, PUT, PATCH, DELETE, OPTIONS",
@@ -911,23 +933,30 @@ const hkDate = (ts) => ts ? new Date(ts * 1000).toISOString().slice(0, 10) : nul
 // 唔可以淨靠呢個 in-memory flag（isolate 可能喺遷移完成之前就俾人再攞
 // 嚟服務第二個 request）。
 let _authTablesReady = false;
-// ⚠️ 效能（2026-10-25）：D1 主庫喺 ENAM（北美東部），worker 喺香港／台灣 edge 行，
-// 每條 D1 query 都係一次跨太平洋往返（~200ms）。「CREATE TABLE IF NOT EXISTS」呢類 DDL
-// 一個 isolate 行一次就夠，所以全部經 onceDb／ddlOnce 做「每個 isolate 一次」——
-// 之前每個 request 都重行，單單 ensureRentalTables 就 15 條 query，撳開睇樓詳情要等 5 秒。
-// 失敗就唔記（下個 request 再試）；同一刻幾個 request 撞埋嚟會共用同一個 promise。
-function onceDb(fn) {
-  let p = null;
-  return (db, ...a) => {
-    if (!p) p = fn(db, ...a).catch((e) => { p = null; throw e; });
-    return p;
-  };
+// ── Schema 版本閘（2026-10-25）──────────────────────────────────────────────
+// Cold isolate 之前要行成 ~45 條 CREATE／ALTER 先處理到第一個 request（每條 ~200ms 往返 ENAM ≈ 7 秒）。
+// 而家 settings.schema_version 同 SCHEMA_VERSION 一樣就當全部 DDL 做齊，直接跳過（cold 只多 1 次往返）。
+// ⚠️ 加／改任何 ensure*（新表、新欄、新 index）一定要 bump SCHEMA_VERSION，否則 production 唔會行嗰段 DDL。
+// 版本唔同嗰次（deploy 之後第一個 request）會逐個行晒再寫返版本。
+const SCHEMA_VERSION = "2026-10-25a";
+let _schemaP = null;
+function markSchemaReady() {
+  _authTablesReady = _multiAccountDDLReady = _priceSeenReady = _listingSpanReady = true;
+  _sourceColumnsReady = _billingReady = _dailyEmailLogReady = _feedbackReady = true;
+  for (const f of _onceMarks) f();
 }
-const _ddlDone = new Set();
-async function ddlOnce(db, key, sql) {
-  if (_ddlDone.has(key)) return;
-  await db.prepare(sql).run().catch(() => {});   // 已有欄位會 throw，照舊當冇事
-  _ddlDone.add(key);
+function ensureSchema(db) {
+  if (_schemaP) return _schemaP;
+  return (_schemaP = (async () => {
+    const row = await db.prepare("SELECT value FROM settings WHERE key = 'schema_version'").first().catch(() => null);
+    if (row?.value === SCHEMA_VERSION) { markSchemaReady(); return; }
+    await ensureAuthTables(db); await ensureSourceColumns(db); await ensureMultiAccount(db); await ensureBilling(db);
+    await ensurePriceSeen(db); await ensureListingSpan(db); await ensureDailyEmailLog(db); await ensureFeedbackTable(db);
+    for (const f of [ensureHsScanPriority, ensureFavListings, ensureShares, ensurePhotoArchive, ensureTxnDedup, ensureSystemParams,
+                     ensureGroupOverrides, ensureManualRemoved, ensureRentalTables, ensureListingClicks, ensureViewingImages, ensureSyncLog]) await f(db);
+    await db.prepare("INSERT INTO settings (key, value) VALUES ('schema_version', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value")
+      .bind(SCHEMA_VERSION).run();
+  })().catch((e) => { _schemaP = null; throw e; }));
 }
 
 async function ensureAuthTables(db) {
@@ -7005,6 +7034,7 @@ export default {
         });
       }
 
+      await ensureSchema(db);
       await ensureAuthTables(db);
       await ensureSourceColumns(db);
       await ensureMultiAccount(db);
