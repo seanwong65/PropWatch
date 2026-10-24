@@ -639,6 +639,10 @@ const SEC_DEFS = [
     desc: "「N 人追蹤呢個屋苑」「N 人收藏呢個盤」只喺人數達到呢個數先出，否則唔出任何數字（人太少用戶可以估到係邊個）。唔好調到低過 3。" },
   { key: "sec_crowd_removed_min_users", def: 3, min: 2, max: 20, label: "眾人標記已下架：最少幾多人先提示",
     desc: "同一個盤有 N 個唔同用戶手動標記咗「已下架」，其他用戶見到「N 位用戶標記咗已下架」提示（只係提示，唔會幫佢哋標記）。" },
+  { key: "sec_free_max_friend_homes", def: 3, min: 1, max: 100, label: "免費版：最多朋友屋企",
+    desc: "免費用戶可以記低幾多個「朋友屋企」。每個會外抓過往成交同恒生估值，所以要有上限（2026-10-24 起免費版可用）。" },
+  { key: "sec_paid_max_friend_homes", def: 30, min: 1, max: 500, label: "收費版：最多朋友屋企",
+    desc: "收費用戶（含 admin 以外）可以記低幾多個「朋友屋企」，純粹防濫用嘅安全上限。" },
   { key: "sec_free_max_estates", def: 3, min: 1, max: 50, label: "免費版：最多追蹤屋苑",
     desc: "免費用戶可以追蹤幾多個屋苑。" },
   { key: "sec_paid_max_estates", def: 15, min: 1, max: 100, label: "收費版：最多追蹤屋苑",
@@ -9831,6 +9835,7 @@ export default {
           // 前端 refresh 完靠呢度攞返 tier（login response 個 tier 唔會過夜）
           tier: paid ? "paid" : "free",
           freeMaxEstates: sc.sec_free_max_estates,
+          freeMaxFriendHomes: sc.sec_free_max_friend_homes,
           // 睇緊呢個帳戶實際受邊個上限管（前端顯示 "N / M" 用）。
           // 上限本身係 sec_*（服務端真相），前端呢兩個純粹顯示，改極都冇用。
           maxEstates: paid ? sc.sec_paid_max_estates : sc.sec_free_max_estates,
@@ -10014,8 +10019,8 @@ export default {
       // ── 朋友屋企 ──────────────────────────────────────────────────────────
       // 入朋友名+屋苑單位，自動搵：過往成交、分層成交中位（相對市價基準）。
       // 恆生估值/類近在售由前端用現有 API/放盤數據做。全部 per-account。
-      // 朋友屋企：收費版功能（全部 method 一次過擋）
-      if (path.startsWith("/api/friend-homes") && !isPaidSession(session)) return paywall("朋友屋企");
+      // 朋友屋企：2026-10-24 起免費版都可以用（用戶決定），但有數量上限（每個朋友屋企都會外抓成交＋恒生估值，
+      // 唔限會被濫用）：免費 sec_free_max_friend_homes、收費 sec_paid_max_friend_homes（POST 時檢查，見下面）。
 
       if (method === "GET" && path === "/api/friend-homes") {
         const { results: homes } = await db.prepare(`
@@ -10143,6 +10148,17 @@ export default {
         // 唔使訂閱——one-off 屋苑（有 estate row 就得）都加得朋友屋企
         const est = await db.prepare("SELECT 1 FROM estates WHERE id = ?").bind(estateId).first();
         if (!est) return json(400, { error: "搵唔到呢個屋苑" });
+        {
+          const sc = await getSecCfg(db);
+          const paid = isPaidSession(session);
+          const cap = paid ? sc.sec_paid_max_friend_homes : sc.sec_free_max_friend_homes;
+          const have = (await db.prepare("SELECT COUNT(*) AS c FROM friend_homes WHERE account_id = ?").bind(session.account_id).first())?.c || 0;
+          if (have >= cap) {
+            return json(paid ? 400 : 402, paid
+              ? { error: `最多可以加 ${cap} 個朋友屋企，要刪走其中一個先加得新嘅。` }
+              : { error: `免費版最多可以加 ${cap} 個朋友屋企，升級收費版可以加更多。`, upgrade: true, feature: "朋友屋企" });
+          }
+        }
         const ins = await db.prepare(`
           INSERT INTO friend_homes (account_id, friend_name, estate_id, block, floor, unit, size_net, bedrooms)
           VALUES (?, ?, ?, ?, ?, ?, ?, ?)

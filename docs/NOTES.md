@@ -436,3 +436,10 @@ drip sync（`*/2`）同樣被雙重觸發：兩個 invocation 同時揀同一批
   當日爆額度嘅表現：`wrangler d1 execute` 回 code 7500「exceeded D1's free tier daily row write limit」，所有寫入（login session、sync、email 認領）失敗，讀取照常，UTC 午夜（HKT 08:00）重置。
   查 D1 用量：GraphQL `d1QueriesAdaptiveGroups`（dimensions.query、sum.rowsRead/rowsWritten，`databaseId` 過濾），用 wrangler OAuth token；`wrangler d1 insights` 喺 3.x 回空。
 
+## 收費分界／價錢更新（2026-10-24）
+
+- **朋友屋企免費版都可用**（用戶決定）：移除 `/api/friend-homes*` paywall；改為數量上限，POST 時檢查：免費 `sec_free_max_friend_homes`（預設 3）、收費 `sec_paid_max_friend_homes`（預設 30），超出免費上限回 402（彈升級）。原因：每個朋友屋企會外抓成交＋恒生估值。
+- **年費 HK$300 → HK$400**：經 `POST /api/admin/billing/plans {interval:"year", amount:400, effective_from:"2026-10-24"}` 新開 Stripe Price（Live mode），舊客 grandfather；月費維持 HK$38。年費相對月費平 ~12%。
+- 升級 modal 對比表：追蹤屋苑收費欄寫「10+」；「抵買雷達」已隱藏（tab 食 D1 額度），對比表改寫「相對市價、估值」。
+- 「上盤日期 🔒」改成藍色膠囊，要似個掣。
+
