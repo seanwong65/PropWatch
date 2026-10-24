@@ -450,3 +450,15 @@ drip sync（`*/2`）同樣被雙重觸發：兩個 invocation 同時揀同一批
 兩邊都有：四網公開搜尋、放盤列表（今日 snapshot）＋篩選、成交記錄、市場溫度、今日動態、睇樓記錄（有上限）、類近成交。
 ⚠️ **Telegram 唔係用戶功能**：只係 admin 運維警報（TELEGRAM_CHAT_ID 單一收件人），升級頁／宣傳唔可以寫「Telegram 推送」。
 
+
+## D1 往返延遲（2026-10-25）— 「載入詳情…」轉好耐嘅真因
+- D1 主庫喺 **ENAM（北美東部）**（`wrangler d1 info propwatch-db` → running_in_region），worker 喺香港／台灣 edge 行 →
+  **每條 D1 query ≈ 200ms 跨洋往返**。單一 request 連續做 N 條 query 就 = N×200ms。冇 read replication、冇 Smart Placement。
+- 量度（正式站，用戶瀏覽器）：401 都要 ~520ms、最簡單嘅 `/api/config` 1.1s、`/api/viewings?estate_id=`（得 1 條記錄）5s。
+- 元兇：(1) 入口每個 request 行 `UPDATE accounts SET role='admin'…` ＋ `SELECT multi_account_migrated`（2 次往返）；
+  (2) 十幾個 `ensure*` 每個 request 都行 `CREATE TABLE IF NOT EXISTS`（`ensureRentalTables` 單獨 15 條）；
+  (3) `getConfig` 每次先 CREATE settings；(4) viewings handler 每次試 `ALTER TABLE`（已有欄位照樣失敗一次）。
+- 修法：`onceDb()`／`ddlOnce()`（每個 isolate 一次，失敗唔記）；admin promote 60 秒一次；migrated flag 記住；viewings 入面 getConfig／相片數同其他 query 並行。
+- ⚠️ **新增 `ensure*` 一律經 `onceDb`**，唔准每個 request 重行 DDL。寫新 handler 要數「連續幾多次 await D1」，能夠 `Promise.all`／`db.batch` 就合併。
+- 未做（要用戶決定）：Smart Placement（worker 搬去 D1 附近，但 scrape／公開搜尋會由美國出 IP，可能被地產網封）、
+  D1 read replication（要改用 Sessions API＋處理寫後讀一致）、authenticate session 短 cache（令登出／降級遲幾秒生效）。

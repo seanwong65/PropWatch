@@ -413,7 +413,7 @@ export function hsUnitParts(building, floor, unit) {
 // 等每日輪流嗰個 cursor 遲早會到，唔好同一個屋苑重複打恒生。
 // 插隊隊列行喺 drip cron 嗰個 hsScanStep 入面，同每日輪流一樣嘅
 // batch／time budget／gap，唔會因為插隊而狂打恒生 API。
-async function ensureHsScanPriority(db) {
+async function _ensureHsScanPriority(db) {
   await db.prepare(`CREATE TABLE IF NOT EXISTS hs_scan_priority (
     estate_id     INTEGER PRIMARY KEY REFERENCES estates(id) ON DELETE CASCADE,
     name          TEXT    NOT NULL,
@@ -424,6 +424,7 @@ async function ensureHsScanPriority(db) {
     requested_at  TEXT    NOT NULL DEFAULT (datetime('now'))
   )`).run();
 }
+const ensureHsScanPriority = onceDb(_ensureHsScanPriority);
 
 async function hsQueuePriorityScan(db, estateId, name) {
   const already = await db.prepare(
@@ -910,6 +911,25 @@ const hkDate = (ts) => ts ? new Date(ts * 1000).toISOString().slice(0, 10) : nul
 // 唔可以淨靠呢個 in-memory flag（isolate 可能喺遷移完成之前就俾人再攞
 // 嚟服務第二個 request）。
 let _authTablesReady = false;
+// ⚠️ 效能（2026-10-25）：D1 主庫喺 ENAM（北美東部），worker 喺香港／台灣 edge 行，
+// 每條 D1 query 都係一次跨太平洋往返（~200ms）。「CREATE TABLE IF NOT EXISTS」呢類 DDL
+// 一個 isolate 行一次就夠，所以全部經 onceDb／ddlOnce 做「每個 isolate 一次」——
+// 之前每個 request 都重行，單單 ensureRentalTables 就 15 條 query，撳開睇樓詳情要等 5 秒。
+// 失敗就唔記（下個 request 再試）；同一刻幾個 request 撞埋嚟會共用同一個 promise。
+function onceDb(fn) {
+  let p = null;
+  return (db, ...a) => {
+    if (!p) p = fn(db, ...a).catch((e) => { p = null; throw e; });
+    return p;
+  };
+}
+const _ddlDone = new Set();
+async function ddlOnce(db, key, sql) {
+  if (_ddlDone.has(key)) return;
+  await db.prepare(sql).run().catch(() => {});   // 已有欄位會 throw，照舊當冇事
+  _ddlDone.add(key);
+}
+
 async function ensureAuthTables(db) {
   if (_authTablesReady) return;
   await db.prepare(`CREATE TABLE IF NOT EXISTS accounts (
@@ -962,7 +982,7 @@ const isPaidSession = (session) => isAdminSession(session) || (session?.tier || 
 // ── 心儀樓盤（2026-10-12）─────────────────────────────────────────────
 // 用戶喺放盤卡撳 ♡ 收藏。snap 係收藏嗰刻由 DB 攞嘅快照（唔信 client 傳嚟嘅欄位）；
 // 合併卡（同一單位多個來源）用 refs 記晒所有 ref，ref_no 係最平嗰個。列表時再查最新價／有冇下架。
-async function ensureFavListings(db) {
+async function _ensureFavListings(db) {
   await db.prepare(`CREATE TABLE IF NOT EXISTS listing_favourites (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     account_id INTEGER NOT NULL,
@@ -977,13 +997,14 @@ async function ensureFavListings(db) {
   )`).run();
   await db.prepare("CREATE INDEX IF NOT EXISTS idx_favl_acct ON listing_favourites(account_id, created_at)").run();
 }
+const ensureFavListings = onceDb(_ensureFavListings);
 
 // ── 睇樓記錄分享（2026-10-12）─────────────────────────────────────────
 // 用戶將自己嘅睇樓記錄（1 個，或者同一日幾個）分享俾人睇：一條 /share#<token> 連結，對方唔使登入。
 // 只回用戶自己入嘅欄位（白名單 SHARE_FIELDS + 選咗嘅 opts），我哋嘅分析一律唔回。
 // 實時（改記錄對方見到新嘢；刪記錄就消失），永久有效直到用戶取消（revoked_at）。
 // token：randomToken() 256-bit；前端放喺 URL # 後面（唔入 server log／Referer），用 POST body 傳。
-async function ensureShares(db) {
+async function _ensureShares(db) {
   await db.prepare(`CREATE TABLE IF NOT EXISTS viewing_shares (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     account_id INTEGER NOT NULL,
@@ -997,6 +1018,7 @@ async function ensureShares(db) {
   )`).run();
   await db.prepare("CREATE INDEX IF NOT EXISTS idx_vshare_acct ON viewing_shares(account_id, revoked_at)").run();
 }
+const ensureShares = onceDb(_ensureShares);
 const SHARE_OPTS = ["photos", "price", "ratings", "notes"];
 export function cleanShareOpts(o) {
   const out = {};
@@ -1029,7 +1051,7 @@ export function shareViewingPayload(v, opts, ratingNames, cover, imgCount) {
 // 尺寸：用地產網 CDN 本身嘅縮放參數（Worker 冇得自己壓圖）——中原 800 闊 q75 ≈ 60KB、
 // 400 闊縮圖 ≈ 30KB；美聯／置業用 img_wm_revamp.php 嘅 h=。
 // 冇 PHOTOS binding（R2 未開）→ 成個功能自動停，回 unavailable，唔會爆。
-async function ensurePhotoArchive(db) {
+async function _ensurePhotoArchive(db) {
   await db.prepare(`CREATE TABLE IF NOT EXISTS listing_photo_archive (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     account_id INTEGER NOT NULL,
@@ -1044,6 +1066,7 @@ async function ensurePhotoArchive(db) {
   )`).run();
   await db.prepare("CREATE INDEX IF NOT EXISTS idx_lpa_acct_view ON listing_photo_archive(account_id, viewing_id, ref_no, seq)").run();
 }
+const ensurePhotoArchive = onceDb(_ensurePhotoArchive);
 const ARCHIVE_HOSTS = new Set(["hkais.centanet.com", "wm.hkp.com.hk", "wmc.hkp.com.hk", "wm-cdn.midland.com.hk", "wmc.midland.com.hk", "resourcecdn.ricacorp.com"]);
 // 原圖 URL → { full, thumb }（只准白名單 host，唔係就 null）
 export function archiveVariants(u) {
@@ -1229,6 +1252,7 @@ async function authenticate(db, request) {
 // 註冊都要即刻升到做 admin），唔係一次性 schema setup，一定要逐個
 // request 照跑，唔可以因為第一個 request 跑完就當「處理咗」。
 let _multiAccountDDLReady = false;
+let _adminPromoteAt = 0, _multiAccountMigrated = false;
 async function ensureMultiAccount(db) {
   if (!_multiAccountDDLReady) {
     await db.prepare(`CREATE TABLE IF NOT EXISTS account_estates (
@@ -1284,17 +1308,19 @@ async function ensureMultiAccount(db) {
     await db.prepare("CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT)").run();
     _multiAccountDDLReady = true;
   }
-  // 角色：user(預設) / admin。unconditional promote — 令指定 email 遲啲先註冊
-  // 都會自動升做 admin(冇 demote，重跑無害;accounts 表得幾行，成本可忽略)。
-  {
+  // 角色：user(預設) / admin。promote 令指定 email 遲啲先註冊都會自動升做 admin(冇 demote，重跑無害)。
+  // 之前每個 request 都行一次（= 一次寫入往返 ENAM），而家 60 秒一次（註冊時 role 已經直接按 ADMIN_EMAILS 寫入，所以最多遲 60 秒）。
+  if (Date.now() - _adminPromoteAt > 60000) {
     const adminEmails = [...ADMIN_EMAILS];
     const placeholders = adminEmails.map(() => "?").join(",");
     await db.prepare(
       `UPDATE accounts SET role='admin' WHERE role != 'admin' AND (username='seanwong' OR lower(email) IN (${placeholders}))`
     ).bind(...adminEmails).run();
+    _adminPromoteAt = Date.now();
   }
+  if (_multiAccountMigrated) return;
   const done = await db.prepare("SELECT 1 FROM settings WHERE key = 'multi_account_migrated'").first();
-  if (done) return;
+  if (done) { _multiAccountMigrated = true; return; }
   const sean = await db.prepare("SELECT id FROM accounts WHERE username = 'seanwong'").first();
   if (!sean) return;   // seed 未行,下個 request 再試
   const aid = sean.id;
@@ -2588,7 +2614,7 @@ async function dropShadowTxns(db, estateId) {
   ).bind(estateId).run().catch(() => {});
 }
 
-async function ensureTxnDedup(db) {
+async function _ensureTxnDedup(db) {
   await db.prepare("CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT)").run();
   await db.prepare("ALTER TABLE transactions ADD COLUMN bldg_key TEXT").run().catch(() => {});
   const done = await db.prepare("SELECT 1 FROM settings WHERE key = 'txn_bldgkey_dedup'").first();
@@ -2641,11 +2667,12 @@ async function ensureTxnDedup(db) {
          ))`
   ).run();
 }
+const ensureTxnDedup = onceDb(_ensureTxnDedup);
 
 // System parameters — a generic key/value catalogue with per-row CRUD.
 // Replaces the fragile single-blob settings.notes_options row. Ensures the
 // table exists and runs a one-time migration of any legacy notes_options.
-async function ensureSystemParams(db) {
+async function _ensureSystemParams(db) {
   await db.prepare(
     `CREATE TABLE IF NOT EXISTS system_parameters (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -2672,18 +2699,20 @@ async function ensureSystemParams(db) {
     await db.prepare("INSERT INTO settings (key, value) VALUES ('sysparam_migrated', '1') ON CONFLICT(key) DO UPDATE SET value = '1'").run();
   }
 }
+const ensureSystemParams = onceDb(_ensureSystemParams);
 
 // 睇樓評分項目（景觀／新舊程度…）：per-account catalogue，同 notes_option 一樣
 // 借 system_parameters 擺。新開 account 有得即刻用，唔使面對一張白紙；但個
 // 種子只落一次（settings flag 守住），用戶刪剩零個都唔會俾我哋種返出嚟。
 const RATING_CRITERIA_DEFAULTS = ["景觀", "新舊程度", "間隔實用", "採光通風", "周邊配套"];
 
+const _ratingSeeded = new Set();   // 已確認種過嘅 account（每個 isolate 唔使再問 D1）
 async function ensureRatingCriteria(db, accountId) {
-  if (!accountId) return;
+  if (!accountId || _ratingSeeded.has(accountId)) return;
   await db.prepare("CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT)").run();
   const flag = `ratecrit_seeded_${accountId}`;
   const seeded = await db.prepare("SELECT value FROM settings WHERE key = ?").bind(flag).first();
-  if (seeded) return;
+  if (seeded) { _ratingSeeded.add(accountId); return; }
   // 開 app 時幾個 request 會同時打呢個 endpoint，齊齊見到「未種過」就會種重複。
   // 所以先用 settings 個 PRIMARY KEY 搶名額——冇 ON CONFLICT，撞到就即刻死，
   // 只有搶贏嗰個 request 先落種子。
@@ -2715,7 +2744,7 @@ function sanitizeRatings(ratings) {
 }
 
 // 最新放盤 combine-same-unit 嘅人手覆蓋(拆開錯誤 group / 人手夾埋冇撞中嘅盤)
-async function ensureGroupOverrides(db) {
+async function _ensureGroupOverrides(db) {
   await db.prepare(`CREATE TABLE IF NOT EXISTS listing_group_overrides (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     estate_id INTEGER NOT NULL,
@@ -2727,9 +2756,10 @@ async function ensureGroupOverrides(db) {
   )`).run();
   await db.prepare("CREATE INDEX IF NOT EXISTS idx_grpovr_estate ON listing_group_overrides(estate_id)").run();
 }
+const ensureGroupOverrides = onceDb(_ensureGroupOverrides);
 
 // 用戶手動標記「已下架」——同 source 自動偵測獨立，per-account,唔影響其他人睇到嘅狀態
-async function ensureManualRemoved(db) {
+async function _ensureManualRemoved(db) {
   await db.prepare(`CREATE TABLE IF NOT EXISTS listing_manual_removed (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     account_id INTEGER NOT NULL,
@@ -2739,6 +2769,7 @@ async function ensureManualRemoved(db) {
   )`).run();
   await db.prepare("CREATE INDEX IF NOT EXISTS idx_manualrm_account ON listing_manual_removed(account_id)").run();
 }
+const ensureManualRemoved = onceDb(_ensureManualRemoved);
 
 // 放盤外連 click 追蹤：一個 account 撳同一條盤（ref_no）幾多次都只計一次，
 // 所以 UNIQUE(account_id, ref_no) + INSERT OR IGNORE 就係成個去重機制，
@@ -2758,7 +2789,7 @@ async function ensureManualRemoved(db) {
 // rental_listings.price_per_ft = 實呎租。
 // sale_price 係例外，因為佢真係另一件事——中原個租盤 response 會順手俾埋同一
 // 單位嘅叫價（同時放售放租嘅盤），存落去將來算租金回報率就唔使再抓。
-async function ensureRentalTables(db) {
+async function _ensureRentalTables(db) {
   await db.prepare(`CREATE TABLE IF NOT EXISTS rental_listings (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     estate_id INTEGER NOT NULL,
@@ -2838,8 +2869,9 @@ async function ensureRentalTables(db) {
     PRIMARY KEY (account_id, ref_no)
   )`).run();
 }
+const ensureRentalTables = onceDb(_ensureRentalTables);
 
-async function ensureListingClicks(db) {
+async function _ensureListingClicks(db) {
   await db.prepare(`CREATE TABLE IF NOT EXISTS listing_clicks (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     account_id INTEGER NOT NULL,
@@ -2861,6 +2893,7 @@ async function ensureListingClicks(db) {
   await db.prepare("CREATE INDEX IF NOT EXISTS idx_lclick_ref ON listing_clicks(ref_no)").run();
   await db.prepare("CREATE INDEX IF NOT EXISTS idx_lclick_account ON listing_clicks(account_id)").run();
 }
+const ensureListingClicks = onceDb(_ensureListingClicks);
 
 // ── 收費 / Stripe 訂閱 ───────────────────────────────────────────────────────
 // tier 仍然係「有冇得用收費功能」嘅唯一真相（isPaidSession 淨係睇佢），
@@ -3514,7 +3547,7 @@ const _sqlMedian = (arr) => {
 // 而家逐張一行存 viewing_images；viewings.images 淨係留俾舊記錄做 fallback
 // （改過一次就會搬晒過嚟，順手清 NULL）。對外 API 照舊用 `images` JSON 字串，
 // 前端唔使知底層點存。
-async function ensureViewingImages(db) {
+async function _ensureViewingImages(db) {
   await db.prepare(`CREATE TABLE IF NOT EXISTS viewing_images (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     viewing_id INTEGER NOT NULL,
@@ -3526,6 +3559,7 @@ async function ensureViewingImages(db) {
   // 封面縮圖（第 1 張相嘅小圖，~20–40KB，只喺 seq=0 嗰行有）：卡片打開時先載呢個，唔使載原圖。
   await db.prepare("ALTER TABLE viewing_images ADD COLUMN thumb TEXT").run().catch(() => {});
 }
+const ensureViewingImages = onceDb(_ensureViewingImages);
 
 // 封面縮圖：一定係細 JPEG data URL（客戶端生成，長邊 ~360px）。唔合格就當冇。
 const COVER_THUMB_MAX = 150 * 1024;
@@ -3793,7 +3827,7 @@ const CONFIG_DEFS = [
 // 分析參數係 per-account:key 存做 cfg_<accountId>_<key>。冇 accountId
 // (cron/email 等冇 session 嘅場景)會 fallback 用 seanwong 嘅設定。
 async function getConfig(db, accountId = null) {
-  await db.prepare("CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT)").run();
+  await ddlOnce(db, "settings", "CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT)");
   let aid = accountId;
   if (aid == null) {
     const sean = await db.prepare("SELECT id FROM accounts WHERE username = 'seanwong'").first();
@@ -5431,7 +5465,7 @@ async function d1Retry(fn, label = "D1") {
   throw last;
 }
 
-async function ensureSyncLog(db) {
+async function _ensureSyncLog(db) {
   await db.prepare(`CREATE TABLE IF NOT EXISTS sync_log (
     estate_id INTEGER NOT NULL,
     source TEXT NOT NULL,
@@ -5445,6 +5479,7 @@ async function ensureSyncLog(db) {
   )`).run();
   await db.prepare("CREATE INDEX IF NOT EXISTS idx_synclog_date ON sync_log(sync_date)").run();
 }
+const ensureSyncLog = onceDb(_ensureSyncLog);
 
 // ── 每日 sync 範圍：付費最愛 ＋ 輪住 sync 其餘 ─────────────────────────────
 // 每日全部 sync：有「付費（或 admin）帳戶」標咗最愛嘅屋苑。
@@ -9281,9 +9316,11 @@ export default {
       if (method === "GET" && (path === "/api/viewings" || path === "/api/viewings/all")) {
         const estateId = path === "/api/viewings" ? url.searchParams.get("estate_id") : null;
         if (path === "/api/viewings" && !estateId) return json(400, { error: "estate_id required" });
-        await db.prepare("ALTER TABLE viewings ADD COLUMN deal_type TEXT DEFAULT 'S'").run().catch(() => {});
+        await ddlOnce(db, "viewings.deal_type", "ALTER TABLE viewings ADD COLUMN deal_type TEXT DEFAULT 'S'");
         await ensureRentalTables(db);
         const scopeSql = estateId ? "v.estate_id = ?2" : "1=1";
+        const vcfgP = getConfig(db, session.account_id);   // 同主查詢並行（每條 D1 query 都係跨洋往返）
+        vcfgP.catch(() => {});
         const { results } = await db.prepare(`
           SELECT v.*,
             COALESCE(t.price, rt.price) AS txn_price,
@@ -9311,10 +9348,11 @@ export default {
           ORDER BY v.view_date DESC, v.created_at DESC
         `).bind(...(estateId ? [session.account_id, estateId] : [session.account_id])).all();
         for (const r of results) { delete r._b; delete r._f; delete r._u; }
-        await attachViewingImageCounts(db, session.account_id, results, estateId ? Number(estateId) : null);
+        const imgCountsP = attachViewingImageCounts(db, session.account_id, results, estateId ? Number(estateId) : null);
+        imgCountsP.catch(() => {});
         // 跨屋苑要每個屋苑自己一套市場基準，所以下面全部 per-estate map 住做。
         const estateIds = [...new Set(results.map((v) => v.estate_id).filter(Boolean))];
-        if (!estateIds.length) return json(200, { viewings: [] });
+        if (!estateIds.length) { await imgCountsP; return json(200, { viewings: [] }); }
         const eidPh = estateIds.map(() => "?").join(",");
         // 相對市價（同抵買雷達同一把尺）：優先同層帶（高/中/低層，以該座
         // 成交最高層三等分）嘅近N日中位數，唔夠宗數先 fallback 全苑。
@@ -9323,7 +9361,7 @@ export default {
         // ——攞自己嘅成交嚟同自己比較係循環論證,樣本細(n=1)嗰陣個 verdict
         // 會完全失真(變成「同自己一樣」)。所以呢度攞返 raw 成交,逐個
         // viewing 喺 JS 度計中位數,而唔係用一個 shared aggregate map。
-        const vcfg = await getConfig(db, session.account_id);
+        const vcfg = await vcfgP;
         const [{ results: rawTxnsAll }, { results: maxfRowsAll }, { results: rawRentTxnsAll }] = await Promise.all([
           db.prepare(`
             SELECT estate_id, building, floor, unit, price_per_ft,
@@ -9346,6 +9384,7 @@ export default {
             WHERE estate_id IN (${eidPh}) AND price_per_ft > 0 AND reg_date >= date('now', ?)
           `).bind(...estateIds, `-${vcfg.market_median_days} days`).all(),
         ]);
+        await imgCountsP;   // 相片數 query 同上面三條並行，呢度先收尾（attach 係直接改 results）
         // 一次過拉晒，再喺 JS 度按屋苑分堆——同一個屋苑嘅盤先可以互相做基準，
         // 唔可以撈埋第二個屋苑嘅成交嚟計中位數。
         const byEid = (rows) => {
@@ -9617,10 +9656,10 @@ export default {
         }
         const imgs = parseViewingImages(images, await getSecCfg(db), isPaidSession(session));
         if (imgs.error) return json(imgs.upgrade ? 402 : 400, imgs.upgrade ? { error: imgs.error, upgrade: true, feature: imgs.feature } : { error: imgs.error });
-        await db.prepare("ALTER TABLE viewings ADD COLUMN bedrooms INTEGER").run().catch(() => {});
-        await db.prepare("ALTER TABLE viewings ADD COLUMN ratings TEXT").run().catch(() => {});
-        await db.prepare("ALTER TABLE viewings ADD COLUMN deal_type TEXT DEFAULT 'S'").run().catch(() => {});
-        await db.prepare("ALTER TABLE viewings ADD COLUMN toilet TEXT").run().catch(() => {});
+        await ddlOnce(db, "viewings.bedrooms", "ALTER TABLE viewings ADD COLUMN bedrooms INTEGER");
+        await ddlOnce(db, "viewings.ratings", "ALTER TABLE viewings ADD COLUMN ratings TEXT");
+        await ddlOnce(db, "viewings.deal_type", "ALTER TABLE viewings ADD COLUMN deal_type TEXT DEFAULT 'S'");
+        await ddlOnce(db, "viewings.toilet", "ALTER TABLE viewings ADD COLUMN toilet TEXT");
         await ensureViewingImages(db);
         const result = await db.prepare(
           "INSERT INTO viewings (estate_id, view_date, block, floor, unit, size_net, direction, price, mgmt_fee, images, notes, bedrooms, ratings, account_id, deal_type, toilet) VALUES (?,?,?,?,?,?,?,?,?,NULL,?,?,?,?,?,?)"
@@ -9666,10 +9705,10 @@ export default {
         const vPrice = Number(price) > 0 ? Math.round(Number(price)) : 0;
         const imgs = parseViewingImages(images, await getSecCfg(db), isPaidSession(session));
         if (imgs.error) return json(imgs.upgrade ? 402 : 400, imgs.upgrade ? { error: imgs.error, upgrade: true, feature: imgs.feature } : { error: imgs.error });
-        await db.prepare("ALTER TABLE viewings ADD COLUMN bedrooms INTEGER").run().catch(() => {});
-        await db.prepare("ALTER TABLE viewings ADD COLUMN ratings TEXT").run().catch(() => {});
-        await db.prepare("ALTER TABLE viewings ADD COLUMN deal_type TEXT DEFAULT 'S'").run().catch(() => {});
-        await db.prepare("ALTER TABLE viewings ADD COLUMN toilet TEXT").run().catch(() => {});
+        await ddlOnce(db, "viewings.bedrooms", "ALTER TABLE viewings ADD COLUMN bedrooms INTEGER");
+        await ddlOnce(db, "viewings.ratings", "ALTER TABLE viewings ADD COLUMN ratings TEXT");
+        await ddlOnce(db, "viewings.deal_type", "ALTER TABLE viewings ADD COLUMN deal_type TEXT DEFAULT 'S'");
+        await ddlOnce(db, "viewings.toilet", "ALTER TABLE viewings ADD COLUMN toilet TEXT");
         await ensureViewingImages(db);
         // 先確認係自己嘅記錄：viewing_images 嘅 INSERT 冇 WHERE 可以擋，
         // 唔驗就可以對住人哋嘅 viewing_id 寫相（雖然讀嗰邊有 scope，都唔好留）。
