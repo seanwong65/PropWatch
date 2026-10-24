@@ -2602,19 +2602,18 @@ const isPaid = () => _tier === 'paid';
 // 免費／收費對比表：[功能, 免費, 收費]。只列「有分別」嘅功能（兩邊都有嘅，例如放盤列表、成交記錄、睇樓記錄、四網搜尋，唔列）。true／false＝✓／✗；字串＝直接顯示（{n}＝免費版屋苑上限）。
 // 分界線同 server 端 gate 一致（見 project_propwatch_tiers）：今日 snapshot＋成交＋睇樓記錄免費，時間軸／推送／分析收費。
 let _freeMaxFriends = 3;   // /api/config 帶返
-const COMPARE_FEATURES = [
-  ['追蹤屋苑', '有上限', '10+'],
-  ['睇樓記錄（數量、每個記錄相片）', '有上限', '無限'],
+const COMPARE_FEATURES = [   // 按重要性排（最影響升級決定嘅放前面）；唔列朋友屋企（用戶決定）
   ['放盤時間軸（日數、改價、下架）', false, true],
-  ['按放盤日數、減價篩選', false, true],
-  ['呎價走勢圖', false, true],
+  ['每日 email、每週摘要', false, true],
   ['心儀樓盤改價記錄', false, true],
-  ['歷史動態', false, true],
+  ['呎價走勢圖', false, true],
   ['睇樓分析（相對市價、成交對比）', false, true],
+  ['追蹤屋苑', '有上限', '10+'],
+  ['睇樓記錄（數量、相片）', '有上限', '無限'],
+  ['按放盤日數、減價篩選', false, true],
+  ['歷史動態', false, true],
   ['恒生估值', false, true],
   ['對應放盤相片自動存檔', false, true],
-  ['每日 email、每週摘要', false, true],
-  ['朋友屋企', '有上限', '更多'],
 ];
 let _cmpIv = 'year';
 function cmpPick(iv) { _cmpIv = iv; const el = document.getElementById('cmpBuy'); if (el) el.innerHTML = cmpBuyInner(); }
