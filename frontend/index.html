@@ -218,10 +218,31 @@
       position: relative; left: 50%; transform: translateX(-50%);
       width: 90vw; max-width: 1600px; margin: 2.2rem 0;
     }
-    .ld-feat-grid { display: flex; flex-direction: column; gap: 1.4rem; }
-    @media (min-width: 860px) {
-      .ld-feat-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1.6rem; }
+    /* 功能卡：左右 swipe（scroll-snap）。之前直向疊 8 張，手機要碌好長先到底。
+       每張卡留一截唔蓋晒，提示「仲有得睇」；dots／箭嘴由底部 script 生成。 */
+    .ld-feat-grid {
+      display: flex; gap: 1rem; overflow-x: auto; scroll-snap-type: x mandatory;
+      -webkit-overflow-scrolling: touch; overscroll-behavior-x: contain;
+      scrollbar-width: none; padding: 0.2rem 0.2rem 0.9rem; scroll-padding: 0 0.2rem;
     }
+    .ld-feat-grid::-webkit-scrollbar { display: none; }
+    .ld-feat-grid:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; border-radius: var(--radius); }
+    .ld-feat-card { flex: 0 0 84%; scroll-snap-align: start; }
+    @media (min-width: 860px) {
+      .ld-feat-grid { gap: 1.6rem; }
+      .ld-feat-card { flex-basis: 44%; }
+    }
+    .ld-feat-nav { display: flex; align-items: center; justify-content: center; gap: 0.9rem; margin-top: 0.3rem; }
+    .ld-feat-nav[hidden] { display: none; }
+    .ld-feat-dots { display: flex; gap: 0.45rem; }
+    .ld-feat-dot { width: 8px; height: 8px; border-radius: 50%; border: 0; padding: 0; background: var(--border); cursor: pointer; transition: width 0.2s, background 0.2s; }
+    .ld-feat-dot.active { width: 22px; border-radius: 4px; background: var(--brand); }
+    .ld-feat-arrow {
+      width: 2.2rem; height: 2.2rem; border-radius: 50%; border: 1px solid var(--glass-border); background: var(--glass-bg);
+      color: var(--text); font-size: 1.1rem; line-height: 1; cursor: pointer; box-shadow: var(--shadow-sm);
+    }
+    .ld-feat-arrow:disabled { opacity: 0.35; cursor: default; }
+    @media (hover: none) { .ld-feat-arrow { display: none; } }
     .ld-feat-card {
       background: var(--glass-bg); backdrop-filter: var(--glass-blur); -webkit-backdrop-filter: var(--glass-blur);
       border: 1px solid var(--glass-border); border-radius: var(--radius);
@@ -389,63 +410,68 @@
     <h2 class="ld-h2">功能介紹</h2>
     <div class="ld-h2sub">以下係系統畫面（示範數據）</div>
 
-    <div class="ld-feat-breakout"><div class="ld-feat-grid">
+    <div class="ld-feat-breakout"><div class="ld-feat-grid" id="ld-feat-grid" role="region" aria-label="功能介紹，左右撥動瀏覽" tabindex="0">
       <div class="ld-feat-card">
-        <div class="ld-feat-card-shot"><img src="images/feat-search-726.jpg" sizes="(min-width: 860px) min(calc(45vw - 3rem), 770px), calc(90vw - 2rem)" width="726" height="330" alt="四大地產網一次過搜尋：買盤租盤、地區、房數、售價、實用面積篩選，中原、美聯、香港置業、利嘉閣盤數一齊顯示，可按價錢由低至高排" loading="lazy"></div>
+        <div class="ld-feat-card-shot"><img src="images/feat-search-726.jpg" sizes="(min-width: 860px) min(38vw, 700px), 76vw" width="726" height="330" alt="四大地產網一次過搜尋：買盤租盤、地區、房數、售價、實用面積篩選，中原、美聯、香港置業、利嘉閣盤數一齊顯示，可按價錢由低至高排" loading="lazy"></div>
         <div class="ld-feat-card-body">
           <div class="ld-feat-card-name">🔍 四網一次搜：買盤、租盤、全港 19 區</div>
           <p>一個搜尋同時睇<b>中原、美聯、香港置業、利嘉閣</b>。按屋苑、地區、房數、價錢、實用面積篩選，<b>價錢或實用呎價由低至高</b>排，居屋未補地價盤會標明。唔使登入。</p>
         </div>
       </div>
       <div class="ld-feat-card">
-        <div class="ld-feat-card-shot"><img src="images/feat-fav-707.jpg" sizes="(min-width: 860px) min(calc(45vw - 3rem), 770px), calc(90vw - 2rem)" width="707" height="370" alt="心儀樓盤：收藏咗嘅盤每次改價逐條列出，由最初叫價累計減咗幾多一眼睇晒" loading="lazy"></div>
+        <div class="ld-feat-card-shot"><img src="images/feat-fav-707.jpg" sizes="(min-width: 860px) min(38vw, 700px), 76vw" width="707" height="370" alt="心儀樓盤：收藏咗嘅盤每次改價逐條列出，由最初叫價累計減咗幾多一眼睇晒" loading="lazy"></div>
         <div class="ld-feat-card-body">
           <div class="ld-feat-card-name">♥ 心儀樓盤：每次改價逐條記低</div>
           <p>睇中嘅盤撳 ♡ 收藏，<b>由最初叫價到而家減咗幾多、幾時減</b>逐條列出，下架都知。揀幾個一齊<b>分享俾屋企人</b>，直接傳原網站連結。</p>
         </div>
       </div>
       <div class="ld-feat-card">
-        <div class="ld-feat-card-shot"><img src="images/cap-multi-source-v2-625.webp" srcset="images/cap-multi-source-v2-480.webp 480w, images/cap-multi-source-v2-625.webp 625w" sizes="(min-width: 860px) min(calc(45vw - 3rem), 770px), calc(90vw - 2rem)" width="625" height="395" alt="放盤列表：每個盤顯示放盤日數、來源網站同售價，附歷史同類近成交" loading="lazy"></div>
+        <div class="ld-feat-card-shot"><img src="images/cap-multi-source-v2-625.webp" srcset="images/cap-multi-source-v2-480.webp 480w, images/cap-multi-source-v2-625.webp 625w" sizes="(min-width: 860px) min(38vw, 700px), 76vw" width="625" height="395" alt="放盤列表：每個盤顯示放盤日數、來源網站同售價，附歷史同類近成交" loading="lazy"></div>
         <div class="ld-feat-card-body">
           <div class="ld-feat-card-name">🕰️ 放盤列表：日數、減價、下架一次過睇</div>
           <p>每個盤跟住<b>真實放盤日數</b>、減過幾多次價。同一單位喺幾個網重複放會<b>自動合併做一行</b>，仲會自動配對返成交價。</p>
         </div>
       </div>
       <div class="ld-feat-card">
-        <div class="ld-feat-card-shot"><img src="images/cap-price-timeline-v2-625.webp" srcset="images/cap-price-timeline-v2-480.webp 480w, images/cap-price-timeline-v2-625.webp 625w" sizes="(min-width: 860px) min(calc(45vw - 3rem), 770px), calc(90vw - 2rem)" width="625" height="395" alt="售價歷史：逐次改價記錄同總減幅" loading="lazy"></div>
+        <div class="ld-feat-card-shot"><img src="images/cap-price-timeline-v2-625.webp" srcset="images/cap-price-timeline-v2-480.webp 480w, images/cap-price-timeline-v2-625.webp 625w" sizes="(min-width: 860px) min(38vw, 700px), 76vw" width="625" height="395" alt="售價歷史：逐次改價記錄同總減幅" loading="lazy"></div>
         <div class="ld-feat-card-body">
           <div class="ld-feat-card-name">📉 售價歷史：每次改價都留低證據</div>
           <p>由我哋<b>首次見到嗰日</b>開始記，每次減價幾多、幾時減，一條時間線列曬。</p>
         </div>
       </div>
       <div class="ld-feat-card">
-        <div class="ld-feat-card-shot"><img src="images/cap-estate-analysis-v2-780.webp" srcset="images/cap-estate-analysis-v2-640.webp 640w, images/cap-estate-analysis-v2-780.webp 780w" sizes="(min-width: 860px) min(calc(45vw - 3rem), 770px), calc(90vw - 2rem)" width="780" height="493" alt="樓盤分析：實用呎價趨勢，叫價同成交對照" loading="lazy"></div>
+        <div class="ld-feat-card-shot"><img src="images/cap-estate-analysis-v2-780.webp" srcset="images/cap-estate-analysis-v2-640.webp 640w, images/cap-estate-analysis-v2-780.webp 780w" sizes="(min-width: 860px) min(38vw, 700px), 76vw" width="780" height="493" alt="樓盤分析：實用呎價趨勢，叫價同成交對照" loading="lazy"></div>
         <div class="ld-feat-card-body">
           <div class="ld-feat-card-name">📊 樓盤分析：呎價走勢一眼睇</div>
           <p>成個屋苑嘅<b>叫價／成交呎價走勢圖</b>，按房數拆開睇，市況一路點變一眼睇晒。</p>
         </div>
       </div>
       <div class="ld-feat-card">
-        <div class="ld-feat-card-shot"><img src="images/cap-daily-activity-v2-625.webp" srcset="images/cap-daily-activity-v2-480.webp 480w, images/cap-daily-activity-v2-625.webp 625w" sizes="(min-width: 860px) min(calc(45vw - 3rem), 770px), calc(90vw - 2rem)" width="625" height="395" alt="動態：各屋苑嘅售價變動、新成交一目瞭然" loading="lazy"></div>
+        <div class="ld-feat-card-shot"><img src="images/cap-daily-activity-v2-625.webp" srcset="images/cap-daily-activity-v2-480.webp 480w, images/cap-daily-activity-v2-625.webp 625w" sizes="(min-width: 860px) min(38vw, 700px), 76vw" width="625" height="395" alt="動態：各屋苑嘅售價變動、新成交一目瞭然" loading="lazy"></div>
         <div class="ld-feat-card-body">
           <div class="ld-feat-card-name">🔔 今日動態：邊個盤有變動即刻知</div>
           <p>新放盤、減價、下架，同埋<b>你睇過嗰啲盤</b>嘅最新變動，一開 app 就見晒，唔使自己逐個翻查。</p>
         </div>
       </div>
       <div class="ld-feat-card">
-        <div class="ld-feat-card-shot"><img src="images/feat-viewing-1078.webp" srcset="images/feat-viewing-640.webp 640w, images/feat-viewing-1078.webp 1078w" sizes="(min-width: 860px) min(calc(45vw - 3rem), 770px), calc(90vw - 2rem)" width="1078" height="506" alt="睇樓記錄：自訂項目評分、備註，同埋相對叫價／成交中位數嘅貴平判斷" loading="lazy"></div>
+        <div class="ld-feat-card-shot"><img src="images/feat-viewing-1078.webp" srcset="images/feat-viewing-640.webp 640w, images/feat-viewing-1078.webp 1078w" sizes="(min-width: 860px) min(38vw, 700px), 76vw" width="1078" height="506" alt="睇樓記錄：自訂項目評分、備註，同埋相對叫價／成交中位數嘅貴平判斷" loading="lazy"></div>
         <div class="ld-feat-card-body">
           <div class="ld-feat-card-name">📝 睇樓記錄：睇十間都唔會撈亂</div>
           <p>逐項自訂評分，影相、寫備註。仲會同時話你知呢個單位<b>相對叫價同成交中位數</b>係貴定平；成日嘅睇樓記錄可以<b>一條連結分享俾屋企人</b>。</p>
         </div>
       </div>
       <div class="ld-feat-card">
-        <div class="ld-feat-card-shot"><img src="images/trust-source-status-900.webp" srcset="images/trust-source-status-640.webp 640w, images/trust-source-status-900.webp 900w, images/trust-source-status-1168.webp 1168w" sizes="(min-width: 860px) min(calc(45vw - 3rem), 770px), calc(90vw - 2rem)" width="1168" height="784" alt="老實監察：中原、利嘉閣、香港置業正常，美聯延遲／暫缺會清楚標示" loading="lazy"></div>
+        <div class="ld-feat-card-shot"><img src="images/trust-source-status-900.webp" srcset="images/trust-source-status-640.webp 640w, images/trust-source-status-900.webp 900w, images/trust-source-status-1168.webp 1168w" sizes="(min-width: 860px) min(38vw, 700px), 76vw" width="1168" height="784" alt="老實監察：中原、利嘉閣、香港置業正常，美聯延遲／暫缺會清楚標示" loading="lazy"></div>
         <div class="ld-feat-card-body">
           <div class="ld-feat-card-name">📡 資料來源監察：邊個網有延遲一眼睇晒</div>
           <p>四個資料來源逐個獨立監察，<b>邊個正常、邊個延遲</b>一目瞭然，斷過都唔會扮冇事發生嚟呃靚「今日動態」。</p>
         </div>
       </div>
+    </div>
+    <div class="ld-feat-nav" id="ld-feat-nav" hidden>
+      <button type="button" class="ld-feat-arrow" id="ld-feat-prev" aria-label="上一張">‹</button>
+      <div class="ld-feat-dots" id="ld-feat-dots"></div>
+      <button type="button" class="ld-feat-arrow" id="ld-feat-next" aria-label="下一張">›</button>
     </div></div>
 
     <h2 class="ld-h2" id="ld-pains">經紀唔會話你知嘅三件事</h2>
@@ -598,6 +624,39 @@ function ldHeroCarRestart() {
 }
 function ldHeroCarTo(i) { ldHeroCarShow(i); ldHeroCarRestart(); }
 ldHeroCarRestart();
+</script>
+<script>
+// 功能卡 carousel 嘅 dots／箭嘴：淨係做導航，內容照樣喺 HTML（crawler 睇到）。
+(function () {
+  var g = document.getElementById("ld-feat-grid"), nav = document.getElementById("ld-feat-nav");
+  if (!g || !nav) return;
+  var cards = g.querySelectorAll(".ld-feat-card"), dotsBox = document.getElementById("ld-feat-dots");
+  var prev = document.getElementById("ld-feat-prev"), next = document.getElementById("ld-feat-next");
+  var dots = [], cur = 0;
+  cards.forEach(function (c, i) {
+    var d = document.createElement("button");
+    d.type = "button"; d.className = "ld-feat-dot"; d.setAttribute("aria-label", "第 " + (i + 1) + " 張");
+    d.onclick = function () { go(i); };
+    dotsBox.appendChild(d); dots.push(d);
+  });
+  function go(i) {
+    i = Math.max(0, Math.min(cards.length - 1, i));
+    g.scrollTo({ left: cards[i].offsetLeft - cards[0].offsetLeft, behavior: "smooth" });
+  }
+  function sync() {
+    var x = g.scrollLeft + 4, best = 0;
+    cards.forEach(function (c, i) { if (c.offsetLeft - cards[0].offsetLeft <= x) best = i; });
+    if (g.scrollLeft + g.clientWidth >= g.scrollWidth - 4) best = cards.length - 1;
+    cur = best;
+    dots.forEach(function (d, i) { d.classList.toggle("active", i === cur); });
+    prev.disabled = cur === 0; next.disabled = cur === cards.length - 1;
+  }
+  prev.onclick = function () { go(cur - 1); };
+  next.onclick = function () { go(cur + 1); };
+  var t; g.addEventListener("scroll", function () { clearTimeout(t); t = setTimeout(sync, 60); }, { passive: true });
+  window.addEventListener("resize", sync);
+  nav.hidden = false; sync();
+})();
 </script>
 <script>
 // 最近搜尋 chips：撳咗去 /search?<條件>，/search 會自動填返條件再搜。內容全部 textContent，q 做白名單。
