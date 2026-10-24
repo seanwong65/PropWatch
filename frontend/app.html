@@ -1926,11 +1926,14 @@
     </div>
     <div style="margin-top:0.75rem;font-size:0.82rem;color:var(--muted)">目前設定：<span id="pref-modal-preview" style="color:var(--text);font-weight:600">未設定</span></div>
 
-    <label class="vf-label" style="margin-top:1.1rem">📧 每日 email 通知</label>
+    <div id="pref-email-wrap" style="display:none">
+    <label class="vf-label" style="margin-top:1.1rem">📧 每日 email 通知（收費版）</label>
     <p style="font-size:0.78rem;color:var(--muted);margin:0 0 0.5rem">每朝 9:00 寄「今日動態」——新放盤／成交／變價／下架。隨時可以喺呢度或者 email 底部退訂。</p>
     <label style="display:flex;align-items:center;gap:0.45rem;font-size:0.85rem;color:var(--text);cursor:pointer">
       <input type="checkbox" id="pref-email-optin" checked style="accent-color:var(--accent)"> 我要收每日通知 email
     </label>
+    </div>
+    <div id="pref-free-email-note" style="display:none;margin-top:1.1rem;font-size:0.8rem;color:var(--muted)">📧 每日 email 同每週摘要係收費版功能。<a href="#" onclick="event.preventDefault();closePrefsModal();showUpgrade('每日 email')" style="color:var(--accent2)">睇下收費版有咩</a></div>
     <div id="pref-weekly-wrap" style="display:none;margin-top:0.75rem">
       <p style="font-size:0.78rem;color:var(--muted);margin:0 0 0.5rem">📊 每週摘要（收費版）：逢星期六 10:00 寄你最愛屋苑嘅一週市況同你留意緊嘅盤變動，<b>當日取代每日 email</b>。只計你標咗 ⭐ 最愛嘅屋苑。</p>
       <label style="display:flex;align-items:center;gap:0.45rem;font-size:0.85rem;color:var(--text);cursor:pointer">
@@ -7524,6 +7527,8 @@ function openPrefsModal(prefill) {
   document.getElementById('pref-email-optin').checked = _emailOptIn;
   // 每週摘要係收費功能：免費用戶唔出呢個選項（server 都唔會寄俾佢）
   document.getElementById('pref-weekly-wrap').style.display = isPaid() ? '' : 'none';
+  document.getElementById('pref-email-wrap').style.display = isPaid() ? '' : 'none';           // 免費版冇每日 email（server 端只寄收費／admin），唔好出個開關
+  document.getElementById('pref-free-email-note').style.display = isPaid() ? 'none' : '';
   document.getElementById('pref-weekly-optin').checked = _weeklyOptIn;
   document.getElementById('prefsModalOverlay').style.display = 'flex';
   updatePrefsModalPreview();
@@ -7588,7 +7593,7 @@ async function savePrefsFromModal() {
     deal_types: [...document.querySelectorAll('#pref-deal-types .filter-chip.active')].map(b => b.dataset.deal),
   };
   if (document.getElementById('pref-dismiss').checked) body.dismissed = true;
-  body.email_opt_in = document.getElementById('pref-email-optin').checked;
+  if (isPaid()) body.email_opt_in = document.getElementById('pref-email-optin').checked;   // 免費版冇呢個開關，唔好傳（避免靜靜改咗佢 opt-in 狀態）
   if (isPaid()) body.weekly_opt_in = document.getElementById('pref-weekly-optin').checked;
   try {
     const d = await api('/api/preferences', { method: 'PUT', body: JSON.stringify(body) });
@@ -7708,9 +7713,11 @@ function renderPrefsSummary() {
   // 訂閱狀態喺 summary 直接見到，唔使開個 popup 先知自己有冇訂
   const em = document.getElementById('settings-email-state');
   if (em) {
-    em.textContent = (_emailOptIn ? '📧 每日 email：開' : '📧 每日 email：關')
-      + (isPaid() ? (_emailOptIn && _weeklyOptIn ? '・📊 每週摘要：開' : '・📊 每週摘要：關') : '');
-    em.style.color = _emailOptIn ? 'var(--up)' : 'var(--muted)';
+    // 免費版冇每日 email／每週摘要，唔顯示開關狀態（避免誤導）
+    em.textContent = isPaid()
+      ? (_emailOptIn ? '📧 每日 email：開' : '📧 每日 email：關') + (_emailOptIn && _weeklyOptIn ? '・📊 每週摘要：開' : '・📊 每週摘要：關')
+      : '📧 每日 email、每週摘要：收費版功能';
+    em.style.color = isPaid() && _emailOptIn ? 'var(--up)' : 'var(--muted)';
   }
 }
 
