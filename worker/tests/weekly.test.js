@@ -115,3 +115,12 @@ describe("每週摘要：待跟進 section", () => {
     expect(renderWeeklyHtml(computeWeekly(inp), opts)).not.toContain("等你跟進");
   });
 });
+
+describe("email 頂部 app 連結（唔使碌到底先搵到）", () => {
+  it("header 有「打開 app」掣，喺 headline 之前；底部 CTA 同頁尾字有間距", () => {
+    const html = renderWeeklyHtml(computeWeekly(base()), { appUrl: "https://x/app", unsubUrl: "https://x/u", iconUrl: "https://x/i.png" });
+    const top = html.indexOf("打開 app →"), headline = html.indexOf("你 1 個最愛屋苑本週"), bottom = html.indexOf("打開搵樓日記睇詳情");
+    expect(top).toBeGreaterThan(0); expect(top).toBeLessThan(headline); expect(headline).toBeLessThan(bottom);
+    expect(html).toContain("margin:28px 0 38px");
+  });
+});

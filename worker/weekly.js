@@ -305,8 +305,8 @@ export function renderWeeklyHtml(w, { appUrl, unsubUrl, iconUrl, prefLabel = "",
 <title>搵樓日記每週摘要</title>
 <body style="margin:0;background:#eef6fd;font-family:-apple-system,'PingFang HK','Heiti TC',sans-serif;color:#0f1c2e">
 <div style="max-width:560px;margin:0 auto;padding:18px 14px 30px">
- <table role="presentation" style="border-collapse:collapse"><tr><td style="padding-right:10px"><img src="${esc(iconUrl)}" width="44" height="44" alt="" style="border-radius:10px;display:block"></td><td>
-  <div style="font-size:19px;font-weight:800">📊 每週摘要</div><div style="font-size:13px;color:#4f647a">${mdLabel(w.wStart)} 至 ${mdLabel(w.wEnd)}</div></td></tr></table>
+ <table role="presentation" style="border-collapse:collapse;width:100%"><tr><td style="padding-right:10px;width:44px"><img src="${esc(iconUrl)}" width="44" height="44" alt="" style="border-radius:10px;display:block"></td><td>
+  <div style="font-size:19px;font-weight:800">📊 每週摘要</div><div style="font-size:13px;color:#4f647a">${mdLabel(w.wStart)} 至 ${mdLabel(w.wEnd)}</div></td><td style="text-align:right;vertical-align:middle;padding-left:8px"><a href="${esc(appUrl)}" style="background:#1270ac;color:#fff;text-decoration:none;padding:7px 13px;border-radius:999px;font-weight:700;font-size:13px;white-space:nowrap;display:inline-block">打開 app →</a></td></tr></table>
  <div style="background:#1270ac;color:#fff;border-radius:14px;padding:12px 16px;margin:12px 0 4px;font-size:14px;line-height:1.7">${esc(weeklyHeadline(w))}</div>
  ${w.moves.length ? box("❤️ 你睇過嘅盤", w.moves.map(moveRow).join("")) : ""}
  ${todoBox}
@@ -314,7 +314,7 @@ export function renderWeeklyHtml(w, { appUrl, unsubUrl, iconUrl, prefLabel = "",
  ${budgetBox}
  ${box("🏢 屋苑市況", w.cards.map(estRow).join(""))}
  ${w.weekTxns.length ? box(`🏠 本週新錄得成交${w.weekTxnTotal > w.weekTxns.length ? `（共 ${w.weekTxnTotal} 宗，列最近 ${w.weekTxns.length} 宗）` : ""}`, w.weekTxns.map(txRow).join("")) : ""}
- <div style="text-align:center;margin:22px 0 8px"><a href="${esc(appUrl)}" style="background:#1270ac;color:#fff;text-decoration:none;padding:11px 22px;border-radius:999px;font-weight:700">打開搵樓日記睇詳情 →</a></div>
+ <div style="text-align:center;margin:28px 0 38px"><a href="${esc(appUrl)}" style="background:#1270ac;color:#fff;text-decoration:none;padding:11px 22px;border-radius:999px;font-weight:700">打開搵樓日記睇詳情 →</a></div>
  <div style="font-size:11.5px;color:#7a8ca0;text-align:center;line-height:1.7">只計你喺搵樓日記標咗 ⭐ 最愛嘅屋苑。叫價以實用呎價中位數計；成交對比用近 90 日已登記成交。${w.stale.length ? `<br>${esc(w.stale.join("、"))} 嘅放盤數據未更新，今次未計入。` : ""}<br>
  唔想收每週摘要？<a href="${esc(unsubUrl)}" style="color:#7a8ca0">撳呢度取消</a>，或者喺 ⚙️ 設定熄咗「每週摘要」。</div>
 </div></body></html>`;
