@@ -3667,6 +3667,17 @@ const _unitTitle = v => {
 // 已成交（status=sold）嘅唔提；用戶可以撳 ✕ 唔再提醒（記喺呢部機 localStorage）。
 const _TODO_KEY = 'pw_todo_dismissed';
 let _todoOpen = false, _todoAll = false;
+// 「✕ 唔再提醒」：localStorage（即時）＋server（每週摘要 email 先尊重到）。載入時合併：server 有、本機冇 → 補落本機；
+// 本機有、server 冇（舊版只存本機）→ 一次過補送上 server。
+function syncTodoDismissed(serverIds) {
+  if (!Array.isArray(serverIds)) return;
+  const local = _todoDismissed(), server = new Set(serverIds.map(Number));
+  const toServer = [...local].filter(id => !server.has(Number(id)));
+  let changed = false;
+  for (const id of server) if (!local.has(id)) { local.add(id); changed = true; }
+  if (changed) { try { localStorage.setItem(_TODO_KEY, JSON.stringify([...local])); } catch (_) { /* 私隱模式 */ } }
+  if (toServer.length) api('/api/todo-dismissed', { method: 'POST', body: JSON.stringify({ ids: toServer.slice(0, 200) }) }).catch(() => {});
+}
 function _todoDismissed() { try { return new Set(JSON.parse(localStorage.getItem(_TODO_KEY) || '[]')); } catch (_) { return new Set(); } }
 function viewingTodos() {
   const hidden = _todoDismissed();
@@ -3733,6 +3744,7 @@ function renderViewingTodo() {
 function todoDismiss(id) {
   const s = _todoDismissed(); s.add(Number(id));
   try { localStorage.setItem(_TODO_KEY, JSON.stringify([...s])); } catch (_) { /* 私隱模式：今次有效，refresh 後會再出 */ }
+  api('/api/todo-dismissed', { method: 'POST', body: JSON.stringify({ ids: [Number(id)] }) }).catch(() => {});   // 同步 server（每週摘要 email 先唔會再提）
   renderViewingTodo();
 }
 // 補資料：開返個編輯 modal。要先攞埋完整記錄（comps 版欠啲欄位，直接開會洗走冇帶嘅欄位）
@@ -3763,7 +3775,7 @@ async function loadViewingComps() {
   try {
     let items;
     if (isPaid()) {
-      items = (await api('/api/viewings/comps')).items || [];
+      const cr = await api('/api/viewings/comps'); items = cr.items || []; syncTodoDismissed(cr.todo_dismissed);
       _compsEnriched = null;      // 詳細資料撳開卡先逐個屋苑攞；重新載入要作廢
       for (const k in _compsEnrichedByEstate) delete _compsEnrichedByEstate[k];
       for (const k in _matchUnitsLoaded) delete _matchUnitsLoaded[k];
@@ -3772,7 +3784,7 @@ async function loadViewingComps() {
       // 免費版：/api/viewings/comps（相對市價分析）係收費功能，日記清單改用免費嘅
       // /api/viewings/all（已包埋詳細卡要用嘅欄位，所以唔使再攞第二次）。價格尺嗰格
       // 見 priceRulerHtml：免費版顯示 SAMPLE 示範框。
-      items = (await api('/api/viewings/all')).viewings || [];
+      const ar = await api('/api/viewings/all'); items = ar.viewings || []; syncTodoDismissed(ar.todo_dismissed);
       _compsEnriched = Promise.resolve();
     }
     _compsData = items;

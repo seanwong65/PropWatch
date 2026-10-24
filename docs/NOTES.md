@@ -477,3 +477,8 @@ drip sync（`*/2`）同樣被雙重觸發：兩個 invocation 同時揀同一批
 - 單幢屋苑冇座數。表單座數可選；**留空儲存時前端用屋苑名做 `block`**（production 已有 5 條咁嘅記錄，顯示會隱藏同屋苑名一樣嘅 block；放盤配對用 `building_name`＝屋苑名）。
 - 修咗：成交比對 SQL 之前將 block 補成「X座」，單幢屋苑成交嘅 `building`＝屋苑名（冇「座」）永遠對唔到 → 上手成交、「你睇過嘅盤有新成交」email／今日動態都收唔到。而家 `t.building IN (X座, block)`（4 處：viewings GET 兩個 subquery、daily email 買／租、今日動態）。
 - 仍然冇處理：block 完全 NULL／空（舊 API 或手改）嘅記錄在 comps 唔會判 sold、frontend 當「座未填」——production 0 條，新 UI 唔會產生。
+
+## 每週摘要：待跟進 section（2026-10-25，收費版）
+- 同 app「待跟進」同一套規則（`weeklyTodos`，純函數有測試）：欠座／樓層／室／睇樓價（租盤＝睇樓租金）、未對應放盤（睇樓超 `todo_link_max_days`，預設 30 日唔再提）；已成交、用戶 ✕、全部放盤都 ✕ 過（dismissed_refs）唔提。最多列 5 條，其餘寫「另有 N 個」；冇待辦就唔出。
+- 用戶「✕ 唔再提醒」以前只存 localStorage，現在同步去 `settings.todo_dismissed_<accountId>`（`POST /api/todo-dismissed`，只收自己嘅 viewing id，最多 1000）；`/api/viewings/all`、`/api/viewings?estate_id`、`/api/viewings/comps` 回 `todo_dismissed`，前端載入時雙向合併（舊本機記錄會一次過補送上 server）。
+- loadWeeklyInputs 用 `v.*`（dismissed_refs 係 lazy ALTER 欄位）＋ EXISTS 查成交（`building IN (X座, block)`）判 sold；讀唔到就唔出 section，唔影響成封信。

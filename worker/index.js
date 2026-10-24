@@ -1009,6 +1009,14 @@ const isAdminSession = (session) => (session?.role || "user") === "admin";
 // 邊個 portal 都睇到嘅嘢(而家有咩盤、幾錢)免費;我哋 scrape 咗經年先儲到嘅
 // 歷史(放盤日數/改價/下架/趨勢)同主動推送(email/alert)先收費。
 // admin 永遠當 paid(方便自己用同測試)。
+// 待跟進「✕ 唔再提醒」：以前只存喺瀏覽器 localStorage，email（每週摘要）睇唔到。而家存 settings.todo_dismissed_<accountId>（JSON 數字陣列），前端同步。
+async function getTodoDismissed(db, accountId) {
+  try {
+    const r = await db.prepare("SELECT value FROM settings WHERE key = ?").bind(`todo_dismissed_${accountId}`).first();
+    return (JSON.parse(r?.value || "[]") || []).map(Number).filter(Number.isInteger);
+  } catch (_) { return []; }
+}
+
 // 免費版恒生估值：每個單位（帳戶＋屋苑＋座層室）手動試查一次，查到定查唔到都算一次；另有帳戶總上限 sec_free_hs_trials。
 // 記錄喺 hs_free_tries（PK 即係「一次」嘅原子鎖）。key 用睇樓記錄自己嘅座／層／室，刪咗再加同一單位唔會重置。
 const hsUnitKey = (block, floor, unit) => [block, floor, unit].map((x) => String(x ?? "").replace(/[^A-Za-z0-9\u4e00-\u9fff]/g, "").replace(/[座樓層室號]/g, "").toUpperCase()).join("|");
@@ -9642,9 +9650,9 @@ export default {
             const tm = new Map(tried.map((t) => [`${t.estate_id}|${t.unit_key}`, t.result || "ok"]));
             for (const v of results) v.hs_tried = tm.get(`${v.estate_id}|${hsUnitKey(v.block, v.floor, v.unit)}`) || null;
           } catch (_) { /* 冇咗呢項只係前端多顯示一粒掣，server 照擋 */ }
-          return json(200, { viewings: results, tierLimited: true });
+          return json(200, { viewings: results, tierLimited: true, todo_dismissed: await getTodoDismissed(db, session.account_id) });
         }
-        return json(200, { viewings: results });
+        return json(200, { viewings: results, todo_dismissed: await getTodoDismissed(db, session.account_id) });
       }
 
       // 追蹤中放盤:跨屋苑攞晒未確認成交嘅睇樓記錄(冇對應成交,或者成交
@@ -9928,8 +9936,8 @@ export default {
       // 睇過嘅盤 · 每個單位配近12個月可比成交 + 推算合理價區間
       if (method === "GET" && path === "/api/viewings/comps") {
         if (!isPaidSession(session)) return paywall("相對市價");
-        const items = await computeViewingComps(db, session.account_id);
-        return json(200, { items });
+        const [items, todo_dismissed] = await Promise.all([computeViewingComps(db, session.account_id), getTodoDismissed(db, session.account_id)]);
+        return json(200, { items, todo_dismissed });
       }
 
       // 抵買雷達:呎價低過同苑成交中位數嘅在售盤 + 每苑議價指數。
@@ -10134,6 +10142,19 @@ export default {
       // 一個 per-account JSON key：pref_<accountId>
       // { price_min, price_max, beds, size_min, size_max, dismissed }
       // 全部欄位 optional；dismissed=true 即係「以後不再提醒」
+      // 待跟進「唔再提醒」同步（只准記自己嘅睇樓記錄 id；每帳戶最多留 1000 個）
+      if (method === "POST" && path === "/api/todo-dismissed") {
+        const body = await request.json().catch(() => ({}));
+        const ids = [...new Set((Array.isArray(body.ids) ? body.ids : []).map(Number))].filter((n) => Number.isInteger(n) && n > 0).slice(0, 200);
+        if (!ids.length) return json(400, { error: "參數唔啱" });
+        const { results: own } = await db.prepare(
+          `SELECT id FROM viewings WHERE account_id = ? AND id IN (${ids.map(() => "?").join(",")})`).bind(session.account_id, ...ids).all();
+        const merged = [...new Set([...(await getTodoDismissed(db, session.account_id)), ...own.map((r) => r.id)])].slice(-1000);
+        await db.prepare("INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value")
+          .bind(`todo_dismissed_${session.account_id}`, JSON.stringify(merged)).run();
+        return json(200, { ok: true, ids: merged });
+      }
+
       if (method === "GET" && path === "/api/preferences") {
         const row = await db.prepare("SELECT value FROM settings WHERE key = ?")
           .bind(`pref_${session.account_id}`).first();

@@ -70,7 +70,52 @@ export async function loadWeeklyInputs(db, accountId, wEnd, prefs) {
     `SELECT estate_id, view_date, block, floor, unit, size_net, linked_ref_no FROM viewings
      WHERE account_id = ? AND estate_id IN (${ids}) AND linked_ref_no IS NOT NULL AND linked_ref_no != ''
      ORDER BY view_date DESC LIMIT 40`).bind(accountId).all()).results;
-  return { favourites: ests, wStart, wEnd, snap, listings, txns, txnFrom, favListings, viewings, prefs: prefs || {} };
+  // 待跟進（睇樓記錄欠資料／未對應放盤）：同 app 內「待跟進」同一套規則（見 weeklyTodos）。全部睇樓記錄（唔止最愛屋苑）。
+  // sold：同單位有登記日 ≥ 睇樓日嘅成交（走 idx_txn_unit；building 兼容「X座」同單幢屋苑嘅屋苑名）。v.* 唔點名欄位，因為 dismissed_refs 係 lazy ALTER 出嚟。
+  let todoViewings = [], todoDismissed = [], todoLinkMaxDays = 30;
+  try {
+    todoViewings = (await db.prepare(
+      `SELECT v.*, e.name AS estate_name,
+         EXISTS (SELECT 1 FROM transactions t WHERE t.estate_id = v.estate_id
+           AND t.building IN (CASE WHEN v.block LIKE '%座' THEN v.block ELSE v.block || '座' END, v.block)
+           AND t.floor = CASE WHEN v.floor LIKE '%樓' OR v.floor LIKE '%層' THEN v.floor ELSE v.floor || '樓' END
+           AND t.unit  = CASE WHEN v.unit LIKE '%室' OR v.unit LIKE '%號' THEN v.unit ELSE v.unit || '室' END
+           AND t.reg_date >= v.view_date) AS sold
+       FROM viewings v JOIN estates e ON e.id = v.estate_id
+       WHERE v.account_id = ? ORDER BY v.view_date DESC LIMIT 200`).bind(accountId).all()).results;
+    const kv = (await db.prepare("SELECT key, value FROM settings WHERE key IN (?, ?)")
+      .bind(`todo_dismissed_${accountId}`, `cfg_${accountId}_todo_link_max_days`).all()).results;
+    for (const r of kv) {
+      if (r.key === `todo_dismissed_${accountId}`) { try { todoDismissed = (JSON.parse(r.value) || []).map(Number); } catch (_) {} }
+      else if (Number(r.value) > 0) todoLinkMaxDays = Number(r.value);
+    }
+  } catch (_) { /* 待跟進只係額外 section，讀唔到就唔出，唔影響成封摘要 */ }
+  return { favourites: ests, wStart, wEnd, snap, listings, txns, txnFrom, favListings, viewings, prefs: prefs || {}, todoViewings, todoDismissed, todoLinkMaxDays };
+}
+
+// 待跟進：同 frontend viewingTodos() 一致——
+//   · 已成交（sold）／用戶 ✕ 唔再提醒（dismissed）嘅唔提；
+//   · 欠資料：座／樓層／室／睇樓價（租盤叫睇樓租金），冇時限；
+//   · 未對應放盤：有座＋室、冇 linked_ref_no；睇樓超過 linkMaxDays（預設 30）日唔再提（多數已賣／落架）；
+//     dismissed_refs 有內容＝用戶逐個睇過全部 ✕，server 睇唔到候選放盤，保守當睇完。
+export function weeklyTodos({ viewings = [], dismissed = [], linkMaxDays = 30, today }) {
+  const hidden = new Set((dismissed || []).map(Number));
+  const items = [];
+  for (const v of viewings || []) {
+    if (!v || v.sold || hidden.has(Number(v.id))) continue;
+    const missing = [];
+    if (!v.block) missing.push("座");
+    if (!v.floor) missing.push("樓層");
+    if (!v.unit) missing.push("室");
+    if (!v.price) missing.push(v.deal_type === "R" ? "睇樓租金" : "睇樓價");
+    let needLink = !!(v.block && v.unit) && !String(v.linked_ref_no || "").trim();
+    if (needLink && isoDate(String(v.view_date || "").slice(0, 10)) && isoDate(today)
+        && daysBetween(String(v.view_date).slice(0, 10), today) > linkMaxDays) needLink = false;
+    if (needLink) { try { if ((JSON.parse(v.dismissed_refs || "[]") || []).length) needLink = false; } catch (_) {} }
+    if (missing.length || needLink) items.push({ id: v.id, estate: v.estate_name || "", block: v.block || "", floor: v.floor || "", unit: v.unit || "", viewDate: v.view_date || "", missing, needLink });
+  }
+  items.sort((a, b) => String(b.viewDate).localeCompare(String(a.viewDate)));   // 最近睇嘅排先（記憶仲新，最易補）
+  return { total: items.length, items };
 }
 
 // ── 2. 計算（純函數）─────────────────────────────────────────────────────────
@@ -190,6 +235,7 @@ export function computeWeekly(inp) {
   const budget = prefsUsable ? { now: budgetNow, delta: budgetPrevOk ? budgetNow - budgetPrev : null } : null;
   return { status: "ok", wStart, wEnd, cards, moves, topCuts, weekTxns, weekTxnTotal: wkTx.length, budget, stale,
     totals: { tx: totTx, cut: totCut, newN: totNew, gap: gapMed },
+    todo: weeklyTodos({ viewings: inp.todoViewings, dismissed: inp.todoDismissed, linkMaxDays: inp.todoLinkMaxDays ?? 30, today: wEnd }),
     name };
 }
 
@@ -239,6 +285,21 @@ export function renderWeeklyHtml(w, { appUrl, unsubUrl, iconUrl, prefLabel = "",
   };
   const txRow = (t) => `<tr><td style="${TD}">${esc(t.name)} ${esc(t.label)}<br><span style="color:#7a8ca0;font-size:12.5px">成交 ${esc(t.reg || "-")}${t.psf ? `・$${Math.round(t.psf).toLocaleString("en-US")}/呎` : ""}</span></td>`
     + `<td style="${TD};text-align:right;white-space:nowrap"><b>${wan(t.p)}</b>${t.vs != null ? `<br><span style="font-size:12px;color:#4f647a">比叫價中位 ${t.vs >= 0 ? "高" : "低"} ${Math.abs(t.vs).toFixed(1)}%</span>` : ""}</td></tr>`;
+  const TODO_MAX = 5;   // 用戶決定：最多列 5 條
+  const todoRow = (t) => {
+    const blk = t.block && t.block !== t.estate ? `${t.block}${/座$/.test(t.block) ? "" : "座"}` : "";
+    const unitLabel = `${blk}${t.floor ? `${t.floor}${/[樓層]$/.test(t.floor) ? "" : "樓"}` : ""}${t.unit ? `${t.unit}${/[室號]$/.test(t.unit) ? "" : "室"}` : ""}`;
+    const tags = [t.missing.length ? `欠 ${t.missing.join("、")}` : "", t.needLink ? "未對應放盤" : ""].filter(Boolean);
+    return `<tr><td style="${TD}">${esc(t.estate)} ${esc(unitLabel)}<br><span style="color:#7a8ca0;font-size:12.5px">睇樓 ${esc(String(t.viewDate).slice(5, 10))}</span></td>`
+      + `<td style="${TD};text-align:right"><span style="display:inline-block;background:#fff4e0;color:#b45309;border-radius:8px;padding:2px 8px;font-size:12px;font-weight:700">${esc(tags.join("・"))}</span></td></tr>`;
+  };
+  const todoBox = w.todo && w.todo.total
+    ? `<h2 style="font-size:15px;margin:18px 0 6px">📝 有 ${w.todo.total} 個睇樓記錄等你跟進</h2>`
+      + `<div style="background:#fff;border:1px solid #dde8f3;border-radius:14px;padding:4px 14px"><div style="font-size:12.5px;color:#4f647a;line-height:1.7;padding:8px 0 4px">資料未填齊或者未對應放盤嘅記錄，系統追蹤唔到佢哋嘅改價、下架同成交。補返就會自動追蹤。</div>`
+      + `<table role="presentation" style="width:100%;border-collapse:collapse;font-size:13.5px;color:#22344a">${w.todo.items.slice(0, TODO_MAX).map(todoRow).join("")}</table>`
+      + `${w.todo.total > TODO_MAX ? `<div style="font-size:12.5px;color:#7a8ca0;padding:6px 0 4px;border-top:1px solid #edf2f8">另有 ${w.todo.total - TODO_MAX} 個，返 app 睇全部</div>` : ""}`
+      + `<div style="text-align:center;padding:8px 0 10px;border-top:1px solid #edf2f8"><a href="${esc(appUrl)}" style="color:#1270ac;font-weight:700;text-decoration:none;font-size:13.5px">返 app 補資料 →</a></div></div>`
+    : "";
   const budgetBox = w.budget ? `<div style="background:#fff;border:1px solid #dde8f3;border-radius:14px;padding:10px 14px;margin-top:12px;font-size:13.5px;color:#22344a">🎯 你預算內嘅盤（${esc(prefLabel)}）：<b>${w.budget.now} 個</b>${w.budget.delta != null ? `，較上週 ${w.budget.delta > 0 ? `<span style="color:#15803d;font-weight:700">+${w.budget.delta}</span>` : w.budget.delta < 0 ? `<span style="color:#cf2020;font-weight:700">${w.budget.delta}</span>` : "冇變"}` : ""}</div>` : "";
   return `<!doctype html><html lang="zh-HK"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>搵樓日記每週摘要</title>
@@ -248,6 +309,7 @@ export function renderWeeklyHtml(w, { appUrl, unsubUrl, iconUrl, prefLabel = "",
   <div style="font-size:19px;font-weight:800">📊 每週摘要</div><div style="font-size:13px;color:#4f647a">${mdLabel(w.wStart)} 至 ${mdLabel(w.wEnd)}</div></td></tr></table>
  <div style="background:#1270ac;color:#fff;border-radius:14px;padding:12px 16px;margin:12px 0 4px;font-size:14px;line-height:1.7">${esc(weeklyHeadline(w))}</div>
  ${w.moves.length ? box("❤️ 你睇過嘅盤", w.moves.map(moveRow).join("")) : ""}
+ ${todoBox}
  ${w.topCuts.length ? box("📉 本週減價最大", w.topCuts.map(cutRow).join("")) : ""}
  ${budgetBox}
  ${box("🏢 屋苑市況", w.cards.map(estRow).join(""))}
