@@ -2604,11 +2604,16 @@ const isPaid = () => _tier === 'paid';
 let _freeMaxFriends = 3;   // /api/config 帶返
 const COMPARE_FEATURES = [
   ['追蹤屋苑', '有上限', '10+'],
+  ['睇樓記錄（數量、每個記錄相片）', '有上限', '無限'],
   ['放盤時間軸（日數、改價、下架）', false, true],
+  ['按放盤日數、減價篩選', false, true],
   ['呎價走勢圖', false, true],
   ['心儀樓盤改價記錄', false, true],
-  ['Email＋Telegram 推送', false, true],
-  ['相對市價、估值', false, true],
+  ['歷史動態', false, true],
+  ['睇樓分析（相對市價、成交對比）', false, true],
+  ['恒生估值', false, true],
+  ['對應放盤相片自動存檔', false, true],
+  ['每日 email、每週摘要', false, true],
   ['朋友屋企', '有上限', '更多'],
 ];
 let _cmpIv = 'year';
