@@ -664,8 +664,8 @@ const SEC_DEFS = [
     desc: "同一個盤有 N 個唔同用戶手動標記咗「已下架」，其他用戶見到「N 位用戶標記咗已下架」提示（只係提示，唔會幫佢哋標記）。" },
   { key: "sec_free_max_friend_homes", def: 3, min: 1, max: 100, label: "免費版：最多朋友屋企",
     desc: "免費用戶可以記低幾多個「朋友屋企」。每個會外抓過往成交同恒生估值，所以要有上限（2026-10-24 起免費版可用）。" },
-  { key: "sec_free_hs_trials", def: 1, min: 0, max: 20, label: "免費版：恒生估值試用次數",
-    desc: "免費用戶終身可以試查幾多次恒生估值（收費功能嘅試用）。只可以喺自己嘅睇樓記錄入面手動撳先查，唔自動查；查唔到數據唔計次數。0 = 完全唔俾試。" },
+  { key: "sec_free_hs_trials", def: 20, min: 0, max: 500, label: "免費版：恒生估值試查總上限",
+    desc: "免費版每個睇樓記錄（同一單位）可以手動試查恒生估值一次（查唔到數據都算一次，刪咗再加同一單位唔會重置）。呢個係每個免費帳戶終身最多試查幾多個單位，純粹防濫用恒生接口。0 = 完全唔俾試。" },
   { key: "sec_paid_max_friend_homes", def: 30, min: 1, max: 500, label: "收費版：最多朋友屋企",
     desc: "收費用戶（含 admin 以外）可以記低幾多個「朋友屋企」，純粹防濫用嘅安全上限。" },
   { key: "sec_free_max_estates", def: 3, min: 1, max: 50, label: "免費版：最多追蹤屋苑",
@@ -940,7 +940,7 @@ let _authTablesReady = false;
 // 而家 settings.schema_version 同 SCHEMA_VERSION 一樣就當全部 DDL 做齊，直接跳過（cold 只多 1 次往返）。
 // ⚠️ 加／改任何 ensure*（新表、新欄、新 index）一定要 bump SCHEMA_VERSION，否則 production 唔會行嗰段 DDL。
 // 版本唔同嗰次（deploy 之後第一個 request）會逐個行晒再寫返版本。
-const SCHEMA_VERSION = "2026-10-25a";
+const SCHEMA_VERSION = "2026-10-25b";
 let _schemaP = null;
 function markSchemaReady() {
   _authTablesReady = _multiAccountDDLReady = _priceSeenReady = _listingSpanReady = true;
@@ -954,7 +954,7 @@ function ensureSchema(db) {
     if (row?.value === SCHEMA_VERSION) { markSchemaReady(); return; }
     await ensureAuthTables(db); await ensureSourceColumns(db); await ensureMultiAccount(db); await ensureBilling(db);
     await ensurePriceSeen(db); await ensureListingSpan(db); await ensureDailyEmailLog(db); await ensureFeedbackTable(db);
-    for (const f of [ensureHsScanPriority, ensureFavListings, ensureShares, ensurePhotoArchive, ensureTxnDedup, ensureSystemParams,
+    for (const f of [ensureHsScanPriority, ensureHsFreeTries, ensureFavListings, ensureShares, ensurePhotoArchive, ensureTxnDedup, ensureSystemParams,
                      ensureGroupOverrides, ensureManualRemoved, ensureRentalTables, ensureListingClicks, ensureViewingImages, ensureSyncLog]) await f(db);
     await db.prepare("INSERT INTO settings (key, value) VALUES ('schema_version', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value")
       .bind(SCHEMA_VERSION).run();
@@ -1009,12 +1009,19 @@ const isAdminSession = (session) => (session?.role || "user") === "admin";
 // 邊個 portal 都睇到嘅嘢(而家有咩盤、幾錢)免費;我哋 scrape 咗經年先儲到嘅
 // 歷史(放盤日數/改價/下架/趨勢)同主動推送(email/alert)先收費。
 // admin 永遠當 paid(方便自己用同測試)。
-// 免費版恒生估值試用次數：settings 一行 hs_trial_<accountId> = 已用次數（文字）。
-const hsTrialKey = (accountId) => `hs_trial_${Number(accountId)}`;
-async function hsTrialsUsed(db, accountId) {
-  const r = await db.prepare("SELECT value FROM settings WHERE key = ?").bind(hsTrialKey(accountId)).first();
-  return Math.max(0, parseInt(r?.value, 10) || 0);
+// 免費版恒生估值：每個單位（帳戶＋屋苑＋座層室）手動試查一次，查到定查唔到都算一次；另有帳戶總上限 sec_free_hs_trials。
+// 記錄喺 hs_free_tries（PK 即係「一次」嘅原子鎖）。key 用睇樓記錄自己嘅座／層／室，刪咗再加同一單位唔會重置。
+const hsUnitKey = (block, floor, unit) => [block, floor, unit].map((x) => String(x ?? "").replace(/[^A-Za-z0-9\u4e00-\u9fff]/g, "").replace(/[座樓層室號]/g, "").toUpperCase()).join("|");
+async function hsTriesUsed(db, accountId) {
+  return (await db.prepare("SELECT COUNT(*) AS c FROM hs_free_tries WHERE account_id = ?").bind(accountId).first())?.c || 0;
 }
+async function _ensureHsFreeTries(db) {
+  await db.prepare(`CREATE TABLE IF NOT EXISTS hs_free_tries (
+    account_id INTEGER NOT NULL, estate_id INTEGER NOT NULL, unit_key TEXT NOT NULL,
+    tried_at TEXT NOT NULL DEFAULT (datetime('now')), result TEXT,
+    PRIMARY KEY (account_id, estate_id, unit_key)) WITHOUT ROWID`).run();
+}
+const ensureHsFreeTries = onceDb(_ensureHsFreeTries);
 
 const isPaidSession = (session) => isAdminSession(session) || (session?.tier || "free") === "paid";
 // ── 心儀樓盤（2026-10-12）─────────────────────────────────────────────
@@ -8506,13 +8513,17 @@ export default {
         const blockNum   = url.searchParams.get("block");
         const floorNum   = url.searchParams.get("floor");
         const flatLetter = url.searchParams.get("flat");
-        // 收費版無限。免費版：只可以用「試用」——?trial=<自己嘅睇樓記錄 id>，而且估值嗰個單位要同嗰條記錄一致
-        // （唔係嘅話一個帳戶可以逐個單位試晒），次數 sec_free_hs_trials 終身計，查唔到數據會退返。
-        let trialKey = null;
-        const refundTrial = async () => {
-          if (!trialKey) return;
-          await db.prepare("UPDATE settings SET value = CAST(MAX(CAST(value AS INTEGER) - 1, 0) AS TEXT) WHERE key = ?").bind(trialKey).run();
-          trialKey = null;
+        // 收費版無限。免費版：每個單位手動試查一次（?trial=<自己嘅睇樓記錄 id>；server 驗單位一致），
+        // 查到定查唔到都算一次；我哋自己出錯（唔係恒生話冇數據）先退返。另有帳戶總上限。
+        let triedKey = null;
+        const finishTry = async (result) => {
+          if (!triedKey) return;
+          await db.prepare("UPDATE hs_free_tries SET result = ? WHERE account_id = ? AND estate_id = ? AND unit_key = ?").bind(result, session.account_id, Number(estateId), triedKey).run();
+        };
+        const refundTry = async () => {
+          if (!triedKey) return;
+          await db.prepare("DELETE FROM hs_free_tries WHERE account_id = ? AND estate_id = ? AND unit_key = ?").bind(session.account_id, Number(estateId), triedKey).run();
+          triedKey = null;
         };
         if (!isPaidSession(session)) {
           const vid = Number(url.searchParams.get("trial"));
@@ -8524,21 +8535,23 @@ export default {
               || alnum(own.block) !== alnum(blockNum) || alnum(own.floor) !== alnum(floorNum) || alnum(own.unit) !== alnum(flatLetter))
             return paywall("估值");
           const cap = (await getSecCfg(db)).sec_free_hs_trials;
-          const key = hsTrialKey(session.account_id);
-          await db.prepare("INSERT OR IGNORE INTO settings (key, value) VALUES (?, '0')").bind(key).run();
-          // 原子搶名額：UPDATE 條件入面比較次數，兩個同時嚟嘅 request 只有一個贏
-          const claim = await db.prepare("UPDATE settings SET value = CAST(CAST(value AS INTEGER) + 1 AS TEXT) WHERE key = ? AND CAST(value AS INTEGER) < ?")
-            .bind(key, cap).run();
-          if (!claim.meta.changes) {
-            return json(402, { error: cap > 0 ? `免費版可以試用 ${cap} 次恒生估值，你已經用咗，升級收費版可以無限查。` : "呢個係收費版功能", upgrade: true, feature: "估值" });
+          if (cap <= 0) return paywall("估值");
+          const key = hsUnitKey(own.block, own.floor, own.unit);
+          await ensureHsFreeTries(db);
+          // 原子搶「呢個單位嘅一次」：PK 撞咗＝查過
+          try {
+            await db.prepare("INSERT INTO hs_free_tries (account_id, estate_id, unit_key) VALUES (?, ?, ?)").bind(session.account_id, Number(estateId), key).run();
+          } catch (_) {
+            return json(402, { error: "免費版每個盤可以查一次恒生估值，呢個盤你查過喇，升級收費版可以隨時查、仲會自動更新。", upgrade: true, feature: "估值", tried: true });
           }
-          trialKey = key;
+          triedKey = key;
+          if ((await hsTriesUsed(db, session.account_id)) > cap) {
+            await refundTry();
+            return json(402, { error: `免費版最多試查 ${cap} 個單位，升級收費版可以無限查。`, upgrade: true, feature: "估值" });
+          }
         }
-        if (!estateName || !blockNum || !floorNum || !flatLetter) { await refundTrial(); return json(400, { error: "Missing params" }); }
-        const done = async (body) => {
-          if (trialKey) await db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)").bind(`hs_trial_at_${session.account_id}`, new Date().toISOString()).run();
-          return json(200, body);
-        };
+        if (!estateName || !blockNum || !floorNum || !flatLetter) { await refundTry(); return json(400, { error: "Missing params" }); }
+        const done = async (body) => { await finishTry("ok"); return json(200, body); };
 
         try {
           // Check D1 cache first
@@ -8561,14 +8574,14 @@ export default {
           }
 
           const result = await getHangSengValuation(estateName, blockNum, floorNum, flatLetter);
-          if (!result) { await refundTrial(); return json(404, { error: "Not found" }); }
+          if (!result) { await finishTry("nodata"); return json(404, { error: "Not found", tried: !!triedKey }); }   // 恒生話冇數據：照算一次
 
           // Save to D1 (latest + history once per day)
           if (estateId) await saveHangSengValuation(db, estateId, blockNum, floorNum, flatLetter, result);
 
           return await done(result);
         } catch (e) {
-          await refundTrial().catch(() => {});
+          await refundTry().catch(() => {});   // 我哋自己／網絡出錯：唔扣
           throw e;
         }
       }
@@ -9622,6 +9635,13 @@ export default {
             v.dom_days = null; v.price_changed = null;
             v.price_change_old = null; v.price_change_new = null; v.price_change_date = null;
           }
+          // 恒生估值：呢個單位試查過未（結果 ok／nodata）——前端用嚟決定顯示「試查」掣、估值、定「查無資料」
+          try {
+            await ensureHsFreeTries(db);
+            const { results: tried } = await db.prepare("SELECT estate_id, unit_key, result FROM hs_free_tries WHERE account_id = ?").bind(session.account_id).all();
+            const tm = new Map(tried.map((t) => [`${t.estate_id}|${t.unit_key}`, t.result || "ok"]));
+            for (const v of results) v.hs_tried = tm.get(`${v.estate_id}|${hsUnitKey(v.block, v.floor, v.unit)}`) || null;
+          } catch (_) { /* 冇咗呢項只係前端多顯示一粒掣，server 照擋 */ }
           return json(200, { viewings: results, tierLimited: true });
         }
         return json(200, { viewings: results });
@@ -9991,7 +10011,7 @@ export default {
           freeMaxFriendHomes: sc.sec_free_max_friend_homes,
           // 免費版恒生估值試用：cap＝總次數、left＝仲剩幾多（收費版前端唔使睇）
           hsTrialCap: sc.sec_free_hs_trials,
-          hsTrialsLeft: paid ? 0 : Math.max(0, sc.sec_free_hs_trials - await hsTrialsUsed(db, session.account_id)),
+          hsTrialsLeft: paid ? 0 : Math.max(0, sc.sec_free_hs_trials - await hsTriesUsed(db, session.account_id).catch(() => 0)),
           // 睇緊呢個帳戶實際受邊個上限管（前端顯示 "N / M" 用）。
           // 上限本身係 sec_*（服務端真相），前端呢兩個純粹顯示，改極都冇用。
           maxEstates: paid ? sc.sec_paid_max_estates : sc.sec_free_max_estates,
