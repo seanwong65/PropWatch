@@ -4576,7 +4576,7 @@ async function loadTodayHighlights() {
         } catch {}
       }
     };
-    for (let i = 0; i < HS_AUTOFETCH_CONCURRENCY; i++) runHsAutofetch();
+    if (isPaid()) for (let i = 0; i < HS_AUTOFETCH_CONCURRENCY; i++) runHsAutofetch();   // 免費版唔自動查（server 402，會連環彈升級窗）
   } catch(e) {
     if (body) body.innerHTML = `<span style="color:var(--muted)">載入失敗</span>`;
   }
@@ -5613,6 +5613,7 @@ function priceRulerHtml(v) {
     ? vhsLineHtml(v.hs_price, v.price)
     // 屋苑 id 跟返張卡自己嗰個（v.estate_id），唔可以淨靠 _viewingEstateId——
     // dashboard「睇過嘅盤」係跨屋苑，嗰度個全局係 null／上一個屋苑，會查錯苑。
+    : !isPaid() ? `<span class="lc-lock" onclick="showUpgrade('恒生估值')">估值 🔒</span>`
     : `<button class="hs-val-btn" onclick="manualFetchViewingHSVal(${v.id},${v.estate_id || _viewingEstateId},'${escJsAttr(v.block||'')}','${escJsAttr(v.floor||'')}','${escJsAttr(v.unit||'')}',${v.price||0})">查估值</button>`;
   // wrapper 用 flex 逼 hsValHtml/hsDiffHtml 兩個 block-level 元素企埋同一行；
   // 呢個 style 喺 fetchViewingHSVal 之後唔會俾人覆蓋（佢哋淨係更新內容）。
@@ -8477,7 +8478,7 @@ async function submitViewing(e) {
     }
     refreshComps();
     // Auto-fetch HS valuation in background（恒生估值係「買樓值幾錢」，租盤唔啱用）
-    if (deal !== 'R') fetchViewingHSVal(savedId, body.block, body.floor, body.unit, body.price, hsEstate);
+    if (deal !== 'R' && isPaid()) fetchViewingHSVal(savedId, body.block, body.floor, body.unit, body.price, hsEstate);
   } catch(err) {
     // 402 已經彈咗升級 modal；400（例如相太多／太大）講返後端嗰句，唔好淨係「請再試」
     // 5xx 嘅 error 可能係內部 DB 訊息，唔好照出
@@ -8519,7 +8520,7 @@ async function manualFetchViewingHSVal(viewingId, estateId, block, floor, unit, 
   await fetchViewingHSVal(viewingId, block, floor, unit, price);
   if (!prevEstateId) _viewingEstateId = null;
   if (!prevName) _viewingEstateName = '';
-  if (cell && !cell.innerHTML.includes('萬')) {
+  if (cell && !cell.innerHTML.includes('萬') && isPaid()) {
     cell.innerHTML = '<span style="color:var(--muted);font-size:0.75rem">查無資料</span>';
   }
 }
@@ -9004,8 +9005,10 @@ function renderTransactionsTable(estateId, offset, hasMore) {
     const hsValCell = t.hs_price
       ? `<span id="${rowId}">${hsValHtml(t.hs_price)}${histBtn}</span>`
       : `<span id="${rowId}"></span>`;
+    // 恒生估值係收費功能（server 402）：免費版顯示鎖，唔好俾佢撳咗先彈升級窗再得返個空
     const hsQueryCell = canQuery
-      ? `<button class="hs-val-btn" id="${rowId}-btn" onclick="${onclickFetch}">查估值</button>`
+      ? (isPaid() ? `<button class="hs-val-btn" id="${rowId}-btn" onclick="${onclickFetch}">查估值</button>`
+                  : `<span class="lc-lock" onclick="showUpgrade('恒生估值')">🔒</span>`)
       : '-';
     const srcBadge = txnSrcBadge(t.source);
     return `<tr>
