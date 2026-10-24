@@ -2682,7 +2682,7 @@ function cmpBuyInner() {
 function showUpgrade(feature, msg) {
   document.getElementById('upgradeBody').innerHTML = `
     ${msg ? `<div style="background:rgba(245,158,11,0.12);border:1px solid var(--accent);border-radius:6px;padding:0.55rem 0.7rem;font-size:0.85rem;margin-bottom:0.4rem">${escHtml(msg)}</div>` : ''}
-    ${(feature && !msg) ? `<div style="color:var(--muted);font-size:0.84rem">「${escHtml(feature)}」係收費版功能。</div>` : ''}
+    ${(feature && !msg) ? `<div style="color:var(--muted);font-size:0.84rem;line-height:1.6">「${escHtml(feature)}」係收費版功能 —— 師兄，俾下我杯咖啡錢吖，我買 server 都要錢㗎 ☕</div>` : ''}
     <table class="cmp-table">
       <thead><tr><th></th><th class="fc">免費版<small>HK$0</small></th><th class="pc">收費版<small>推薦</small></th></tr></thead>
       <tbody>${COMPARE_FEATURES.map(f => `<tr><td>${escHtml(f[0])}</td><td class="fc">${cmpCell(f[1])}</td><td class="pc">${cmpCell(f[2])}</td></tr>`).join('')}</tbody>
