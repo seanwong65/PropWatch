@@ -443,3 +443,10 @@ drip sync（`*/2`）同樣被雙重觸發：兩個 invocation 同時揀同一批
 - 升級 modal 對比表：追蹤屋苑收費欄寫「10+」；「抵買雷達」已隱藏（tab 食 D1 額度），對比表改寫「相對市價、估值」。
 - 「上盤日期 🔒」改成藍色膠囊，要似個掣。
 
+## 免費 vs 收費：逐項對過 code 嘅實際分界（2026-10-24 核實）
+
+收費才有（server 端 paywall／gate）：放盤時間軸（first_seen／放盤日數／改價次數／原價／自動下架）、進階搜尋嘅放盤日數／減價篩選、呎價走勢圖（trends／market-index／租盤 rental-trends）、心儀樓盤改價記錄、歷史動態、睇樓記錄分析（/api/viewings/comps、estate-comps＝相對市價／成交對比）、恒生估值（hangseng-valuation*）、對應放盤相片存檔（archive-photos）、每日 email、每週摘要、抵買雷達（tab 已隱藏）。
+有數量上限（免費 vs 收費）：追蹤屋苑（sec_free_max_estates 3／sec_paid_max_estates 15）、睇樓記錄（sec_free_max_viewings 15、每記錄相 sec_free_max_viewing_imgs 10；收費無限）、朋友屋企（sec_free_max_friend_homes 3／sec_paid_max_friend_homes 30）。
+兩邊都有：四網公開搜尋、放盤列表（今日 snapshot）＋篩選、成交記錄、市場溫度、今日動態、睇樓記錄（有上限）、類近成交。
+⚠️ **Telegram 唔係用戶功能**：只係 admin 運維警報（TELEGRAM_CHAT_ID 單一收件人），升級頁／宣傳唔可以寫「Telegram 推送」。
+
