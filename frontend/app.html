@@ -857,6 +857,17 @@
       width: 90%;
       box-shadow: var(--shadow-lg);
     }
+    /* 首頁 tab 列：四等分、單行、置中（以前手機每個 tab 斷成兩行，闊度參差）。按鈕本身嘅 inline style 由 switchDashTab 改色／粗幼，
+       所以呢度用 !important 蓋 padding／字體大細；active 粗體唔會令闊度跳（等分闊度）。 */
+    .dash-tabs button[hidden] { display: none !important; }
+    .dash-tabs button { line-height: 1.35; white-space: nowrap; }
+    .dash-tabs .ic { display: inline-block; line-height: 1; font-size: 0.9em; vertical-align: -0.06em; }   /* emoji 唔好撐高成行，令其他 tab 文字對齊 */
+    @media (max-width: 640px) {   /* 手機：四等分、單行、置中；桌面維持原本靠左自然闊度 */
+      .dash-tabs { flex: 1 1 100%; }
+      .dash-tabs button { flex: 1 1 0; min-width: 0; text-align: center; padding-left: 0.3rem !important; padding-right: 0.3rem !important; }
+    }
+    @media (max-width: 420px) { .dash-tabs button { font-size: 0.84rem !important; } }
+    @media (max-width: 345px) { .dash-tabs button { font-size: 0.76rem !important; padding-left: 0.15rem !important; padding-right: 0.15rem !important; } }
     /* 動態：今日｜本週 切換 */
     .dyn-toggle { display: inline-flex; gap: 0.3rem; margin: 0 0 0.7rem; padding: 3px; border-radius: 999px; background: var(--surface2, rgba(0,0,0,0.04)); border: 1px solid var(--border); }
     .dyn-chip { border: 0; background: transparent; color: var(--muted); border-radius: 999px; padding: 0.28rem 0.95rem; font-size: 0.86rem; cursor: pointer; font-family: inherit; }
@@ -3174,11 +3185,11 @@ async function showDashboard(estates) {
       <div id="viewing-todo"></div>
       <div class="highlights-section" id="highlights-section">
         <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:0.4rem;margin-bottom:0.75rem">
-          <div style="display:flex;gap:0;border-bottom:2px solid var(--border)">
+          <div class="dash-tabs" style="display:flex;gap:0;border-bottom:2px solid var(--border)">
             <button id="dash-tab-comps" onclick="switchDashTab('comps')" style="background:none;border:none;border-bottom:2px solid var(--brand);margin-bottom:-2px;color:var(--text);font-weight:600;font-size:0.9rem;padding:0.35rem 0.85rem;cursor:pointer">睇樓日記</button>
             <button id="dash-tab-radar" hidden onclick="switchDashTab('radar')" style="display:none;background:none;border:none;border-bottom:2px solid transparent;margin-bottom:-2px;color:var(--muted);font-size:0.9rem;padding:0.35rem 0.85rem;cursor:pointer">💎 抵買雷達</button>
-            <button id="dash-tab-friends" onclick="switchDashTab('friends')" style="background:none;border:none;border-bottom:2px solid transparent;margin-bottom:-2px;color:var(--muted);font-size:0.9rem;padding:0.35rem 0.85rem;cursor:pointer">👥 朋友屋企</button>
-            <button id="dash-tab-fav" onclick="switchDashTab('fav')" style="background:none;border:none;border-bottom:2px solid transparent;margin-bottom:-2px;color:var(--muted);font-size:0.9rem;padding:0.35rem 0.85rem;cursor:pointer">♥ 心儀樓盤</button>
+            <button id="dash-tab-friends" onclick="switchDashTab('friends')" style="background:none;border:none;border-bottom:2px solid transparent;margin-bottom:-2px;color:var(--muted);font-size:0.9rem;padding:0.35rem 0.85rem;cursor:pointer"><span class="ic">👥</span> 朋友屋企</button>
+            <button id="dash-tab-fav" onclick="switchDashTab('fav')" style="background:none;border:none;border-bottom:2px solid transparent;margin-bottom:-2px;color:var(--muted);font-size:0.9rem;padding:0.35rem 0.85rem;cursor:pointer"><span class="ic">♥</span> 心儀樓盤</button>
             <button id="dash-tab-today" onclick="switchDashTab('today')" style="background:none;border:none;border-bottom:2px solid transparent;margin-bottom:-2px;color:var(--muted);font-size:0.9rem;padding:0.35rem 0.85rem;cursor:pointer">動態</button>
           </div>
           <div id="dash-tab-actions" style="display:flex;align-items:center;gap:0.5rem">
