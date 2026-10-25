@@ -485,7 +485,7 @@ drip sync（`*/2`）同樣被雙重觸發：兩個 invocation 同時揀同一批
 
 ## 冇更新就唔寄 email（2026-10-25）
 - **每日**：`dailyIsEmpty`——筍盤、睇過嘅盤變動、新放盤、成交、下架、租盤動態任何一項有就寄；售價變動跌／升幅 < `email_min_move_pct`（細幅，email 本身都唔逐條列）單獨唔算更新。冇就唔寄。
-- **每週**：`weeklyIsEmpty`——新盤＋減價＋新成交＋你睇過嘅盤變動 全部 0 就唔寄。**待跟進只係提醒，唔算更新**（單單有待辦、市場冇動靜都唔寄——用戶決定）。
+- **每週**：`weeklyIsEmpty`——新盤＋減價＋新成交＋你睇過嘅盤變動 全部 0 **而且冇待跟進** 先唔寄（用戶 2026-10-25 改為「有待跟進都寄」）。
 - 只限 cron 路徑（`guard`）；admin 手動單一帳戶／`preview`／`force` 照寄，方便測試。`/api/admin/preview-daily` 回 `empty`，睇到 cron 會唔會寄。
 - 回報用 `empty`（唔係 `skipped`）——`runDailyEmailTask`／`runWeeklySummaryTask` 嘅 `skipped` 會觸發 admin alert（扣數出事／跳過）。`cron_last_email_done`／`cron_last_weekly_done` 嘅 detail 多咗 `empty` 數目。
 - 每日跳過時照 `markDailyEmailSent`（當日已處理）；每週保留 claim 唔重試。
