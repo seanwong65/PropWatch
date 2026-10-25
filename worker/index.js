@@ -3089,6 +3089,33 @@ async function reconcileSubscriptions(db, env) {
   return out;
 }
 
+// ── Stripe 客戶入口（Billing Portal）專屬設定 ───────────────────────────────────
+// 2026-10-26：live 帳戶一個 portal configuration 都冇（configs: []），所以「管理訂閱／發票」開唔到，用戶換唔到卡——
+// 扣款失敗一定停。呢度用 API 建一個**專屬**（非帳戶預設）configuration：開放更新付款方式、發票紀錄、到期取消，
+// id 存喺 settings.stripe_portal_config，之後開 portal 一律帶 `configuration`。
+// Stripe 帳戶同 iPointWeb 共用：專屬 configuration 唔係預設，唔會影響佢嗰邊。
+const PORTAL_CONFIG_PARAMS = () => ({
+  name: "搵樓日記 客戶入口",
+  default_return_url: `${APP_BASE}/app`,
+  business_profile: { headline: "搵樓日記：管理訂閱同付款方式" },
+  features: {
+    payment_method_update: { enabled: true },
+    invoice_history: { enabled: true },
+    customer_update: { enabled: true, allowed_updates: ["email", "name"] },
+    subscription_cancel: { enabled: true, mode: "at_period_end",
+      cancellation_reason: { enabled: true, options: ["too_expensive", "missing_features", "switched_service", "unused", "other"] } },
+  },
+});
+async function ensurePortalConfig(db, env, { force = false } = {}) {
+  if (!force) {
+    const r = await db.prepare("SELECT value FROM settings WHERE key = 'stripe_portal_config'").first();
+    if (r?.value) return r.value;
+  }
+  const c = await stripeRequest(env, "POST", "billing_portal/configurations", PORTAL_CONFIG_PARAMS());
+  await db.prepare("INSERT INTO settings (key, value) VALUES ('stripe_portal_config', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value").bind(c.id).run();
+  return c.id;
+}
+
 // ── 收費版生命週期 email（用戶 2026-10-26 要求：到期要有通知）─────────────────────────────
 // 每封用 settings 一行做「只寄一次」嘅 claim（key 帶 period end／invoice id，所以續期後再到期又會再寄）。
 // 寄失敗就刪 claim，下次排程再試。帳戶／帳單通知，唔跟每日 email 嘅退訂開關。
@@ -10698,9 +10725,15 @@ export default {
         const origin = request.headers.get("Origin");
         const base = isAllowedOrigin(origin) ? origin : APP_BASE;
         try {
-          const p = await stripeRequest(env, "POST", "billing_portal/sessions", {
-            customer: acc.stripe_customer_id, return_url: base,
-          });
+          let cfgId = await ensurePortalConfig(db, env);
+          const open = (configuration) => stripeRequest(env, "POST", "billing_portal/sessions", { customer: acc.stripe_customer_id, return_url: `${base}/app`, configuration });
+          let p;
+          try { p = await open(cfgId); }
+          catch (e) {   // 存咗嘅 configuration 被人喺 Stripe 刪咗／停用：重建一個再試一次
+            if (!/configuration|No such/i.test(String(e.message))) throw e;
+            cfgId = await ensurePortalConfig(db, env, { force: true });
+            p = await open(cfgId);
+          }
           return json(200, { url: p.url });
         } catch (e) {
           return json(502, { error: `Stripe 出錯：${e.message}` });
@@ -10825,6 +10858,27 @@ export default {
         }
 
         // 價錢：睇晒歷史 + 排期緊嘅
+        // 建立／確保專屬客戶入口設定（冇就建；已有就回 id）。body { force: true } 強制重建。
+        if (path === "/api/admin/billing/portal-config" && method === "POST") {
+          const b = await request.json().catch(() => ({}));
+          try { return json(200, { ok: true, configuration: await ensurePortalConfig(db, env, { force: !!b.force }) }); }
+          catch (e) { return json(502, { error: `Stripe 出錯：${e.message}` }); }
+        }
+        // 客戶入口（Billing Portal）設定：只讀，睇現有 configuration 開咗啲咩功能（例如有冇「更新付款方式」）。
+        if (path === "/api/admin/billing/portal-config" && method === "GET") {
+          try {
+            const r = await stripeRequest(env, "GET", "billing_portal/configurations", { limit: 10 });
+            const set = await db.prepare("SELECT value FROM settings WHERE key = 'stripe_portal_config'").first();
+            return json(200, { ours: set?.value || null, configs: (r.data || []).map((c) => ({
+              id: c.id, is_default: c.is_default, active: c.active, name: c.name || null, created: c.created,
+              payment_method_update: c.features?.payment_method_update?.enabled,
+              subscription_cancel: c.features?.subscription_cancel?.enabled && c.features.subscription_cancel.mode,
+              invoice_history: c.features?.invoice_history?.enabled,
+              customer_update: c.features?.customer_update?.enabled,
+              subscription_update: c.features?.subscription_update?.enabled,
+              return_url: c.default_return_url || null })) });
+          } catch (e) { return json(502, { error: `Stripe 出錯：${e.message}` }); }
+        }
         if (path === "/api/admin/billing/plans" && method === "GET") {
           const { results } = await db.prepare(
             "SELECT * FROM pricing_plans ORDER BY billing_interval, effective_from DESC, id DESC"

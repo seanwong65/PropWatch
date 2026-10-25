@@ -509,3 +509,9 @@ drip sync（`*/2`）同樣被雙重觸發：兩個 invocation 同時揀同一批
 - 只寄一次：`settings` 一行做 claim（`lc_expired_<id>_<periodEnd>`、`lc_expiring_<id>_<periodEnd>`、`lc_payfail_<id>_<invoice>`）；寄失敗刪 claim 下次再試；續期後再到期有新 key 會再寄。
 - `runLifecycleEmails` 搭每日 email cron（`runDailyEmailTask`，喺 `sendDailyEmail` 之前）：①**人手開通過期但冇人登入嘅帳戶主動降級**（以前只喺 `authenticate()` 有 request 先降級，過期仲收緊每日 email）②近 10 日內人手到期補寄到期信。`cron_last_email_done` detail 有 `lifecycle` 數目。
 - Admin：`POST /api/admin/lifecycle-emails`：`{sample:true, kind:"expired|payment_failed"}` 寄樣本去自己 email；`{run:true, dry_run:true}` 睇邊個會被降級／寄信（`dry_run:false` 真行）。
+
+## Stripe 客戶入口（Billing Portal）（2026-10-26）
+- ⚠️ 發現：live 帳戶**冇任何 portal configuration**，「管理訂閱／發票」撳咗會報錯 → 用戶換唔到卡、取消唔到、睇唔到發票；扣款失敗一定停。
+- 修：`ensurePortalConfig()` 用 API 建專屬 configuration（名「搵樓日記 客戶入口」）：開放**更新付款方式**、發票紀錄、`customer_update`（email／name）、**到期取消**（`at_period_end`＋取消原因）；唔開改計劃。id 存 `settings.stripe_portal_config`；`/api/billing/portal` 一律帶 `configuration`，存咗嘅被刪就自動重建。live id：`bpc_1UUUFtHaNxLrRvtWzYPTzZtb`（`GET /api/admin/billing/portal-config` 睇、`POST` 建／`{force:true}` 重建）。
+- ⚠️ Stripe 帳戶同 iPointWeb 共用：呢個係帳戶第一個 configuration，Stripe 自動標咗 `is_default: true`。iPoint 如果有用客戶入口且冇指定 configuration，會見到呢個設定（之前係冇設定，本身開唔到）。
+- 未做：用真實 customer 完整行過一次 portal（要有付費用戶）。第一個真實付費用戶出現後，登入 → ⚙️ 設定 → 管理訂閱／發票，確認見到「更新付款方式」。
