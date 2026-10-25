@@ -45,6 +45,14 @@ export function dailyCounts(h) {
   };
 }
 
+// 今日有冇值得寄嘅更新（冇就唔寄，用戶 2026-10-25 決定）。同 email 實際會列出嘅內容一致：
+// 售價變動跌／升幅 < minMovePct 唔逐條列（只係「另有 N 個細幅變動」），所以單單細幅變動唔算更新；其餘各類有一項就算。
+export function dailyIsEmpty(h, nPicks = 0, minMovePct = 3) {
+  const c = dailyCounts(h);
+  const bigPrice = (h.byEstate || []).reduce((s, e) => s + (e.priceChanges || []).filter((l) => Math.abs(pctChg(l.new_price, l.old_price) ?? 0) >= minMovePct).length, 0);
+  return !(nPicks || c.watched || c.newN || c.tx || c.removed || c.rent || bigPrice);
+}
+
 export function dailyHeadline(h) {
   const c = dailyCounts(h);
   const parts = [];

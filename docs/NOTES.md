@@ -482,3 +482,10 @@ drip sync（`*/2`）同樣被雙重觸發：兩個 invocation 同時揀同一批
 - 同 app「待跟進」同一套規則（`weeklyTodos`，純函數有測試）：欠座／樓層／室／睇樓價（租盤＝睇樓租金）、未對應放盤（睇樓超 `todo_link_max_days`，預設 30 日唔再提）；已成交、用戶 ✕、全部放盤都 ✕ 過（dismissed_refs）唔提。最多列 5 條，其餘寫「另有 N 個」；冇待辦就唔出。
 - 用戶「✕ 唔再提醒」以前只存 localStorage，現在同步去 `settings.todo_dismissed_<accountId>`（`POST /api/todo-dismissed`，只收自己嘅 viewing id，最多 1000）；`/api/viewings/all`、`/api/viewings?estate_id`、`/api/viewings/comps` 回 `todo_dismissed`，前端載入時雙向合併（舊本機記錄會一次過補送上 server）。
 - loadWeeklyInputs 用 `v.*`（dismissed_refs 係 lazy ALTER 欄位）＋ EXISTS 查成交（`building IN (X座, block)`）判 sold；讀唔到就唔出 section，唔影響成封信。
+
+## 冇更新就唔寄 email（2026-10-25）
+- **每日**：`dailyIsEmpty`——筍盤、睇過嘅盤變動、新放盤、成交、下架、租盤動態任何一項有就寄；售價變動跌／升幅 < `email_min_move_pct`（細幅，email 本身都唔逐條列）單獨唔算更新。冇就唔寄。
+- **每週**：`weeklyIsEmpty`——新盤＋減價＋新成交＋你睇過嘅盤變動 全部 0 就唔寄。**待跟進只係提醒，唔算更新**（單單有待辦、市場冇動靜都唔寄——用戶決定）。
+- 只限 cron 路徑（`guard`）；admin 手動單一帳戶／`preview`／`force` 照寄，方便測試。`/api/admin/preview-daily` 回 `empty`，睇到 cron 會唔會寄。
+- 回報用 `empty`（唔係 `skipped`）——`runDailyEmailTask`／`runWeeklySummaryTask` 嘅 `skipped` 會觸發 admin alert（扣數出事／跳過）。`cron_last_email_done`／`cron_last_weekly_done` 嘅 detail 多咗 `empty` 數目。
+- 每日跳過時照 `markDailyEmailSent`（當日已處理）；每週保留 claim 唔重試。

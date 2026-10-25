@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { renderDailyHtml, dailyHeadline, dailySubject } from "../daily.js";
+import { renderDailyHtml, dailyHeadline, dailySubject, dailyIsEmpty } from "../daily.js";
 import { dedupePicks } from "../index.js";
 
 const seg = (start, price, prev) => ({ start, end: start, price, prev });
@@ -80,5 +80,24 @@ describe("email 頂部 app 連結", () => {
     const top = html.indexOf("打開 app →"), headline = html.indexOf("你睇過嘅盤有 1 個變動");
     expect(top).toBeGreaterThan(0); expect(top).toBeLessThan(headline);
     expect(html).toContain("margin:28px 0 38px");
+  });
+});
+
+describe("dailyIsEmpty（冇更新就唔寄）", () => {
+  const E = () => ({ linkedPriceChanges: [], linkedRemoved: [], allViewedTxns: [], linkedRentPriceChanges: [], linkedRentRemoved: [], allViewedRentTxns: [],
+    byEstate: [{ estate: "A", newTransactions: [], priceChanges: [], newListings: [], removedListings: [] }], byEstateRent: [] });
+  it("乜都冇 → 空", () => expect(dailyIsEmpty(E(), 0)).toBe(true));
+  it("有筍盤、新放盤、成交、下架、租盤、睇過嘅盤變動 → 唔空", () => {
+    expect(dailyIsEmpty(E(), 1)).toBe(false);
+    for (const k of ["newListings", "newTransactions", "removedListings"]) { const h = E(); h.byEstate[0][k] = [{}]; expect(dailyIsEmpty(h, 0)).toBe(false); }
+    const r = E(); r.byEstateRent = [{ estate: "A", newRentals: [{}], rentPriceChanges: [], newRentTransactions: [], removedRentals: [] }]; expect(dailyIsEmpty(r, 0)).toBe(false);
+    const w = E(); w.linkedRemoved = [{}]; expect(dailyIsEmpty(w, 0)).toBe(false);
+  });
+  it("售價變動：細幅（<minMovePct）唔算更新，大幅先算", () => {
+    const small = E(); small.byEstate[0].priceChanges = [{ new_price: 7790000, old_price: 7800000 }];
+    expect(dailyIsEmpty(small, 0, 3)).toBe(true);
+    expect(dailyIsEmpty(small, 0, 0)).toBe(false);          // 門檻設 0 就算
+    const big = E(); big.byEstate[0].priceChanges = [{ new_price: 7580000, old_price: 7830000 }];
+    expect(dailyIsEmpty(big, 0, 3)).toBe(false);
   });
 });
