@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { computeWeekly, renderWeeklyHtml, weeklyHeadline, weeklySubject, weeklyTodos } from "../weekly.js";
+import { computeWeekly, renderWeeklyHtml, weeklyHeadline, weeklySubject, weeklyTodos, weeklyIsEmpty } from "../weekly.js";
 
 // 2026-10-24（六）寄信；本週 = 10-18 ~ 10-24，上週 snapshot = 10-17
 const base = () => ({
@@ -123,4 +123,19 @@ describe("email 頂部 app 連結（唔使碌到底先搵到）", () => {
     expect(top).toBeGreaterThan(0); expect(top).toBeLessThan(headline); expect(headline).toBeLessThan(bottom);
     expect(html).toContain("margin:28px 0 38px");
   });
+});
+
+describe("weeklyIsEmpty（本週冇更新就唔寄）", () => {
+  const W = (o = {}) => ({ totals: { newN: 0, cut: 0, tx: 0 }, moves: [], todo: { total: 0, items: [] }, ...o });
+  it("市場冇動靜 → 空（就算有待跟進，提醒唔算更新）", () => {
+    expect(weeklyIsEmpty(W())).toBe(true);
+    expect(weeklyIsEmpty(W({ todo: { total: 3, items: [{}] } }))).toBe(true);
+  });
+  it("有新盤／減價／成交／你睇過嘅盤變動 → 唔空", () => {
+    expect(weeklyIsEmpty(W({ totals: { newN: 1, cut: 0, tx: 0 } }))).toBe(false);
+    expect(weeklyIsEmpty(W({ totals: { newN: 0, cut: 2, tx: 0 } }))).toBe(false);
+    expect(weeklyIsEmpty(W({ totals: { newN: 0, cut: 0, tx: 1 } }))).toBe(false);
+    expect(weeklyIsEmpty(W({ moves: [{}] }))).toBe(false);
+  });
+  it("真實 computeWeekly 輸出：有更新唔空", () => expect(weeklyIsEmpty(computeWeekly(base()))).toBe(false));
 });

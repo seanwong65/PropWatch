@@ -250,6 +250,10 @@ export const arrow = (v, goodDown = true) => {
 export const mdLabel = (d) => `${Number(d.slice(5, 7))}月${Number(d.slice(8, 10))}日`;
 export const TD = "padding:6px 0;border-top:1px solid #edf2f8";
 
+// 本週有冇值得寄嘅更新（冇就唔寄，用戶 2026-10-25 決定）：新盤／減價／新成交／你睇過嘅盤有變動。
+// 「待跟進」係提醒唔係更新——單單有待辦、市場冇動靜，都唔寄。
+export const weeklyIsEmpty = (w) => !((w.totals?.newN || 0) + (w.totals?.cut || 0) + (w.totals?.tx || 0) + (w.moves?.length || 0));
+
 export function weeklyHeadline(w) {
   const t = w.totals;
   return `你 ${w.cards.length} 個最愛屋苑本週：新盤 ${t.newN} 個、減價 ${t.cut} 個、新錄得成交 ${t.tx} 宗`

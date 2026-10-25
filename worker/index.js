@@ -1,5 +1,5 @@
-import { loadWeeklyInputs, computeWeekly, renderWeeklyHtml, weeklySubject, weeklyHeadline } from "./weekly.js";
-import { renderDailyHtml, dailySubject } from "./daily.js";
+import { loadWeeklyInputs, computeWeekly, renderWeeklyHtml, weeklySubject, weeklyHeadline, weeklyIsEmpty } from "./weekly.js";
+import { renderDailyHtml, dailySubject, dailyIsEmpty } from "./daily.js";
 import { ensureEstateStats, refreshEstateStats } from "./estateStats.js";
 
 // ⚠️ 效能（2026-10-25）：D1 主庫喺 ENAM（北美東部），worker 喺香港／台灣 edge 行，
@@ -6199,7 +6199,7 @@ async function buildDailyEmail(db, accId, unsubUrl) {
     appUrl: `${APP_BASE}/app`, unsubUrl, iconUrl: `${APP_BASE}/icons/icon-192.png`,
     prefLabel: prefLabelOf(prefs), srcName: srcNameOf, listCap: cfg.email_list_cap, minMovePct: cfg.email_min_move_pct,
   });
-  return { subject: dailySubject(highlights, picks.length), html };
+  return { subject: dailySubject(highlights, picks.length), html, empty: dailyIsEmpty(highlights, picks.length, cfg.email_min_move_pct) };
 }
 async function sendDailyEmail(db, env, onlyAccountId = null, overrideEmail = null, skipAccountIds = null, force = false) {
   if (!env?.GMAIL_REFRESH_TOKEN) return { error: "no GMAIL credentials" };
@@ -6245,7 +6245,13 @@ async function sendDailyEmail(db, env, onlyAccountId = null, overrideEmail = nul
       // link 而靜靜退訂——同 footer 個 GET link 行確認頁係同一個理由。
       const unsubTok = await getUnsubToken(db, acc.id);
       const unsubUrl = `${WORKER_BASE}/api/unsubscribe?token=${unsubTok}`;
-      const { subject, html } = await buildDailyEmail(db, acc.id, unsubUrl);
+      const { subject, html, empty } = await buildDailyEmail(db, acc.id, unsubUrl);
+      // 今日冇更新就唔寄（用戶 2026-10-25 決定）。只限 cron 路徑；手動單一帳戶／預覽／force 照寄，方便測試。
+      if (empty && guard) {
+        await markDailyEmailSent(db, acc.id, day);   // 當日已處理，唔好俾 watchdog／重試當成未寄
+        out.push({ account: acc.username, empty: true });   // 唔用 skipped：runDailyEmailTask 會當「扣數出事」發 alert
+        continue;
+      }
       await sendEmail(env, toEmail, subject, html, {
         "List-Unsubscribe": `<${unsubUrl}>`,
         "List-Unsubscribe-Post": "List-Unsubscribe=One-Click",
@@ -6316,8 +6322,9 @@ async function runDailyEmailTask(env, { force = false } = {}) {
       // 信照寄得晒，但對數有嘢要你知（補咗數／有人扣唔到錢）
       await sendAdminAlert(env.DB, env, "💳 搵樓日記訂閱對數有發現", "每日 email task", alerts);
     }
-    await finish("done", { ok: ok.length, failed: failed.length, skipped: skipped.length, duplicate: dups.length });
-    return { ok: ok.length, failed: failed.length, skipped: skipped.length, duplicate: dups.length, sent, recon: { checked: recon.checked, fixed: recon.fixed, error: recon.error } };
+    const emptyN = sent.filter((r) => r.empty).length;   // 冇更新所以唔寄（唔係出事）
+    await finish("done", { ok: ok.length, failed: failed.length, skipped: skipped.length, duplicate: dups.length, empty: emptyN });
+    return { ok: ok.length, failed: failed.length, skipped: skipped.length, duplicate: dups.length, empty: emptyN, sent, recon: { checked: recon.checked, fixed: recon.fixed, error: recon.error } };
   } catch (e) {
     const detail = _errDetail(e);
     await finish("threw", detail);
@@ -6355,6 +6362,10 @@ async function sendWeeklySummary(db, env, { onlyAccountId = null, force = false,
       if (w.status !== "ok") {
         if (guard) await db.prepare("DELETE FROM daily_email_log WHERE account_id = ? AND day = ?").bind(acc.id, day).run().catch(() => {});
         out.push({ account: acc.username, skipped: w.reason, stale: w.stale });
+        continue;
+      }
+      if (weeklyIsEmpty(w) && guard) {   // 本週冇更新就唔寄（只限 cron；手動／預覽照寄）。保留 claim，唔重試。
+        out.push({ account: acc.username, empty: true });   // 唔用 skipped：runWeeklySummaryTask 會發「跳過」alert
         continue;
       }
       const unsubUrl = `${WORKER_BASE}/api/unsubscribe?token=${await getUnsubToken(db, acc.id)}&kind=weekly`;
@@ -6399,8 +6410,9 @@ async function runWeeklySummaryTask(env, { force = false } = {}) {
       await sendAdminAlert(env.DB, env, "ℹ️ 搵樓日記每週摘要：部分屋苑數據過期", "每週摘要 task",
         partial.map((r) => `${r.account}: ${r.stale.join("、")} 未計入`));
     }
-    await finish("done", { ok: ok.length, failed: failed.length, skipped: skipped.length, duplicate: sent.filter((r) => r.duplicate).length });
-    return { ok: ok.length, failed: failed.length, skipped: skipped.length, sent };
+    const emptyN = sent.filter((r) => r.empty).length;
+    await finish("done", { ok: ok.length, failed: failed.length, skipped: skipped.length, duplicate: sent.filter((r) => r.duplicate).length, empty: emptyN });
+    return { ok: ok.length, failed: failed.length, skipped: skipped.length, empty: emptyN, sent };
   } catch (e) {
     const detail = _errDetail(e);
     await finish("threw", detail);
@@ -7393,14 +7405,14 @@ export default {
         const b = await request.json().catch(() => ({}));
         const aid = Number(b.account_id) || session.account_id;
         const unsubUrl = `${WORKER_BASE}/api/unsubscribe?token=${await getUnsubToken(db, aid)}`;
-        const { subject, html } = await buildDailyEmail(db, aid, unsubUrl);
+        const { subject, html, empty } = await buildDailyEmail(db, aid, unsubUrl);
         if (b.send_to_self) {
           const me = await db.prepare("SELECT email FROM accounts WHERE id = ?").bind(session.account_id).first();
           if (!me?.email) return json(400, { error: "你個帳戶冇 email" });
           await sendEmail(env, me.email, `【樣本】${subject}`.slice(0, 150), html);
-          return json(200, { ok: true, sent_to: "self", subject });
+          return json(200, { ok: true, sent_to: "self", subject, empty });
         }
-        return json(200, { subject, html });
+        return json(200, { subject, html, empty });   // empty＝cron 會因為冇更新而唔寄
       }
       // 重算屋苑卡片重點數字（estate_stats）。平時由 drip cron 閒時自動做；呢度俾 admin 即時刷新／驗證。
       if (method === "POST" && path === "/api/admin/refresh-estate-stats") {
