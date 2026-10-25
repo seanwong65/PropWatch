@@ -40,20 +40,25 @@ export function expiredEmail({ appUrl, iconUrl, reason = "expired", periodEnd = 
   const keep = `<div style="margin-top:8px"><b>你嘅資料全部保留</b>：睇樓記錄、心儀樓盤、朋友屋企、偏好設定唔會刪。${pausedCount > 0
     ? `<br>免費版最多追蹤 ${cap} 個屋苑，所以有 <b>${pausedCount} 個屋苑暫停咗追蹤</b>（歷史資料保留，重新訂閱即刻恢復）。` : ""}</div>`;
   return shell({ iconUrl, appUrl, title: reason === "canceled" ? "收費版已結束" : "收費版已到期", introHtml: intro + keep,
-    sectionsHtml: box("免費版會有啲功能鎖住", lockedList(cap)) + `<div style="font-size:13px;color:#4f647a;margin-top:12px;line-height:1.8">想繼續用返？喺 app 右上角「免費版 ⭐」可以重新訂閱，資料即時恢復。</div>`,
+    sectionsHtml: box("免費版會有啲功能鎖住", lockedList(cap)) + `<div style="font-size:13px;color:#4f647a;margin-top:12px;line-height:1.8">想繼續用返？喺 app 右上角「免費版 ⭐」可以重新訂閱，資料即時恢復。</div>`
+      + `<div style="background:#fff7e6;border:1px solid #f3d9a4;border-radius:12px;padding:12px 16px;margin-top:14px;font-size:14px;line-height:1.8;color:#7a4b00">師兄，如果搵樓日記幫到你，俾下我杯咖啡錢吖，我買 server 都要錢㗎 ☕</div>`,
     ctaLabel: "返去搵樓日記" });
 }
 
-export const paymentFailedSubject = () => "搵樓日記：今次扣款唔成功，請檢查付款方式";
+export const paymentFailedSubject = () => "搵樓日記：續訂扣款唔成功，請檢查付款方式";
 export function paymentFailedEmail({ appUrl, iconUrl, amount = "", nextTry = "" }) {
-  const intro = `我哋喺收取你嘅收費版費用${amount ? `（<b>${esc(amount)}</b>）` : ""}時，扣款唔成功。`
-    + (nextTry ? `支付系統會喺 <b>${esc(fmtDate(nextTry))}</b> 自動再試一次。` : "支付系統暫時唔會再自動重試。");
+  // 流程（Stripe）：續訂扣款失敗 → 狀態 past_due，按排程自動重試幾次 → 全部失敗先取消訂閱（我哋先降級＋寄「已到期」信）。
+  // 重試期間收費功能照用（PAID_SUB_STATUSES 包 past_due），所以呢封信要講清楚「而家未鎖住」同「幾時會再試」，唔好似倒數。
+  const intro = `我哋嘅續訂扣款${amount ? `（<b>${esc(amount)}</b>）` : ""}<b>唔成功</b>。唔使擔心，你嘅收費版而家<b>照常可以用</b>。`;
+  const retry = nextTry
+    ? `支付系統會喺 <b>${esc(fmtDate(nextTry))}</b> 再自動扣款一次。`
+    : "支付系統暫時唔會再自動重試，要你更新付款方式先可以繼續。";
   const items = [
-    "收費功能暫時照用，唔會即刻鎖住",
-    "<b>每日 email 會暫停</b>，直到扣款成功",
-    "如果多次都扣唔到，帳戶最終會轉返免費版",
+    `<b>而家</b>：收費功能照常使用，冇鎖住`,
+    `<b>暫停</b>：每日 email 會暫停，扣款成功先恢復`,
+    `<b>如果之後仍然扣唔到</b>：收費版會結束，帳戶轉返免費版（你嘅資料全部保留）`,
   ].map(li).join("");
-  return shell({ iconUrl, appUrl, title: "扣款唔成功", introHtml: intro,
-    sectionsHtml: box("而家會點", items) + `<div style="font-size:13px;color:#4f647a;margin-top:12px;line-height:1.8">常見原因：卡過期、額度唔夠、銀行擋咗網上扣款。喺 app ⚙️ 設定 →「管理訂閱／發票」可以更新付款方式。</div>`,
+  return shell({ iconUrl, appUrl, title: "續訂扣款唔成功", introHtml: `${intro}<br>${retry}`,
+    sectionsHtml: box("接落嚟會點", items) + `<div style="font-size:13px;color:#4f647a;margin-top:12px;line-height:1.8">常見原因：卡過期、額度唔夠、銀行擋咗網上扣款。想盡快搞掂：喺 app ⚙️ 設定 →「管理訂閱／發票」更新付款方式，並補繳未付嘅帳單。</div>`,
     ctaLabel: "更新付款方式" });
 }
