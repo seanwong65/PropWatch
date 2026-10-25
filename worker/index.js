@@ -1,6 +1,6 @@
 import { loadWeeklyInputs, computeWeekly, renderWeeklyHtml, weeklySubject, weeklyHeadline, weeklyIsEmpty } from "./weekly.js";
 import { renderDailyHtml, dailySubject, dailyIsEmpty } from "./daily.js";
-import { ensureEstateStats, refreshEstateStats } from "./estateStats.js";
+import { ensureEstateStats, refreshEstateStats, computeWeekChanges } from "./estateStats.js";
 
 // ⚠️ 效能（2026-10-25）：D1 主庫喺 ENAM（北美東部），worker 喺香港／台灣 edge 行，
 // 每條 D1 query 都係一次跨太平洋往返（~200ms）。「CREATE TABLE IF NOT EXISTS」呢類 DDL
@@ -7448,8 +7448,16 @@ export default {
       // 回 404 唔係 403：唔畀人用嚟探邊個 id 存在。PATCH/DELETE/favourite/pause/resume
       // 本身已經 scope 咗 account_id，唔使行呢度。
       {
-        const em = path.match(/^\/api\/estates\/(\d+)\/(listings|rental-listings|rental-trends|rental-transactions|market-temp|line-history|group-overrides|trends|transactions|estate-info|photos)$/);
+        const em = path.match(/^\/api\/estates\/(\d+)\/(listings|rental-listings|rental-trends|rental-transactions|market-temp|line-history|group-overrides|week-changes|trends|transactions|estate-info|photos)$/);
         if (em && !(await canReadEstate(db, session, em[1]))) return json(404, { error: "搵唔到屋苑" });
+      }
+
+      // 本週變動（卡片「本週：新盤・減價・下架」撳入去睇逐個＋本週新成交）。收費功能（放盤時間軸數據）；
+      // 同卡片用同一套 snapshot 比較（loadSnapshotPair），條數一定一致。canReadEstate 喺上面 regex 已經驗。
+      if (method === "GET" && /^\/api\/estates\/\d+\/week-changes$/.test(path)) {
+        if (!isPaidSession(session)) return paywall("本週變動");
+        const r = await computeWeekChanges(db, path.split("/")[3], SOURCES.map((x) => x.id));
+        return json(200, r || { unavailable: true });
       }
 
       // Per-account 屋苑清單:訂閱關係/最愛/排序/加入日全部嚟自 account_estates。
