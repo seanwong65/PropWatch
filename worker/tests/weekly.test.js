@@ -127,10 +127,8 @@ describe("email 頂部 app 連結（唔使碌到底先搵到）", () => {
 
 describe("weeklyIsEmpty（本週冇更新就唔寄）", () => {
   const W = (o = {}) => ({ totals: { newN: 0, cut: 0, tx: 0 }, moves: [], todo: { total: 0, items: [] }, ...o });
-  it("市場冇動靜 → 空（就算有待跟進，提醒唔算更新）", () => {
-    expect(weeklyIsEmpty(W())).toBe(true);
-    expect(weeklyIsEmpty(W({ todo: { total: 3, items: [{}] } }))).toBe(true);
-  });
+  it("市場冇動靜、冇待跟進 → 空", () => expect(weeklyIsEmpty(W())).toBe(true));
+  it("市場冇動靜但有待跟進 → 照寄（用戶決定）", () => expect(weeklyIsEmpty(W({ todo: { total: 3, items: [{}] } }))).toBe(false));
   it("有新盤／減價／成交／你睇過嘅盤變動 → 唔空", () => {
     expect(weeklyIsEmpty(W({ totals: { newN: 1, cut: 0, tx: 0 } }))).toBe(false);
     expect(weeklyIsEmpty(W({ totals: { newN: 0, cut: 2, tx: 0 } }))).toBe(false);
