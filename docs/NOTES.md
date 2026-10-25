@@ -502,10 +502,10 @@ drip sync（`*/2`）同樣被雙重觸發：兩個 invocation 同時揀同一批
 - 歷史動態（`history-highlights`，月份、first_seen 計法）原樣保留，同「本週」計法唔同，唔再互相比較。
 
 ## 收費版到期／扣款失敗 email（2026-10-26）
-- 之前：到期降級完全冇通知用戶（只有扣款失敗通知 admin）。而家三封（`worker/lifecycle.js` 模板，帳戶通知，唔跟每日 email 退訂開關）：
+- 之前：到期降級完全冇通知用戶（只有扣款失敗通知 admin）。而家兩封（`worker/lifecycle.js` 模板，帳戶通知，唔跟每日 email 退訂開關）：
   1. **已到期／已取消**（`notifyDowngraded`）：收費 → 免費嗰刻即時寄（webhook `subscription.deleted`、`applySubscription` 轉 free、對數、admin cancel／sync）；內容：資料全部保留、暫停咗幾多個屋苑（免費上限 `sec_free_max_estates`）、鎖住咩功能、重新訂閱指引。
-  2. **即將到期**（≤3 日）：只寄「唔會自動續期」嘅——人手開通（冇 `stripe_subscription_id`）或者 Stripe 已設 `cancel_at_period_end=1`。自動續期嘅唔寄。
+  2. ~~即將到期提醒~~ **用戶決定唔做（2026-10-26）**，已拿走。
   3. **扣款失敗**（`invoice.payment_failed`）：通知用戶本人（以前只通知 admin）；每張 invoice 一次。
 - 只寄一次：`settings` 一行做 claim（`lc_expired_<id>_<periodEnd>`、`lc_expiring_<id>_<periodEnd>`、`lc_payfail_<id>_<invoice>`）；寄失敗刪 claim 下次再試；續期後再到期有新 key 會再寄。
-- `runLifecycleEmails` 搭每日 email cron（`runDailyEmailTask`，喺 `sendDailyEmail` 之前）：①**人手開通過期但冇人登入嘅帳戶主動降級**（以前只喺 `authenticate()` 有 request 先降級，過期仲收緊每日 email）②近 10 日內人手到期補寄到期信 ③3 日內到期提醒。`cron_last_email_done` detail 有 `lifecycle` 數目。
-- Admin：`POST /api/admin/lifecycle-emails`：`{sample:true, kind:"expired|expiring|payment_failed"}` 寄樣本去自己 email；`{run:true, dry_run:true}` 睇邊個會被降級／寄信（`dry_run:false` 真行）。
+- `runLifecycleEmails` 搭每日 email cron（`runDailyEmailTask`，喺 `sendDailyEmail` 之前）：①**人手開通過期但冇人登入嘅帳戶主動降級**（以前只喺 `authenticate()` 有 request 先降級，過期仲收緊每日 email）②近 10 日內人手到期補寄到期信。`cron_last_email_done` detail 有 `lifecycle` 數目。
+- Admin：`POST /api/admin/lifecycle-emails`：`{sample:true, kind:"expired|payment_failed"}` 寄樣本去自己 email；`{run:true, dry_run:true}` 睇邊個會被降級／寄信（`dry_run:false` 真行）。

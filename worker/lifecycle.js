@@ -1,6 +1,6 @@
 // 收費版生命週期 email（用戶 2026-10-26 要求：到期要有通知）。三封：
 //   expiredEmail       — 收費版已到期／已取消，帳戶轉咗返免費版（一次）
-//   expiringEmail      — 收費版 N 日後到期（只寄「唔會自動續期」嘅：人手開通、或者用戶已設定到期唔續訂）
+//   （「即將到期」提醒 2026-10-26 用戶決定唔做，已拿走）
 //   paymentFailedEmail — Stripe 扣款失敗（每張 invoice 一次）
 // 純排版，冇 I/O；動態字串一律 esc()。性質係帳戶／帳單通知，所以唔跟每日 email 嘅退訂開關。
 import { esc } from "./weekly.js";
@@ -42,18 +42,6 @@ export function expiredEmail({ appUrl, iconUrl, reason = "expired", periodEnd = 
   return shell({ iconUrl, appUrl, title: reason === "canceled" ? "收費版已結束" : "收費版已到期", introHtml: intro + keep,
     sectionsHtml: box("免費版會有啲功能鎖住", lockedList(cap)) + `<div style="font-size:13px;color:#4f647a;margin-top:12px;line-height:1.8">想繼續用返？喺 app 右上角「免費版 ⭐」可以重新訂閱，資料即時恢復。</div>`,
     ctaLabel: "返去搵樓日記" });
-}
-
-export const expiringSubject = ({ daysLeft, periodEnd }) => `你嘅搵樓日記收費版${daysLeft <= 0 ? "今日" : `將喺 ${daysLeft} 日後`}到期（${fmtDate(periodEnd).replace(/^\d{4}年/, "")}）`;
-export function expiringEmail({ appUrl, iconUrl, daysLeft = 3, periodEnd = "", manual = false, cap = 3 }) {
-  const when = fmtDate(periodEnd);
-  const why = manual ? "你嘅收費版係人手開通，<b>唔會自動續期</b>。" : "你已經設定咗<b>到期唔續訂</b>。";
-  const intro = `你嘅收費版${daysLeft <= 0 ? "<b>今日</b>" : `將喺 <b>${esc(when)}</b>（${Number(daysLeft)} 日後）`}到期。${why}到期後帳戶會轉返免費版，你嘅資料全部保留。`;
-  return shell({ iconUrl, appUrl, title: "收費版即將到期", introHtml: intro,
-    sectionsHtml: box("到期後免費版會鎖住", lockedList(cap)) + `<div style="font-size:13px;color:#4f647a;margin-top:12px;line-height:1.8">${manual
-      ? "想繼續用？到期後喺 app 右上角「免費版 ⭐」訂閱就得，資料即時恢復。"
-      : "改變主意？喺 app ⚙️ 設定 →「管理訂閱／發票」可以取消「到期唔續訂」；或者到期後喺右上角「免費版 ⭐」重新訂閱。"}</div>`,
-    ctaLabel: "繼續使用收費版" });
 }
 
 export const paymentFailedSubject = () => "搵樓日記：今次扣款唔成功，請檢查付款方式";
