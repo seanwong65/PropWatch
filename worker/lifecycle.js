@@ -41,7 +41,7 @@ export function expiredEmail({ appUrl, iconUrl, reason = "expired", periodEnd = 
     ? `<br>免費版最多追蹤 ${cap} 個屋苑，所以有 <b>${pausedCount} 個屋苑暫停咗追蹤</b>（歷史資料保留，重新訂閱即刻恢復）。` : ""}</div>`;
   return shell({ iconUrl, appUrl, title: reason === "canceled" ? "收費版已結束" : "收費版已到期", introHtml: intro + keep,
     sectionsHtml: box("免費版會有啲功能鎖住", lockedList(cap)) + `<div style="font-size:13px;color:#4f647a;margin-top:12px;line-height:1.8">想繼續用返？喺 app 右上角「免費版 ⭐」可以重新訂閱，資料即時恢復。</div>`
-      + `<div style="background:#fff7e6;border:1px solid #f3d9a4;border-radius:12px;padding:12px 16px;margin-top:14px;font-size:14px;line-height:1.8;color:#7a4b00">師兄，如果搵樓日記幫到你，俾下我杯咖啡錢吖，我買 server 都要錢㗎 ☕</div>`,
+      + `<div style="background:#fff7e6;border:1px solid #f3d9a4;border-radius:12px;padding:12px 16px;margin-top:14px;font-size:14px;line-height:1.8;color:#7a4b00">師兄，如果搵樓日記幫到你，俾個機會我繼續幫你吖</div>`,
     ctaLabel: "返去搵樓日記" });
 }
 

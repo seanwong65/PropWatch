@@ -9,7 +9,7 @@ describe("收費版生命週期 email", () => {
     expect(h).toContain("收費版已到期"); expect(h).toContain("2026年12月31日");
     expect(h).toContain("全部保留"); expect(h).toContain("4 個屋苑暫停咗追蹤"); expect(h).toContain("追蹤屋苑上限 <b>3 個</b>");
     expect(h).toContain("https://x/app"); expect(expiredSubject({ reason: "expired" })).toContain("到期");
-    expect(h).toContain("俾下我杯咖啡錢");
+    expect(h).toContain("俾個機會我繼續幫你吖");
   });
   it("到期：冇暫停屋苑就唔提；取消訂閱用「已結束」字眼", () => {
     expect(expiredEmail({ ...base, pausedCount: 0 })).not.toContain("暫停咗追蹤");
