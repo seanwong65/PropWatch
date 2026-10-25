@@ -874,7 +874,7 @@
     .dyn-chip.on { background: var(--brand); color: #fff; font-weight: 700; }
     .dyn-chip.on span { color: inherit !important; }
     .dyn-week .hl-pref-toggle { display: none !important; }
-    .wk-estate { scroll-margin-top: 4.6rem; border-radius: 6px; display: flex; justify-content: space-between; align-items: baseline; gap: 0.5rem; padding: 0.6rem 0 0.15rem; font-weight: 700; font-size: 0.92rem; color: var(--text); border-top: 2px solid var(--border); margin-top: 0.4rem; cursor: pointer; }
+    .wk-estate { scroll-margin-top: 7rem; border-radius: 6px; display: flex; justify-content: space-between; align-items: baseline; gap: 0.5rem; padding: 0.6rem 0 0.15rem; font-weight: 700; font-size: 0.92rem; color: var(--text); border-top: 2px solid var(--border); margin-top: 0.4rem; cursor: pointer; }
     .wk-estate small { font-weight: 400; color: var(--muted); font-size: 0.74rem; }
     .wk-go { border: 1px solid var(--border); background: transparent; color: var(--brand); border-radius: 999px; padding: 0.1rem 0.6rem; font-size: 0.74rem; cursor: pointer; font-family: inherit; }
     .wk-seg { cursor: pointer; border-radius: 4px; }
@@ -884,6 +884,8 @@
     /* 側邊欄卡片「本週：新盤・減價・下架」可撳（本週變動面板） */
     .wk-line { display: inline-block; cursor: pointer; border: 1px dashed var(--brand); border-radius: 8px; padding: 1px 7px; margin: -1px -1px; background: var(--btn-soft, rgba(18,112,172,0.08)); }
     .wk-line:hover { background: var(--btn-soft-hover, rgba(18,112,172,0.16)); }
+    /* 動態→本週：分頁列 sticky（跟住捲動，頂部 app 標題列 56px 之下） */
+    #week-body .wk-tabs { position: sticky; top: 56px; z-index: 6; padding: 0.45rem 0 0.4rem; margin-top: 0.3rem; background: var(--bg, #eef6fd); box-shadow: 0 1px 0 var(--border); }
     .wk-tabs { display: flex; gap: 0.4rem; flex-wrap: wrap; margin: 0.6rem 0 0.3rem; }
     .wk-tab { border: 1px solid var(--border); background: transparent; color: var(--muted); border-radius: 999px; padding: 0.25rem 0.8rem; font-size: 0.82rem; cursor: pointer; font-family: inherit; }
     .wk-tab.on { background: var(--btn-soft, rgba(18,112,172,0.12)); border-color: var(--brand); color: var(--text); font-weight: 700; }
