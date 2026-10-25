@@ -7473,14 +7473,14 @@ export default {
       }
 
       // 跨屋苑「動態→本週」：你追蹤中（未暫停）屋苑嘅本週變動，逐個屋苑用同一套 computeWeekChanges（同卡片、單屋苑面板完全一致）。
-      // 每類每屋苑最多 cap 條（預設 30），總數照回；有變動嘅屋苑按變動多少排先。收費版。
+      // 每類每屋苑最多 cap 條（預設 30），總數照回；屋苑次序＝側邊欄次序（最愛先，再跟用戶自訂排序）。收費版。
       if (method === "GET" && path === "/api/week-changes") {
         if (!isPaidSession(session)) return paywall("本週動態");
         const cap = Math.min(60, Math.max(5, parseInt(url.searchParams.get("cap"), 10) || 30));
         const { results: ests } = await db.prepare(
           `SELECT ae.estate_id AS id, e.name FROM account_estates ae JOIN estates e ON e.id = ae.estate_id
            WHERE ae.account_id = ? AND ae.paused_at IS NULL AND (e.is_disabled = 0 OR e.is_disabled IS NULL)
-           ORDER BY ae.sort_order ASC, ae.estate_id ASC`).bind(session.account_id).all();
+           ORDER BY ae.is_favourite DESC, ae.sort_order ASC, ae.estate_id ASC`).bind(session.account_id).all();   // 同側邊欄一樣：最愛 ⭐ 先，再跟用戶自己嘅排序
         const srcIds = SOURCES.map((x) => x.id);
         const rs = await Promise.all(ests.map(async (e) => ({ e, r: await weekChangesCached(db, e.id, srcIds).catch(() => null) })));
         const totals = { new: 0, cuts: 0, removed: 0, txns: 0 };
@@ -7494,8 +7494,7 @@ export default {
           const n = r.counts.new + r.counts.cuts + r.counts.removed + r.counts.txns;
           if (n) estates.push({ id: e.id, name: e.name, counts: r.counts, new: r.new.slice(0, cap), cuts: r.cuts.slice(0, cap), removed: r.removed.slice(0, cap), txns: r.txns.slice(0, cap), _n: n });
         }
-        estates.sort((a, b) => b._n - a._n);
-        for (const e of estates) delete e._n;
+        for (const e of estates) delete e._n;   // 屋苑次序跟用戶偏好（最愛／自訂排序），唔按變動多少排
         return json(200, { as_of: asOf || null, prev_as_of: prevAsOf || null, totals, pending, n_estates: ests.length, estates });
       }
 
