@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { expiredEmail, expiredSubject, expiringEmail, expiringSubject, paymentFailedEmail, paymentFailedSubject } from "../lifecycle.js";
+import { expiredEmail, expiredSubject, paymentFailedEmail, paymentFailedSubject } from "../lifecycle.js";
 
 const base = { appUrl: "https://x/app", iconUrl: "https://x/i.png" };
 
@@ -15,13 +15,6 @@ describe("收費版生命週期 email", () => {
     const c = expiredEmail({ ...base, reason: "canceled" });
     expect(c).toContain("收費版已結束"); expect(c).toContain("已經取消");
     expect(expiredSubject({ reason: "canceled" })).toContain("結束");
-  });
-  it("即將到期：人手開通 vs 已設定唔續訂，字眼唔同；今日到期", () => {
-    expect(expiringEmail({ ...base, daysLeft: 3, periodEnd: "2026-12-31", manual: true })).toContain("唔會自動續期");
-    const n = expiringEmail({ ...base, daysLeft: 3, periodEnd: "2026-12-31", manual: false });
-    expect(n).toContain("到期唔續訂"); expect(n).toContain("管理訂閱");
-    expect(expiringEmail({ ...base, daysLeft: 0, periodEnd: "2026-12-31", manual: true })).toContain("<b>今日</b>");
-    expect(expiringSubject({ daysLeft: 3, periodEnd: "2026-12-31" })).toBe("你嘅搵樓日記收費版將喺 3 日後到期（12月31日）");
   });
   it("扣款失敗：金額、下次重試日期、每日 email 暫停；冇重試日期就寫唔再重試", () => {
     const h = paymentFailedEmail({ ...base, amount: "HK$400", nextTry: "2026-11-02" });

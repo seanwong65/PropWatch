@@ -1,7 +1,7 @@
 import { loadWeeklyInputs, computeWeekly, renderWeeklyHtml, weeklySubject, weeklyHeadline, weeklyIsEmpty } from "./weekly.js";
 import { renderDailyHtml, dailySubject, dailyIsEmpty } from "./daily.js";
 import { ensureEstateStats, refreshEstateStats, computeWeekChanges } from "./estateStats.js";
-import { expiredEmail, expiredSubject, expiringEmail, expiringSubject, paymentFailedEmail, paymentFailedSubject } from "./lifecycle.js";
+import { expiredEmail, expiredSubject, paymentFailedEmail, paymentFailedSubject } from "./lifecycle.js";
 
 // ⚠️ 效能（2026-10-25）：D1 主庫喺 ENAM（北美東部），worker 喺香港／台灣 edge 行，
 // 每條 D1 query 都係一次跨太平洋往返（~200ms）。「CREATE TABLE IF NOT EXISTS」呢類 DDL
@@ -3107,7 +3107,6 @@ async function sendLifecycleEmail(db, env, accountId, kind, claimKey, info = {},
     const common = { appUrl: `${APP_BASE}/app`, iconUrl: `${APP_BASE}/icons/icon-192.png`, cap: (await getSecCfg(db)).sec_free_max_estates };
     let subject, html;
     if (kind === "expired") { subject = expiredSubject(info); html = expiredEmail({ ...common, ...info }); }
-    else if (kind === "expiring") { subject = expiringSubject(info); html = expiringEmail({ ...common, ...info }); }
     else { subject = paymentFailedSubject(); html = paymentFailedEmail({ ...common, ...info }); }
     await sendEmail(env, to, toOverride ? `【樣本】${subject}` : subject, html);
     return { ok: true, to, kind };
@@ -3127,10 +3126,10 @@ async function notifyDowngraded(db, env, ctx, accountId, { periodEnd = "", reaso
   if (ctx?.waitUntil) ctx.waitUntil(job); else await job;
 }
 // 每日排程（搭 runDailyEmailTask）：①人手開通嘅收費帳戶過咗 current_period_end 但冇人登入（authenticate 先會降級）→ 主動降級＋寄到期信
-// （否則佢哋仲收緊每日 email）；②近 10 日內人手到期嘅（可能係 authenticate 已經降咗）補寄一次；③3 日內到期而且唔會自動續期嘅提醒。
+// （否則佢哋仲收緊每日 email）；②近 10 日內人手到期嘅（可能係 authenticate 已經降咗）補寄一次。（「3 日前提醒」用戶決定唔做。）
 async function runLifecycleEmails(db, env, { dryRun = false } = {}) {
-  const today = hkDateStr(), in3 = hkDateStr(3), back10 = hkDateStr(-10);
-  const out = { downgraded: [], expired: [], expiring: [] };
+  const today = hkDateStr(), back10 = hkDateStr(-10);
+  const out = { downgraded: [], expired: [] };
   const { results: lapsed } = await db.prepare(
     `SELECT id, email, tier, current_period_end FROM accounts
      WHERE role != 'admin' AND stripe_subscription_id IS NULL AND current_period_end IS NOT NULL
@@ -3142,16 +3141,6 @@ async function runLifecycleEmails(db, env, { dryRun = false } = {}) {
     }
     const r = dryRun ? { dry_run: true } : await notifyDowngradedSync(db, env, a.id, a.current_period_end);
     out.expired.push({ account: a.email || a.id, periodEnd: a.current_period_end, result: r });
-  }
-  const { results: soon } = await db.prepare(
-    `SELECT id, email, current_period_end, stripe_subscription_id FROM accounts
-     WHERE role != 'admin' AND tier = 'paid' AND current_period_end >= ? AND current_period_end <= ?
-       AND (stripe_subscription_id IS NULL OR cancel_at_period_end = 1)`).bind(today, in3).all();
-  for (const a of soon) {
-    const daysLeft = Math.round((Date.parse(a.current_period_end + "T00:00:00Z") - Date.parse(today + "T00:00:00Z")) / 86400000);
-    const r = await sendLifecycleEmail(db, env, a.id, "expiring", `lc_expiring_${a.id}_${a.current_period_end}`,
-      { daysLeft, periodEnd: a.current_period_end, manual: !a.stripe_subscription_id }, { dryRun });
-    out.expiring.push({ account: a.email || a.id, periodEnd: a.current_period_end, daysLeft, result: r });
   }
   return out;
 }
@@ -6394,7 +6383,7 @@ async function runDailyEmailTask(env, { force = false } = {}) {
     } catch (e) {
       recon.error = _errDetail(e);   // 對數炒咗都要照寄信，聽日再補對數
     }
-    // 到期處理（降級人手開通嘅過期帳戶＋寄到期信／即將到期提醒）：要喺 sendDailyEmail 之前，咁過期嘅人就唔會再收每日 email
+    // 到期處理（降級人手開通嘅過期帳戶＋寄到期信）：要喺 sendDailyEmail 之前，咁過期嘅人就唔會再收每日 email
     let lifecycle = null;
     try { lifecycle = await runLifecycleEmails(env.DB, env); } catch (e) { console.error("[lifecycle]", e?.message || e); }
     const res = await sendDailyEmail(env.DB, env, null, null, recon.trouble, force);
@@ -6423,7 +6412,7 @@ async function runDailyEmailTask(env, { force = false } = {}) {
       await sendAdminAlert(env.DB, env, "💳 搵樓日記訂閱對數有發現", "每日 email task", alerts);
     }
     const emptyN = sent.filter((r) => r.empty).length;   // 冇更新所以唔寄（唔係出事）
-    await finish("done", { ok: ok.length, failed: failed.length, skipped: skipped.length, duplicate: dups.length, empty: emptyN, lifecycle: lifecycle ? { downgraded: lifecycle.downgraded.length, expired: lifecycle.expired.length, expiring: lifecycle.expiring.length } : null });
+    await finish("done", { ok: ok.length, failed: failed.length, skipped: skipped.length, duplicate: dups.length, empty: emptyN, lifecycle: lifecycle ? { downgraded: lifecycle.downgraded.length, expired: lifecycle.expired.length } : null });
     return { ok: ok.length, failed: failed.length, skipped: skipped.length, duplicate: dups.length, empty: emptyN, sent, recon: { checked: recon.checked, fixed: recon.fixed, error: recon.error } };
   } catch (e) {
     const detail = _errDetail(e);
@@ -7486,8 +7475,8 @@ export default {
       // cron 出事嗰段佢係測唔到嘅（就係咁先查極查唔到）。
       // 每週摘要手動驗證：body { account_id?, preview? }。有 account_id＝只寄嗰個帳戶（唔受一週一封限制）；
       // preview＝淨係回 subject／html，唔寄、唔認領。冇 account_id＝行返 cron 嘅正式路徑（一週一封）。
-      // 到期／即將到期／扣款失敗 email 嘅管理入口。body：
-      //  { kind: "expired"|"expiring"|"payment_failed", sample: true }  → 寄樣本去呼叫者自己個 email（假數據）
+      // 到期／扣款失敗 email 嘅管理入口。body：
+      //  { kind: "expired"|"payment_failed", sample: true }  → 寄樣本去呼叫者自己個 email（假數據）
       //  { run: true, dry_run?: true }                                   → 行排程掃描（dry_run 只列邊個會被降級／寄信）
       if (method === "POST" && path === "/api/admin/lifecycle-emails") {
         if (!isAdminSession(session)) return json(403, { error: "admin only" });
@@ -7495,9 +7484,8 @@ export default {
         if (b.sample) {
           const me = await db.prepare("SELECT email FROM accounts WHERE id = ?").bind(session.account_id).first();
           if (!me?.email) return json(400, { error: "你個帳戶冇 email" });
-          const kind = ["expired", "expiring", "payment_failed"].includes(b.kind) ? b.kind : "expired";
+          const kind = ["expired", "payment_failed"].includes(b.kind) ? b.kind : "expired";
           const info = { expired: { reason: b.reason === "canceled" ? "canceled" : "expired", periodEnd: hkDateStr(), pausedCount: 4 },
-                         expiring: { daysLeft: 3, periodEnd: hkDateStr(3), manual: b.manual !== false },
                          payment_failed: { amount: "HK$400", nextTry: hkDateStr(3) } }[kind];
           return json(200, await sendLifecycleEmail(db, env, session.account_id, kind, "", info, { toOverride: me.email }));
         }
