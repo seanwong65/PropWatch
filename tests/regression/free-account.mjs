@@ -49,7 +49,7 @@ check("adv-search 回 results", Array.isArray(adv?.results));
 // ── 3. 收費功能 → 402（server 端擋，唔靠前端收埋個掣）──
 for (const [n, p] of [["trends", `/api/estates/${E}/trends`], ["rental-trends", `/api/estates/${E}/rental-trends`], ["market-index", "/api/market-index"],
   ["hangseng-valuation", "/api/hangseng-valuation"], ["hangseng-valuation-history", "/api/hangseng-valuation-history"], ["history-highlights", "/api/history-highlights"],
-  ["viewings/comps", "/api/viewings/comps"], ["bargain-radar", "/api/bargain-radar"], ["estate-comps", "/api/estate-comps"], ["listing history", "/api/listings/ABC123/history"], ["week-changes（本週變動面板）", `/api/estates/${E}/week-changes`]])
+  ["viewings/comps", "/api/viewings/comps"], ["bargain-radar", "/api/bargain-radar"], ["estate-comps", "/api/estate-comps"], ["listing history", "/api/listings/ABC123/history"], ["week-changes（本週變動面板）", `/api/estates/${E}/week-changes`], ["week-changes 跨屋苑（動態→本週）", "/api/week-changes"]])
   await call("402 " + n, p, { expect: [402] });
 // 恒生估值：免費版只有「試用」（?trial=自己嘅睇樓記錄 id，server 驗單位＋計次數）。呢度只測唔會消耗次數嘅部分。
 await call("402 恒生估值 無 trial", `/api/hangseng-valuation?estate=x&estateId=${E}&block=1&floor=1&flat=A`, { expect: [402] });

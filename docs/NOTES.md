@@ -495,3 +495,9 @@ drip sync（`*/2`）同樣被雙重觸發：兩個 invocation 同時揀同一批
 - `GET /api/estates/:id/week-changes`（收費 402、`canReadEstate` 404）。`estateStats.js`：`loadSnapshotPair`（卡片 `computeEstateStats` 同面板共用，同一套日子／「兩邊都有 snapshot 嘅 source」）、`weekChangesFromSnapshots`（新盤／減價／下架，按 ref_no，條數必定等於卡片）、`weekTxnsFrom`（first_seen 近 7 日，同每週摘要一致；vs＝比而家叫價呎價中位）。每類最多 60 條，總數照回。
 - 本機 15 個屋苑驗證：面板條數 = 卡片數字 15/15。
 - 刻意冇做「已成交」標籤：放盤 floor 係低／中／高層，對唔到成交嘅實際樓層。
+
+## 動態：今日｜本週（2026-10-25）
+- 首頁 tab「今日動態」改名「動態」，入面 `今日｜本週` 兩粒切換（`setDynMode`）。今日＝原本 `today-highlights`（免費／收費）；**本週＝收費版**，免費版顯示「本週 🔒」撳咗彈升級窗。🎯 偏好 chip 只喺今日顯示（CSS `.dyn-week`）。
+- 本週＝`GET /api/week-changes?cap=30`：你追蹤中（未暫停）屋苑逐個用 `computeWeekChanges`（同卡片、單屋苑面板**同一套計算**，所以總和 = 卡片數字總和；本機 16 個屋苑逐個＋總和驗證一致）。按屋苑分組、新盤／減價／下架／新成交 四個分頁，屋苑標題／「撳睇全部」開單屋苑面板。
+- `weekChangesCached`：按屋苑 isolate 記憶體 cache 10 分鐘（只跟 snapshot，同帳戶無關），單屋苑 route 同批量共用；失敗唔 cache。
+- 歷史動態（`history-highlights`，月份、first_seen 計法）原樣保留，同「本週」計法唔同，唔再互相比較。

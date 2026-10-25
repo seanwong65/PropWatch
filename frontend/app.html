@@ -857,6 +857,14 @@
       width: 90%;
       box-shadow: var(--shadow-lg);
     }
+    /* 動態：今日｜本週 切換 */
+    .dyn-toggle { display: inline-flex; gap: 0.3rem; margin: 0 0 0.7rem; padding: 3px; border-radius: 999px; background: var(--surface2, rgba(0,0,0,0.04)); border: 1px solid var(--border); }
+    .dyn-chip { border: 0; background: transparent; color: var(--muted); border-radius: 999px; padding: 0.28rem 0.95rem; font-size: 0.86rem; cursor: pointer; font-family: inherit; }
+    .dyn-chip.on { background: var(--brand); color: #fff; font-weight: 700; }
+    .dyn-chip.on span { color: inherit !important; }
+    .dyn-week .hl-pref-toggle { display: none !important; }
+    .wk-estate { display: flex; justify-content: space-between; align-items: baseline; gap: 0.5rem; padding: 0.6rem 0 0.15rem; font-weight: 700; font-size: 0.92rem; color: var(--text); border-top: 2px solid var(--border); margin-top: 0.4rem; cursor: pointer; }
+    .wk-estate small { font-weight: 400; color: var(--muted); font-size: 0.74rem; }
     /* 側邊欄卡片「本週：新盤・減價・下架」可撳（本週變動面板） */
     .wk-line { display: inline-block; cursor: pointer; border: 1px dashed var(--brand); border-radius: 8px; padding: 1px 7px; margin: -1px -1px; background: var(--btn-soft, rgba(18,112,172,0.08)); }
     .wk-line:hover { background: var(--btn-soft-hover, rgba(18,112,172,0.16)); }
@@ -2709,6 +2717,53 @@ function cmpBuyInner() {
 // 數據：GET /api/estates/:id/week-changes（收費版；同卡片同一套 snapshot 比較，條數一致）。全部字串 escHtml／safeUrl。
 let _wk = null, _wkTab = 'new';
 const WK_TABS = [['new', '新盤'], ['cuts', '減價'], ['removed', '下架'], ['txns', '新成交']];
+// ── 動態：今日｜本週（本週 = 收費版；跨屋苑，用同卡片／單屋苑面板同一套計算 /api/week-changes）──
+let _dynMode = 'today', _weekDyn = null, _weekDynAt = 0, _weekDynTab = 'new';
+function setDynMode(m) {
+  if (m === 'week' && !isPaid()) { showUpgrade('本週動態'); return; }
+  _dynMode = m;
+  document.getElementById('dyn-chip-today')?.classList.toggle('on', m === 'today');
+  document.getElementById('dyn-chip-week')?.classList.toggle('on', m === 'week');
+  document.getElementById('highlights-body').style.display = m === 'today' ? '' : 'none';
+  document.getElementById('week-body').style.display = m === 'week' ? '' : 'none';
+  // 🎯 偏好 filter 只篩「今日」：本週模式用 CSS 收埋（唔郁佢本身嘅顯示邏輯）；歷史動態兩邊都留
+  document.getElementById('highlights-section')?.classList.toggle('dyn-week', m === 'week');
+  if (m === 'week') loadWeekDynamic();
+}
+async function loadWeekDynamic(force = false) {
+  const body = document.getElementById('week-body');
+  if (!body) return;
+  if (!force && _weekDyn && Date.now() - _weekDynAt < 300000) { weekDynDraw(); return; }
+  body.innerHTML = '<div class="loading"><div class="spinner"></div> 載入本週動態…</div>';
+  try {
+    _weekDyn = await api('/api/week-changes?cap=30'); _weekDynAt = Date.now();
+    const t = _weekDyn.totals || {};
+    _weekDynTab = ['new', 'cuts', 'removed', 'txns'].find(k => t[k] > 0) || 'new';
+    weekDynDraw();
+  } catch (e) {
+    if (e && e.paywall) { setDynMode('today'); return; }   // api() 已經彈咗升級窗
+    body.innerHTML = `<div style="color:var(--down)">載入失敗：${escHtml(e.message || '')}</div>`;
+  }
+}
+function weekDynSwitch(k) { _weekDynTab = k; weekDynDraw(); }
+function weekDynDraw() {
+  const w = _weekDyn, body = document.getElementById('week-body');
+  if (!w || !body) return;
+  const t = w.totals || {};
+  const range = w.as_of && w.prev_as_of ? `${wkMd(w.prev_as_of)} 至 ${wkMd(w.as_of)}（對比上次 snapshot）` : '';
+  const pend = w.pending ? `<div class="wk-sub" style="margin-top:0.5rem">${Number(w.pending)} 個屋苑數據累積中（要多一個星期先比較到），暫時未計入。</div>` : '';
+  if (!w.n_estates) { body.innerHTML = '<div style="padding:0.6rem 0">未追蹤任何屋苑。</div>'; return; }
+  const tabs = WK_TABS.map(([k, name]) => `<button class="wk-tab${k === _weekDynTab ? ' on' : ''}" onclick="weekDynSwitch('${k}')">${name} ${Number(t[k] || 0)}</button>`).join('');
+  const groups = (w.estates || []).filter(e => (e[_weekDynTab] || []).length);
+  const list = groups.map(e => {
+    const rows = e[_weekDynTab], total = e.counts[_weekDynTab];
+    const more = total > rows.length ? `<div class="wk-sub" style="padding:0.4rem 0;border-top:1px solid var(--border);cursor:pointer" onclick="openWeekChanges(${Number(e.id)})">共 ${Number(total)} 個，列出頭 ${rows.length} 個 — 撳睇全部 ›</div>` : '';
+    return `<div class="wk-estate" onclick="openWeekChanges(${Number(e.id)})"><span>${escHtml(e.name)}</span><small>${Number(total)} 個 ›</small></div>${rows.map(r => wkRow(_weekDynTab, r, e.name)).join('')}${more}`;
+  }).join('');
+  body.innerHTML = `<div style="color:var(--muted);font-size:0.8rem;margin-bottom:0.2rem">${escHtml(range)}</div>
+    <div class="wk-tabs" style="margin-top:0.3rem">${tabs}</div>
+    ${list || '<div style="padding:0.8rem 0;font-size:0.86rem">呢個類別本週冇變動。</div>'}${pend}`;
+}
 const wkWan = (p) => p ? '$' + Math.round(Number(p) / 1e4).toLocaleString() + '萬' : '-';
 const wkMd = (d) => d ? `${Number(String(d).slice(5, 7))}月${Number(String(d).slice(8, 10))}日` : '';
 function wkLabel(r, estName) {
@@ -3124,14 +3179,21 @@ async function showDashboard(estates) {
             <button id="dash-tab-radar" hidden onclick="switchDashTab('radar')" style="display:none;background:none;border:none;border-bottom:2px solid transparent;margin-bottom:-2px;color:var(--muted);font-size:0.9rem;padding:0.35rem 0.85rem;cursor:pointer">💎 抵買雷達</button>
             <button id="dash-tab-friends" onclick="switchDashTab('friends')" style="background:none;border:none;border-bottom:2px solid transparent;margin-bottom:-2px;color:var(--muted);font-size:0.9rem;padding:0.35rem 0.85rem;cursor:pointer">👥 朋友屋企</button>
             <button id="dash-tab-fav" onclick="switchDashTab('fav')" style="background:none;border:none;border-bottom:2px solid transparent;margin-bottom:-2px;color:var(--muted);font-size:0.9rem;padding:0.35rem 0.85rem;cursor:pointer">♥ 心儀樓盤</button>
-            <button id="dash-tab-today" onclick="switchDashTab('today')" style="background:none;border:none;border-bottom:2px solid transparent;margin-bottom:-2px;color:var(--muted);font-size:0.9rem;padding:0.35rem 0.85rem;cursor:pointer">今日動態 <span id="highlights-date" style="font-weight:400;color:var(--muted);font-size:0.8rem"></span></button>
+            <button id="dash-tab-today" onclick="switchDashTab('today')" style="background:none;border:none;border-bottom:2px solid transparent;margin-bottom:-2px;color:var(--muted);font-size:0.9rem;padding:0.35rem 0.85rem;cursor:pointer">動態</button>
           </div>
           <div id="dash-tab-actions" style="display:flex;align-items:center;gap:0.5rem">
             <button class="filter-chip hl-pref-toggle active" onclick="toggleHlPrefFilter()" title="用你嘅睇樓偏好（售價/房數/實呎）篩選下面嘅動態" style="display:none">🎯 偏好</button>
             <button class="history-btn" id="dash-history-btn" style="font-size:0.88rem;padding:0.35rem 0.85rem" onclick="isPaid() ? showHistoryPage() : showUpgrade('歷史動態')">歷史動態 →</button>
           </div>
         </div>
-        <div id="dash-panel-today"><div id="highlights-body" style="color:var(--muted);font-size:0.75rem">載入中…</div></div>
+        <div id="dash-panel-today">
+          <div class="dyn-toggle" role="tablist" aria-label="動態範圍">
+            <button class="dyn-chip on" id="dyn-chip-today" role="tab" onclick="setDynMode('today')">今日 <span id="highlights-date" style="font-weight:400;font-size:0.76rem"></span></button>
+            <button class="dyn-chip" id="dyn-chip-week" role="tab" onclick="setDynMode('week')">本週<span id="dyn-week-lock">${isPaid() ? '' : ' 🔒'}</span></button>
+          </div>
+          <div id="highlights-body" style="color:var(--muted);font-size:0.75rem">載入中…</div>
+          <div id="week-body" style="display:none;color:var(--muted);font-size:0.75rem">載入中…</div>
+        </div>
         <div id="dash-panel-comps" style="display:none"><div id="comps-body" style="color:var(--muted);font-size:0.75rem">載入中…</div></div>
         <div id="dash-panel-radar" style="display:none"><div id="radar-body" style="color:var(--muted);font-size:0.75rem">載入中…</div></div>
         <div id="dash-panel-friends" style="display:none"><div id="friends-body" style="color:var(--muted);font-size:0.75rem">載入中…</div></div>
@@ -4960,6 +5022,7 @@ function applyTierToChrome() {
   const el = document.getElementById('tierChip');
   if (!el) return;
   el.style.display = isPaid() ? 'none' : '';
+  const lk = document.getElementById('dyn-week-lock'); if (lk) lk.textContent = isPaid() ? '' : ' 🔒';   // 動態→本週係收費版
 }
 
 // 分析參數 section：admin 先顯示（一般 user 隱藏）。後端 PUT /api/config
