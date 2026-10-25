@@ -1009,6 +1009,18 @@ const isAdminSession = (session) => (session?.role || "user") === "admin";
 // 邊個 portal 都睇到嘅嘢(而家有咩盤、幾錢)免費;我哋 scrape 咗經年先儲到嘅
 // 歷史(放盤日數/改價/下架/趨勢)同主動推送(email/alert)先收費。
 // admin 永遠當 paid(方便自己用同測試)。
+// 本週變動（computeWeekChanges）按屋苑 isolate 記憶體 cache 10 分鐘：結果只跟屋苑 snapshot，同帳戶無關，
+// 單屋苑面板同跨屋苑「動態→本週」共用；放 promise 做 in-flight 去重。失敗唔 cache。
+const _wkCache = new Map();
+function weekChangesCached(db, estateId, sources) {
+  const hit = _wkCache.get(estateId);
+  if (hit && Date.now() - hit.at < 600000) return hit.p;
+  const p = computeWeekChanges(db, estateId, sources);
+  _wkCache.set(estateId, { at: Date.now(), p });
+  p.catch(() => { if (_wkCache.get(estateId)?.p === p) _wkCache.delete(estateId); });
+  return p;
+}
+
 // 待跟進「✕ 唔再提醒」：以前只存喺瀏覽器 localStorage，email（每週摘要）睇唔到。而家存 settings.todo_dismissed_<accountId>（JSON 數字陣列），前端同步。
 async function getTodoDismissed(db, accountId) {
   try {
@@ -7456,8 +7468,35 @@ export default {
       // 同卡片用同一套 snapshot 比較（loadSnapshotPair），條數一定一致。canReadEstate 喺上面 regex 已經驗。
       if (method === "GET" && /^\/api\/estates\/\d+\/week-changes$/.test(path)) {
         if (!isPaidSession(session)) return paywall("本週變動");
-        const r = await computeWeekChanges(db, path.split("/")[3], SOURCES.map((x) => x.id));
+        const r = await weekChangesCached(db, Number(path.split("/")[3]), SOURCES.map((x) => x.id));
         return json(200, r || { unavailable: true });
+      }
+
+      // 跨屋苑「動態→本週」：你追蹤中（未暫停）屋苑嘅本週變動，逐個屋苑用同一套 computeWeekChanges（同卡片、單屋苑面板完全一致）。
+      // 每類每屋苑最多 cap 條（預設 30），總數照回；有變動嘅屋苑按變動多少排先。收費版。
+      if (method === "GET" && path === "/api/week-changes") {
+        if (!isPaidSession(session)) return paywall("本週動態");
+        const cap = Math.min(60, Math.max(5, parseInt(url.searchParams.get("cap"), 10) || 30));
+        const { results: ests } = await db.prepare(
+          `SELECT ae.estate_id AS id, e.name FROM account_estates ae JOIN estates e ON e.id = ae.estate_id
+           WHERE ae.account_id = ? AND ae.paused_at IS NULL AND (e.is_disabled = 0 OR e.is_disabled IS NULL)
+           ORDER BY ae.sort_order ASC, ae.estate_id ASC`).bind(session.account_id).all();
+        const srcIds = SOURCES.map((x) => x.id);
+        const rs = await Promise.all(ests.map(async (e) => ({ e, r: await weekChangesCached(db, e.id, srcIds).catch(() => null) })));
+        const totals = { new: 0, cuts: 0, removed: 0, txns: 0 };
+        let asOf = "", prevAsOf = "", pending = 0;
+        const estates = [];
+        for (const { e, r } of rs) {
+          if (!r || r.unavailable || !r.counts) { pending++; continue; }
+          if (r.as_of > asOf) asOf = r.as_of;
+          if ((r.prev_as_of || "") > prevAsOf) prevAsOf = r.prev_as_of;
+          for (const k of Object.keys(totals)) totals[k] += r.counts[k] || 0;
+          const n = r.counts.new + r.counts.cuts + r.counts.removed + r.counts.txns;
+          if (n) estates.push({ id: e.id, name: e.name, counts: r.counts, new: r.new.slice(0, cap), cuts: r.cuts.slice(0, cap), removed: r.removed.slice(0, cap), txns: r.txns.slice(0, cap), _n: n });
+        }
+        estates.sort((a, b) => b._n - a._n);
+        for (const e of estates) delete e._n;
+        return json(200, { as_of: asOf || null, prev_as_of: prevAsOf || null, totals, pending, n_estates: ests.length, estates });
       }
 
       // Per-account 屋苑清單:訂閱關係/最愛/排序/加入日全部嚟自 account_estates。
