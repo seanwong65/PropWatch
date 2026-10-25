@@ -874,25 +874,22 @@
     .dyn-chip.on { background: var(--brand); color: #fff; font-weight: 700; }
     .dyn-chip.on span { color: inherit !important; }
     .dyn-week .hl-pref-toggle { display: none !important; }
-    .wk-estate { display: flex; justify-content: space-between; align-items: baseline; gap: 0.5rem; padding: 0.6rem 0 0.15rem; font-weight: 700; font-size: 0.92rem; color: var(--text); border-top: 2px solid var(--border); margin-top: 0.4rem; cursor: pointer; }
+    .wk-estate { scroll-margin-top: 0.6rem; border-radius: 6px; display: flex; justify-content: space-between; align-items: baseline; gap: 0.5rem; padding: 0.6rem 0 0.15rem; font-weight: 700; font-size: 0.92rem; color: var(--text); border-top: 2px solid var(--border); margin-top: 0.4rem; cursor: pointer; }
     .wk-estate small { font-weight: 400; color: var(--muted); font-size: 0.74rem; }
+    .wk-go { border: 1px solid var(--border); background: transparent; color: var(--brand); border-radius: 999px; padding: 0.1rem 0.6rem; font-size: 0.74rem; cursor: pointer; font-family: inherit; }
+    .wk-seg { cursor: pointer; border-radius: 4px; }
+    .wk-seg:hover b { text-decoration: underline; }
+    .wk-flash { animation: wkflash 1.8s ease-out; }
+    @keyframes wkflash { 0%, 40% { background: rgba(18,112,172,0.18); } 100% { background: transparent; } }
     /* 側邊欄卡片「本週：新盤・減價・下架」可撳（本週變動面板） */
     .wk-line { display: inline-block; cursor: pointer; border: 1px dashed var(--brand); border-radius: 8px; padding: 1px 7px; margin: -1px -1px; background: var(--btn-soft, rgba(18,112,172,0.08)); }
     .wk-line:hover { background: var(--btn-soft-hover, rgba(18,112,172,0.16)); }
-    /* 本週變動面板：桌面置中彈窗，手機全螢幕 */
-    .modal.wk-modal { max-width: 560px; max-height: 88vh; display: flex; flex-direction: column; padding: 1.1rem 1.2rem; }
-    .wk-body { overflow-y: auto; flex: 1; min-height: 0; margin-top: 0.2rem; }
     .wk-tabs { display: flex; gap: 0.4rem; flex-wrap: wrap; margin: 0.6rem 0 0.3rem; }
     .wk-tab { border: 1px solid var(--border); background: transparent; color: var(--muted); border-radius: 999px; padding: 0.25rem 0.8rem; font-size: 0.82rem; cursor: pointer; font-family: inherit; }
     .wk-tab.on { background: var(--btn-soft, rgba(18,112,172,0.12)); border-color: var(--brand); color: var(--text); font-weight: 700; }
     .wk-row { display: flex; justify-content: space-between; gap: 0.7rem; padding: 0.55rem 0; border-top: 1px solid var(--border); font-size: 0.88rem; }
     .wk-sub { color: var(--muted); font-size: 0.74rem; }
     .wk-r { text-align: right; white-space: nowrap; }
-    @media (max-width: 640px) {
-      .modal.wk-modal { width: 100%; max-width: 100%; min-width: 0; height: 100dvh; max-height: 100dvh; border-radius: 0; border: 0; padding: 0.9rem 1rem calc(0.9rem + env(safe-area-inset-bottom)); }
-      .wk-modal .modal-close { font-size: 1.4rem; padding: 0.2rem 0.5rem; margin-top: -0.4rem; }
-      .wk-tab { padding: 0.35rem 0.9rem; font-size: 0.88rem; }
-    }
     .modal-title {
       font-weight: 700;
       font-size: 1rem;
@@ -2133,15 +2130,6 @@
   </div>
 </div>
 
-<div class="modal-overlay" id="weekModalOverlay" style="display:none;z-index:560" onclick="if(event.target===this)closeWeekChanges()">
-  <div class="modal wk-modal" role="dialog" aria-modal="true" aria-labelledby="wk-title">
-    <button class="modal-close" onclick="closeWeekChanges()" aria-label="關閉">✕</button>
-    <div class="modal-title" id="wk-title"></div>
-    <div class="modal-sub" id="wk-sub" style="margin-bottom:0"></div>
-    <div class="wk-tabs" id="wk-tabs"></div>
-    <div class="wk-body" id="wk-body"></div>
-  </div>
-</div>
 <div class="modal-overlay" id="upgradeModalOverlay" style="display:none;z-index:650" onclick="if(event.target===this)closeUpgrade()">
   <div class="modal" style="max-width:520px;max-height:92vh;overflow-y:auto">
     <button class="modal-close" onclick="closeUpgrade()">✕</button>
@@ -2726,7 +2714,7 @@ function cmpBuyInner() {
 }
 // ── 本週變動面板（側邊欄卡片「本週：新盤・減價・下架」撳入去）──────────────────────
 // 數據：GET /api/estates/:id/week-changes（收費版；同卡片同一套 snapshot 比較，條數一致）。全部字串 escHtml／safeUrl。
-let _wk = null, _wkTab = 'new';
+let _wkCollapsed = new Set(), _weekFocus = null;   // 動態→本週：收起咗嘅屋苑組；由卡片撳入嚟要定位嘅屋苑／分頁
 const WK_TABS = [['new', '新盤'], ['cuts', '減價'], ['removed', '下架'], ['txns', '新成交']];
 // ── 動態：今日｜本週（本週 = 收費版；跨屋苑，用同卡片／單屋苑面板同一套計算 /api/week-changes）──
 let _dynMode = 'today', _weekDyn = null, _weekDynAt = 0, _weekDynTab = 'new';
@@ -2744,19 +2732,43 @@ function setDynMode(m) {
 async function loadWeekDynamic(force = false) {
   const body = document.getElementById('week-body');
   if (!body) return;
-  if (!force && _weekDyn && Date.now() - _weekDynAt < 300000) { weekDynDraw(); return; }
+  if (!force && _weekDyn && Date.now() - _weekDynAt < 300000) { weekDynDraw(); weekDynApplyFocus(); return; }
   body.innerHTML = '<div class="loading"><div class="spinner"></div> 載入本週動態…</div>';
   try {
-    _weekDyn = await api('/api/week-changes?cap=30'); _weekDynAt = Date.now();
+    _weekDyn = await api('/api/week-changes?cap=60'); _weekDynAt = Date.now();
     const t = _weekDyn.totals || {};
     _weekDynTab = ['new', 'cuts', 'removed', 'txns'].find(k => t[k] > 0) || 'new';
-    weekDynDraw();
+    weekDynDraw(); weekDynApplyFocus();
   } catch (e) {
     if (e && e.paywall) { setDynMode('today'); return; }   // api() 已經彈咗升級窗
     body.innerHTML = `<div style="color:var(--down)">載入失敗：${escHtml(e.message || '')}</div>`;
   }
 }
 function weekDynSwitch(k) { _weekDynTab = k; weekDynDraw(); }
+function toggleWkGroup(id) { _wkCollapsed.has(id) ? _wkCollapsed.delete(id) : _wkCollapsed.add(id); weekDynDraw(); }
+// 由側邊欄卡片「本週：新盤・減價・下架」撳入嚟：返首頁 → 動態 → 本週，切去對應分頁並定位到嗰個屋苑（取代之前嘅彈出面板）
+async function goWeekDynamic(estateId, tab = null) {
+  if (!isPaid()) { showUpgrade('本週動態'); return; }
+  closeSidebar();
+  _weekFocus = { id: Number(estateId), tab };
+  if (activeEstateId || !document.getElementById('highlights-section')) {   // 喺屋苑頁（或者主頁未畫）：先返首頁；已經喺首頁就唔重畫（保留狀態）
+    activeEstateId = null; _viewingEstateId = null;
+    document.querySelectorAll('.estate-card').forEach(c => c.classList.remove('active'));
+    await showDashboard(dashboardEstates);
+  }
+  switchDashTab('today');
+  setDynMode('week');
+}
+function weekDynApplyFocus() {
+  const f = _weekFocus; if (!f) return; _weekFocus = null;
+  const e = (_weekDyn?.estates || []).find(x => Number(x.id) === f.id);
+  if (f.tab) _weekDynTab = f.tab;
+  else if (e) _weekDynTab = ['new', 'cuts', 'removed', 'txns'].find(k => e.counts[k] > 0) || _weekDynTab;
+  _wkCollapsed.delete(f.id);
+  weekDynDraw();
+  const el = document.getElementById('wkg-' + f.id);
+  if (el) { el.scrollIntoView({ behavior: 'smooth', block: 'start' }); el.classList.add('wk-flash'); setTimeout(() => el.classList.remove('wk-flash'), 1800); }
+}
 function weekDynDraw() {
   const w = _weekDyn, body = document.getElementById('week-body');
   if (!w || !body) return;
@@ -2767,9 +2779,11 @@ function weekDynDraw() {
   const tabs = WK_TABS.map(([k, name]) => `<button class="wk-tab${k === _weekDynTab ? ' on' : ''}" onclick="weekDynSwitch('${k}')">${name} ${Number(t[k] || 0)}</button>`).join('');
   const groups = (w.estates || []).filter(e => (e[_weekDynTab] || []).length);
   const list = groups.map(e => {
-    const rows = e[_weekDynTab], total = e.counts[_weekDynTab];
-    const more = total > rows.length ? `<div class="wk-sub" style="padding:0.4rem 0;border-top:1px solid var(--border);cursor:pointer" onclick="openWeekChanges(${Number(e.id)})">共 ${Number(total)} 個，列出頭 ${rows.length} 個 — 撳睇全部 ›</div>` : '';
-    return `<div class="wk-estate" onclick="openWeekChanges(${Number(e.id)})"><span>${escHtml(e.name)}</span><small>${Number(total)} 個 ›</small></div>${rows.map(r => wkRow(_weekDynTab, r, e.name)).join('')}${more}`;
+    const id = Number(e.id), rows = e[_weekDynTab], total = e.counts[_weekDynTab], closed = _wkCollapsed.has(id);
+    const more = total > rows.length ? `<div class="wk-sub" style="padding:0.4rem 0;border-top:1px solid var(--border)">共 ${Number(total)} 個，列出頭 ${rows.length} 個</div>` : '';
+    return `<div class="wk-estate" id="wkg-${id}" onclick="toggleWkGroup(${id})"><span>${escHtml(e.name)} <small>${Number(total)} 個</small></span>`
+      + `<span><button class="wk-go" onclick="event.stopPropagation();showEstate(${id},'${escJsAttr(e.name)}','')">屋苑頁 ›</button> <small>${closed ? '▸' : '▾'}</small></span></div>`
+      + (closed ? '' : rows.map(r => wkRow(_weekDynTab, r, e.name)).join('') + more);
   }).join('');
   body.innerHTML = `<div style="color:var(--muted);font-size:0.8rem;margin-bottom:0.2rem">${escHtml(range)}</div>
     <div class="wk-tabs" style="margin-top:0.3rem">${tabs}</div>
@@ -2792,47 +2806,6 @@ function wkRow(kind, r, estName) {
   if (kind === 'removed') return `<div class="wk-row"><div>${lbl}${link}<div class="wk-sub">${r.days != null ? `上架 ${Number(r.days)} 日・` : ''}${escHtml(sizeBeds)}</div></div><div class="wk-r"><span style="color:var(--down);font-weight:700">已下架</span><div class="wk-sub">最後叫價 ${wkWan(r.p)}</div></div></div>`;
   return `<div class="wk-row"><div>${lbl}<div class="wk-sub">成交 ${escHtml(wkMd(r.reg))}${r.psf ? '・$' + Math.round(r.psf).toLocaleString() + '/呎' : ''}</div></div><div class="wk-r"><b>${wkWan(r.p)}</b>${r.vs != null ? `<div class="wk-sub">比叫價呎價中位${r.vs >= 0 ? '高' : '低'} ${Math.abs(Number(r.vs)).toFixed(1)}%</div>` : ''}</div></div>`;
 }
-function wkDraw() {
-  const w = _wk; if (!w) return;
-  const body = document.getElementById('wk-body'), tabs = document.getElementById('wk-tabs');
-  if (w.unavailable) {
-    tabs.innerHTML = '';
-    body.innerHTML = '<div style="color:var(--muted);padding:1rem 0;font-size:0.88rem">數據累積中——要有多一個星期嘅 snapshot 先比較到本週變動。</div>';
-    return;
-  }
-  tabs.innerHTML = WK_TABS.map(([k, name]) => `<button class="wk-tab${k === _wkTab ? ' on' : ''}" onclick="wkSwitch('${k}')">${name} ${Number(w.counts[k === 'txns' ? 'txns' : k])}</button>`).join('');
-  const rows = w[_wkTab] || [], total = w.counts[_wkTab];
-  const more = total > rows.length ? `<div class="wk-sub" style="padding:0.5rem 0;border-top:1px solid var(--border)">共 ${Number(total)} 個，列出頭 ${rows.length} 個</div>` : '';
-  body.innerHTML = rows.length ? rows.map(r => wkRow(_wkTab, r, w.estName)).join('') + more
-    : `<div style="color:var(--muted);padding:1rem 0;font-size:0.88rem">呢個類別本週冇變動。</div>`;
-}
-function wkSwitch(k) { _wkTab = k; wkDraw(); document.getElementById('wk-body').scrollTop = 0; }
-async function openWeekChanges(estateId) {
-  const est = (typeof estatesById !== 'undefined' && estatesById[estateId]) || {};
-  const ov = document.getElementById('weekModalOverlay');
-  document.getElementById('wk-title').textContent = `${est.name || '屋苑'} · 本週變動`;
-  document.getElementById('wk-sub').textContent = '';
-  document.getElementById('wk-tabs').innerHTML = '';
-  document.getElementById('wk-body').innerHTML = '<div class="loading"><div class="spinner"></div> 載入中…</div>';
-  ov.style.display = 'flex';
-  _wk = null;
-  try {
-    const w = await api(`/api/estates/${estateId}/week-changes`);
-    w.estName = est.name || '';
-    _wk = w;
-    if (!w.unavailable) {
-      document.getElementById('wk-sub').textContent = `${wkMd(w.prev_as_of)} 至 ${wkMd(w.as_of)}（對比上次 snapshot）`;
-      _wkTab = ['new', 'cuts', 'removed', 'txns'].find(k => w.counts[k] > 0) || 'new';
-    }
-    wkDraw();
-  } catch (e) {
-    if (e && e.paywall) { closeWeekChanges(); return; }   // api() 已經彈咗升級窗
-    document.getElementById('wk-body').innerHTML = `<div style="color:var(--down);padding:1rem 0">載入失敗：${escHtml(e.message || '')}</div>`;
-  }
-}
-function closeWeekChanges() { document.getElementById('weekModalOverlay').style.display = 'none'; }
-document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && document.getElementById('weekModalOverlay')?.style.display === 'flex') closeWeekChanges(); });
-
 function showUpgrade(feature, msg) {
   document.getElementById('upgradeBody').innerHTML = `
     ${msg ? `<div style="background:rgba(245,158,11,0.12);border:1px solid var(--accent);border-radius:6px;padding:0.55rem 0.7rem;font-size:0.85rem;margin-bottom:0.4rem">${escHtml(msg)}</div>` : ''}
@@ -5100,7 +5073,9 @@ function estateCardMeta(e) {
     else {
       const span = st.span_days > 9 ? `近${num(st.span_days)}日` : '本週';
       // 撳入去睇邊幾個（本週變動面板，收費版）；stopPropagation 唔好觸發成張卡嘅「入屋苑」
-      lines.push(`<span class="wk-line" role="button" tabindex="0" title="睇逐個變動" onclick="event.stopPropagation();openWeekChanges(${Number(e.id)})" onkeydown="if(event.key==='Enter'){event.stopPropagation();openWeekChanges(${Number(e.id)})}">${span}：新盤 <b>${num(st.new)}</b>．減價 <b style="color:var(--up)">${num(st.cuts)}</b>．下架 <b>${num(st.removed)}</b> ›</span>`);
+      const wid = Number(e.id);
+      const seg = (tab, label, n, bStyle = '') => `<span class="wk-seg" onclick="event.stopPropagation();goWeekDynamic(${wid}${num(n) ? `,'${tab}'` : ''})">${label} <b${bStyle ? ` style="${bStyle}"` : ''}>${num(n)}</b></span>`;
+      lines.push(`<span class="wk-line" role="button" tabindex="0" title="睇本週動態" onclick="event.stopPropagation();goWeekDynamic(${wid})" onkeydown="if(event.key==='Enter'){event.stopPropagation();goWeekDynamic(${wid})}">${span}：${seg('new', '新盤', st.new)}．${seg('cuts', '減價', st.cuts, 'color:var(--up)')}．${seg('removed', '下架', st.removed)} ›</span>`);
     }
   }
   return `<div class="estate-card-meta" style="line-height:1.55">${lines.map(l => `<div>${l}</div>`).join('')}</div>`;
