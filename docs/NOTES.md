@@ -490,11 +490,10 @@ drip sync（`*/2`）同樣被雙重觸發：兩個 invocation 同時揀同一批
 - 回報用 `empty`（唔係 `skipped`）——`runDailyEmailTask`／`runWeeklySummaryTask` 嘅 `skipped` 會觸發 admin alert（扣數出事／跳過）。`cron_last_email_done`／`cron_last_weekly_done` 嘅 detail 多咗 `empty` 數目。
 - 每日跳過時照 `markDailyEmailSent`（當日已處理）；每週保留 claim 唔重試。
 
-## 本週變動面板（2026-10-25，收費版）
-- 側邊欄卡片「本週：新盤 N・減價 N・下架 N」變成可撳（`.wk-line`，虛線框）→ `openWeekChanges(id)` 開面板：分頁 新盤／減價／下架／新成交。**手機全螢幕（≤640px）、桌面置中彈窗**；Esc／撳遮罩關閉。
-- `GET /api/estates/:id/week-changes`（收費 402、`canReadEstate` 404）。`estateStats.js`：`loadSnapshotPair`（卡片 `computeEstateStats` 同面板共用，同一套日子／「兩邊都有 snapshot 嘅 source」）、`weekChangesFromSnapshots`（新盤／減價／下架，按 ref_no，條數必定等於卡片）、`weekTxnsFrom`（first_seen 近 7 日，同每週摘要一致；vs＝比而家叫價呎價中位）。每類最多 60 條，總數照回。
-- 本機 15 個屋苑驗證：面板條數 = 卡片數字 15/15。
-- 刻意冇做「已成交」標籤：放盤 floor 係低／中／高層，對唔到成交嘅實際樓層。
+## 本週變動（卡片 → 動態頁）（2026-10-25，收費版）
+- ⚠️ **彈出面板已拆走**（用戶決定）：側邊欄卡片「本週：新盤 N・減價 N・下架 N」每個數字可撳 → `goWeekDynamic(estateId, tab)`：返首頁（喺屋苑頁會重畫；已經喺首頁就唔重畫）→「動態」tab →「本週」→ 切去對應分頁（新盤／減價／下架；數字係 0 就用第一個有內容嘅分頁）→ 滾動並閃一下該屋苑組（`#wkg-<id>`，`.wk-flash`）。撳整行（非數字位置）＝預設分頁。關閉側邊欄。
+- 本週頁：每個屋苑一組，標題撳一下收起／展開（`_wkCollapsed`），「屋苑頁 ›」入屋苑；每類每屋苑最多 60 條（`/api/week-changes?cap=60`），超出寫「共 N 個，列出頭 60 個」。
+- `GET /api/estates/:id/week-changes`（單屋苑）仍然存在但前端冇用；計算全部喺 `estateStats.js`：`loadSnapshotPair`（卡片同本週共用）、`weekChangesFromSnapshots`、`weekTxnsFrom`、`computeWeekChanges`。條數＝卡片（本機 15 個屋苑逐個驗證）。刻意冇做「已成交」標籤：放盤樓層係低／中／高層，對唔到成交實際樓層。
 
 ## 動態：今日｜本週（2026-10-25）
 - 首頁 tab「今日動態」改名「動態」，入面 `今日｜本週` 兩粒切換（`setDynMode`）。今日＝原本 `today-highlights`（免費／收費）；**本週＝收費版**，免費版顯示「本週 🔒」撳咗彈升級窗。🎯 偏好 chip 只喺今日顯示（CSS `.dyn-week`）。
