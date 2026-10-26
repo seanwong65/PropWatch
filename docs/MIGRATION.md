@@ -195,7 +195,7 @@ cd worker && npx wrangler deploy
 cd worker && npx wrangler deploy -c wrangler.test.toml
 
 # 前端（兩個域名共用）
-TMPDIR=/tmp npx wrangler pages deploy frontend \
+bash tools/deploy-frontend.sh
   --project-name=propwatch --branch=main --commit-dirty=true
 ```
 

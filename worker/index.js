@@ -665,6 +665,10 @@ const SEC_DEFS = [
     desc: "同一個盤有 N 個唔同用戶手動標記咗「已下架」，其他用戶見到「N 位用戶標記咗已下架」提示（只係提示，唔會幫佢哋標記）。" },
   { key: "sec_free_max_friend_homes", def: 3, min: 1, max: 100, label: "免費版：最多朋友屋企",
     desc: "免費用戶可以記低幾多個「朋友屋企」。每個會外抓過往成交同恒生估值，所以要有上限（2026-10-24 起免費版可用）。" },
+  { key: "sec_usage_alert_hits", def: 3000, min: 100, max: 100000, label: "異常用量警報：每帳戶每日 API 次數",
+    desc: "同一個帳戶一日內 call API 超過呢個數，就 Telegram 通知 admin（每帳戶每日最多一次），用嚟發現有人用帳戶抽數據。admin 帳戶唔計。" },
+  { key: "sec_usage_alert_estates", def: 25, min: 3, max: 1000, label: "異常用量警報：每帳戶每日讀取屋苑數",
+    desc: "同一個帳戶一日內讀取（/api/estates/<id>/…）超過呢個數量嘅唔同屋苑，就 Telegram 通知 admin。收費版追蹤上限 15，正常用戶唔會超過。" },
   { key: "sec_free_hs_trials", def: 20, min: 0, max: 500, label: "免費版：恒生估值試查總上限",
     desc: "免費版每個睇樓記錄（同一單位）可以手動試查恒生估值一次（查唔到數據都算一次，刪咗再加同一單位唔會重置）。呢個係每個免費帳戶終身最多試查幾多個單位，純粹防濫用恒生接口。0 = 完全唔俾試。" },
   { key: "sec_paid_max_friend_homes", def: 30, min: 1, max: 500, label: "收費版：最多朋友屋企",
@@ -941,7 +945,7 @@ let _authTablesReady = false;
 // 而家 settings.schema_version 同 SCHEMA_VERSION 一樣就當全部 DDL 做齊，直接跳過（cold 只多 1 次往返）。
 // ⚠️ 加／改任何 ensure*（新表、新欄、新 index）一定要 bump SCHEMA_VERSION，否則 production 唔會行嗰段 DDL。
 // 版本唔同嗰次（deploy 之後第一個 request）會逐個行晒再寫返版本。
-const SCHEMA_VERSION = "2026-10-25b";
+const SCHEMA_VERSION = "2026-10-27a";
 let _schemaP = null;
 function markSchemaReady() {
   _authTablesReady = _multiAccountDDLReady = _priceSeenReady = _listingSpanReady = true;
@@ -955,7 +959,7 @@ function ensureSchema(db) {
     if (row?.value === SCHEMA_VERSION) { markSchemaReady(); return; }
     await ensureAuthTables(db); await ensureSourceColumns(db); await ensureMultiAccount(db); await ensureBilling(db);
     await ensurePriceSeen(db); await ensureListingSpan(db); await ensureDailyEmailLog(db); await ensureFeedbackTable(db);
-    for (const f of [ensureHsScanPriority, ensureHsFreeTries, ensureFavListings, ensureShares, ensurePhotoArchive, ensureTxnDedup, ensureSystemParams,
+    for (const f of [ensureHsScanPriority, ensureHsFreeTries, ensureApiUsage, ensureFavListings, ensureShares, ensurePhotoArchive, ensureTxnDedup, ensureSystemParams,
                      ensureGroupOverrides, ensureManualRemoved, ensureRentalTables, ensureListingClicks, ensureViewingImages, ensureSyncLog]) await f(db);
     await db.prepare("INSERT INTO settings (key, value) VALUES ('schema_version', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value")
       .bind(SCHEMA_VERSION).run();
@@ -4414,6 +4418,47 @@ export const maskEmail = (e) => {
   if (!d) return "（冇 email）";
   return `${l.length <= 2 ? l[0] + "*" : l[0] + "***" + l.slice(-1)}@${d}`;
 };
+// ── 異常用量警報（2026-10-27）：防有人用帳戶慢慢抽數據 ─────────────────────────────
+// 每個 isolate 喺記憶體累積「帳戶 → 次數＋讀過嘅屋苑」，每 40 次或 60 秒先寫一次 D1（慳寫入額度）。
+// 寫完睇今日總數，超過 sec_usage_alert_hits／sec_usage_alert_estates 就 Telegram 通知 admin（每帳戶每日一次）。
+// 低用量帳戶嘅 buffer 可能冇機會 flush——無所謂，警報只關心高用量。
+async function _ensureApiUsage(db) {
+  await db.batch([
+    db.prepare("CREATE TABLE IF NOT EXISTS api_usage (day TEXT NOT NULL, account_id INTEGER NOT NULL, hits INTEGER NOT NULL DEFAULT 0, PRIMARY KEY (day, account_id)) WITHOUT ROWID"),
+    db.prepare("CREATE TABLE IF NOT EXISTS api_usage_estates (day TEXT NOT NULL, account_id INTEGER NOT NULL, estate_id INTEGER NOT NULL, PRIMARY KEY (day, account_id, estate_id)) WITHOUT ROWID"),
+  ]);
+}
+const ensureApiUsage = onceDb(_ensureApiUsage);
+const _usageBuf = new Map();   // account_id → { hits, estates:Set, since, email, tier }
+function trackUsage(db, env, ctx, session, path) {
+  if (!session || isAdminSession(session) || !path.startsWith("/api/")) return;
+  const aid = session.account_id;
+  let u = _usageBuf.get(aid);
+  if (!u) { u = { hits: 0, estates: new Set(), since: Date.now(), name: session.username || String(aid), tier: session.tier || "free" }; _usageBuf.set(aid, u); }
+  u.hits++;
+  const m = path.match(/^\/api\/estates\/(\d+)\//);
+  if (m) u.estates.add(Number(m[1]));
+  if (u.hits < 40 && Date.now() - u.since < 60000) return;
+  _usageBuf.delete(aid);
+  const job = flushUsage(db, env, ctx, aid, u).catch((e) => console.error("[usage]", e?.message || e));
+  if (ctx?.waitUntil) ctx.waitUntil(job);
+}
+async function flushUsage(db, env, ctx, aid, u) {
+  await ensureApiUsage(db);
+  const day = hkDateStr();
+  const stmts = [db.prepare("INSERT INTO api_usage (day, account_id, hits) VALUES (?, ?, ?) ON CONFLICT(day, account_id) DO UPDATE SET hits = hits + excluded.hits").bind(day, aid, u.hits)];
+  for (const e of [...u.estates].slice(0, 50)) stmts.push(db.prepare("INSERT OR IGNORE INTO api_usage_estates (day, account_id, estate_id) VALUES (?, ?, ?)").bind(day, aid, e));
+  await db.batch(stmts);
+  const t = await db.prepare(
+    "SELECT hits, (SELECT COUNT(*) FROM api_usage_estates WHERE day = ?1 AND account_id = ?2) AS estates FROM api_usage WHERE day = ?1 AND account_id = ?2").bind(day, aid).first();
+  const sc = await getSecCfg(db);
+  if (!t || (t.hits <= sc.sec_usage_alert_hits && t.estates <= sc.sec_usage_alert_estates)) return;
+  try { await db.prepare("INSERT INTO settings (key, value) VALUES (?, ?)").bind(`usage_alert_${day}_${aid}`, new Date().toISOString()).run(); }
+  catch (_) { return; }   // 今日已經通知過
+  const acc = await db.prepare("SELECT email, tier FROM accounts WHERE id = ?").bind(aid).first().catch(() => null);
+  notifyOwner(env, ctx, `⚠️ 搵樓日記：異常用量\n帳戶 #${aid} ${maskEmail(acc?.email || u.name)}（${acc?.tier || u.tier}）\n今日 API ${t.hits} 次（上限 ${sc.sec_usage_alert_hits}）、讀取 ${t.estates} 個屋苑（上限 ${sc.sec_usage_alert_estates}）\n可能有人用帳戶抽數據；admin 可以停用帳戶。`);
+}
+
 function notifyOwner(env, ctx, text) {
   if (env?.IS_TEST_ENV) return;
   const job = Promise.resolve().then(() => sendTelegram(env, text)).catch((e) => console.error("owner notify failed:", e?.message || e));
@@ -7075,6 +7120,13 @@ export default {
     const method = request.method;
     const db = env.DB;
 
+    // 2026-10-27：production 嘅 *.workers.dev 網址只保留兩條必須嘅路——Stripe webhook（Stripe 設定可能仲指住呢度）
+    // 同 /api/unsubscribe（2026-09-26 前寄出嘅 email 退訂連結用緊 workers.dev）。其餘一律拒絕，等所有 app／數據 API
+    // 只經 api.ws-techs.com，受 Cloudflare 網域防火牆、Bot 防護、限速規則保護（workers.dev 唔受網域規則管）。
+    if (!env.IS_TEST_ENV && url.hostname.endsWith(".workers.dev")
+        && path !== "/api/stripe-webhook" && path !== "/api/unsubscribe") {
+      return new Response("Not found", { status: 404 });
+    }
     if (method === "OPTIONS") return new Response(null, { headers: CORS });
 
     try {
@@ -7481,6 +7533,7 @@ export default {
       // Auth guard for all other routes
       const session = await authenticate(db, request);
       if (!session) return json(401, { error: "請先登入" });
+      trackUsage(db, env, ctx, session, path);   // 異常用量警報（唔擋 request）
 
       // （安全修正：以下兩條 route 以前公開，而家一定要登入先用得）
       if (method === "GET" && path === "/api/debug-ricacorp-pages") {
@@ -10858,6 +10911,13 @@ export default {
         }
 
         // 價錢：睇晒歷史 + 排期緊嘅
+        // Stripe webhook endpoints（只讀）：睇 webhook 指去邊個網址（關 workers.dev 之前要確認）
+        if (path === "/api/admin/billing/webhooks" && method === "GET") {
+          try {
+            const r = await stripeRequest(env, "GET", "webhook_endpoints", { limit: 20 });
+            return json(200, { endpoints: (r.data || []).map((w) => ({ id: w.id, url: w.url, status: w.status, events: (w.enabled_events || []).length })) });
+          } catch (e) { return json(502, { error: `Stripe 出錯：${e.message}` }); }
+        }
         // 建立／確保專屬客戶入口設定（冇就建；已有就回 id）。body { force: true } 強制重建。
         if (path === "/api/admin/billing/portal-config" && method === "POST") {
           const b = await request.json().catch(() => ({}));
@@ -11049,6 +11109,18 @@ export default {
 
       // 用量統計（admin 專用）：睇下實際幾多人用緊幾多額度，先決定上限點調。
       // 唔回密碼／token 呢類嘢；email 係 admin 後台本身已經見到嘅資料。
+      // 異常用量：某日（預設今日）API 次數最多嘅帳戶
+      if (method === "GET" && path === "/api/admin/api-usage") {
+        if (!isAdminSession(session)) return json(403, { error: "admin only" });
+        await ensureApiUsage(db);
+        const day = /^\d{4}-\d{2}-\d{2}$/.test(url.searchParams.get("day") || "") ? url.searchParams.get("day") : hkDateStr();
+        const { results } = await db.prepare(
+          `SELECT u.account_id, a.email, a.tier, u.hits,
+                  (SELECT COUNT(*) FROM api_usage_estates e WHERE e.day = u.day AND e.account_id = u.account_id) AS estates
+           FROM api_usage u LEFT JOIN accounts a ON a.id = u.account_id WHERE u.day = ? ORDER BY u.hits DESC LIMIT 30`).bind(day).all();
+        const sc = await getSecCfg(db);
+        return json(200, { day, limits: { hits: sc.sec_usage_alert_hits, estates: sc.sec_usage_alert_estates }, rows: results });
+      }
       if (method === "GET" && path === "/api/admin/usage-stats") {
         if (!isAdminSession(session)) return json(403, { error: "admin only" });
         const sc = await getSecCfg(db);

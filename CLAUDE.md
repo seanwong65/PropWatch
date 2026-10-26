@@ -116,4 +116,5 @@ CSP 已鎖 `connect-src`（只准 call 自己 worker）同 `img-src`（self + da
   讀完唔使再 full scan 成個 project；要改某範圍先睇返對應 code／docs。
 - 技術細節/架構睇 `docs/NOTES.md`；舊坑睇 `docs/NOTES-ARCHIVE.md`。
 - Deploy：worker 喺 `worker/` 行 `npx wrangler deploy`；
-  frontend 喺 root 行 `TMPDIR=/tmp npx wrangler pages deploy frontend --project-name=propwatch --branch=main --commit-dirty=true`。
+  frontend 喺 root 行 `bash tools/deploy-frontend.sh`（先 build：刪註解＋壓縮＋語法檢查，再上載 `dist-frontend/`）。
+  ⚠️ 唔好再直接 deploy `frontend/`——會將所有內部註解送俾用戶睇（2026-10-27 起）。

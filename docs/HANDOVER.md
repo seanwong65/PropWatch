@@ -140,7 +140,7 @@ cd worker && npx wrangler deploy
 ```
 
 ```bash
-TMPDIR=/tmp npx wrangler pages deploy frontend --project-name=propwatch --branch=main --commit-dirty=true
+bash tools/deploy-frontend.sh
 ```
 
 前端嗰句要**喺 project root** 行（唔係 `frontend/` 入面）。

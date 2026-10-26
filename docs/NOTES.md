@@ -12,7 +12,7 @@ before re-touching an old area).
 | Frontend | Cloudflare Pages. App = single-file SPA `frontend/app.html` (served at `/app`, noindex); public landing `frontend/index.html` + static pages (`/mortgage-calculator`, `/guides/*`, `/about`, `/privacy`) sharing `site.css` |
 | Database | Cloudflare D1 (SQLite), database name `propwatch-db` |
 | Deploy worker | `TMPDIR=/tmp npx wrangler deploy worker/index.js` |
-| Deploy frontend | `TMPDIR=/tmp npx wrangler pages deploy frontend --project-name=propwatch --branch=main --commit-dirty=true` |
+| Deploy frontend | `bash tools/deploy-frontend.sh` |
 | Run tests | `npm --prefix worker test` (Vitest) |
 
 > `TMPDIR=/tmp` is required — the default tmp dir runs out of space.
@@ -515,3 +515,8 @@ drip sync（`*/2`）同樣被雙重觸發：兩個 invocation 同時揀同一批
 - 修：`ensurePortalConfig()` 用 API 建專屬 configuration（名「搵樓日記 客戶入口」）：開放**更新付款方式**、發票紀錄、`customer_update`（email／name）、**到期取消**（`at_period_end`＋取消原因）；唔開改計劃。id 存 `settings.stripe_portal_config`；`/api/billing/portal` 一律帶 `configuration`，存咗嘅被刪就自動重建。live id：`bpc_1UUUFtHaNxLrRvtWzYPTzZtb`（`GET /api/admin/billing/portal-config` 睇、`POST` 建／`{force:true}` 重建）。
 - ⚠️ Stripe 帳戶同 iPointWeb 共用：呢個係帳戶第一個 configuration，Stripe 自動標咗 `is_default: true`。iPoint 如果有用客戶入口且冇指定 configuration，會見到呢個設定（之前係冇設定，本身開唔到）。
 - 未做：用真實 customer 完整行過一次 portal（要有付費用戶）。第一個真實付費用戶出現後，登入 → ⚙️ 設定 → 管理訂閱／發票，確認見到「更新付款方式」。
+
+## 防抄／保護（2026-10-27，A＋B＋C）
+- **A. 前端 build**：`bash tools/deploy-frontend.sh` = `tools/build-frontend.mjs`（frontend/ → dist-frontend/：刪 HTML／JS／CSS 註解、terser 壓縮 inline 同獨立 JS（**唔改 top-level 名**，onclick／跨檔 function 照用）、clean-css；JS 字串入面嘅 `<!-- -->` 都刪；JSON-LD 同 Google 驗證檔唔郁；最後逐個 inline script `node --check`，錯就 exit 1）＋ pages deploy dist-frontend。app.html 624KB → 419KB。repo 入面 frontend/ 保持可讀。dist-frontend/、tools/node_modules/ 唔入 git。本機用 build 版跑過：收費／免費帳戶主要功能、屋苑頁、本週動態、升級窗、按揭計算機、設定、新增睇樓、/search 搜尋，零 JS 錯誤。
+- **B. API 只經自訂域名**：app 嘅 production API 由 `propwatch-worker.johnwong777.workers.dev` 改做 `https://api.ws-techs.com`（受 Cloudflare 網域 WAF／限速保護；workers.dev 唔受）。worker：production 嘅 `*.workers.dev` 只接受 `/api/stripe-webhook`（Stripe 設定可能仲指住）同 `/api/unsubscribe`（2026-09-26 前嘅 email 退訂連結），其餘 404。test worker（IS_TEST_ENV）唔受影響。之後可以喺 Cloudflare 對 `api.ws-techs.com` 加 rate limiting rule（⚠️ 唔好開 Bot Fight Mode：會擋 Stripe webhook）。
+- **C. 異常用量警報**：`trackUsage`（authenticate 之後，admin 唔計）isolate 記憶體累積，每 40 次／60 秒 flush 去 `api_usage`（日×帳戶次數）＋`api_usage_estates`（日×帳戶×屋苑）；今日超過 `sec_usage_alert_hits`（3000）或讀取屋苑數超過 `sec_usage_alert_estates`（25，404 嘅嘗試都計）→ Telegram 通知 admin（每帳戶每日一次，`settings.usage_alert_<day>_<aid>`）。`GET /api/admin/api-usage?day=` 睇排行。SCHEMA_VERSION → 2026-10-27a。
