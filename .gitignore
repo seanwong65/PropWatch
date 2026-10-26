@@ -21,3 +21,7 @@ worker/.local-dump/
 
 # 每日對話記憶 backup／新對話接手包（入面有其他 project 筆記，唔入 git）
 00memory/
+
+# 前端 build 輸出（tools/build-frontend.mjs），deploy 用，唔入 git
+dist-frontend/
+tools/node_modules/

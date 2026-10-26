@@ -27,6 +27,18 @@
         "worker"
       ],
       "port": 8787
+    },
+    {
+      "name": "propwatch-dist",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": [
+        "serve",
+        "dist-frontend",
+        "-p",
+        "3456",
+        "--no-clipboard"
+      ],
+      "port": 3456
     }
   ]
 }

@@ -2494,8 +2494,10 @@
 // 掂到真實用戶數據。test worker D1 係 production 嘅 snapshot copy，唔會
 // 自動同步返 production（見 CLAUDE.md 測試環境註解）。
 // localhost／127.0.0.1 → 本機 worker（wrangler dev --local，用 production dump，唔食 D1 額度）
+// 2026-10-27：production 改用自訂域名 api.ws-techs.com（受 Cloudflare 網域防火牆／限速保護；workers.dev 唔受）。
+// worker 嗰邊 *.workers.dev 只再接受 Stripe webhook 同舊 email 退訂連結。
 const API = location.hostname === "home.ws-techs.com"
-  ? "https://propwatch-worker.johnwong777.workers.dev"
+  ? "https://api.ws-techs.com"
   : (location.hostname === "localhost" || location.hostname === "127.0.0.1")
     ? "http://localhost:8787"
     : "https://propwatch-worker-test.johnwong777.workers.dev";
