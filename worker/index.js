@@ -945,7 +945,7 @@ let _authTablesReady = false;
 // 而家 settings.schema_version 同 SCHEMA_VERSION 一樣就當全部 DDL 做齊，直接跳過（cold 只多 1 次往返）。
 // ⚠️ 加／改任何 ensure*（新表、新欄、新 index）一定要 bump SCHEMA_VERSION，否則 production 唔會行嗰段 DDL。
 // 版本唔同嗰次（deploy 之後第一個 request）會逐個行晒再寫返版本。
-const SCHEMA_VERSION = "2026-10-27a";
+const SCHEMA_VERSION = "2026-10-28a";
 let _schemaP = null;
 function markSchemaReady() {
   _authTablesReady = _multiAccountDDLReady = _priceSeenReady = _listingSpanReady = true;
@@ -959,7 +959,7 @@ function ensureSchema(db) {
     if (row?.value === SCHEMA_VERSION) { markSchemaReady(); return; }
     await ensureAuthTables(db); await ensureSourceColumns(db); await ensureMultiAccount(db); await ensureBilling(db);
     await ensurePriceSeen(db); await ensureListingSpan(db); await ensureDailyEmailLog(db); await ensureFeedbackTable(db);
-    for (const f of [ensureHsScanPriority, ensureHsFreeTries, ensureApiUsage, ensureFavListings, ensureShares, ensurePhotoArchive, ensureTxnDedup, ensureSystemParams,
+    for (const f of [ensureHsScanPriority, ensureHsFreeTries, ensureApiUsage, ensurePerfLog, ensureFavListings, ensureShares, ensurePhotoArchive, ensureTxnDedup, ensureSystemParams,
                      ensureGroupOverrides, ensureManualRemoved, ensureRentalTables, ensureListingClicks, ensureViewingImages, ensureSyncLog]) await f(db);
     await db.prepare("INSERT INTO settings (key, value) VALUES ('schema_version', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value")
       .bind(SCHEMA_VERSION).run();
@@ -4418,6 +4418,75 @@ export const maskEmail = (e) => {
   if (!d) return "（冇 email）";
   return `${l.length <= 2 ? l[0] + "*" : l[0] + "***" + l.slice(-1)}@${d}`;
 };
+// ── 效能記錄（2026-10-28，用戶要睇「邊啲功能食得多資源」）─────────────────────────────
+// 每個 HTTP request／cron 用一個 meter：包住 env.DB，記低 D1 查詢數、rows read／written、D1 耗時；HTTP 再記回傳 bytes 同總耗時。
+// 按「HKT 小時 × 路由」喺 isolate 記憶體累積，HTTP 每 5 分鐘或 300 次先 flush 一次、cron 每次跑完 flush，寫入 perf_log（UPSERT 累加）。
+// 只喺 settings.perf_log_until（YYYY-MM-DD，HKT）當日或之前先記——預設冇呢個 key＝唔記，唔會長期食 D1 額度。
+// first() 經 all() 實現（D1 嘅 first() 唔回 meta）；raw() 唔計 rows（code 冇用）。
+function newMeter(route) { return { route, q: 0, rr: 0, rw: 0, dbMs: 0 }; }
+function _meterAcc(m, meta) { m.q++; m.rr += meta?.rows_read || 0; m.rw += meta?.rows_written || 0; m.dbMs += meta?.duration || 0; }
+function _wrapStmt(stmt, m) {
+  return {
+    _inner: stmt,
+    bind: (...a) => _wrapStmt(stmt.bind(...a), m),
+    async all() { const r = await stmt.all(); _meterAcc(m, r.meta); return r; },
+    async run() { const r = await stmt.run(); _meterAcc(m, r.meta); return r; },
+    async first(col) {
+      const r = await stmt.all(); _meterAcc(m, r.meta);
+      const row = r.results?.[0];
+      if (!row) return null;
+      return col === undefined ? row : (row[col] ?? null);
+    },
+    raw(opts) { m.q++; return stmt.raw(opts); },
+  };
+}
+function meteredDb(db, m) {
+  return {
+    prepare: (sql) => _wrapStmt(db.prepare(sql), m),
+    async batch(stmts) { const rs = await db.batch(stmts.map((x) => x?._inner || x)); for (const r of rs) _meterAcc(m, r?.meta); return rs; },
+    exec: (...a) => db.exec(...a),
+    dump: (...a) => db.dump(...a),
+  };
+}
+let _perfActive = { until: 0, on: false };
+async function perfLogActive(db) {
+  if (Date.now() < _perfActive.until) return _perfActive.on;
+  let on = false;
+  try {
+    const r = await db.prepare("SELECT value FROM settings WHERE key = 'perf_log_until'").first();
+    on = !!r?.value && hkDateStr() <= String(r.value);
+  } catch (_) {}
+  _perfActive = { until: Date.now() + 60000, on };
+  return on;
+}
+const _perfBuf = new Map(); let _perfLastFlush = Date.now(), _perfBufHits = 0;
+function perfRoute(method, path) {
+  return `${method} ${path.replace(/\/\d+(?=\/|$)/g, "/:id").replace(/^(\/api\/listings\/)[^/]+/, "$1:ref")}`;
+}
+function perfRecord(m, { bytes = 0, wallMs = 0, error = false } = {}) {
+  const hour = new Date(Date.now() + 8 * 3600000).toISOString().slice(0, 13).replace("T", " ");
+  const k = `${hour}|${m.route}`;
+  const v = _perfBuf.get(k) || { hits: 0, bytes: 0, wall: 0, q: 0, rr: 0, rw: 0, db: 0, err: 0 };
+  v.hits++; v.bytes += bytes; v.wall += wallMs; v.q += m.q; v.rr += m.rr; v.rw += m.rw; v.db += m.dbMs; v.err += error ? 1 : 0;
+  _perfBuf.set(k, v); _perfBufHits++;
+}
+async function perfFlush(db, { force = false } = {}) {
+  if (!_perfBuf.size || (!force && _perfBufHits < 300 && Date.now() - _perfLastFlush < 300000)) return;
+  const rows = [..._perfBuf.entries()]; _perfBuf.clear(); _perfBufHits = 0; _perfLastFlush = Date.now();
+  await ensurePerfLog(db);
+  await db.batch(rows.map(([k, v]) => { const [hour, route] = k.split("|");
+    return db.prepare(`INSERT INTO perf_log (hour, route, hits, bytes, wall_ms, q, rows_read, rows_written, db_ms, errors) VALUES (?,?,?,?,?,?,?,?,?,?)
+      ON CONFLICT(hour, route) DO UPDATE SET hits = hits + excluded.hits, bytes = bytes + excluded.bytes, wall_ms = wall_ms + excluded.wall_ms, q = q + excluded.q,
+        rows_read = rows_read + excluded.rows_read, rows_written = rows_written + excluded.rows_written, db_ms = db_ms + excluded.db_ms, errors = errors + excluded.errors`)
+      .bind(hour, route, v.hits, Math.round(v.bytes), Math.round(v.wall), v.q, v.rr, v.rw, Math.round(v.db), v.err); }));
+}
+async function _ensurePerfLog(db) {
+  await db.prepare(`CREATE TABLE IF NOT EXISTS perf_log (hour TEXT NOT NULL, route TEXT NOT NULL, hits INTEGER NOT NULL DEFAULT 0, bytes INTEGER NOT NULL DEFAULT 0,
+    wall_ms INTEGER NOT NULL DEFAULT 0, q INTEGER NOT NULL DEFAULT 0, rows_read INTEGER NOT NULL DEFAULT 0, rows_written INTEGER NOT NULL DEFAULT 0,
+    db_ms INTEGER NOT NULL DEFAULT 0, errors INTEGER NOT NULL DEFAULT 0, PRIMARY KEY (hour, route)) WITHOUT ROWID`).run();
+}
+const ensurePerfLog = onceDb(_ensurePerfLog);
+
 // ── 異常用量警報（2026-10-27）：防有人用帳戶慢慢抽數據 ─────────────────────────────
 // 每個 isolate 喺記憶體累積「帳戶 → 次數＋讀過嘅屋苑」，每 40 次或 60 秒先寫一次 D1（慳寫入額度）。
 // 寫完睇今日總數，超過 sec_usage_alert_hits／sec_usage_alert_estates 就 Telegram 通知 admin（每帳戶每日一次）。
@@ -6974,6 +7043,18 @@ export async function runPublicSearch(q) {
 
 export default {
   async scheduled(event, env, ctx) {
+    // 效能記錄：每個 cron 一個 meter（cron:drip／cron:daily-email／cron:weekly），等晒 waitUntil 嘅工作做完先記同 flush
+    const rawDb = env.DB;
+    if (!(await perfLogActive(rawDb).catch(() => false))) return this._scheduled(event, env, ctx);
+    const label = event.cron === EMAIL_CRON ? "cron:daily-email" : event.cron === WEEKLY_CRON ? "cron:weekly" : event.cron === DRIP_CRON ? "cron:drip" : `cron:${event.cron}`;
+    const meter = newMeter(label), t0 = Date.now(), pending = [];
+    const ctx2 = { waitUntil: (p) => { pending.push(p); ctx.waitUntil(p); }, passThroughOnException: () => ctx.passThroughOnException?.() };
+    await this._scheduled(event, { ...env, DB: meteredDb(rawDb, meter) }, ctx2);
+    ctx.waitUntil(Promise.allSettled(pending).then(() => { perfRecord(meter, { wallMs: Date.now() - t0 }); return perfFlush(rawDb, { force: true }); })
+      .catch((e) => console.error("[perf cron]", e?.message || e)));
+  },
+
+  async _scheduled(event, env, ctx) {
     // "0 1 * * *" = 09:00 HKT → email only (own fresh subrequest budget).
     // 一定要夠鐘喺 SYNC_START_HOUR(06:00) 之後：實測 98 個單元 19 分鐘跑完，
     // 06:20 左右有齊數據，09:00 寄信有 2 個幾鐘 buffer（112 個單元嗰啲日子
@@ -7101,8 +7182,20 @@ export default {
   },
 
   async fetch(request, env, ctx) {
+    // 效能記錄（只喺 perf_log_until 期間）：包住 env.DB 計 D1 用量；回應 bytes 喺背景量
+    const rawDb = env.DB, t0 = Date.now();
+    const u0 = new URL(request.url);
+    const perfOn = request.method !== "OPTIONS" && u0.pathname.startsWith("/api/") && await perfLogActive(rawDb).catch(() => false);
+    const meter = perfOn ? newMeter(perfRoute(request.method, u0.pathname)) : null;
+    if (meter) env = { ...env, DB: meteredDb(rawDb, meter) };
     // 所有 response 經 applyCors：只 reflect allow-list 內嘅 Origin
     const resp = await this.handleRequest(request, env, ctx);
+    if (meter) {
+      const wallMs = Date.now() - t0, status = resp.status;
+      ctx.waitUntil(resp.clone().arrayBuffer().then((b) => b.byteLength).catch(() => 0)
+        .then((bytes) => { perfRecord(meter, { bytes, wallMs, error: status >= 500 }); return perfFlush(rawDb); })
+        .catch((e) => console.error("[perf]", e?.message || e)));
+    }
     // Cron watchdog 搭順風車：擺 waitUntil 入面，唔阻住 response。
     // 淨係 /api/* 先查（避開 OPTIONS preflight 同靜態嘢），入面仲有
     // cooldown，所以實際 DB 讀寫好疏。
@@ -11109,6 +11202,17 @@ export default {
 
       // 用量統計（admin 專用）：睇下實際幾多人用緊幾多額度，先決定上限點調。
       // 唔回密碼／token 呢類嘢；email 係 admin 後台本身已經見到嘅資料。
+      // 效能記錄：某日（預設今日）各路由／cron 嘅次數、bytes、耗時、D1 用量（按 rows_read 排）。body 冇；?day=YYYY-MM-DD
+      if (method === "GET" && path === "/api/admin/perf") {
+        if (!isAdminSession(session)) return json(403, { error: "admin only" });
+        await ensurePerfLog(db);
+        const day = /^\d{4}-\d{2}-\d{2}$/.test(url.searchParams.get("day") || "") ? url.searchParams.get("day") : hkDateStr();
+        const { results } = await db.prepare(
+          `SELECT route, SUM(hits) hits, SUM(bytes) bytes, SUM(wall_ms) wall_ms, SUM(q) q, SUM(rows_read) rows_read, SUM(rows_written) rows_written, SUM(db_ms) db_ms, SUM(errors) errors
+           FROM perf_log WHERE hour LIKE ? GROUP BY route ORDER BY rows_read DESC`).bind(`${day}%`).all();
+        const until = (await db.prepare("SELECT value FROM settings WHERE key = 'perf_log_until'").first())?.value || null;
+        return json(200, { day, perf_log_until: until, routes: results });
+      }
       // 異常用量：某日（預設今日）API 次數最多嘅帳戶
       if (method === "GET" && path === "/api/admin/api-usage") {
         if (!isAdminSession(session)) return json(403, { error: "admin only" });
