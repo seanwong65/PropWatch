@@ -524,3 +524,10 @@ drip sync（`*/2`）同樣被雙重觸發：兩個 invocation 同時揀同一批
 - **Cloudflare 限速規則（2026-10-27 已設）**：ws-techs.com → Security rules → Rate limiting rules → `api-rate-limit`：`(http.host eq "api.ws-techs.com" and starts_with(http.request.uri.path, "/api/") and http.request.uri.path ne "/api/stripe-webhook")`，按 IP，10 秒 60 次，Block 10 秒（免費版只得 1 條、只有 10 秒選項）。實測：120 次並發 → 超過部分回 429；同時 Stripe webhook 75 次全部到 worker（400 簽名錯），冇被擋。新規則約 1–2 分鐘先全面生效。⚠️ 唔好開 Bot Fight Mode（會擋 Stripe webhook）。wrangler OAuth 冇 WAF 權限，改規則要喺 dashboard。
 - **Stripe webhook 網址（2026-10-27 改）**：Stripe Workbench → Webhooks → WS-Techs（`we_1U8qwSHaNxLrRvtWU6mMNnQ6`，監聽 6 個 event）由 `https://propwatch-worker.johnwong777.workers.dev/api/stripe-webhook` 改做 `https://api.ws-techs.com/api/stripe-webhook`；signing secret 冇換（worker 唔使改）。改完 curl 確認新網址到 worker（400 簽名錯＝正常）。
   - ⏳ **TODO**：等第一個真實付款 event 經新網址成功（Stripe 嗰行 Failed 0、有 delivery 記錄）之後，喺 worker 嘅 workers.dev 封鎖入面拎走 `/api/stripe-webhook` 例外，`workers.dev` 只留 `/api/unsubscribe`。之前唔好拎走（網址有錯都仲有後路）。
+
+## 效能記錄（perf_log，2026-10-28）
+- 用戶想知「邊啲功能食得多資源」。`newMeter`／`meteredDb`：每個 HTTP request（`GET /api/estates/:id/listings` 呢類路由名，數字 id → `:id`）同每個 cron（`cron:drip`／`cron:daily-email`／`cron:weekly`）包住 env.DB，記 D1 查詢數、rows_read／rows_written、D1 耗時；HTTP 加回傳 bytes、總耗時、5xx。按「HKT 小時 × 路由」累積，HTTP 每 5 分鐘／300 次、cron 每次完 flush 去 `perf_log`。
+- **只喺 `settings.perf_log_until`（YYYY-MM-DD）當日或之前先記**；冇呢個 key＝完全唔記（唔包 env、唔量 bytes）。開：`INSERT OR REPLACE INTO settings (key,value) VALUES ('perf_log_until','2026-10-29')`；關：刪咗佢（60 秒內生效）。
+- 讀：`GET /api/admin/perf?day=YYYY-MM-DD`（按 rows_read 排），或者直接 query `perf_log`。
+- 記錄期間 `first()` 經 `all()` 實現（D1 first() 冇 meta）；本機 10 個端點開／關記錄回應 byte-identical。
+- 第一次本機睇到：成交記錄每次讀 ~1.5 萬行、睇樓日記 ~1.4 萬行、屋苑列表 ~4.6 千行、朋友屋企 ~3.5 千行（本機數據）。
