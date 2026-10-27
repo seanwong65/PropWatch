@@ -289,6 +289,29 @@ function toggleMcBonus() {
   renderMortgage();
 }
 
+// 「計算」掣：結果其實一路打一路更新（oninput），但手機上結果喺表單下面、而且缺咗欄位（例如手頭現金）只會見到一句淡灰提示，
+// 用戶搵唔到計算掣／唔知缺咩。呢度：檢查必填欄位 → 缺就高亮＋focus＋寫明缺咩；齊料就重算並捲到結果。
+function mcCalculate() {
+  const msg = document.getElementById("mc-calc-msg");
+  const need = _mcMode === "afford"
+    ? [["mc-income", "家庭月入"], ["mc-cash", "手頭現金（萬）"]]
+    : [["mc-price", "樓價（萬）"]];
+  document.querySelectorAll("#mc-pane-afford .vf-input, #mc-pane-cost .vf-input").forEach((el) => { el.style.borderColor = ""; });
+  const missing = need.filter(([id]) => !_mcNum(id));
+  if (missing.length) {
+    for (const [id] of missing) document.getElementById(id).style.borderColor = "var(--down)";
+    const first = document.getElementById(missing[0][0]);
+    msg.textContent = `請先填 ${missing.map((m) => m[1]).join("、")}`;
+    msg.style.display = "";
+    first.scrollIntoView({ block: "center" });
+    first.focus();
+    return;
+  }
+  msg.style.display = "none";
+  renderMortgage();
+  document.getElementById("mc-out")?.scrollIntoView({ behavior: "smooth", block: "start" });
+}
+
 // 金額輸入格改用 type="text" 做千位逗號（type="number" 唔准入 ","，
 // 瀏覽器會直接拒絕呢粒字）。讀值嗰陣要剝走逗號先 parse。
 const _mcNum = (id) => { const v = parseFloat((document.getElementById(id)?.value || "").replace(/,/g, "")); return isFinite(v) ? v : 0; };
@@ -323,6 +346,7 @@ const _mcRow = (label, value, opt = {}) => `
 function renderMortgage() {
   const out = document.getElementById("mc-out");
   if (!out) return;
+  const _cm = document.getElementById("mc-calc-msg"); if (_cm) _cm.style.display = "none";   // 重算就收埋「請先填…」提示
   const years = Math.min(30, Math.max(1, _mcNum("mc-years") || 30));
   const rate = _mcNum("mc-rate");
   const ftb = _mcFtb;
@@ -492,7 +516,9 @@ const MC_FORM_HTML = `
   <button type="button" class="filter-chip" data-ftb="0" onclick="setMcFtb(this)">唔係</button>
 </div>
 
-<div id="mc-out" style="margin-top:1rem"></div>
+<button type="button" class="vf-submit" id="mc-calc-btn" onclick="mcCalculate()" style="margin-top:1rem">計算</button>
+<div id="mc-calc-msg" role="alert" style="display:none;color:var(--down);font-size:0.82rem;margin-top:0.5rem"></div>
+<div id="mc-out" style="margin-top:1rem;scroll-margin-top:0.6rem"></div>
 
 <ul style="font-size:0.74rem;color:var(--muted);margin:1rem 0 0;padding-left:1.1rem;line-height:1.6">
   <li><b style="color:var(--text)">印花稅</b>按 2026-02-26 起稅階；<b style="color:var(--text)">按揭成數／保費</b>按按證保險現行規定。</li>
