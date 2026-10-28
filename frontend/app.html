@@ -483,6 +483,13 @@
       user-select: none;
     }
     .estate-card:hover .drag-handle { opacity: 1; }
+    .drag-handle { touch-action: none; }   /* 觸控拖動時唔好觸發頁面捲動 */
+    /* 觸控裝置冇 hover：把手常駐顯示，而且加大可撳範圍（拇指揸得住） */
+    @media (hover: none) {
+      .drag-handle { opacity: 0.75; left: 0; padding: 0.7rem 0.45rem; font-size: 1.1rem; }
+      .estate-card { padding-left: 1.9rem; }
+    }
+    .estate-card.touch-dragging { opacity: 0.92; border-color: var(--brand); box-shadow: 0 6px 18px rgba(0,0,0,0.18); position: relative; z-index: 5; }
     .estate-card { padding-left: 1.6rem; }
     .estate-card.drag-over { border-color: var(--accent2); background: rgba(59,130,246,0.06); }
     .estate-card.dragging { opacity: 0.4; }
@@ -5168,6 +5175,7 @@ async function loadEstates() {
         </div>`);
     }
     initDragSort();
+    initTouchSort();
   } catch (err) {
     list.innerHTML = `<div class="sidebar-empty">載入失敗：${err.message}</div>`;
   }
@@ -5181,6 +5189,56 @@ async function toggleFavourite(e, id) {
 }
 
 let dragSrc = null;
+
+// 觸控／手寫筆排序（2026-10-28）：HTML5 drag&drop 喺 iPhone Safari 冇用，改用 Pointer Events——撳住 ⠿ 把手拖。
+// 滑鼠照用原本 HTML5 拖放。邊拖邊用 elementsFromPoint 搵手指下面嗰張卡，按手指喺上半／下半決定插前／插後；
+// 拖到列表上下邊緣自動捲動；放手先 POST /api/estates/reorder（同滑鼠版同一個 payload）；pointercancel 還原原本次序。
+function initTouchSort() {
+  const list = document.getElementById("estateList");
+  if (!list) return;
+  list.querySelectorAll(".estate-card:not(.estate-card-paused) .drag-handle").forEach(h => {
+    h.addEventListener("click", ev => ev.stopPropagation());   // 撳把手唔好當係「入屋苑」
+    h.addEventListener("pointerdown", e => {
+      if (e.pointerType === "mouse") return;                   // 滑鼠用 HTML5 drag
+      e.preventDefault();
+      const card = h.closest(".estate-card");
+      const original = [...list.querySelectorAll(".estate-card")];
+      card.classList.add("touch-dragging");
+      try { h.setPointerCapture(e.pointerId); } catch (_) {}
+      let lastY = e.clientY, raf = 0, moved = false;
+      const scroller = (() => { let el = list; while (el && el !== document.body) { const o = getComputedStyle(el).overflowY; if ((o === "auto" || o === "scroll") && el.scrollHeight > el.clientHeight) return el; el = el.parentElement; } return null; })();
+      const reorder = (x, y) => {
+        const over = document.elementsFromPoint(x, y).map(el => el.closest?.(".estate-card")).find(c => c && c !== card && !c.classList.contains("estate-card-paused") && list.contains(c));
+        if (!over) return;
+        const r = over.getBoundingClientRect();
+        if (y < r.top + r.height / 2) { if (over.previousElementSibling !== card) { over.before(card); moved = true; } }
+        else if (over.nextElementSibling !== card) { over.after(card); moved = true; }
+      };
+      const tick = () => {   // 邊緣自動捲動
+        if (!card.classList.contains("touch-dragging")) return;
+        if (scroller) {
+          const r = scroller.getBoundingClientRect();
+          if (lastY < r.top + 48) scroller.scrollTop -= 10; else if (lastY > r.bottom - 48) scroller.scrollTop += 10;
+        }
+        raf = requestAnimationFrame(tick);
+      };
+      raf = requestAnimationFrame(tick);
+      const move = ev => { lastY = ev.clientY; reorder(ev.clientX, ev.clientY); };
+      const done = async (ev, cancelled) => {
+        h.removeEventListener("pointermove", move); h.removeEventListener("pointerup", up); h.removeEventListener("pointercancel", cancel);
+        cancelAnimationFrame(raf); card.classList.remove("touch-dragging");
+        try { h.releasePointerCapture(ev.pointerId); } catch (_) {}
+        if (cancelled) { const frag = document.createDocumentFragment(); original.forEach(c => frag.appendChild(c)); const note = list.querySelector(".paused-note"); list.appendChild(frag); if (note) list.prepend(note); return; }
+        if (!moved) return;
+        const order = [...list.querySelectorAll(".estate-card")].map((c, i) => ({ id: Number(c.dataset.id), sort_order: i }));
+        try { await api("/api/estates/reorder", { method: "POST", body: JSON.stringify({ order }) }); }
+        catch (err) { toast(err.message || "排序儲存失敗", "error"); loadEstates(); }
+      };
+      const up = ev => done(ev, false), cancel = ev => done(ev, true);
+      h.addEventListener("pointermove", move); h.addEventListener("pointerup", up); h.addEventListener("pointercancel", cancel);
+    });
+  });
+}
 
 function initDragSort() {
   const cards = document.querySelectorAll("#estateList .estate-card");
