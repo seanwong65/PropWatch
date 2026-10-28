@@ -7,6 +7,8 @@
 //   - *.js：terser（local 變數改短名、刪註解；top-level／全域名唔改，其他頁面靠佢哋）
 //   - *.css：clean-css
 //   - JS 字串入面嘅 HTML 註解（template literal 入面寫嘅 <!-- … -->）一併刪走
+// 靜態資源 cache-bust（2026-10-28）：mortgage.js 等有 4 小時 cache，改咗用戶要等最多 4 小時先見到。
+//   build 完之後，HTML 入面指去本站 .js／.css 嘅 src／href 自動加 ?h=<內容 hash>（已有 ?v= 嘅會被取代），內容變 → hash 變 → 即刻拎新版。
 // 完成後檢查：所有 inline script 語法正確，否則 exit 1（唔好上載爛咗嘅版本）。
 import { promises as fs } from "node:fs";
 import path from "node:path";
@@ -58,6 +60,21 @@ for (const file of await walk(SRC)) {
   }
   await fs.writeFile(dest, outBuf);
   if ([".html", ".js", ".css"].includes(ext)) { before += raw.length; after += outBuf.length; sizes.push([rel, raw.length, outBuf.length]); }
+}
+
+// cache-bust：只處理本站根路徑資源（/xxx.js、/xxx.css），圖片唔郁
+{
+  const { createHash } = await import("node:crypto");
+  const hashes = {};
+  for (const [rel] of sizes) if (/\.(js|css)$/.test(rel)) hashes["/" + rel.replace(/\\/g, "/")] = createHash("sha1").update(await fs.readFile(path.join(OUT, rel))).digest("hex").slice(0, 8);
+  let n = 0;
+  for (const [rel] of sizes.filter(([r]) => r.endsWith(".html"))) {
+    const f = path.join(OUT, rel); let t = await fs.readFile(f, "utf8");
+    // 只改 HTML 標籤屬性（<script src=…>／<link … href=…>），唔掂 JS 字串（例如 app.html 入面動態載入 public-search.js 嘅 '?v=' + PS_VER）
+    t = t.replace(/<(script|link)\b[^>]*>/g, (tag) => tag.replace(/\b(src|href)=(["'])(\/[^"'?#]+\.(?:js|css))(\?[^"']*)?\2/, (m, attr, q, url) => hashes[url] ? (n++, `${attr}=${q}${url}?h=${hashes[url]}${q}`) : m));
+    await fs.writeFile(f, t);
+  }
+  console.log(`cache-bust：${n} 個資源連結加咗內容 hash`);
 }
 
 // 檢查：每個 HTML 嘅 inline script 都要語法正確

@@ -531,3 +531,4 @@ drip sync（`*/2`）同樣被雙重觸發：兩個 invocation 同時揀同一批
 - 讀：`GET /api/admin/perf?day=YYYY-MM-DD`（按 rows_read 排），或者直接 query `perf_log`。
 - 記錄期間 `first()` 經 `all()` 實現（D1 first() 冇 meta）；本機 10 個端點開／關記錄回應 byte-identical。
 - 第一次本機睇到：成交記錄每次讀 ~1.5 萬行、睇樓日記 ~1.4 萬行、屋苑列表 ~4.6 千行、朋友屋企 ~3.5 千行（本機數據）。
+- **靜態資源 cache-bust（2026-10-28）**：`build-frontend.mjs` build 完會將 HTML 入面 `<script src>`／`<link href>` 指去本站 .js／.css 嘅網址加 `?h=<內容 sha1 前 8 位>`（180 個連結；只改標籤屬性，唔掂 JS 字串）。內容一變 hash 就變 → 用戶即刻拎新版，唔使再等 Pages 嘅 4 小時 cache（以前改 mortgage.js 要等 4 小時先見到）。`public-search.js/.css` 喺 app.html 動態載入嘅 `?v=PS_VER` 仍然用舊方法，改嗰兩個檔要 bump `PS_VER`（search.html 嗰度已經自動 hash）。
