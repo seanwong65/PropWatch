@@ -520,11 +520,14 @@ const MC_FORM_HTML = `
 <div id="mc-calc-msg" role="alert" style="display:none;color:var(--down);font-size:0.82rem;margin-top:0.5rem"></div>
 <div id="mc-out" style="margin-top:1rem;scroll-margin-top:0.6rem"></div>
 
-<ul style="font-size:0.74rem;color:var(--muted);margin:1rem 0 0;padding-left:1.1rem;line-height:1.6">
+<details style="margin:0.9rem 0 0;font-size:0.76rem;color:var(--muted)">
+  <summary style="cursor:pointer;list-style:none;display:inline-flex;align-items:center;gap:0.3rem;padding:0.15rem 0">ⓘ 計算說明（撳開）</summary>
+  <ul style="font-size:0.74rem;color:var(--muted);margin:0.4rem 0 0;padding-left:1.1rem;line-height:1.6">
   <li><b style="color:var(--text)">印花稅</b>按 2026-02-26 起稅階；<b style="color:var(--text)">按揭成數／保費</b>按按證保險現行規定。</li>
   <li>SSD／BSD／NRSD、壓力測試已取消，<b style="color:var(--text)">唔再計</b>。</li>
   <li>律師費、佣金可自己改；花紅、租金計法係市場慣例。<b style="color:var(--text)">實際批核以銀行為準。</b></li>
 </ul>
+</details>
 `;
 function mountMortgageForm(hostId = "mc-form-host") {
   const host = document.getElementById(hostId);
