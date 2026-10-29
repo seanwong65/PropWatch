@@ -1667,14 +1667,54 @@ function parseRentalListing(item) {
 // 「由 D 日起有幾多個唔同價」＝「最後見過日 >= D 嘅唔同價有幾多個」（一個價喺 D 之後出現過
 // ⇔ 佢最後見過日 >= D），所以只要記低 (ref_no, price) → 最後見過日，每個盤 1–5 行
 // （10.8 萬行歷史 → 5 千行）。結果同舊寫法必然一樣（本機 47 萬個 ref×日期組合 0 差異）。
-// 由 trigger 維護：三個 sync 寫入位全部都係 INSERT ... ON CONFLICT(ref_no, snapshot_date)
-// DO UPDATE，trigger 會涵蓋佢哋同將來任何新寫入位，唔使逐個改；同日改價（UPDATE）、
-// 刪除都處理（重算舊價嘅最後見過日／冇咗就刪行），亂序／重覆寫都冇事。
+// 由 trigger 維護：寫入一律經 lphStmts（改價 insert／冇變 update seen_until），insert、
+// seen_until 更新（trg_lph_seen_until）、同日改價（UPDATE）、刪除都有 trigger 處理
+// （重算舊價嘅最後見過日／冇咗就刪行），亂序／重覆寫都冇事。
 // 讀嗰邊用 ensurePriceSeen() 嘅回傳值：失敗（例如 trigger 建唔到）就照用舊寫法，唔會出錯數。
+// 稀疏化（2026-10-29）：listing_price_history 唔再每日一行，改為「價錢有變先 insert 一行（snapshot_date＝改價嗰日），
+// 冇變就 update 最後嗰行嘅 seen_until（最後見到呢個價嘅日子）」。原因：每日一行每盤要 5 行 D1 寫入（UNIQUE＋index＋
+// AUTOINCREMENT＋trigger），update 一個冇 index 嘅欄只係 1 行（Miniflare 實測）。舊數據照舊每日一行（seen_until NULL），
+// 所以讀嗰邊一律當 COALESCE(seen_until, snapshot_date) 係「呢行嘅最後一日」，新舊格式混埋都啱。
+// 「最後見過日」因此要計 seen_until：trigger 全部用 LPH_END；seen_until 一更新就同步 listing_price_seen。
+const LPH_END = "COALESCE(seen_until, snapshot_date)";
+const TRG_LPH_SEEN_UPD = `CREATE TRIGGER IF NOT EXISTS trg_lph_seen_upd AFTER UPDATE ON listing_price_history
+        WHEN OLD.price IS NOT NEW.price OR OLD.ref_no IS NOT NEW.ref_no OR OLD.snapshot_date IS NOT NEW.snapshot_date
+        BEGIN
+          UPDATE listing_price_seen SET last_date = (SELECT MAX(${LPH_END}) FROM listing_price_history WHERE ref_no = OLD.ref_no AND price = OLD.price)
+            WHERE ref_no = OLD.ref_no AND price = OLD.price
+              AND EXISTS (SELECT 1 FROM listing_price_history WHERE ref_no = OLD.ref_no AND price = OLD.price);
+          DELETE FROM listing_price_seen WHERE ref_no = OLD.ref_no AND price = OLD.price
+            AND NOT EXISTS (SELECT 1 FROM listing_price_history WHERE ref_no = OLD.ref_no AND price = OLD.price);
+          INSERT INTO listing_price_seen (ref_no, price, last_date) VALUES (NEW.ref_no, NEW.price, COALESCE(NEW.seen_until, NEW.snapshot_date))
+          ON CONFLICT(ref_no, price) DO UPDATE SET last_date = MAX(last_date, excluded.last_date);
+        END`;
+const TRG_LPH_SEEN_DEL = `CREATE TRIGGER IF NOT EXISTS trg_lph_seen_del AFTER DELETE ON listing_price_history
+        BEGIN
+          UPDATE listing_price_seen SET last_date = (SELECT MAX(${LPH_END}) FROM listing_price_history WHERE ref_no = OLD.ref_no AND price = OLD.price)
+            WHERE ref_no = OLD.ref_no AND price = OLD.price
+              AND EXISTS (SELECT 1 FROM listing_price_history WHERE ref_no = OLD.ref_no AND price = OLD.price);
+          DELETE FROM listing_price_seen WHERE ref_no = OLD.ref_no AND price = OLD.price
+            AND NOT EXISTS (SELECT 1 FROM listing_price_history WHERE ref_no = OLD.ref_no AND price = OLD.price);
+        END`;
+// 淨係 seen_until 變（日常「價錢冇變」嗰 1 行 update）：上面 trg_lph_seen_upd 個 WHEN 唔會中，由呢個補。
+const TRG_LPH_SEEN_UNTIL = `CREATE TRIGGER IF NOT EXISTS trg_lph_seen_until AFTER UPDATE OF seen_until ON listing_price_history
+        WHEN NEW.seen_until IS NOT NULL
+        BEGIN
+          INSERT INTO listing_price_seen (ref_no, price, last_date) VALUES (NEW.ref_no, NEW.price, NEW.seen_until)
+          ON CONFLICT(ref_no, price) DO UPDATE SET last_date = MAX(last_date, excluded.last_date);
+        END`;
 let _priceSeenReady = false;
 async function ensurePriceSeen(db) {
   if (_priceSeenReady) return true;
   try {
+    // 稀疏化 migration（一次性）：加欄＋換 trigger。要喺建 trigger 之前做（新 trigger 會用 seen_until）。
+    if (!(await getSetting(db, "lph_seen_until_v1"))) {
+      await db.prepare("ALTER TABLE listing_price_history ADD COLUMN seen_until TEXT").run().catch(() => {});   // 已有／表未建都冇所謂
+      await db.batch([
+        db.prepare("DROP TRIGGER IF EXISTS trg_lph_seen_upd"),
+        db.prepare("DROP TRIGGER IF EXISTS trg_lph_seen_del"),
+      ]).catch(() => {});
+    }
     await db.batch([
       db.prepare(`CREATE TABLE IF NOT EXISTS listing_price_seen (
         ref_no TEXT NOT NULL, price REAL NOT NULL, last_date TEXT NOT NULL,
@@ -1684,31 +1724,16 @@ async function ensurePriceSeen(db) {
           INSERT INTO listing_price_seen (ref_no, price, last_date) VALUES (NEW.ref_no, NEW.price, NEW.snapshot_date)
           ON CONFLICT(ref_no, price) DO UPDATE SET last_date = MAX(last_date, excluded.last_date);
         END`),
-      db.prepare(`CREATE TRIGGER IF NOT EXISTS trg_lph_seen_upd AFTER UPDATE ON listing_price_history
-        WHEN OLD.price IS NOT NEW.price OR OLD.ref_no IS NOT NEW.ref_no OR OLD.snapshot_date IS NOT NEW.snapshot_date
-        BEGIN
-          UPDATE listing_price_seen SET last_date = (SELECT MAX(snapshot_date) FROM listing_price_history WHERE ref_no = OLD.ref_no AND price = OLD.price)
-            WHERE ref_no = OLD.ref_no AND price = OLD.price
-              AND EXISTS (SELECT 1 FROM listing_price_history WHERE ref_no = OLD.ref_no AND price = OLD.price);
-          DELETE FROM listing_price_seen WHERE ref_no = OLD.ref_no AND price = OLD.price
-            AND NOT EXISTS (SELECT 1 FROM listing_price_history WHERE ref_no = OLD.ref_no AND price = OLD.price);
-          INSERT INTO listing_price_seen (ref_no, price, last_date) VALUES (NEW.ref_no, NEW.price, NEW.snapshot_date)
-          ON CONFLICT(ref_no, price) DO UPDATE SET last_date = MAX(last_date, excluded.last_date);
-        END`),
-      db.prepare(`CREATE TRIGGER IF NOT EXISTS trg_lph_seen_del AFTER DELETE ON listing_price_history
-        BEGIN
-          UPDATE listing_price_seen SET last_date = (SELECT MAX(snapshot_date) FROM listing_price_history WHERE ref_no = OLD.ref_no AND price = OLD.price)
-            WHERE ref_no = OLD.ref_no AND price = OLD.price
-              AND EXISTS (SELECT 1 FROM listing_price_history WHERE ref_no = OLD.ref_no AND price = OLD.price);
-          DELETE FROM listing_price_seen WHERE ref_no = OLD.ref_no AND price = OLD.price
-            AND NOT EXISTS (SELECT 1 FROM listing_price_history WHERE ref_no = OLD.ref_no AND price = OLD.price);
-        END`),
+      db.prepare(TRG_LPH_SEEN_UPD),
+      db.prepare(TRG_LPH_SEEN_DEL),
+      db.prepare(TRG_LPH_SEEN_UNTIL),
     ]);
+    if (!(await getSetting(db, "lph_seen_until_v1"))) await setSetting(db, "lph_seen_until_v1", "1");
     // 先建 trigger、後 backfill：之後寫入由 trigger 接手，backfill 用 MAX 合併，
     // 兩邊交疊嘅日子重覆算都冇事（idempotent）。
     if (!(await getSetting(db, "price_seen_backfilled"))) {
       await db.prepare(`INSERT INTO listing_price_seen (ref_no, price, last_date)
-        SELECT ref_no, price, MAX(snapshot_date) FROM listing_price_history GROUP BY ref_no, price
+        SELECT ref_no, price, MAX(${LPH_END}) FROM listing_price_history GROUP BY ref_no, price
         ON CONFLICT(ref_no, price) DO UPDATE SET last_date = MAX(last_date, excluded.last_date)`).run();
       await setSetting(db, "price_seen_backfilled", "1");
     }
@@ -1718,6 +1743,54 @@ async function ensurePriceSeen(db) {
     console.error("ensurePriceSeen failed, falling back to price history scan:", e?.message || e);
     return false;
   }
+}
+
+// 寫入一個盤今日嘅價（取代以前每日一行嘅 INSERT … ON CONFLICT DO UPDATE）。兩句一齊入 batch，次序唔可以調：
+//   ① 最後一行同價、而且未記到今日 → seen_until = 今日（1 行寫入；trg_lph_seen_until 再 +1）
+//   ② 最後一行唔同價（或者未有記錄）→ insert 新一行（改價日）；同價就乜都唔做（0 行寫入）
+// 同日再 sync（retry）：① 嘅 COALESCE(seen_until,'') < 今日 擋住重覆 update；同日改價再改返就靠 ON CONFLICT 照舊覆蓋。
+// 一定要先 ensurePriceSeen（seen_until 欄同 trigger）。
+const LPH_TOUCH_SQL = `UPDATE listing_price_history SET seen_until = ?3
+  WHERE ref_no = ?1 AND price = ?2 AND snapshot_date < ?3 AND COALESCE(seen_until, '') < ?3
+    AND snapshot_date = (SELECT MAX(snapshot_date) FROM listing_price_history WHERE ref_no = ?1)`;
+const LPH_INSERT_SQL = `INSERT INTO listing_price_history (ref_no, estate_id, price, price_per_ft, snapshot_date)
+  SELECT ?1, ?4, ?2, ?5, ?3 WHERE NOT EXISTS (
+    SELECT 1 FROM listing_price_history h WHERE h.ref_no = ?1 AND h.price = ?2
+      AND h.snapshot_date = (SELECT MAX(snapshot_date) FROM listing_price_history WHERE ref_no = ?1))
+  ON CONFLICT(ref_no, snapshot_date) DO UPDATE SET price = excluded.price, price_per_ft = excluded.price_per_ft`;
+function lphStmts(db, refNo, estateId, price, psf, date) {
+  return [
+    db.prepare(LPH_TOUCH_SQL).bind(refNo, price, date),
+    db.prepare(LPH_INSERT_SQL).bind(refNo, price, date, estateId, psf ?? null),
+  ];
+}
+
+// 「D 日嗰陣嘅價」嗰行 rowid：有一行喺 D 或之前開始、而且一直去到 D（seen_until >= D）就用佢；
+// 否則用 D 之後第一行（同舊「每日一行」寫法嘅「D 或之後第一行」完全一致：舊數據淨係 snapshot_date = D 先覆蓋到 D）。
+// 三個 subquery 都係 (ref_no, snapshot_date) index seek 一行，唔會因為舊數據每日一行而掃晒成條歷史。
+// ref／d 係 SQL 表達式（例如 "l.ref_no"、"?2"），estate 有就加 estate_id 條件行 idx_lph_estate_ref。
+function lphRowAtSql(ref, d, estate = null) {
+  const w = `${estate ? `h.estate_id = ${estate} AND ` : ""}h.ref_no = ${ref}`;
+  return `(CASE WHEN (SELECT COALESCE(h.seen_until, h.snapshot_date) FROM listing_price_history h
+                       WHERE ${w} AND h.snapshot_date <= ${d} ORDER BY h.snapshot_date DESC LIMIT 1) >= ${d}
+     THEN (SELECT h.rowid FROM listing_price_history h WHERE ${w} AND h.snapshot_date <= ${d} ORDER BY h.snapshot_date DESC LIMIT 1)
+     ELSE (SELECT h.rowid FROM listing_price_history h WHERE ${w} AND h.snapshot_date >= ${d} ORDER BY h.snapshot_date ASC LIMIT 1) END)`;
+}
+
+// 將價錢歷史還原做「每段頭尾各一行」（seen_until → 加一行同價、日期＝seen_until），俾 collapsePriceHistory
+// （前後端同一套）摺返做一段一個價。舊數據（seen_until NULL）原封不動。rows 要已按 snapshot_date 排好；
+// fromDate 有就將頭一行（覆蓋 fromDate 嗰段）嘅開始日截到 fromDate（同舊「snapshot_date >= fromDate」一致）。
+function expandPriceRuns(rows, fromDate = null) {
+  const out = [];
+  for (const r of rows) {
+    const end = r.seen_until && r.seen_until > r.snapshot_date ? r.seen_until : null;
+    const start = fromDate && r.snapshot_date < fromDate ? fromDate : r.snapshot_date;
+    if (fromDate && (end || r.snapshot_date) < fromDate) continue;
+    const { seen_until, ...base } = r;
+    out.push({ ...base, snapshot_date: start });
+    if (end && end > start) out.push({ ...base, snapshot_date: end });
+  }
+  return out;
 }
 
 // ── 放盤「首次／最後出現」日期（listing_span / rental_listing_span）────────
@@ -1894,11 +1967,6 @@ async function saveSearchResults(db, estateId, listings) {
       price, price_per_ft, building_age, detail_url, thumbnail, snapshot_date, source, publish_date)
      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
   );
-  const stmtHistory = db.prepare(
-    `INSERT INTO listing_price_history (ref_no, estate_id, price, price_per_ft, snapshot_date)
-     VALUES (?,?,?,?,?)
-     ON CONFLICT(ref_no, snapshot_date) DO UPDATE SET price=excluded.price, price_per_ft=excluded.price_per_ft`
-  );
 
   const batch = [];
   for (const item of listings) {
@@ -1911,9 +1979,7 @@ async function saveSearchResults(db, estateId, listings) {
         l.building_age, l.detail_url, l.thumbnail, today, 'centanet', l.publish_date
       )
     );
-    if (l.ref_no && l.price) {
-      batch.push(stmtHistory.bind(l.ref_no, estateId, l.price, l.price_per_ft, today));
-    }
+    if (l.ref_no && l.price) batch.push(...lphStmts(db, l.ref_no, estateId, l.price, l.price_per_ft, today));   // 價錢有變先 insert，冇變淨係 update seen_until
     batch.push(spanStmt(db, "listing_span", estateId, l.listing_id, today));
   }
   if (batch.length > 0) await db.batch(batch);
@@ -2125,17 +2191,12 @@ async function saveRicacorpListings(db, estateId, listings) {
       size_net, price, price_per_ft, detail_url, snapshot_date, source, publish_date, thumbnail)
      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
   );
-  const stmtHistory = db.prepare(
-    `INSERT INTO listing_price_history (ref_no, estate_id, price, price_per_ft, snapshot_date)
-     VALUES (?,?,?,?,?)
-     ON CONFLICT(ref_no, snapshot_date) DO UPDATE SET price=excluded.price, price_per_ft=excluded.price_per_ft`
-  );
   const batch = [];
   for (const l of toSave) {
     batch.push(stmt.bind(estateId, l.ref_no, l.ref_no, l.building_name, l.floor, normalizeUnit(l.unit),
       l.bedrooms, l.size_net, l.price, l.price_per_ft, l.detail_url, today, l.source, l.publish_date ?? null,
       l.thumbnail ?? null));
-    if (l.ref_no && l.price) batch.push(stmtHistory.bind(l.ref_no, estateId, l.price, l.price_per_ft, today));
+    if (l.ref_no && l.price) batch.push(...lphStmts(db, l.ref_no, estateId, l.price, l.price_per_ft, today));
     batch.push(spanStmt(db, "listing_span", estateId, l.ref_no, today));
   }
   await db.batch(batch);
@@ -2314,16 +2375,11 @@ async function saveHkpListings(db, estateId, listings) {
       size_net, price, price_per_ft, detail_url, snapshot_date, source, publish_date)
      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
   );
-  const stmtHistory = db.prepare(
-    `INSERT INTO listing_price_history (ref_no, estate_id, price, price_per_ft, snapshot_date)
-     VALUES (?,?,?,?,?)
-     ON CONFLICT(ref_no, snapshot_date) DO UPDATE SET price=excluded.price, price_per_ft=excluded.price_per_ft`
-  );
   const batch = [];
   for (const l of listings) {
     batch.push(stmt.bind(estateId, l.ref_no, l.ref_no, l.building_name, l.floor, normalizeUnit(l.unit),
       l.bedrooms, l.size_net, l.price, l.price_per_ft, l.detail_url, today, l.source, l.publish_date ?? null));
-    if (l.ref_no && l.price) batch.push(stmtHistory.bind(l.ref_no, estateId, l.price, l.price_per_ft, today));
+    if (l.ref_no && l.price) batch.push(...lphStmts(db, l.ref_no, estateId, l.price, l.price_per_ft, today));
     batch.push(spanStmt(db, "listing_span", estateId, l.ref_no, today));
   }
   await db.batch(batch);
@@ -4670,7 +4726,7 @@ async function attachPriceHistorySegments(db, rows, table) {
   if (!refNos.length) return;
   const hasPsf = table === 'listing_price_history';
   const { results } = await db.prepare(
-    `SELECT ref_no, snapshot_date, price, ${hasPsf ? 'price_per_ft' : 'NULL AS price_per_ft'} FROM ${table}
+    `SELECT ref_no, snapshot_date, price, ${hasPsf ? 'price_per_ft, seen_until' : 'NULL AS price_per_ft, NULL AS seen_until'} FROM ${table}
      WHERE ref_no IN (${refNos.map(() => '?').join(',')}) ORDER BY ref_no, snapshot_date ASC`
   ).bind(...refNos).all();
   const byRef = new Map();
@@ -4678,7 +4734,8 @@ async function attachPriceHistorySegments(db, rows, table) {
     if (!byRef.has(r.ref_no)) byRef.set(r.ref_no, []);
     byRef.get(r.ref_no).push(r);
   }
-  for (const row of rows) row.history = collapsePriceHistory(byRef.get(row.ref_no) || []);
+  // 稀疏格式（seen_until）先還原做段頭段尾，再摺；舊每日一行數據原封不動
+  for (const row of rows) row.history = collapsePriceHistory(expandPriceRuns(byRef.get(row.ref_no) || []));
 }
 
 async function getTodayHighlights(db, accountId) {
@@ -8276,7 +8333,7 @@ export default {
                prev.price_per_ft AS prev_price_per_ft,
                ${seenOk
                  ? "(SELECT COUNT(*) FROM listing_price_seen s WHERE s.ref_no = l.ref_no AND s.last_date >= ?2)"
-                 : "(SELECT COUNT(DISTINCT h.price) FROM listing_price_history h WHERE h.ref_no = l.ref_no AND h.snapshot_date >= ?2)"} AS price_variants,
+                 : "(SELECT COUNT(DISTINCT h.price) FROM listing_price_history h WHERE h.ref_no = l.ref_no AND COALESCE(h.seen_until, h.snapshot_date) >= ?2)"} AS price_variants,
                mr.created_at AS manual_removed_at
              FROM per_listing pl
              -- CROSS JOIN 逼 SQLite 由 listing_span 出發、逐個盤用 UNIQUE(listing_id, snapshot_date)
@@ -8286,12 +8343,9 @@ export default {
              LEFT JOIN src_prev_ok sp ON sp.source = l.source
              LEFT JOIN listing_manual_removed mr
                ON mr.ref_no = l.ref_no AND mr.account_id = ?3
+             -- 原價＝加入日嗰陣嘅價（稀疏格式：覆蓋加入日嗰段；冇就加入日之後第一行，見 lphRowAtSql）
              LEFT JOIN listing_price_history prev
-               ON prev.ref_no = l.ref_no
-               AND prev.snapshot_date = (
-                 SELECT MIN(snapshot_date) FROM listing_price_history
-                 WHERE ref_no = l.ref_no AND snapshot_date >= ?2
-               )
+               ON prev.rowid = ${lphRowAtSql("l.ref_no", "?2")}
              WHERE l.estate_id = ?1 AND l.snapshot_date = pl.last_seen
                ${matchUnit ? "AND UPPER(TRIM(REPLACE(REPLACE(COALESCE(l.unit, ''), '室', ''), '號', ''))) = ?4" : ""}
              ORDER BY removed_date IS NOT NULL ASC, l.price ASC`
@@ -8663,13 +8717,15 @@ export default {
           ? (await db.prepare("SELECT added_at FROM account_estates WHERE account_id = ? AND estate_id = ?")
               .bind(session.account_id, listing.estate_id).first())?.added_at ?? '9999-12-31'
           : '9999-12-31';
+        // 稀疏格式：喺加入日之前開始、但一直維持到加入日之後嗰段都要（開始日截到加入日），
+        // 再還原做段頭段尾兩行，前端 collapsePriceHistory 照摺——輸出同以前每日一行嘅版本一致。
         const { results } = await db.prepare(
-          `SELECT snapshot_date, price, price_per_ft
+          `SELECT snapshot_date, price, price_per_ft, seen_until
            FROM listing_price_history
-           WHERE ref_no = ? AND snapshot_date >= ?
+           WHERE ref_no = ? AND COALESCE(seen_until, snapshot_date) >= ?
            ORDER BY snapshot_date ASC`
         ).bind(refNo, addedAt).all();
-        return json(200, { history: results, source: listing?.source || 'centanet', detail_url: listing?.detail_url });
+        return json(200, { history: expandPriceRuns(results, addedAt), source: listing?.source || 'centanet', detail_url: listing?.detail_url });
       }
 
       // 趨勢圖:同樣由加入自選日開始。
@@ -9126,11 +9182,12 @@ export default {
             ),
             cand AS MATERIALIZED (
               SELECT acc.added_at, acc.estate_name, l.rowid AS lrow,
+                -- 窗口第一日嘅價（稀疏格式：覆蓋 cutoff 嗰段；見 lphRowAtSql）
+                ${lphRowAtSql("l.ref_no", "?2", "acc.estate_id")} AS first_h,
+                -- 最後一段：最後一行，只要佢去到窗口入面（舊數據＝最後一行喺窗口內）
                 (SELECT h.rowid FROM listing_price_history h
-                  WHERE h.estate_id = acc.estate_id AND h.ref_no = l.ref_no AND h.snapshot_date >= ?2
-                  ORDER BY h.snapshot_date ASC LIMIT 1) AS first_h,
-                (SELECT h.rowid FROM listing_price_history h
-                  WHERE h.estate_id = acc.estate_id AND h.ref_no = l.ref_no AND h.snapshot_date >= ?2
+                  WHERE h.estate_id = acc.estate_id AND h.ref_no = l.ref_no
+                    AND COALESCE(h.seen_until, h.snapshot_date) >= ?2
                   ORDER BY h.snapshot_date DESC LIMIT 1) AS last_h
               FROM acc
               JOIN listing_span s ON s.estate_id = acc.estate_id AND s.last_seen >= ?2
@@ -9139,13 +9196,14 @@ export default {
             )
             SELECT l.building_name, l.floor, l.unit, l.detail_url, c.estate_name,
                    first_p.price as old_price, last_p.price as new_price,
-                   first_p.snapshot_date as old_date, last_p.snapshot_date as new_date
+                   -- 日期口徑同舊每日一行版一樣：old＝窗口內第一日、new＝最後見到嗰日
+                   MAX(first_p.snapshot_date, ?2) as old_date, COALESCE(last_p.seen_until, last_p.snapshot_date) as new_date
             FROM cand c
             JOIN listing_price_history first_p ON first_p.rowid = c.first_h
             JOIN listing_price_history last_p ON last_p.rowid = c.last_h
             JOIN listings l ON l.rowid = c.lrow
             WHERE first_p.price != last_p.price
-              AND last_p.snapshot_date >= c.added_at
+              AND COALESCE(last_p.seen_until, last_p.snapshot_date) >= c.added_at
             ORDER BY ABS(last_p.price - first_p.price) DESC
           `).bind(hAid, cutoffStr).all(),
 
@@ -9243,17 +9301,22 @@ export default {
                  v.block, v.floor AS view_floor, v.unit AS view_unit,
                  l.building_name, l.floor, l.unit AS l_unit, l.price AS new_price,
                  l.detail_url, first_p.price AS old_price, e.name AS estate_name,
-                 first_p.snapshot_date AS old_date, last_p.snapshot_date AS new_date
+                 MAX(first_p.snapshot_date, ?2) AS old_date, COALESCE(last_p.seen_until, last_p.snapshot_date) AS new_date
           FROM viewings v
           JOIN estates e ON e.id = v.estate_id
+          -- 每個 ref：窗口第一日嘅價（覆蓋 cutoff 嗰段，見 lphRowAtSql）同最後一段（最後一行，要去到窗口入面）。
+          -- 稀疏格式（seen_until）同舊每日一行數據都啱；舊版 MIN/MAX(snapshot_date) 喺稀疏格式下會漏咗 cutoff 之前開始嗰段。
+          -- first_p.price != last_p.price 已經包含舊版 HAVING COUNT(DISTINCT price) > 1 嘅意思。
           JOIN (
-            SELECT ref_no, MIN(snapshot_date) as min_d, MAX(snapshot_date) as max_d
-            FROM listing_price_history WHERE ref_no IN (${lpcRefs}) AND snapshot_date >= ?2
-            GROUP BY ref_no HAVING COUNT(DISTINCT price) > 1
+            SELECT r.ref_no,
+              ${lphRowAtSql("r.ref_no", "?2")} AS first_h,
+              (SELECT h.rowid FROM listing_price_history h WHERE h.ref_no = r.ref_no
+                 AND COALESCE(h.seen_until, h.snapshot_date) >= ?2 ORDER BY h.snapshot_date DESC LIMIT 1) AS last_h
+            FROM (SELECT DISTINCT ref_no FROM listing_price_history WHERE ref_no IN (${lpcRefs})) r
           -- linked_ref_no 係逗號分隔多 ref（每 source 一個），用包含 match
           ) changed ON (',' || v.linked_ref_no || ',') LIKE ('%,' || changed.ref_no || ',%')
-          JOIN listing_price_history first_p ON first_p.ref_no = changed.ref_no AND first_p.snapshot_date = changed.min_d
-          JOIN listing_price_history last_p  ON last_p.ref_no  = changed.ref_no AND last_p.snapshot_date  = changed.max_d
+          JOIN listing_price_history first_p ON first_p.rowid = changed.first_h
+          JOIN listing_price_history last_p  ON last_p.rowid  = changed.last_h
           JOIN (
             SELECT x.ref_no, x.building_name, x.floor, x.unit, x.price, x.detail_url
             FROM listings x
@@ -9933,8 +9996,9 @@ export default {
                    MIN(NULLIF(publish_date, '')) AS publish_date
             FROM listings WHERE estate_id IN (${eidLit}) AND ref_no IN (${refLit}) GROUP BY estate_id, ref_no, source
           ),
+          -- max_d：最後一行（join 現價用）；last_d：最後見到嗰日（＝舊每日一行版嘅 MAX(snapshot_date)，稀疏格式要計 seen_until）
           price_bounds AS (
-            SELECT ref_no, MIN(snapshot_date) AS min_d, MAX(snapshot_date) AS max_d
+            SELECT ref_no, MIN(snapshot_date) AS min_d, MAX(snapshot_date) AS max_d, MAX(COALESCE(seen_until, snapshot_date)) AS last_d
             FROM listing_price_history WHERE estate_id IN (${eidLit}) AND ref_no IN (${refLit}) GROUP BY ref_no
           ),
           rsrc_latest AS (${srcLatestSql("rental_listings", eidLit)}),
@@ -9957,7 +10021,7 @@ export default {
             ${seenOk
               ? "(SELECT COUNT(*) FROM listing_price_seen s WHERE s.ref_no = pr.ref_no)"
               : "(SELECT COUNT(DISTINCT price) FROM listing_price_history h WHERE h.ref_no = pr.ref_no)"} AS price_variants,
-            fp.price AS old_price, lp.price AS new_price, pb.max_d AS change_date
+            fp.price AS old_price, lp.price AS new_price, pb.last_d AS change_date
           FROM viewings v
           JOIN per_ref pr ON pr.estate_id = v.estate_id
             AND (',' || v.linked_ref_no || ',') LIKE ('%,' || pr.ref_no || ',%')
@@ -11407,3 +11471,6 @@ export default {
     }
   },
 };
+
+// 俾測試用（tests/lph-sparse.test.js、本機驗證 script）
+export { lphRowAtSql, expandPriceRuns, collapsePriceHistory, LPH_TOUCH_SQL, LPH_INSERT_SQL, TRG_LPH_SEEN_UPD, TRG_LPH_SEEN_DEL, TRG_LPH_SEEN_UNTIL };
