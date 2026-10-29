@@ -76,6 +76,8 @@ const PANEL_HTML = `
     </div>
   </div>
 `;
+// 主頁「待跟進」位置嘅輪播：淨係個表單（冇結果），撳搜尋由 app 用 openPublicSearch(qs) 跳去搵樓頁（opts.formOnly／opts.onSearch）
+const FORM_HTML = PANEL_HTML.slice(0, PANEL_HTML.indexOf("</form>") + 7);
 const HOOK_HTML = `
   <div class="ps-hook">
     <p><b>地產網唔會話你個盤放咗幾耐、減過幾多次價。</b>免費登記追蹤屋苑，搵樓日記由今日開始每日幫你記錄。</p>
@@ -109,7 +111,7 @@ const AREAS = {
 const MAX_PAGE = 10;                 // worker 都係最多 10 頁
 
 // opts.hook：嵌入模式都顯示「免費登記」提示（地區專頁用；app 入面唔要）
-root.innerHTML = PANEL_HTML + (embedded && !opts.hook ? "" : HOOK_HTML) + GRID_HTML;
+root.innerHTML = opts.formOnly ? FORM_HTML : PANEL_HTML + (embedded && !opts.hook ? "" : HOOK_HTML) + GRID_HTML;
 const $ = (id) => root.querySelector("#" + id);
 const form = $("ps-form");
 let runId = 0;                       // 新搜尋作廢舊 request 嘅結果
@@ -445,6 +447,37 @@ function fmtDate(d) {
 
 // ── 事件 ───────────────────────────────────────────────────
 form.addEventListener("change", (e) => { if (e.target.name === "deal") syncPriceLabel(); });
+if (opts.formOnly) {
+  // 只畫表單：預填偏好，撳搜尋就交俾 opts.onSearch(query string)，唔喺度出結果
+  form.addEventListener("submit", (e) => {
+    e.preventDefault();
+    const fd = new FormData(form);
+    if (!fd.getAll("src").length) { alert("最少揀一個地產網"); return; }
+    if (opts.onSearch) opts.onSearch(condToQuery(readCond(fd)));
+  });
+  // 地區／房數／售價／面積／地產網默認收埋（主頁位置唔好太高，手機尤其）；有條件（例如睇樓偏好預填）會標示「已設 N 項」
+  const more = document.createElement("div");
+  more.className = "ps-more-wrap";
+  more.hidden = true;
+  const tg = document.createElement("button");
+  tg.type = "button";
+  tg.className = "ps-morebtn";
+  tg.setAttribute("aria-expanded", "false");
+  form.insertBefore(tg, form.querySelector(".ps-row2"));
+  form.insertBefore(more, form.querySelector(".ps-row2"));
+  more.append(form.querySelector(".ps-row2"), form.querySelector(".ps-srcs"));
+  const updToggle = () => {
+    const fd = new FormData(form);
+    const n = ["area", "beds", "pmin", "pmax", "smin", "smax"].filter((k) => fd.get(k)).length + (fd.getAll("src").length < SRC_KEYS.length ? 1 : 0);
+    tg.textContent = (more.hidden ? "更多條件" : "收起條件") + (n ? `（已設 ${n} 項）` : "") + (more.hidden ? " ▾" : " ▴");
+  };
+  tg.addEventListener("click", () => { more.hidden = !more.hidden; tg.setAttribute("aria-expanded", String(!more.hidden)); updToggle(); });
+  form.addEventListener("input", updToggle);
+  form.addEventListener("change", updToggle);
+  fillForm(readCond(new URLSearchParams(Object.entries(opts.initial || {}).filter(([, v]) => v != null && v !== "").map(([k, v]) => [k, String(v)]))));
+  updToggle();
+  return;
+}
 form.addEventListener("submit", (e) => {
   e.preventDefault();
   const c = readCond(new FormData(form));
@@ -494,8 +527,10 @@ if (opts.track) $("ps-grid").addEventListener("click", (e) => {
 
 // FormData 同 URLSearchParams 都有 get/getAll，readCond 兩樣都食
 // 嵌入（app）：用戶有設定睇樓偏好就預填（opts.initial＝{deal,beds,pmin,pmax,smin,smax}，單位同表單一樣：買盤萬／租盤元）
+// opts.initialQs：由主頁輪播嘅搜尋表單帶住條件過嚟（query string），直接照呢組條件搜
 const initCond = readCond(embedded
-  ? new URLSearchParams(Object.entries(opts.initial || {}).filter(([, v]) => v != null && v !== "").map(([k, v]) => [k, String(v)]))
+  ? new URLSearchParams(typeof opts.initialQs === "string" ? opts.initialQs
+      : Object.entries(opts.initial || {}).filter(([, v]) => v != null && v !== "").map(([k, v]) => [k, String(v)]))
   : new URLSearchParams(location.search));
 // 首頁 form 會帶埋空白欄位（?deal=S&kw=&beds=），執靚條 URL 方便分享
 const initQs = condToQuery(initCond);
@@ -503,6 +538,7 @@ if (!embedded && location.search.slice(1) !== initQs) history.replaceState(null,
 fillForm(initCond);
 renderRecent();
 startSearch(initCond);
+if (embedded && typeof opts.initialQs === "string") { saveRecent(initCond, condLabel(initCond), condToQuery(initCond)); renderRecent(); }
 
 // ── Escape helpers（同 app.html 一樣；地產網資料當唔可信）──
 function escHtml(s) {
