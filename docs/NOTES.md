@@ -569,3 +569,20 @@ drip sync（`*/2`）同樣被雙重觸發：兩個 invocation 同時揀同一批
 - 「搬日期」唔慳：`UPDATE listing_price_history SET snapshot_date` 實測 5 行（同 insert 一樣，因為 snapshot_date 喺 UNIQUE＋index＋trigger）；
   `hangseng_valuation_history` 改 fetched_at 都要 2 行（idx_hsvh_lookup 包咗 fetched_at）。
   要慳就要加**冇 index 嘅欄**（例如 lph.seen_until）去 update：1 行；冇變價時 `INSERT … WHERE NOT EXISTS` 唔插：0 行。
+
+### listing_price_history 稀疏化（2026-10-29，`seen_until`）
+
+- **寫法**：`lphStmts()`＝兩句 batch：① 最後一行同價 → `UPDATE … SET seen_until = 今日`；② 唔同價／未有記錄 → insert 新一行（`snapshot_date`＝改價日）。
+  實測（Miniflare）：價錢冇變 **5 → 2 行寫入**（update 1＋`trg_lph_seen_until` 同步 `listing_price_seen` 1）；同日 retry 0；新盤／改價照舊 5。讀取每盤 +~5 行。
+- **舊數據唔郁**：之前嘅每日一行照留（`seen_until` NULL）。讀嗰邊一律用 `COALESCE(seen_until, snapshot_date)` 做「呢行最後一日」，新舊混埋都啱。
+- **讀取改咗嘅位**：原價（`/api/estates/:id/listings` 嘅 prev，用 `lphRowAtSql`＝覆蓋 D 嗰段，否則 D 之後第一行）、歷史動態改價（first_h/last_h）、
+  歷史動態睇過嘅盤改價、睇樓記錄對應盤 `price_bounds.last_d`、售價歷史 API 同 `attachPriceHistorySegments`（`expandPriceRuns` 還原段頭段尾，前端唔使改）。
+  冇改（結果本身一樣）：今日改價／新盤（`MAX/MIN snapshot_date`）、改價統計 cuts、進階搜尋、收藏改價點（LAG）、`listing_price_seen` 改價次數。
+- **驗證**：正式 lph 147,927 行逐日重播新寫入 SQL（連 trigger）→ 稀疏版 13,301 行（9%）；11,757 個 ref × 55 個日子（64.7 萬組合）對照舊語意：
+  價錢、改價次序、改價次數、D 日價、今日改價舊價、收藏改價點 **0 差異**。唯一分別（預期）：一個盤喺 D 前後都以同價見到但中間有日子冇見到
+  （屋苑輪流 sync／scrape 甩），第一段開始日顯示 D 而唔係「D 之後第一次見到」（67,287 組合，約 10%）。script：scratchpad `lphv/verify.mjs`。
+  單元測試：`tests/lph-sparse.test.js`。正式 D1 `EXPLAIN` 過新寫入 SQL 同 5 條改過嘅 API query（冇 lph 全表 SCAN）。
+- **Migration**（已喺正式 D1 行咗）：`ALTER TABLE listing_price_history ADD COLUMN seen_until TEXT`＋重建 `trg_lph_seen_upd/_del`（用 COALESCE）＋新 `trg_lph_seen_until`；
+  settings `lph_seen_until_v1=1`。新環境由 `ensurePriceSeen()` 自動做。
+- **回滾**：revert code 即可（舊 code 照每日 insert，新 trigger 對舊寫法兼容）；之後嘅稀疏行舊 code 讀會當「只見過開始嗰日」，要對返就跑一次
+  展開 script（按 seen_until 補返每日行）——一般唔需要。
