@@ -2609,12 +2609,12 @@ function appConfirm(msg, okLabel = '確定', note = '', hl = '') {
   });
 }
 
-function toast(msg, type = "info") {
+function toast(msg, type = "info", ms = 3000) {
   const el = document.createElement("div");
   el.className = `toast ${type}`;
   el.textContent = msg;
   document.body.appendChild(el);
-  setTimeout(() => el.remove(), 3000);
+  setTimeout(() => el.remove(), ms);
 }
 
 // ── API calls ──────────────────────────────────────────────────
@@ -5451,7 +5451,9 @@ async function trackEstate(name, bigestcode, district, isBigest) {
       method: "POST",
       body: JSON.stringify({ name, bigestcode, district, isBigest }),
     });
-    toast(`已新增 ${name}，共 ${data.count} 個盤`, "success");
+    // 新屋苑每日名額用完（worker sec_onboard_per_day）：已加入清單，但數據要排隊，額度日一轉（香港 08:00）後逐個補
+    if (data.queued) toast(`已加入 ${name}。今日新屋苑名額已用完，數據會排隊，明早 8 點後陸續更新（之後會見到放盤同成交）`, "info", 9000);
+    else toast(`已新增 ${name}，共 ${data.count} 個盤`, "success");
     await loadEstates();
     showEstate(data.estate.id, name, district);
   } catch (err) {
