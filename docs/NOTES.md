@@ -532,3 +532,16 @@ drip sync（`*/2`）同樣被雙重觸發：兩個 invocation 同時揀同一批
 - 記錄期間 `first()` 經 `all()` 實現（D1 first() 冇 meta）；本機 10 個端點開／關記錄回應 byte-identical。
 - 第一次本機睇到：成交記錄每次讀 ~1.5 萬行、睇樓日記 ~1.4 萬行、屋苑列表 ~4.6 千行、朋友屋企 ~3.5 千行（本機數據）。
 - **靜態資源 cache-bust（2026-10-28）**：`build-frontend.mjs` build 完會將 HTML 入面 `<script src>`／`<link href>` 指去本站 .js／.css 嘅網址加 `?h=<內容 sha1 前 8 位>`（180 個連結；只改標籤屬性，唔掂 JS 字串）。內容一變 hash 就變 → 用戶即刻拎新版，唔使再等 Pages 嘅 4 小時 cache（以前改 mortgage.js 要等 4 小時先見到）。`public-search.js/.css` 喺 app.html 動態載入嘅 `?v=PS_VER` 仍然用舊方法，改嗰兩個檔要 bump `PS_VER`（search.html 嗰度已經自動 hash）。
+
+## D1 寫入爆額調查（2026-10-29，UTC 10/28 寫入 112k／上限 100k）
+
+- 來源：`perf_log`（HKT 小時）。基線 drip 每小時 ~64 行寫入，只有三個尖峰：
+  1. **每日 06:00 HKT 全量同步**：10/28 24k → 10/29 **49k**（約 2,676 盤 × ~18 行/盤）。
+     每盤每日寫：`listings`（1 + 5 index）、`listing_price_history`（1 + 3 index + trigger 更新 `listing_price_seen`）、`listing_span`（~4）。
+     **隨追蹤屋苑數線性增長**，單靠呢條已經食咗半個免費額度 —— 長遠要 Workers Paid（$5/月）或者減少寫入。
+  2. **新增屋苑**（22:00 HKT）：`POST /api/track` 單次 ~1 萬行寫入＋之後 drip 補齊 ~3.9 萬行。
+  3. 其餘（daily-email 掃描、週報）寫入可忽略。
+- 已修：`/api/track` 即場 `saveSearchResults` 之後補寫 `sync_log`（centanet/listings），drip 同日唔再重做同一單元。
+- 已做：`DROP INDEX idx_lph_ref`（`listing_price_history(ref_no, snapshot_date DESC)`，被 `UNIQUE(ref_no, snapshot_date)` 完全覆蓋、code 冇建冇引用；每盤每日慳 1 行）。
+  回滾：`CREATE INDEX idx_lph_ref ON listing_price_history(ref_no, snapshot_date DESC)`。
+- 未做（要決定）：Workers Paid；或者「價錢冇變就唔寫 lph／listings」嘅結構性減寫（要改 saveXListings ＋ 所有讀 snapshot 嘅 query，風險高）。
