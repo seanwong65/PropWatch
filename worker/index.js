@@ -1865,15 +1865,18 @@ async function saveRentalTxns(db, estateId, txns, source) {
       size_net, price_per_ft, reg_date, source, first_seen)
      VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`
   );
-  const batch = txns
+  const rows = txns
     .filter((t) => t.price && t.reg_date)
-    .map((t) => stmt.bind(
-      estateId, t.transaction_id ?? null, t.building ?? null, _blockKey(t.building),
-      t.floor ?? null, normalizeUnit(t.unit), t.price, t.size_net ?? null,
-      t.price_per_ft ?? null, t.reg_date, source, today
-    ));
+    .map((t) => {
+      const r = { transaction_id: t.transaction_id ?? null, building: t.building ?? null, bldg_key: _blockKey(t.building),
+        floor: t.floor ?? null, unit: normalizeUnit(t.unit), price: t.price, reg_date: t.reg_date };
+      r.args = [estateId, r.transaction_id, r.building, r.bldg_key, r.floor, r.unit, t.price,
+        t.size_net ?? null, t.price_per_ft ?? null, t.reg_date, source, today];
+      return r;
+    });
+  const batch = (await newTxnsOnly(db, "rental_transactions", estateId, rows)).map((r) => stmt.bind(...r.args));
   if (batch.length) await db.batch(batch);
-  return batch.length;
+  return rows.length;
 }
 
 async function saveSearchResults(db, estateId, listings) {
@@ -2211,11 +2214,15 @@ async function saveRicacorpTransactions(db, estateId, txns) {
       reg_date, instrument_date, source, first_seen)
      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`
   );
-  const batch = txns.map(t => stmt.bind(
-    estateId, t.transaction_id, t.building, _blockKey(t.building), t.floor, normalizeUnit(t.unit),
-    t.price, t.size_net, t.price_per_ft, t.reg_date, t.instrument_date, t.source, today
-  ));
-  await db.batch(batch);
+  const rows = txns.map(t => {
+    const r = { transaction_id: t.transaction_id, building: t.building, bldg_key: _blockKey(t.building),
+      floor: t.floor, unit: normalizeUnit(t.unit), price: t.price, reg_date: t.reg_date };
+    r.args = [estateId, r.transaction_id, r.building, r.bldg_key, r.floor, r.unit,
+      t.price, t.size_net, t.price_per_ft, t.reg_date, t.instrument_date, t.source, today];
+    return r;
+  });
+  const batch = (await newTxnsOnly(db, "transactions", estateId, rows)).map((r) => stmt.bind(...r.args));
+  if (batch.length) await db.batch(batch);
   await dropShadowTxns(db, estateId);
 }
 
@@ -2388,11 +2395,15 @@ async function saveHkpTransactions(db, estateId, txns) {
       reg_date, prev_price, gain_pct, held_days, source, first_seen)
      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
   );
-  const batch = txns.map(t => stmt.bind(
-    estateId, t.transaction_id, t.building, _blockKey(t.building), t.floor, normalizeUnit(t.unit),
-    t.price, t.size_net, t.price_per_ft, t.reg_date, t.prev_price, t.gain_pct, t.held_days, t.source, today
-  ));
-  await db.batch(batch);
+  const rows = txns.map(t => {
+    const r = { transaction_id: t.transaction_id, building: t.building, bldg_key: _blockKey(t.building),
+      floor: t.floor, unit: normalizeUnit(t.unit), price: t.price, reg_date: t.reg_date };
+    r.args = [estateId, r.transaction_id, r.building, r.bldg_key, r.floor, r.unit,
+      t.price, t.size_net, t.price_per_ft, t.reg_date, t.prev_price, t.gain_pct, t.held_days, t.source, today];
+    return r;
+  });
+  const batch = (await newTxnsOnly(db, "transactions", estateId, rows)).map((r) => stmt.bind(...r.args));
+  if (batch.length) await db.batch(batch);
   await dropShadowTxns(db, estateId);
 }
 
@@ -2667,6 +2678,39 @@ const TXN_COMBO_COLS =
 // 係同一單。_blockKey 救唔到（'' vs '3'），UNIQUE index 亦擋唔到（NULL 唔會
 // 撞 '3'），所以每次入完數要掃一次：同 estate+樓+室+價+登記日 已經有一行
 // 「有座數」嘅，就刪走「冇座數」嗰行——保留資料最全嗰行。
+// 成交入庫前先剔走已有嘅（2026-10-29）：D1 對 INSERT OR IGNORE 撞咗都計 1 行寫入（AUTOINCREMENT 會掂序號表，
+// Miniflare 實測），而成交 scrape 每日將幾年歷史成批再送一次 → 每日幾千行白寫。改為先讀返呢個屋苑已有嘅
+// transaction_id／combo（讀取額度鬆好多），淨係 insert 新嘅。
+// 「影子」成交（冇座數、但同樓同室同價同登記日已有一行有座數）都剔走：唔剔嘅話每日 insert 完又俾
+// dropShadowTxns 刪走，一來一回白寫十幾行。判斷同 idx_txn_combo／idx_rt_combo／dropShadowTxns 一致；
+// 有漏網嘅照樣由 INSERT OR IGNORE 同 dropShadowTxns 兜底，所以呢度只係慳額度，唔改結果。
+// rows：[{ transaction_id, building, bldg_key, floor, unit, price, reg_date, args }]
+export async function newTxnsOnly(db, table, estateId, rows) {
+  if (!rows.length) return rows;
+  const { results } = await db.prepare(
+    `SELECT transaction_id, building, bldg_key, floor, unit, price, reg_date FROM ${table} WHERE estate_id = ?`
+  ).bind(estateId).all();
+  const key = (b, f, u, p, d) => [b ?? "", f ?? "", u ?? "", p == null ? -1 : Number(p), d ?? ""].join("\u0001");
+  // 新 row 嘅型別要同 DB 存法一致先好比（例如 JS 數字 10 綁落 TEXT 欄會變 '10.0'，DB 唔當重複）：
+  // 文字欄要係 string／null、價錢要係 number／null，否則唔剔，交返 INSERT OR IGNORE 判斷。
+  const plain = (t) => [t.bldg_key, t.floor, t.unit, t.reg_date].every((v) => v == null || typeof v === "string")
+    && (t.price == null || typeof t.price === "number");
+  const ids = new Set(), combos = new Set(), withBldg = new Set();
+  for (const r of results) {
+    if (r.transaction_id != null) ids.add(String(r.transaction_id));
+    combos.add(key(r.bldg_key, r.floor, r.unit, r.price, r.reg_date));
+    if (r.building && r.price != null) withBldg.add(key("", r.floor, r.unit, r.price, r.reg_date));
+  }
+  return rows.filter((t) => {
+    if (!plain(t)) return true;
+    if (table === "transactions" && t.transaction_id != null && ids.has(String(t.transaction_id))) return false;   // 淨係 transactions 有 UNIQUE(transaction_id)
+    if (combos.has(key(t.bldg_key, t.floor, t.unit, t.price, t.reg_date))) return false;
+    if (table === "transactions" && !t.building && t.price != null
+        && withBldg.has(key("", t.floor, t.unit, t.price, t.reg_date))) return false;
+    return true;
+  });
+}
+
 async function dropShadowTxns(db, estateId) {
   await db.prepare(
     `DELETE FROM transactions WHERE id IN (
@@ -5523,19 +5567,19 @@ async function fetchAndSaveTransactions(db, estateId, estateName) {
       reg_date, prev_price, gain_pct, held_days, first_seen)
      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
   );
-  const batch = (raw.data || [])
+  const rows = (raw.data || [])
     // Keep only genuine residential market deals: drop car parks and
     // special / non-arm's-length transactions (公司轉讓、內部轉讓、確認人 etc.)
     // which carry non-market prices and would skew comps & 成交統計.
     .filter(t => t.id && t.transTheme !== "CarPark" && t.specialCase?.value !== true)
-    .map(t => stmt.bind(
-      estateId, String(t.id),
-      t.buildingName ?? null, _blockKey(t.buildingName), t.yAxis ?? null, t.xAxis ?? null,
-      t.transactionPrice ?? null, t.nArea ?? null, t.nUnitPrice ?? null,
-      t.regDate?.slice(0, 10) ?? null, t.prevTransactionPrice ?? null,
-      t.gainPercent ?? null, t.heldDay ?? null,
-      today
-    ));
+    .map(t => {
+      const r = { transaction_id: String(t.id), building: t.buildingName ?? null, bldg_key: _blockKey(t.buildingName),
+        floor: t.yAxis ?? null, unit: t.xAxis ?? null, price: t.transactionPrice ?? null, reg_date: t.regDate?.slice(0, 10) ?? null };
+      r.args = [estateId, r.transaction_id, r.building, r.bldg_key, r.floor, r.unit, r.price, t.nArea ?? null, t.nUnitPrice ?? null,
+        r.reg_date, t.prevTransactionPrice ?? null, t.gainPercent ?? null, t.heldDay ?? null, today];
+      return r;
+    });
+  const batch = (await newTxnsOnly(db, "transactions", estateId, rows)).map((r) => stmt.bind(...r.args));
   if (batch.length) await db.batch(batch);
   await dropShadowTxns(db, estateId);
 
@@ -7081,7 +7125,9 @@ export default {
           // 「cron 係咪死咗」——實測過 cron trigger 會無聲無息停（2026-08-17
           // 00:25 停到 04:18，redeploy 先返生），停咗嘅話任何靠 cron 自己發
           // 嘅 alert 都一定唔會出，所以要有個唔靠 cron 嘅偵測。
-          await setSetting(env.DB, "cron_last_drip", new Date().toISOString());
+          // 每 5 分鐘先寫一次（watchdog 門檻 CRON_STALE_MS 係 25 分鐘，夠晒）：每 2 分鐘寫一日 720 行，讀一行平過寫一行。
+          const lastBeat = Date.parse(await getSetting(env.DB, "cron_last_drip") || "") || 0;
+          if (Date.now() - lastBeat >= 5 * 60000) await setSetting(env.DB, "cron_last_drip", new Date().toISOString());
           // 雙重觸發：已有另一個 invocation 行緊（或者啱啱行完）就收工，唔好再撞同一批單元
           if (!(await acquireDripLock(env.DB))) { console.log("[drip] 跳過：另一個 invocation 持有鎖（cron 雙重觸發）"); return; }
           await sendQueuedEmailPreview(env.DB, env).catch((e) => console.error("email preview failed:", e?.message || e));
