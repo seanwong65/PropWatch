@@ -1115,6 +1115,18 @@
     .vw-cover img { display: block; width: 100%; height: 170px; object-fit: cover; }
     .vw-cover-n { position: absolute; right: 0.5rem; bottom: 0.5rem; background: rgba(15,28,46,0.65); color: #fff; font-size: 0.72rem; padding: 0.15rem 0.55rem; border-radius: 999px; }
     /* 待跟進（主頁）：睇樓記錄資料未齊／未對應放盤 */
+    /* 主頁輪播：待跟進 ＋ 搵樓搜尋表單 */
+    .hc { margin-bottom: 0.8rem; }
+    .hc-view { overflow: hidden; transition: height 0.25s ease; }
+    .hc-track { display: flex; align-items: flex-start; transition: transform 0.3s ease; }
+    .hc-slide { flex: 0 0 100%; min-width: 0; box-sizing: border-box; }
+    .hc-slide .todo-card { margin-bottom: 0; }
+    .hc-shead { font-weight: 700; font-size: 0.9rem; margin: 0 0 0.45rem 0.2rem; }
+    .hc-ps.ps-embed { padding: 0; }
+    .hc-dots { display: flex; justify-content: center; gap: 0.4rem; margin-top: 0.45rem; }
+    .hc-dots[hidden] { display: none; }
+    .hc-dot { width: 8px; height: 8px; border-radius: 999px; border: none; padding: 0; background: var(--border); cursor: pointer; transition: width 0.2s, background 0.2s; }
+    .hc-dot.on { width: 20px; background: var(--brand-bright, var(--accent2)); }
     .todo-card { background: var(--glass-bg); border: 1px solid var(--border); border-left: 3px solid var(--accent); border-radius: 14px; padding: 0.65rem 0.9rem; margin-bottom: 0.8rem; }
     .todo-head { display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; cursor: pointer; font-weight: 700; font-size: 0.9rem; }
     .todo-sub { font-size: 0.76rem; color: var(--muted); margin: 0.2rem 0 0.35rem; line-height: 1.5; }
@@ -3224,6 +3236,7 @@ async function showDashboard(estates) {
       </div>
     </div>
   `;
+  renderHomeCarousel();   // 「待跟進」＋搵樓搜尋輪播（見 renderHomeCarousel）
   // 預設開「睇樓日記」；「今日動態」撳入去先載（慳 D1：今日動態一次讀幾萬 rows）
   switchDashTab('comps');
 }
@@ -3290,7 +3303,7 @@ async function pickEstateForQuick(id) {
 // 手機版 sidebar 收埋咗，快捷掣要幫手拉返出嚟先 focus 到個搜尋框
 // 側欄「🔍 搵樓」：喺主畫面（#main）入面開四大地產網搜尋——同公開 /search 頁共用
 // public-search.js／.css（第一次先載入）。「🔔 追蹤加減價」直接帶去側欄屋苑搜尋，唔使再登記。
-const PS_VER = '20261022b';   // 改 public-search.js/.css 要同 search.html 一齊 bump（Pages 靜態檔 cache 4 小時）
+const PS_VER = '20261029b';   // 改 public-search.js/.css 要同 search.html 一齊 bump（Pages 靜態檔 cache 4 小時）
 let _psAssets = null;
 function _loadPublicSearchAssets() {
   if (!_psAssets) _psAssets = new Promise((resolve, reject) => {
@@ -3321,7 +3334,7 @@ function _searchDefaultsFromPrefs() {
     smin: p.size_min, smax: p.size_max,
   };
 }
-async function openPublicSearch() {
+async function openPublicSearch(initialQs) {
   if (window.innerWidth <= 768) closeSidebar();
   activeEstateId = null;
   _viewingEstateId = null;
@@ -3336,7 +3349,7 @@ async function openPublicSearch() {
     const root = document.getElementById('psEmbedRoot');
     if (!root) return;      // 期間用戶已經去咗第度
     root.innerHTML = '';
-    window.PublicSearch.mount(root, { embedded: true, track: trackNameFromSearch, initial: _searchDefaultsFromPrefs(), fav: _searchFav });
+    window.PublicSearch.mount(root, { embedded: true, track: trackNameFromSearch, initial: _searchDefaultsFromPrefs(), initialQs: typeof initialQs === 'string' ? initialQs : undefined, fav: _searchFav });
   } catch (_) {
     const root = document.getElementById('psEmbedRoot');
     if (root) root.innerHTML = '<div style="color:var(--down)">載入失敗，請再試</div>';
@@ -3888,11 +3901,75 @@ function viewingTodos() {
   // 最近睇嘅排先（記憶仲新，跟進最容易）
   return out.sort((a, b) => String(b.v.view_date || '').localeCompare(String(a.v.view_date || '')));
 }
+// ── 主頁輪播（2026-10-29）：「待跟進」＋「🔍 搵樓：四大地產網一次過搜尋」同一個位置 ──────────
+// 冇待跟進就淨係見搜尋表單；有就兩張卡左右輪播（點點／撳點點／手指橫掃）。
+// 撳搜尋 → 跳去搵樓頁（openPublicSearch）照條件搜。結構只建一次（同 #viewing-todo 一齊重建），
+// renderViewingTodo 只更新待跟進嗰張，所以用戶打緊嘅搜尋條件唔會被洗走。
+let _hcIdx = 0, _hcObs = null;
+function renderHomeCarousel() {
+  const host = document.getElementById('viewing-todo');
+  if (!host) return;
+  _hcIdx = 0;
+  host.innerHTML = `<div class="hc">
+    <div class="hc-view" id="hc-view"><div class="hc-track" id="hc-track">
+      <div class="hc-slide" id="hc-todo" style="display:none"></div>
+      <div class="hc-slide" id="hc-search"><div class="hc-shead">🔍 搵樓：四大地產網一次過搜尋</div><div class="ps-root ps-embed hc-ps" id="hc-ps"></div></div>
+    </div></div>
+    <div class="hc-dots" id="hc-dots" hidden></div>
+  </div>`;
+  const view = document.getElementById('hc-view');
+  let x0 = null, y0 = 0;
+  view.addEventListener('touchstart', (e) => { x0 = e.touches[0].clientX; y0 = e.touches[0].clientY; }, { passive: true });
+  view.addEventListener('touchend', (e) => {
+    if (x0 === null) return;
+    const dx = e.changedTouches[0].clientX - x0, dy = e.changedTouches[0].clientY - y0; x0 = null;
+    if (Math.abs(dx) > 50 && Math.abs(dx) > Math.abs(dy) * 1.5) hcGo(_hcIdx + (dx < 0 ? 1 : -1));
+  }, { passive: true });
+  if (_hcObs) _hcObs.disconnect();
+  if (window.ResizeObserver) {
+    _hcObs = new ResizeObserver(() => hcFit());
+    for (const id of ['hc-todo', 'hc-search']) _hcObs.observe(document.getElementById(id));
+  }
+  renderViewingTodo();    // 資料已載入就即刻填待跟進
+  hcLayout();
+  (async () => {
+    const el = document.getElementById('hc-ps');
+    try { await _loadPublicSearchAssets(); } catch (_) { document.getElementById('hc-search')?.remove(); hcLayout(); return; }
+    if (document.getElementById('hc-ps') !== el) return;      // 期間已經離開主頁
+    window.PublicSearch.mount(el, { embedded: true, formOnly: true, initial: _searchDefaultsFromPrefs(), onSearch: (qs) => openPublicSearch(qs) });
+    hcFit();
+  })();
+}
+function _hcSlides() {
+  const todo = document.getElementById('hc-todo'), search = document.getElementById('hc-search');
+  return [todo && todo.innerHTML.trim() ? todo : null, search].filter(Boolean);
+}
+function hcGo(i) { _hcIdx = i; hcLayout(); }
+function hcLayout() {
+  const track = document.getElementById('hc-track');
+  if (!track) return;
+  const todo = document.getElementById('hc-todo');
+  const slides = _hcSlides();
+  if (todo) todo.style.display = slides.includes(todo) ? '' : 'none';
+  _hcIdx = Math.max(0, Math.min(_hcIdx, slides.length - 1));
+  track.style.transform = `translateX(-${_hcIdx * 100}%)`;
+  const dots = document.getElementById('hc-dots');
+  if (dots) {
+    dots.hidden = slides.length < 2;
+    dots.innerHTML = slides.map((s, i) => `<button type="button" class="hc-dot${i === _hcIdx ? ' on' : ''}" aria-label="${i === 0 ? '待跟進' : '搵樓搜尋'}" onclick="hcGo(${i})"></button>`).join('');
+  }
+  hcFit();
+}
+function hcFit() {
+  const view = document.getElementById('hc-view');
+  const s = _hcSlides()[_hcIdx];
+  if (view && s) view.style.height = s.offsetHeight + 'px';
+}
 function renderViewingTodo() {
-  const el = document.getElementById('viewing-todo');
+  const el = document.getElementById('hc-todo');
   if (!el) return;
   const todos = _compsScope ? [] : viewingTodos();
-  if (!todos.length) { el.innerHTML = ''; return; }
+  if (!todos.length) { el.innerHTML = ''; hcLayout(); return; }
   const shown = _todoOpen ? (_todoAll ? todos : todos.slice(0, 5)) : [];
   const title = v => {
     const blk = (v.block && String(v.block) !== v.estate_name) ? escHtml(String(v.block)) + '座' : '';
@@ -3913,6 +3990,7 @@ function renderViewingTodo() {
     ${rows}
     ${_todoOpen && todos.length > 5 ? `<button class="todo-more" onclick="_todoAll=!_todoAll;renderViewingTodo()">${_todoAll ? '只睇最近 5 個 ▴' : `睇晒全部 ${todos.length} 個 ▾`}</button>` : ''}
   </div>`;
+  hcLayout();
 }
 function todoDismiss(id) {
   const s = _todoDismissed(); s.add(Number(id));

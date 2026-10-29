@@ -598,3 +598,11 @@ drip sync（`*/2`）同樣被雙重觸發：兩個 invocation 同時揀同一批
 - 順手：`/api/track` 舊屋苑今日已被 drip 做過 centanet 放盤就唔再抓再寫（以前平白 ~1 萬行）。
 - 名額係軟上限（兩個 request 同時搶位可能多放一個）。測試：`tests/onboard.test.js`。
 - 副作用：排隊中嘅屋苑，用戶見到「暫無放盤資料」直到補位；`/api/estates/:id/*` 照常可讀。
+
+### 主頁輪播：待跟進 ＋ 搵樓搜尋（2026-10-29）
+
+- 主頁 `#viewing-todo` 位置改為輪播（`renderHomeCarousel`／`hcLayout`／`hcGo`／`hcFit`）：有待跟進就「待跟進｜🔍 搵樓：四大地產網一次過搜尋」兩張卡（點點、撳點點、手指橫掃；預設見待跟進）；冇待跟進就淨係見搜尋表單，冇點點。
+- 搜尋卡係 `PublicSearch.mount(el, {formOnly:true, onSearch})`：只畫表單（預填睇樓偏好），撳搜尋 → `openPublicSearch(qs)` 跳去搵樓頁（`opts.initialQs` 帶條件、即刻搜、記入最近搜尋）。
+  地區／房數／售價／面積／地產網默認收埋喺「更多條件 ▾」（有條件會標「已設 N 項」，例如偏好預填），主頁唔會太高。
+- 結構只建一次，`renderViewingTodo` 只更新 `#hc-todo`（用戶打緊嘅搜尋條件唔會被洗走）；高度用 ResizeObserver 跟住當前卡。
+- 改 `public-search.js/.css` 要 bump `app.html` 嘅 `PS_VER` 同 `search.html` 兩個 `?v=`（現 `20261029b`）。
