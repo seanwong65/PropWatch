@@ -1116,10 +1116,10 @@
     .vw-cover-n { position: absolute; right: 0.5rem; bottom: 0.5rem; background: rgba(15,28,46,0.65); color: #fff; font-size: 0.72rem; padding: 0.15rem 0.55rem; border-radius: 999px; }
     /* 待跟進（主頁）：睇樓記錄資料未齊／未對應放盤 */
     /* 主頁輪播：待跟進 ＋ 搵樓搜尋表單 */
-    .hc { margin-bottom: 0.8rem; }
+    .hc { margin-bottom: 0.4rem; }
     .hc-view { overflow: hidden; transition: height 0.25s ease; }
     .hc-track { display: flex; align-items: flex-start; transition: transform 0.3s ease; }
-    .hc-slide { flex: 0 0 100%; min-width: 0; box-sizing: border-box; }
+    .hc-slide { flex: 0 0 100%; min-width: 0; box-sizing: border-box; padding-bottom: 12px; }   /* 俾卡片陰影位，唔好俾 overflow:hidden 切崩 */
     .hc-slide .todo-card { margin-bottom: 0; }
     .hc-shead { font-weight: 700; font-size: 0.9rem; margin: 0 0 0.45rem 0.2rem; }
     .hc-ps.ps-embed { padding: 0; }
@@ -3303,7 +3303,7 @@ async function pickEstateForQuick(id) {
 // 手機版 sidebar 收埋咗，快捷掣要幫手拉返出嚟先 focus 到個搜尋框
 // 側欄「🔍 搵樓」：喺主畫面（#main）入面開四大地產網搜尋——同公開 /search 頁共用
 // public-search.js／.css（第一次先載入）。「🔔 追蹤加減價」直接帶去側欄屋苑搜尋，唔使再登記。
-const PS_VER = '20261029b';   // 改 public-search.js/.css 要同 search.html 一齊 bump（Pages 靜態檔 cache 4 小時）
+const PS_VER = '20261030a';   // 改 public-search.js/.css 要同 search.html 一齊 bump（Pages 靜態檔 cache 4 小時）
 let _psAssets = null;
 function _loadPublicSearchAssets() {
   if (!_psAssets) _psAssets = new Promise((resolve, reject) => {
@@ -3936,7 +3936,7 @@ function renderHomeCarousel() {
     const el = document.getElementById('hc-ps');
     try { await _loadPublicSearchAssets(); } catch (_) { document.getElementById('hc-search')?.remove(); hcLayout(); return; }
     if (document.getElementById('hc-ps') !== el) return;      // 期間已經離開主頁
-    window.PublicSearch.mount(el, { embedded: true, formOnly: true, initial: _searchDefaultsFromPrefs(), onSearch: (qs) => openPublicSearch(qs) });
+    window.PublicSearch.mount(el, { embedded: true, formOnly: true, expanded: window.innerWidth > 768, initial: _searchDefaultsFromPrefs(), onSearch: (qs) => openPublicSearch(qs) });   // 闊屏預設展開（同搵樓頁一樣）；手機收埋免得主頁太高
     hcFit();
   })();
 }
