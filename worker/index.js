@@ -677,6 +677,10 @@ const SEC_DEFS = [
     desc: "免費版每個睇樓記錄（同一單位）可以手動試查恒生估值一次（查唔到數據都算一次，刪咗再加同一單位唔會重置）。呢個係每個免費帳戶終身最多試查幾多個單位，純粹防濫用恒生接口。0 = 完全唔俾試。" },
   { key: "sec_paid_max_friend_homes", def: 30, min: 1, max: 500, label: "收費版：最多朋友屋企",
     desc: "收費用戶（含 admin 以外）可以記低幾多個「朋友屋企」，純粹防濫用嘅安全上限。" },
+  { key: "sec_onboard_per_day", def: 1, min: 1, max: 20, label: "新屋苑：每日最多完整 sync 幾個",
+    desc: "從未 sync 過嘅新屋苑，第一次要抓齊 4 個地產網放盤＋幾年成交，一個大屋苑約寫 ~40k 行 D1（免費版每日上限 10 萬，普通日已用 ~48k）。"
+        + "每個 UTC 日（＝香港 08:00 重置）最多俾呢個數量嘅新屋苑做完整 sync，超出嘅排隊，次日按加入先後逐個做；"
+        + "用戶畫面會見到「已加入，明早更新」。排隊累積到 5 個會 Telegram 通知。升 Workers Paid 之後可以調高。admin 自己加屋苑唔受限（但照計數）。" },
   { key: "sec_free_max_estates", def: 3, min: 1, max: 50, label: "免費版：最多追蹤屋苑",
     desc: "免費用戶可以追蹤幾多個屋苑。" },
   { key: "sec_paid_max_estates", def: 15, min: 1, max: 100, label: "收費版：最多追蹤屋苑",
@@ -5890,7 +5894,7 @@ export function pickRotationEstates(restIds, lastSynced, days = SYNC_ROTATE_DAYS
 // role='system'（system-market，十大屋苑）嘅屋苑**唔**行每日 sync，只行普通輪流（約每 5 日一次）：
 // 十大屋苑一日約 4,600 個盤，每日 sync 會寫 ~60–70k rows，單靠呢個就食晒 D1 免費版每日 100k 寫入額度
 // （2026-10-23 試過一日爆咗，之後一段時間所有寫入失敗）。要改返每日 sync 之前，先確認 D1 額度／升級 Workers Paid。
-async function getDailySyncEstateIds(db, today, activeEstateIds) {
+async function getDailySyncEstateIds(db, today, activeEstateIds, neverSynced = new Map()) {
   const { results: favRows } = await d1Retry(() => db.prepare(
     `SELECT DISTINCT ae.estate_id AS id FROM account_estates ae
      JOIN accounts a ON a.id = ae.account_id
@@ -5898,11 +5902,12 @@ async function getDailySyncEstateIds(db, today, activeEstateIds) {
        AND (a.tier = 'paid' OR a.role = 'admin')
        AND (a.is_active IS NULL OR a.is_active = 1)`
   ).all(), "dailySync/fav");
-  const fav = new Set(favRows.map((r) => r.id));
+  // 從未 sync 過嘅新屋苑（最愛都一樣）唔跟日常計劃，改經「每日新屋苑名額」（sec_onboard_per_day）一個個放行
+  const fav = new Set(favRows.map((r) => r.id).filter((id) => !neverSynced.has(id)));
   let plan = null;
   try { plan = JSON.parse(await getSetting(db, "sync_plan") || "null"); } catch (_) {}
   if (plan?.date !== today) {
-    const restIds = activeEstateIds.filter((id) => !fav.has(id));
+    const restIds = activeEstateIds.filter((id) => !fav.has(id) && !neverSynced.has(id));
     const from = new Date(Date.parse(`${today}T00:00:00Z`) - (SYNC_ROTATE_DAYS - 1) * 86400000).toISOString().slice(0, 10);
     const { results } = await d1Retry(() => db.prepare(
       `SELECT estate_id, MAX(sync_date) AS d FROM sync_log
@@ -5913,19 +5918,77 @@ async function getDailySyncEstateIds(db, today, activeEstateIds) {
     plan = { date: today, rotate: pickRotationEstates(restIds, last) };
     await setSetting(db, "sync_plan", JSON.stringify(plan));
   }
-  return new Set([...fav, ...(plan.rotate || [])]);
+  // 新屋苑名額：排隊（從未 sync 過、未放行）按 id 先後補位
+  const ob = await readOnboard(db);
+  const cap = (await getSecCfg(db)).sec_onboard_per_day;
+  const { grant } = planOnboarding({ never: [...neverSynced.keys()], granted: ob.ids.map((x) => x.id), cap });
+  if (grant.length) {
+    for (const id of grant) ob.ids.push({ id, hk: today });
+    await setSetting(db, "onboard_slots", JSON.stringify(ob));
+    for (const id of grant) await hsQueueIfPaidSubscribed(db, id, neverSynced.get(id)).catch(() => {});
+  }
+  // 今日（香港日）放行嘅一律今日做晒；跨咗香港午夜（同一個 UTC 日）就唔好再重做一次
+  const grantedToday = ob.ids.filter((x) => x.hk === today).map((x) => x.id);
+  return new Set([...fav, ...(plan.rotate || []), ...grantedToday]);
+}
+
+// ── 新屋苑名額（2026-10-29）──────────────────────────────────────────────
+// 一個從未 sync 過嘅大屋苑第一次抓齊要寫 ~40k 行 D1，免費版每日上限 10 萬（普通日已 ~48k）。
+// 所以每個 UTC 日（＝D1 額度日，香港 08:00 重置）只放行 sec_onboard_per_day 個；超出嘅排隊，
+// 額度日一轉就按 id 先後逐個補位（drip 每次 buildPendingUnits 都會執）。
+// settings.onboard_slots = { day: UTC 日, ids: [{ id, hk: 放行嗰日嘅香港日 }] }。
+// 兩個 request 同時搶位有機會多放一個（讀完再寫），名額係軟上限，唔值得為此加鎖。
+const utcDayStr = () => new Date().toISOString().slice(0, 10);
+async function readOnboard(db) {
+  let o = null;
+  try { o = JSON.parse(await getSetting(db, "onboard_slots") || "null"); } catch (_) {}
+  const day = utcDayStr();
+  return o?.day === day && Array.isArray(o.ids) ? o : { day, ids: [] };
+}
+// 純函數：never＝從未 sync 過嘅生效屋苑 id；granted＝呢個 UTC 日已放行；回傳今次新放行 + 仲排緊隊
+export function planOnboarding({ never, granted, cap }) {
+  const g = new Set(granted);
+  const waiting = [...never].filter((id) => !g.has(id)).sort((a, b) => a - b);
+  const room = Math.max(0, cap - g.size);
+  return { grant: waiting.slice(0, room), queued: waiting.slice(room) };
+}
+// /api/track 用：呢個屋苑可唔可以即刻做完整 sync。force＝admin（唔受限但照計數）
+async function claimOnboardSlot(db, estateId, { force = false } = {}) {
+  const ob = await readOnboard(db);
+  if (ob.ids.some((x) => x.id === estateId)) return true;
+  const cap = (await getSecCfg(db)).sec_onboard_per_day;
+  if (!force && ob.ids.length >= cap) return false;
+  ob.ids.push({ id: estateId, hk: hkDateStr() });
+  await setSetting(db, "onboard_slots", JSON.stringify(ob));
+  await setSetting(db, "sync_idle_until", "0");   // 唔好等 idle cache 過期，下一轉 cron 即刻開工
+  return true;
+}
+// 仲排緊隊嘅新屋苑 id（生效中、從未 sync 成功過、今個 UTC 日未放行）
+async function onboardQueue(db) {
+  const ob = await readOnboard(db);
+  const { results } = await db.prepare(
+    `SELECT e.id FROM estates e
+     WHERE (e.is_disabled = 0 OR e.is_disabled IS NULL)
+       AND EXISTS (SELECT 1 FROM account_estates ae WHERE ae.estate_id = e.id AND ae.paused_at IS NULL)
+       AND NOT EXISTS (SELECT 1 FROM sync_log s WHERE s.estate_id = e.id AND s.kind = 'listings' AND s.ok = 1)
+     ORDER BY e.id`).all();
+  const g = new Set(ob.ids.map((x) => x.id));
+  return results.map((r) => r.id).filter((id) => !g.has(id));
+}
+// 排隊嘅屋苑放行時，如果有收費用戶（連 admin）訂閱，就幫佢插隊查恒生估值（原本喺 /api/track 即場做，排隊嗰陣屋苑未有數據，查嚟冇用）
+async function hsQueueIfPaidSubscribed(db, estateId, name) {
+  if (!name) return;
+  const paid = await db.prepare(
+    `SELECT 1 FROM account_estates ae JOIN accounts a ON a.id = ae.account_id
+     WHERE ae.estate_id = ? AND ae.paused_at IS NULL AND (a.tier = 'paid' OR a.role = 'admin') LIMIT 1`).bind(estateId).first();
+  if (paid) await hsQueuePriorityScan(db, estateId, name);
 }
 
 // 用戶今日新加屋苑：如果今日個 plan 已經定咗，插入去，令 drip 下一輪就補齊
 // （唔使等聽日）。plan 未定（06:00 前）就唔使做，定 plan 時「從未 sync 過」自然到期。
+// 2026-10-29 起新屋苑唔再經 plan.rotate，改經新屋苑名額（claimOnboardSlot）；呢度淨係叫醒 drip。
 async function syncPlanAddEstate(db, estateId) {
   await setSetting(db, "sync_idle_until", "0");   // 唔好等 idle cache 過期，下一轉 cron 即刻補做
-  let plan = null;
-  try { plan = JSON.parse(await getSetting(db, "sync_plan") || "null"); } catch (_) {}
-  if (plan?.date === hkDateStr() && !plan.rotate.includes(estateId)) {
-    plan.rotate.push(estateId);
-    await setSetting(db, "sync_plan", JSON.stringify(plan));
-  }
 }
 
 // 攞返今日全部未搞定嘅單元（唔執行，淨係計）。抽出嚟俾 syncNextUnit（單個，
@@ -5933,14 +5996,16 @@ async function syncPlanAddEstate(db, estateId) {
 // 兩者都要用返同一套「邊個 pending」邏輯，唔可以有兩份漂移。
 async function buildPendingUnits(db, today) {
   const { results: allActive } = await d1Retry(() => db.prepare(
-    `SELECT * FROM estates e
+    `SELECT e.*, NOT EXISTS (SELECT 1 FROM sync_log s WHERE s.estate_id = e.id AND s.kind = 'listings' AND s.ok = 1) AS never_synced
+     FROM estates e
      WHERE (e.is_disabled = 0 OR e.is_disabled IS NULL)
        AND EXISTS (SELECT 1 FROM account_estates ae
                    WHERE ae.estate_id = e.id AND ae.paused_at IS NULL)
      ORDER BY e.id`
   ).all(), "buildPendingUnits/estates");
   // 只 sync：付費最愛（每日）＋今日輪到嘅屋苑（每個最多隔 7 日）。
-  const todayIds = await getDailySyncEstateIds(db, today, allActive.map((e) => e.id));
+  const todayIds = await getDailySyncEstateIds(db, today, allActive.map((e) => e.id),
+    new Map(allActive.filter((e) => e.never_synced).map((e) => [e.id, e.name])));
   const estates = allActive.filter((e) => todayIds.has(e.id));
   const { results: log } = await d1Retry(() => db.prepare(
     "SELECT estate_id, source, kind, ok, attempts FROM sync_log WHERE sync_date = ?"
@@ -8250,9 +8315,27 @@ export default {
         }
         // 加訂閱(已有就唔郁,保留原本 added_at/偏好)。added_at=今日 =
         // 呢個 account 由今日開始先見到售價歷史/成交/動態。
-        await db.prepare(
+        const subRes = await db.prepare(
           "INSERT OR IGNORE INTO account_estates (account_id, estate_id) VALUES (?, ?)"
         ).bind(session.account_id, estate.id).run();
+        await ensureSyncLog(db);
+        const today = hkDateStr();
+        // 新屋苑名額（sec_onboard_per_day）：從未 sync 成功過嘅屋苑第一次抓齊要寫 ~40k 行 D1，
+        // 每個 UTC 日只放行 N 個；超出嘅照加入清單，但唔抓，排隊等額度日一轉（見 getDailySyncEstateIds）。
+        const everSynced = await db.prepare(
+          "SELECT 1 FROM sync_log WHERE estate_id = ? AND kind = 'listings' AND ok = 1 LIMIT 1").bind(estate.id).first();
+        if (!everSynced && !(await claimOnboardSlot(db, estate.id, { force: isAdminSession(session) }))) {
+          let queued = 0;
+          try { queued = (await onboardQueue(db)).length; } catch (_) {}
+          // 呢個屋苑係今次先入隊（第一個訂閱者）而且隊列累積到 5 個或以上先通知 admin：應該考慮升 Workers Paid
+          if (queued >= 5 && (subRes.meta?.changes || 0) > 0) {
+            const subs = await db.prepare("SELECT COUNT(*) c FROM account_estates WHERE estate_id = ?").bind(estate.id).first().catch(() => null);
+            if ((subs?.c || 0) <= 1) {
+              notifyOwner(env, ctx, `⏳ 搵樓日記：新屋苑排隊 ${queued} 個\n每日只放行 ${(await getSecCfg(db)).sec_onboard_per_day} 個新屋苑做完整 sync（D1 免費版每日寫入上限 10 萬），排隊緊嘅會逐日補。\n最新入隊：${estate.name}\n想即刻全部做：升 Workers Paid，再喺 admin 設定調高「新屋苑：每日最多完整 sync 幾個」。`);
+            }
+          }
+          return json(200, { ok: true, estate, count: 0, queued: true });
+        }
         // 收費用戶（連 admin）加新屋苑：如果成個系統都未有人查過呢個屋苑
         // 嘅估值，插隊掃描，唔使等日常輪流。前端冇掣，純粹 backend 自動做
         // （見「批量查估值」剷走嗰個 commit）。一個 SELECT + 一個 INSERT，
@@ -8260,18 +8343,24 @@ export default {
         if (isPaidSession(session)) {
           try { await hsQueuePriorityScan(db, estate.id, estate.name); } catch (_) {}
         }
-        try { await syncPlanAddEstate(db, estate.id); } catch (_) {}   // 新屋苑第一次即日補齊
+        try { await syncPlanAddEstate(db, estate.id); } catch (_) {}   // 叫醒 drip（新屋苑名額已放行／舊屋苑）
+        // drip 今日已經做過 centanet 放盤就唔使再抓再寫（舊屋苑被另一個用戶加入，平白 ~1 萬行寫入）
+        const doneToday = await db.prepare(
+          "SELECT 1 FROM sync_log WHERE estate_id = ? AND source = 'centanet' AND kind = 'listings' AND sync_date = ? AND ok = 1").bind(estate.id, today).first();
+        if (doneToday) {
+          const c = await db.prepare("SELECT COUNT(*) c FROM listings WHERE estate_id = ? AND snapshot_date = ? AND source = 'centanet'").bind(estate.id, today).first();
+          return json(200, { ok: true, estate, count: c?.c || 0 });
+        }
         const data = await fetchCentanet(name);
         const listings = data.data || [];
         await saveSearchResults(db, estate.id, listings);
         // 呢度已經用同 drip 一模一樣嘅 scrape＋save 寫咗今日 centanet 放盤；記低 sync_log，
         // 否則 drip 當日會再寫多一次（新增一個大屋苑平白多 ~1 萬行寫入，2026-10-28 D1 寫入爆額成因之一）。
         try {
-          await ensureSyncLog(db);
           await db.prepare(
             `INSERT OR IGNORE INTO sync_log (estate_id, source, kind, sync_date, ok, attempts, detail)
              VALUES (?, 'centanet', 'listings', ?, 1, 1, ?)`
-          ).bind(estate.id, hkDateStr(), `${listings.length} 個盤（加入屋苑時已抓）`).run();
+          ).bind(estate.id, today, `${listings.length} 個盤（加入屋苑時已抓）`).run();
         } catch (_) { /* 記唔到只係 drip 重做一次，唔影響結果 */ }
 
         return json(200, { ok: true, estate, count: listings.length });
@@ -11474,3 +11563,4 @@ export default {
 
 // 俾測試用（tests/lph-sparse.test.js、本機驗證 script）
 export { lphRowAtSql, expandPriceRuns, collapsePriceHistory, LPH_TOUCH_SQL, LPH_INSERT_SQL, TRG_LPH_SEEN_UPD, TRG_LPH_SEEN_DEL, TRG_LPH_SEEN_UNTIL };
+export { claimOnboardSlot, readOnboard, onboardQueue, getDailySyncEstateIds };

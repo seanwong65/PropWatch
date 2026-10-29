@@ -586,3 +586,15 @@ drip sync（`*/2`）同樣被雙重觸發：兩個 invocation 同時揀同一批
   settings `lph_seen_until_v1=1`。新環境由 `ensurePriceSeen()` 自動做。
 - **回滾**：revert code 即可（舊 code 照每日 insert，新 trigger 對舊寫法兼容）；之後嘅稀疏行舊 code 讀會當「只見過開始嗰日」，要對返就跑一次
   展開 script（按 seen_until 補返每日行）——一般唔需要。
+
+### 新屋苑每日名額（2026-10-29，`sec_onboard_per_day`）
+
+- **問題**：從未 sync 過嘅新屋苑第一次抓齊要寫 ~40k 行 D1（`/api/track` 即場 ~10k＋drip 補齊 ~31k），免費版每日上限 10 萬、普通日已 ~48k，同日加兩個就爆。
+- **做法**：每個 **UTC 日**（＝D1 額度日，香港 08:00 重置）只放行 `sec_onboard_per_day`（預設 1，admin 設定頁「新屋苑：每日最多完整 sync 幾個」可調）個「從未 sync 成功過」（`sync_log` 冇 `kind='listings' AND ok=1`）嘅屋苑做完整 sync。
+  - 放行狀態：`settings.onboard_slots = {day, ids:[{id, hk}]}`（`hk`＝放行嗰日嘅香港日，同日一直入計劃，過咗香港午夜唔重做）。
+  - `/api/track`：新屋苑 `claimOnboardSlot`；有位照舊即場抓 centanet；冇位只加入清單，回 `{queued:true}`，前端 toast「明早 8 點後陸續更新」。admin 加屋苑 `force`（唔受限但照計數）。
+  - drip：`buildPendingUnits` 帶 `never_synced`；`getDailySyncEstateIds` 將從未 sync 嘅屋苑（連最愛）排出日常計劃，名額有空就按 id 先後補位（額度日一轉後 ≤30 分鐘，受 `sync_idle_until` 影響）。放行時順手幫收費訂閱者排恒生插隊掃描（`hsQueueIfPaidSubscribed`，原本喺 track 即場做，排隊嗰陣冇數據查嚟冇用）。
+  - Telegram：新屋苑第一個訂閱者令排隊 ≥5 個時通知（`onboardQueue`）：「考慮升 Workers Paid，再調高名額」。
+- 順手：`/api/track` 舊屋苑今日已被 drip 做過 centanet 放盤就唔再抓再寫（以前平白 ~1 萬行）。
+- 名額係軟上限（兩個 request 同時搶位可能多放一個）。測試：`tests/onboard.test.js`。
+- 副作用：排隊中嘅屋苑，用戶見到「暫無放盤資料」直到補位；`/api/estates/:id/*` 照常可讀。
