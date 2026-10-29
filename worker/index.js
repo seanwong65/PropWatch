@@ -8157,6 +8157,15 @@ export default {
         const data = await fetchCentanet(name);
         const listings = data.data || [];
         await saveSearchResults(db, estate.id, listings);
+        // 呢度已經用同 drip 一模一樣嘅 scrape＋save 寫咗今日 centanet 放盤；記低 sync_log，
+        // 否則 drip 當日會再寫多一次（新增一個大屋苑平白多 ~1 萬行寫入，2026-10-28 D1 寫入爆額成因之一）。
+        try {
+          await ensureSyncLog(db);
+          await db.prepare(
+            `INSERT OR IGNORE INTO sync_log (estate_id, source, kind, sync_date, ok, attempts, detail)
+             VALUES (?, 'centanet', 'listings', ?, 1, 1, ?)`
+          ).bind(estate.id, hkDateStr(), `${listings.length} 個盤（加入屋苑時已抓）`).run();
+        } catch (_) { /* 記唔到只係 drip 重做一次，唔影響結果 */ }
 
         return json(200, { ok: true, estate, count: listings.length });
       }
