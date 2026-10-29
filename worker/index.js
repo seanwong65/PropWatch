@@ -374,7 +374,11 @@ async function getHangSengValuation(estateName, blockNum, floorNum, flatLetter) 
 // 每日自動掃描三條路都用呢個，唔好各自抄一次 SQL。
 async function saveHangSengValuation(db, estateId, block, floor, flat, v) {
   const price = Number(v.price), area = Number(v.saleableArea), vdate = v.valuationDate;
-  await db.prepare(
+  // 估值冇變（恒生通常一個月先更新一次）就淨係更新 fetched_at：D1 計 1 行寫入，REPLACE 要 4 行（2026-10-29 Miniflare 實測）
+  const upd = await db.prepare(
+    "UPDATE hangseng_valuations SET fetched_at = datetime('now') WHERE estate_id=? AND building=? AND floor=? AND flat=? AND price IS ? AND saleable_area IS ? AND valuation_date IS ?"
+  ).bind(estateId, block, floor, flat, price, area, vdate ?? null).run();
+  if (!(upd.meta?.changes > 0)) await db.prepare(
     "INSERT OR REPLACE INTO hangseng_valuations (estate_id, building, floor, flat, price, saleable_area, valuation_date) VALUES (?,?,?,?,?,?,?)"
   ).bind(estateId, block, floor, flat, price, area, vdate).run();
   const todayEntry = await db.prepare(
