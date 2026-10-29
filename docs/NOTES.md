@@ -565,3 +565,7 @@ drip sync（`*/2`）同樣被雙重觸發：兩個 invocation 同時揀同一批
   `cron_last_drip` heartbeat 由每 2 分鐘改每 5 分鐘寫一次。測試：`tests/txnfilter.test.js`（同 INSERT OR IGNORE 結果對照）。
 - 未做嘅大項：`listing_price_history` 改為「價錢有變先寫」（每盤每日慳 5 行 ≈ 36%），要逐個 audit ~20 個讀 lph 嘅 query
   （好多靠「每日一行」，例如 `listing_price_seen.last_date`、`MAX(snapshot_date)`）；AUTOINCREMENT 拎走要重建 15 萬行表，免費額度做唔到。
+- 恒生估值（2026-10-29）：估值冇變就 `UPDATE fetched_at`（1 行）代替 `INSERT OR REPLACE`（4 行）；history 照舊每日一筆（圖唔變）。
+- 「搬日期」唔慳：`UPDATE listing_price_history SET snapshot_date` 實測 5 行（同 insert 一樣，因為 snapshot_date 喺 UNIQUE＋index＋trigger）；
+  `hangseng_valuation_history` 改 fetched_at 都要 2 行（idx_hsvh_lookup 包咗 fetched_at）。
+  要慳就要加**冇 index 嘅欄**（例如 lph.seen_until）去 update：1 行；冇變價時 `INSERT … WHERE NOT EXISTS` 唔插：0 行。
