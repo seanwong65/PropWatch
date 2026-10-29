@@ -455,14 +455,14 @@ if (opts.formOnly) {
     if (!fd.getAll("src").length) { alert("最少揀一個地產網"); return; }
     if (opts.onSearch) opts.onSearch(condToQuery(readCond(fd)));
   });
-  // 地區／房數／售價／面積／地產網默認收埋（主頁位置唔好太高，手機尤其）；有條件（例如睇樓偏好預填）會標示「已設 N 項」
+  // 地區／房數／售價／面積／地產網可以摺埋（手機預設收埋，主頁唔好太高）；有條件（例如睇樓偏好預填）會標示「已設 N 項」
   const more = document.createElement("div");
   more.className = "ps-more-wrap";
-  more.hidden = true;
+  more.hidden = !opts.expanded;     // opts.expanded：app 喺闊屏預設展開（同搵樓頁一樣），手機預設收埋
   const tg = document.createElement("button");
   tg.type = "button";
   tg.className = "ps-morebtn";
-  tg.setAttribute("aria-expanded", "false");
+  tg.setAttribute("aria-expanded", String(!more.hidden));
   form.insertBefore(tg, form.querySelector(".ps-row2"));
   form.insertBefore(more, form.querySelector(".ps-row2"));
   more.append(form.querySelector(".ps-row2"), form.querySelector(".ps-srcs"));

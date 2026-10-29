@@ -605,4 +605,4 @@ drip sync（`*/2`）同樣被雙重觸發：兩個 invocation 同時揀同一批
 - 搜尋卡係 `PublicSearch.mount(el, {formOnly:true, onSearch})`：只畫表單（預填睇樓偏好），撳搜尋 → `openPublicSearch(qs)` 跳去搵樓頁（`opts.initialQs` 帶條件、即刻搜、記入最近搜尋）。
   地區／房數／售價／面積／地產網默認收埋喺「更多條件 ▾」（有條件會標「已設 N 項」，例如偏好預填），主頁唔會太高。
 - 結構只建一次，`renderViewingTodo` 只更新 `#hc-todo`（用戶打緊嘅搜尋條件唔會被洗走）；高度用 ResizeObserver 跟住當前卡。
-- 改 `public-search.js/.css` 要 bump `app.html` 嘅 `PS_VER` 同 `search.html` 兩個 `?v=`（現 `20261029b`）。
+- 改 `public-search.js/.css` 要 bump `app.html` 嘅 `PS_VER` 同 `search.html` 兩個 `?v=`（現 `20261030a`）。
