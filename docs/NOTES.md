@@ -545,3 +545,23 @@ drip sync（`*/2`）同樣被雙重觸發：兩個 invocation 同時揀同一批
 - 已做：`DROP INDEX idx_lph_ref`（`listing_price_history(ref_no, snapshot_date DESC)`，被 `UNIQUE(ref_no, snapshot_date)` 完全覆蓋、code 冇建冇引用；每盤每日慳 1 行）。
   回滾：`CREATE INDEX idx_lph_ref ON listing_price_history(ref_no, snapshot_date DESC)`。
 - 未做（要決定）：Workers Paid；或者「價錢冇變就唔寫 lph／listings」嘅結構性減寫（要改 saveXListings ＋ 所有讀 snapshot 嘅 query，風險高）。
+
+### drip 寫入拆解（2026-10-29，Miniflare 實測每句 SQL 嘅 rows_written）
+
+| 動作 | 寫入行數 |
+|---|---|
+| `listings` 新一日 1 行（4 個 index＋UNIQUE＋AUTOINCREMENT 序號） | 7 |
+| `listing_price_history` 新一日（UNIQUE＋idx_lph_estate_ref＋序號＋trigger 更新 listing_price_seen） | 5 |
+| `listing_span` bump last_seen | 2 |
+| **每盤每日合計** | **14** |
+| `INSERT OR IGNORE` 撞咗（乜都冇寫） | **照計 1**（AUTOINCREMENT） |
+| 成交新 insert | 6 |
+| settings upsert | 1–2 |
+| 恒生估值 REPLACE 同價 4 ＋ history 3 | 7／單位 |
+
+- 10/29 06:00：9 個屋苑、2,676 盤 × 14 ≈ 37.5k；其餘 ~12k = 成交成段歷史每日再 INSERT OR IGNORE（每宗 1 行）＋
+  冇座數「影子」成交每日 insert 完又被 `dropShadowTxns` 刪＋恒生自動估值（238 單位 × 7）＋ heartbeat。
+- 已修：`newTxnsOnly()`（成交／租務成交入庫前先讀返已有 id／combo／影子，淨係 insert 新嘅；型別唔肯定就交返 DB 判斷），
+  `cron_last_drip` heartbeat 由每 2 分鐘改每 5 分鐘寫一次。測試：`tests/txnfilter.test.js`（同 INSERT OR IGNORE 結果對照）。
+- 未做嘅大項：`listing_price_history` 改為「價錢有變先寫」（每盤每日慳 5 行 ≈ 36%），要逐個 audit ~20 個讀 lph 嘅 query
+  （好多靠「每日一行」，例如 `listing_price_seen.last_date`、`MAX(snapshot_date)`）；AUTOINCREMENT 拎走要重建 15 萬行表，免費額度做唔到。
