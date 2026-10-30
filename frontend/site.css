@@ -90,3 +90,11 @@ td.num { white-space: nowrap; font-variant-numeric: tabular-nums; }
 }
 .site-foot nav { display: flex; flex-wrap: wrap; justify-content: center; gap: 0.4rem 1.1rem; margin-bottom: 0.6rem; }
 .site-foot a { color: var(--muted); }
+
+/* 手機：收窄左右留白，內容闊啲（2026-10-30）。375 闊度：每邊 16px → 10px，內容闊 343 → 355px */
+@media (max-width: 640px) {
+  .top { padding-left: 0.7rem; padding-right: 0.7rem; }
+  .wrap { padding-left: 0.65rem; padding-right: 0.65rem; }
+  .site-foot { padding-left: 0.65rem; padding-right: 0.65rem; }
+  .cta { padding-left: 0.9rem; padding-right: 0.9rem; }
+}

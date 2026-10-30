@@ -10,6 +10,7 @@
       --src-ricacorp: #6b4fa0; --src-ricacorp-bg: #efe9f8;
     }
     .ps-wrap { max-width: 1120px; margin: 0 auto; padding: 1.2rem 1rem 3rem; }
+    @media (max-width: 640px) { .ps-wrap { padding-left: 0.65rem; padding-right: 0.65rem; } }
     .ps-wrap h1 { text-align: center; text-wrap: balance; }
     .ps-wrap .lead { text-align: center; max-width: 640px; margin-left: auto; margin-right: auto; }
     .ps-root .num { font-variant-numeric: tabular-nums; }
