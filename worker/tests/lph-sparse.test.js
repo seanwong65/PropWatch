@@ -3,7 +3,8 @@
 // 大規模語意對照（正式數據 14.8 萬行重播、64 萬個 ref×日子組合）見 docs/NOTES.md。
 import { describe, it, expect, afterAll } from "vitest";
 import { Miniflare } from "miniflare";
-import { LPH_TOUCH_SQL, LPH_INSERT_SQL, TRG_LPH_SEEN_UPD, TRG_LPH_SEEN_DEL, TRG_LPH_SEEN_UNTIL, lphRowAtSql, expandPriceRuns, collapsePriceHistory } from "../index.js";
+import { lphTestSql, lphRowAtSql, expandPriceRuns, collapsePriceHistory } from "../index.js";
+const { LPH_TOUCH_SQL, LPH_INSERT_SQL, TRG_LPH_SEEN_UPD, TRG_LPH_SEEN_DEL, TRG_LPH_SEEN_UNTIL } = lphTestSql();
 
 const mf = new Miniflare({ modules: true, script: "export default { fetch(){ return new Response('x') } }", d1Databases: ["DB"] });
 afterAll(() => mf.dispose());

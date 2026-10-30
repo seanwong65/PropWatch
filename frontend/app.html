@@ -2224,10 +2224,12 @@
       <div style="display:flex;align-items:center;gap:0.6rem">
         <div style="flex:1;min-width:0">
           <div id="settings-prefs-summary" style="font-size:0.85rem"></div>
-          <div id="settings-email-state" style="font-size:0.78rem;margin-top:0.15rem"></div>
         </div>
         <button class="vf-submit" style="width:auto;padding:0.5rem 1rem;margin:0;white-space:nowrap" onclick="openPrefsModal(_userPrefs||{})">修改</button>
       </div>
+
+      <div class="modal-sub" style="margin-top:1.25rem">📧 Email 通知</div>
+      <div id="settings-email-box"></div>
 
       <div class="modal-sub" style="margin-top:1.25rem">🔗 我分享過嘅連結</div>
       <div id="settings-shares" style="font-size:0.82rem;margin-top:0.35rem;color:var(--muted)">載入中…</div>
@@ -8095,15 +8097,44 @@ function renderPrefsSummary() {
   const text = formatPrefsSummary(_userPrefs);
   el.textContent = text;
   el.style.color = text === '未設定' ? 'var(--muted)' : 'var(--text)';
-  // 訂閱狀態喺 summary 直接見到，唔使開個 popup 先知自己有冇訂
-  const em = document.getElementById('settings-email-state');
-  if (em) {
-    // 免費版冇每日 email／每週摘要，唔顯示開關狀態（避免誤導）
-    em.textContent = isPaid()
-      ? (_emailOptIn ? '📧 每日 email：開' : '📧 每日 email：關') + (_emailOptIn && _weeklyOptIn ? '・📊 每週摘要：開' : '・📊 每週摘要：關')
-      : '📧 每日 email、每週摘要：收費版功能';
-    em.style.color = isPaid() && _emailOptIn ? 'var(--up)' : 'var(--muted)';
+  renderEmailSettings();
+}
+
+// ⚙️ 設定頁「📧 Email 通知」：每日動態／每週摘要兩個開關，撳即存（PUT /api/preferences 淨傳開關，後端唔會掂睇樓偏好）。
+// 免費版冇呢兩樣，顯示收費版提示。同「修改睇樓偏好」popup 入面嗰兩個開關係同一個狀態（_emailOptIn／_weeklyOptIn）。
+function renderEmailSettings() {
+  const box = document.getElementById('settings-email-box');
+  if (!box) return;
+  if (!isPaid()) {
+    box.innerHTML = `<div style="font-size:0.8rem;color:var(--muted);margin-top:0.35rem">每日 email、每週摘要係收費版功能。<a href="#" onclick="event.preventDefault();showUpgrade('每日 email')" style="color:var(--accent2)">睇下收費版有咩</a></div>`;
+    return;
   }
+  box.innerHTML = `
+    <label class="np-card">
+      <input type="checkbox" id="st-email-optin" ${_emailOptIn ? 'checked' : ''} onchange="saveEmailOptIn('email', this)">
+      <span><b>每日動態</b><span class="np-when">每朝 9:00</span>
+        <small>追蹤屋苑嘅新放盤、減價、下架、成交，一封睇晒。冇動態嗰日唔寄。</small></span>
+    </label>
+    <label class="np-card">
+      <input type="checkbox" id="st-weekly-optin" ${_weeklyOptIn ? 'checked' : ''} onchange="saveEmailOptIn('weekly', this)">
+      <span><b>每週摘要</b><span class="np-when">逢星期六 10:00</span>
+        <small>⭐ 最愛屋苑嘅一週市況，加埋待跟進嘅睇樓記錄。寄嗰日取代每日 email。</small></span>
+    </label>
+    <div class="np-foot">每封 email 底部都可以一撳退訂。</div>`;
+}
+async function saveEmailOptIn(which, el) {
+  const key = which === 'weekly' ? 'weekly_opt_in' : 'email_opt_in';
+  const prev = which === 'weekly' ? _weeklyOptIn : _emailOptIn;
+  el.disabled = true;
+  try {
+    const d = await api('/api/preferences', { method: 'PUT', body: JSON.stringify({ [key]: el.checked }) });
+    if (typeof d.email_opt_in === 'boolean') _emailOptIn = d.email_opt_in;
+    if (typeof d.weekly_opt_in === 'boolean') _weeklyOptIn = d.weekly_opt_in;
+    toast(`${which === 'weekly' ? '每週摘要' : '每日動態'}已${el.checked ? '開啟' : '關閉'}`, 'success');
+  } catch (e) {
+    el.checked = prev;
+    toast('儲存失敗：' + e.message, 'error');
+  } finally { el.disabled = false; }
 }
 
 // 分析參數列表：label + number input + 說明。onchange 即刻 PUT,後端 clamp
