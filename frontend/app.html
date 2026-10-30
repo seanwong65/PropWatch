@@ -3318,7 +3318,7 @@ async function pickEstateForQuick(id) {
 // 手機版 sidebar 收埋咗，快捷掣要幫手拉返出嚟先 focus 到個搜尋框
 // 側欄「🔍 搵樓」：喺主畫面（#main）入面開四大地產網搜尋——同公開 /search 頁共用
 // public-search.js／.css（第一次先載入）。「🔔 追蹤加減價」直接帶去側欄屋苑搜尋，唔使再登記。
-const PS_VER = '20261030a';   // 改 public-search.js/.css 要同 search.html 一齊 bump（Pages 靜態檔 cache 4 小時）
+const PS_VER = '20261030b';   // 改 public-search.js/.css 要同 search.html 一齊 bump（Pages 靜態檔 cache 4 小時）
 let _psAssets = null;
 function _loadPublicSearchAssets() {
   if (!_psAssets) _psAssets = new Promise((resolve, reject) => {
@@ -7358,6 +7358,11 @@ async function toggleFavListing(btn) {
 // 搜尋結果 ♡：ref＝原網站詳情頁 URL（heart 狀態 key 係 "S:<url>"），快照由 client 傳、server 逐欄 sanitize
 const _searchFav = {
   has: (url, deal) => _favRefs.has(`${deal === 'R' ? 'R' : 'S'}:${url}`),
+  // 「N 人心儀」：後端只回達匿名門檻（sec_heat_min_users）嘅人數，其餘冇出現
+  async counts(urls, deal) {
+    const r = await api('/api/favourite-listings/external-counts', { method: 'POST', body: JSON.stringify({ deal: deal === 'R' ? 'R' : 'S', urls }) });
+    return r.counts || {};
+  },
   async toggle(it, deal) {
     const d = deal === 'R' ? 'R' : 'S', key = `${d}:${it.url}`;
     try {

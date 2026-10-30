@@ -664,7 +664,7 @@ const SEC_DEFS = [
   { key: "sec_feedback_img_max_kb", def: 700, min: 50, max: 3000, label: "意見回饋：每張相最大 KB",
     desc: "前端寄出前會自動壓細（最闊 1280px JPEG）；呢個係後端硬上限，超過即 400。" },
   { key: "sec_heat_min_users", def: 5, min: 3, max: 50, label: "匿名熱度：最少幾多人先顯示",
-    desc: "「N 人追蹤呢個屋苑」「N 人收藏呢個盤」只喺人數達到呢個數先出，否則唔出任何數字（人太少用戶可以估到係邊個）。唔好調到低過 3。" },
+    desc: "「N 人追蹤呢個屋苑」「N 人收藏呢個盤」「搜尋結果 N 人心儀」只喺人數達到呢個數先出，否則唔出任何數字（人太少用戶可以估到係邊個）。唔好調到低過 3。" },
   { key: "sec_crowd_removed_min_users", def: 3, min: 2, max: 20, label: "眾人標記已下架：最少幾多人先提示",
     desc: "同一個盤有 N 個唔同用戶手動標記咗「已下架」，其他用戶見到「N 位用戶標記咗已下架」提示（只係提示，唔會幫佢哋標記）。" },
   { key: "sec_free_max_friend_homes", def: 3, min: 1, max: 100, label: "免費版：最多朋友屋企",
@@ -953,7 +953,7 @@ let _authTablesReady = false;
 // 而家 settings.schema_version 同 SCHEMA_VERSION 一樣就當全部 DDL 做齊，直接跳過（cold 只多 1 次往返）。
 // ⚠️ 加／改任何 ensure*（新表、新欄、新 index）一定要 bump SCHEMA_VERSION，否則 production 唔會行嗰段 DDL。
 // 版本唔同嗰次（deploy 之後第一個 request）會逐個行晒再寫返版本。
-const SCHEMA_VERSION = "2026-10-28a";
+const SCHEMA_VERSION = "2026-10-30a";
 let _schemaP = null;
 function markSchemaReady() {
   _authTablesReady = _multiAccountDDLReady = _priceSeenReady = _listingSpanReady = true;
@@ -1074,6 +1074,7 @@ async function _ensureFavListings(db) {
     UNIQUE(account_id, deal, ref_no)
   )`).run();
   await db.prepare("CREATE INDEX IF NOT EXISTS idx_favl_acct ON listing_favourites(account_id, created_at)").run();
+  await db.prepare("CREATE INDEX IF NOT EXISTS idx_favl_ref ON listing_favourites(ref_no, deal)").run();   // 搜尋結果「N 人心儀」按 ref_no（原網站 URL）查
 }
 const ensureFavListings = onceDb(_ensureFavListings);
 
@@ -9608,7 +9609,7 @@ export default {
       // estate_id 唔傳＝攞全部屋苑（dashboard「睇過嘅盤」用）。之前前端要
       // 逐個屋苑打一次，14 個屋苑實測 8.5 秒；一個 request 拎晒快好多。
       // ── 心儀樓盤：收藏／取消／列表（要登入）──
-      if (path === "/api/favourite-listings" || path === "/api/favourite-listings/refs" || path === "/api/favourite-listings/external") {
+      if (path === "/api/favourite-listings" || path === "/api/favourite-listings/refs" || path === "/api/favourite-listings/external" || path === "/api/favourite-listings/external-counts") {
         await ensureFavListings(db);
         const dealOf = (x) => (x === "R" ? "R" : "S");
         if (method === "GET" && path === "/api/favourite-listings/refs") {
@@ -9619,6 +9620,24 @@ export default {
         }
         // 搜尋結果（地產網即時放盤，唔喺我哋 DB）都可以收藏：快照由 client 傳，所以逐欄 sanitize + host 白名單；
         // ref_no＝原網站詳情頁 URL（唯一鍵，亦係 heart 狀態嘅 key）；estate_id＝0 表示「搜尋結果」。
+        // 搜尋結果「N 人心儀」（2026-10-30）：只回**彙總人數**（唔回任何帳戶），而且達 sec_heat_min_users 先回（同屋苑熱度一樣，
+        // 人太少會估到係邊個）；唔計系統／停用帳戶。要登入；一次最多 60 個 URL；達唔到門檻嘅 URL 唔出現喺結果，分唔出「冇人」同「少過門檻」。
+        if (method === "POST" && path === "/api/favourite-listings/external-counts") {
+          const body = await request.json().catch(() => ({}));
+          const deal = dealOf(body.deal);
+          const urls = [...new Set((Array.isArray(body.urls) ? body.urls : []).map(String))]
+            .filter((u) => u.length <= 500 && /^https:\/\/[^\s"]+$/.test(u)).slice(0, 60);
+          if (!urls.length) return json(200, { counts: {} });
+          const k = (await getSecCfg(db)).sec_heat_min_users;
+          const { results } = await db.prepare(
+            `SELECT lf.ref_no, COUNT(DISTINCT lf.account_id) AS c FROM listing_favourites lf JOIN accounts a ON a.id = lf.account_id
+             WHERE lf.estate_id = 0 AND lf.deal = ? AND lf.ref_no IN (${urls.map(() => "?").join(",")})
+               AND a.role != 'system' AND (a.is_active IS NULL OR a.is_active = 1)
+             GROUP BY lf.ref_no HAVING c >= ?`).bind(deal, ...urls, k).all();
+          const counts = {};
+          for (const r of results) counts[r.ref_no] = r.c;
+          return json(200, { counts });
+        }
         if (method === "POST" && path === "/api/favourite-listings/external") {
           const body = await request.json().catch(() => ({}));
           const deal = dealOf(body.deal), it = body.item || {};
