@@ -606,3 +606,12 @@ drip sync（`*/2`）同樣被雙重觸發：兩個 invocation 同時揀同一批
   地區／房數／售價／面積／地產網默認收埋喺「更多條件 ▾」（有條件會標「已設 N 項」，例如偏好預填），主頁唔會太高。
 - 結構只建一次，`renderViewingTodo` 只更新 `#hc-todo`（用戶打緊嘅搜尋條件唔會被洗走）；高度用 ResizeObserver 跟住當前卡。
 - 改 `public-search.js/.css` 要 bump `app.html` 嘅 `PS_VER` 同 `search.html` 兩個 `?v=`（現 `20261030a`）。
+
+### 搜尋結果「N 人心儀」（2026-10-30）
+
+- app 入面搵樓搜尋結果卡：中原等標籤旁顯示「❤️ N 人心儀」（該盤 URL 有幾多個用戶 ♥ 咗）。公開 `/search` 頁唔顯示（要登入先有 `opts.fav`）。
+- 後端 `POST /api/favourite-listings/external-counts`（要登入，body `{deal, urls[≤60]}`）：只回彙總人數 `{counts:{url:n}}`，達 `sec_heat_min_users`（預設 5，admin 設定頁可調，最低 3）先出；
+  唔計 `role='system'`／停用帳戶；少過門檻嘅 URL 唔出現，前端分唔出「冇人」同「少過門檻」。按 `listing_favourites(estate_id=0, ref_no=URL)` 查，新 index `idx_favl_ref(ref_no, deal)`（SCHEMA_VERSION → 2026-10-30a）。
+- 前端：`public-search.js` 每次 `renderAll` 後批量問未問過嘅 URL（`countAsked` 去重），結果 `paintLike` 補落已畫嘅卡；撳 ♥ 後重問該 URL（自己一票可能令人數過／跌穿門檻）。
+- 只計「搜尋結果收藏」（外部 URL）；屋苑頁自己 DB 放盤嘅收藏人數照舊走 `/api/estates/:id/crowd`。同一個單位喺不同網站有各自 URL，人數各計各。
+- 測試：本機 worker 種 6 個帳戶＋1 個系統帳戶驗證（門檻、買租分開、壞輸入、>60 URL、401）。

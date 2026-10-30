@@ -256,6 +256,7 @@ function renderAll() {
   renderSrcbar();
   renderGrid();
   renderMore();
+  loadLikeCounts();
 }
 
 // 最近搜尋（淨係存喺呢部機瀏覽器 localStorage，唔上傳、唔寫 D1）：首頁搜尋框下面「最近搜尋」列出，
@@ -374,6 +375,38 @@ function renderMore() {
   btn.textContent = busy ? "載入緊…" : "載入更多";
 }
 
+// ── 「N 人心儀」（淨 app 入面：opts.fav.counts 由 app 提供）──────────────────────────────
+// 後端只回達匿名門檻（sec_heat_min_users）嘅人數；冇出現＝冇人或者人數太少，所以唔顯示任何嘢。
+const favCounts = new Map();         // url → 人數（有達門檻先有）
+const countAsked = new Set();        // 問過嘅 `${deal}|${url}`，唔重覆問
+const likeChip = (url) => {
+  const n = url ? favCounts.get(url) : null;
+  return n ? `<span class="ps-like" title="${escHtml(n)} 位用戶收藏咗呢個盤">❤️ ${escHtml(n)} 人心儀</span>` : "";
+};
+function paintLike(url) {
+  for (const [key, el] of cardCache) {
+    if (!key.endsWith("|" + url)) continue;
+    const top = el.querySelector(".ps-top"), old = top && top.querySelector(".ps-like");
+    if (old) old.remove();
+    const html = likeChip(url);
+    if (top && html) top.querySelector(".ps-badge").insertAdjacentHTML("afterend", html);
+  }
+}
+async function loadLikeCounts(force) {
+  if (!opts.fav || !opts.fav.counts || !state) return;
+  const deal = state.cond.deal, id = runId;
+  const urls = [...new Set(state.items.map((x) => x.url).filter(Boolean))]
+    .filter((u) => force === u || !countAsked.has(deal + "|" + u));
+  if (!urls.length) return;
+  urls.forEach((u) => countAsked.add(deal + "|" + u));
+  for (let i = 0; i < urls.length; i += 60) {
+    let counts = {};
+    try { counts = await opts.fav.counts(urls.slice(i, i + 60), deal); } catch (_) { urls.slice(i, i + 60).forEach((u) => countAsked.delete(deal + "|" + u)); continue; }
+    if (id !== runId) return;
+    for (const u of urls.slice(i, i + 60)) { if (counts[u]) favCounts.set(u, counts[u]); else favCounts.delete(u); paintLike(u); }
+  }
+}
+
 function cardEl(it) {
   let el = cardCache.get(it.key);
   if (el) return el;
@@ -417,7 +450,7 @@ function cardHtml(it) {
     ${heart}
     <div class="ps-photo">${photo}</div>
     <div class="ps-body">
-      <div class="ps-top"><span class="ps-badge b-${it.src}">${escHtml(name)}</span><span class="ps-date">${escHtml(fmtDate(it.date))}</span></div>
+      <div class="ps-top"><span class="ps-badge b-${it.src}">${escHtml(name)}</span>${likeChip(it.url)}<span class="ps-date">${escHtml(fmtDate(it.date))}</span></div>
       <div class="ps-title">${escHtml(head || it.title || "（未有屋苑名）")}${sub ? `<small>${escHtml(sub)}</small>` : ""}</div>
       ${facts ? `<div class="ps-facts">${facts}</div>` : ""}
       <div class="ps-money"><span class="ps-price num">${price}</span>${hos}<span class="ps-psf num">${psf}</span></div>
@@ -517,6 +550,7 @@ if (opts.fav) $("ps-grid").addEventListener("click", async (e) => {
     b.textContent = on ? "♥" : "♡";
     b.setAttribute("aria-pressed", on ? "true" : "false");
     b.title = on ? "取消心儀樓盤" : "加入心儀樓盤";
+    if (opts.fav.counts) loadLikeCounts(it.url);   // 自己撳完 ♥，人數可能剛好過門檻／跌穿門檻
   } catch (_) { /* app 已經 toast 咗 */ }
   finally { b.disabled = false; }
 });
