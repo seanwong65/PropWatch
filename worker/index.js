@@ -10711,7 +10711,11 @@ export default {
       }
       if (method === "PUT" && path === "/api/preferences") {
         const body = await request.json();
-        const prefs = {};
+        // 淨係 email／每週摘要開關（⚙️ 設定頁直接撳）：唔好掂睇樓偏好。下面 prefs 係「傳咩存咩，冇傳就清空」，
+        // 部分 body 會洗走用戶嘅預算／房數，所以呢種 body 只改 accounts 兩個欄位，prefs 原樣回。
+        const onlyOptIn = Object.keys(body || {}).length > 0
+          && Object.keys(body).every((k) => k === "email_opt_in" || k === "weekly_opt_in");
+        let prefs = {};
         // 數字欄位：淨係收有效正數，其他一律唔存（optional）。
         // price_* 係買盤預算（單位：萬），rent_* 係租盤預算（單位：$/月）——
         // 兩套獨立存，用戶轉搵盤類型唔會蓋咗對方個數字。
@@ -10726,10 +10730,16 @@ export default {
           ? [...new Set(body.deal_types.filter((t) => t === "S" || t === "R"))] : [];
         prefs.deal_types = dt.length ? dt : ["S"];
         if (body.dismissed === true) prefs.dismissed = true;
-        await db.prepare("CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT)").run();
-        await db.prepare(
-          "INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value"
-        ).bind(`pref_${session.account_id}`, JSON.stringify(prefs)).run();
+        if (onlyOptIn) {
+          const cur = await db.prepare("SELECT value FROM settings WHERE key = ?").bind(`pref_${session.account_id}`).first();
+          prefs = null;
+          if (cur) { try { prefs = JSON.parse(cur.value); } catch (_) { /* 當冇 */ } }
+        } else {
+          await db.prepare("CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT)").run();
+          await db.prepare(
+            "INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value"
+          ).bind(`pref_${session.account_id}`, JSON.stringify(prefs)).run();
+        }
         // email 訂閱：淨係 body 明確傳 boolean 先改。上面個 prefs 係「傳咩存咩,
         // 冇傳就當清空」,但呢個唔可以跟同一套——「略過」個掣淨係傳 dismissed,
         // 跟嘅話就會靜靜幫人退訂。
@@ -11562,5 +11572,8 @@ export default {
 };
 
 // 俾測試用（tests/lph-sparse.test.js、本機驗證 script）
-export { lphRowAtSql, expandPriceRuns, collapsePriceHistory, LPH_TOUCH_SQL, LPH_INSERT_SQL, TRG_LPH_SEEN_UPD, TRG_LPH_SEEN_DEL, TRG_LPH_SEEN_UNTIL };
+// ⚠️ workerd 只准 export 函數／handler——export 一個字串（例如 SQL 常數）會令 wrangler dev 起唔到（"not of type function or ExportedHandler"），
+// 所以常數經 lphTestSql() 俾測試攞。
+export { lphRowAtSql, expandPriceRuns, collapsePriceHistory };
+export const lphTestSql = () => ({ LPH_TOUCH_SQL, LPH_INSERT_SQL, TRG_LPH_SEEN_UPD, TRG_LPH_SEEN_DEL, TRG_LPH_SEEN_UNTIL });
 export { claimOnboardSlot, readOnboard, onboardQueue, getDailySyncEstateIds };
