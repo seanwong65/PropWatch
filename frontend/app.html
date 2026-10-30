@@ -1800,6 +1800,7 @@
        六層 padding／border，疊埋每邊食咗 ~78px，375px 闊嘅機入面詳細卡淨返 ~219px。
        逐層收窄（只改手機，電腦版唔郁），詳細卡可用闊度 ~219 → ~300px。 */
     @media (max-width: 520px) {
+      header { padding: 0 max(0.75rem, env(safe-area-inset-right)) 0 max(0.75rem, env(safe-area-inset-left)); }   /* 頂欄左右留白同內容對齊（2026-10-30） */
       .main { padding: 0.25rem; }
       .dashboard { padding: 0.35rem 0.25rem; }
       .highlights-section { padding: 0.5rem 0.3rem; border-radius: 14px; }

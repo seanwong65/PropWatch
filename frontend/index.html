@@ -89,6 +89,7 @@
        都讀到全文；二嚟呢頁冇任何動態數據，冇需要 JS。 */
     #landing-screen { background: var(--bg); color: var(--text); }
     .ld-wrap { max-width: 880px; margin: 0 auto; padding: 0 1.25rem 4rem; }
+    @media (max-width: 640px) { .ld-wrap { padding-left: 0.65rem; padding-right: 0.65rem; } }
     .ld-topbar {
       position: sticky; top: 0; z-index: 10;
       display: flex; align-items: center; justify-content: space-between;
@@ -301,7 +302,8 @@
       .ld-search-form .ld-cta { padding: 0.8rem 1.1rem; }
     }
     @media (max-width: 640px) {
-      .ld-search { padding: 1.4rem 1.1rem 1.2rem; }
+      .ld-search { padding: 1.4rem 0.85rem 1.2rem; }
+      .ld-topbar { padding-left: 0.7rem; padding-right: 0.7rem; }
     }
     .ld-foot { text-align: center; font-size: 0.75rem; color: var(--muted); line-height: 1.8; padding-top: 2.5rem; }
   </style>
