@@ -923,6 +923,13 @@
       margin-top: -0.2rem;
     }
     /* Viewing modal form */
+    /* ⚙️ 設定：email 通知卡（每日動態／每週摘要） */
+    .np-card { display: flex; align-items: flex-start; gap: 0.65rem; margin-top: 0.45rem; padding: 0.65rem 0.8rem; border: 1px solid var(--border); border-radius: 12px; background: var(--surface2); cursor: pointer; }
+    .np-card input { flex: none; width: 1.1rem; height: 1.1rem; margin: 0.15rem 0 0; accent-color: var(--accent); }
+    .np-card b { font-size: 0.9rem; color: var(--text); }
+    .np-card .np-when { margin-left: 0.5rem; font-size: 0.76rem; font-weight: 600; color: var(--accent2); }
+    .np-card small { display: block; margin-top: 0.2rem; font-size: 0.78rem; line-height: 1.55; color: var(--muted); }
+    .np-foot { margin-top: 0.4rem; font-size: 0.74rem; color: var(--muted); }
     .vf-label { display: block; font-size: 0.75rem; color: var(--muted); margin-bottom: 0.3rem; margin-top: 0.75rem; }
     .vf-label span { color: var(--down); margin-left: 2px; }
     .vf-input, .vf-select {
@@ -1990,18 +1997,21 @@
     <div style="margin-top:0.75rem;font-size:0.82rem;color:var(--muted)">目前設定：<span id="pref-modal-preview" style="color:var(--text);font-weight:600">未設定</span></div>
 
     <div id="pref-email-wrap" style="display:none">
-    <label class="vf-label" style="margin-top:1.1rem">📧 每日 email 通知（收費版）</label>
-    <p style="font-size:0.78rem;color:var(--muted);margin:0 0 0.5rem">每朝 9:00 寄「今日動態」——新放盤／成交／變價／下架。隨時可以喺呢度或者 email 底部退訂。</p>
-    <label style="display:flex;align-items:center;gap:0.45rem;font-size:0.85rem;color:var(--text);cursor:pointer">
-      <input type="checkbox" id="pref-email-optin" checked style="accent-color:var(--accent)"> 我要收每日通知 email
+    <label class="vf-label" style="margin-top:1.1rem">📧 Email 通知（收費版）</label>
+    <label class="np-card">
+      <input type="checkbox" id="pref-email-optin" checked>
+      <span><b>每日動態</b><span class="np-when">每朝 9:00</span>
+        <small>追蹤屋苑嘅新放盤、減價、下架、成交，一封睇晒。冇動態嗰日唔寄。</small></span>
     </label>
     </div>
     <div id="pref-free-email-note" style="display:none;margin-top:1.1rem;font-size:0.8rem;color:var(--muted)">📧 每日 email 同每週摘要係收費版功能。<a href="#" onclick="event.preventDefault();showUpgrade('每日 email')" style="color:var(--accent2)">睇下收費版有咩</a></div>
-    <div id="pref-weekly-wrap" style="display:none;margin-top:0.75rem">
-      <p style="font-size:0.78rem;color:var(--muted);margin:0 0 0.5rem">📊 每週摘要（收費版）：逢星期六 10:00 寄你最愛屋苑嘅一週市況同你留意緊嘅盤變動，<b>當日取代每日 email</b>。只計你標咗 ⭐ 最愛嘅屋苑。</p>
-      <label style="display:flex;align-items:center;gap:0.45rem;font-size:0.85rem;color:var(--text);cursor:pointer">
-        <input type="checkbox" id="pref-weekly-optin" checked style="accent-color:var(--accent)"> 我要收每週摘要
+    <div id="pref-weekly-wrap" style="display:none">
+      <label class="np-card">
+        <input type="checkbox" id="pref-weekly-optin" checked>
+        <span><b>每週摘要</b><span class="np-when">逢星期六 10:00</span>
+          <small>⭐ 最愛屋苑嘅一週市況，加埋待跟進嘅睇樓記錄。寄嗰日取代每日 email。</small></span>
       </label>
+      <div class="np-foot">每封 email 底部都可以一撳退訂。</div>
     </div>
 
     <label class="vf-label" style="margin-top:1.1rem">睇樓評分項目</label>
