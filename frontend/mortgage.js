@@ -391,7 +391,7 @@ function renderMortgage() {
     // 用 --accent2 做底（跟返上面「$596萬」個數字同一隻色），唔用 ghost
     // 灰色——咁樣掣同數字連埋一齊睇，一眼就知邊個掣配邊個數。
     const rentBtn = r ? `<button class="vf-submit" style="flex:1;margin:0;background:var(--accent2);color:var(--on-accent2)" onclick="useMcAsBudget(${Math.round(r.price / 10000)})">
-        用 ${_mcWan(r.price)} 做我嘅買盤預算（出租）
+        用 ${_mcWan(r.price)} 做我嘅買盤預算 <span style="display:inline-block;margin-left:0.25rem;padding:0.05rem 0.55rem;border-radius:999px;background:var(--on-accent2);color:var(--accent2);font-weight:800;letter-spacing:0.05em">出租</span>
       </button>` : "";
     out.innerHTML = `
       <div style="background:var(--brand-soft);border:1px solid var(--brand);border-radius:var(--radius-sm);padding:0.7rem 0.85rem;margin-bottom:0.6rem">
