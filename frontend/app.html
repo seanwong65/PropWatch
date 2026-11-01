@@ -9426,9 +9426,19 @@ function setTxnSort(col) {
   renderTransactionsTable(txnEstateId, txnOffset, !!document.querySelector(".load-more-btn"));
 }
 
+// 成交表欄位（2026-11-01 UI review B4）：預設淨係睇「登記日期、單位、成交價（連同估值比較）、實呎價」，
+// 持有年期／升跌／恒生估值／查估值／詳情收埋，撳「顯示更多欄」先出；揀法記喺呢部機。
+let _txnAdv = (() => { try { return localStorage.getItem('pw_txn_adv') === '1'; } catch (_) { return false; } })();
+let _txnLast = null;   // 重畫用：{ estateId, offset, hasMore }
+function toggleTxnAdv() {
+  _txnAdv = !_txnAdv;
+  try { localStorage.setItem('pw_txn_adv', _txnAdv ? '1' : '0'); } catch (_) { /* 私隱模式 */ }
+  if (_txnLast) renderTransactionsTable(_txnLast.estateId, _txnLast.offset, _txnLast.hasMore);
+}
 function renderTransactionsTable(estateId, offset, hasMore) {
   const panel = document.getElementById("tab-transactions");
   if (!panel) return;
+  _txnLast = { estateId, offset, hasMore };
   const estateName = document.querySelector('.estate-title')?.textContent?.trim() || '';
 
   const colMap = {
@@ -9451,12 +9461,12 @@ function renderTransactionsTable(estateId, offset, hasMore) {
     { key: null,           label: "單位" },
     { key: "price",        label: "成交價" },
     { key: "price_per_ft", label: "實呎價", sub: "*房數為估算" },
-    { key: "held_days",    label: "持有年期" },
-    { key: "gain_annual",  label: "升跌" },
-    { key: "hs_price",     label: "恆生估值" },
-    { key: null,           label: "查估值" },
-    { key: null,           label: "" },
-  ];
+    { key: "held_days",    label: "持有年期", adv: true },
+    { key: "gain_annual",  label: "升跌", adv: true },
+    { key: "hs_price",     label: "恆生估值", adv: true },
+    { key: null,           label: "查估值", adv: true },
+    { key: null,           label: "", adv: true },
+  ].filter(c => _txnAdv || !c.adv);
   const thLabel = (c) => c.sub
     ? `${c.label}<div style="font-size:0.65rem;font-weight:400;color:var(--muted)">${c.sub}</div>`
     : c.label;
@@ -9505,11 +9515,11 @@ function renderTransactionsTable(estateId, offset, hasMore) {
         <div>$${t.price_per_ft_net ? t.price_per_ft_net.toLocaleString() : '-'}/呎</div>
         <div class="unit-price">實${t.size_net ? t.size_net+'呎' : ''}${t.bedrooms != null ? ` · ${t.bedrooms}房` : ''}</div>
       </td>
-      <td>${heldStr}</td>
+      ${_txnAdv ? `<td>${heldStr}</td>
       <td>${annualHtml}${totalHtml}</td>
       <td>${hsValCell}</td>
       <td>${hsQueryCell}</td>
-      <td>${t.detail_url ? `<a href="${safeUrl(t.detail_url)}" target="_blank" class="detail-link">詳情 ↗</a>` : ''}</td>
+      <td>${t.detail_url ? `<a href="${safeUrl(t.detail_url)}" target="_blank" class="detail-link">詳情 ↗</a>` : ''}</td>` : ''}
     </tr>`;
   }).join('');
 
@@ -9599,6 +9609,7 @@ function renderTransactionsTable(estateId, offset, hasMore) {
     <div class="listings-section">
       <div class="sticky-bar">${filterBar}</div>
       ${premiumStrip}
+      <div style="display:flex;justify-content:flex-end;margin:0 0 0.4rem"><button class="filter-chip" onclick="toggleTxnAdv()">${_txnAdv ? '收埋進階欄 ▴' : '顯示更多欄（持有年期、升跌、恒生估值）▾'}</button></div>
       <div id="txnTableWrap"></div>
       ${hasMore ? `<button class="load-more-btn" onclick="loadTransactions(${estateId}, ${allTransactions.length}, true)">載入更多…</button>` : ''}
     </div>`;
