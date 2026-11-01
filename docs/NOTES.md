@@ -685,3 +685,10 @@ drip sync（`*/2`）同樣被雙重觸發：兩個 invocation 同時揀同一批
 - 搵樓結果卡（app 內，`opts.track`）：「🔔 追蹤屋苑」改實色掣（`.ps-track-app`）；公開 `/search` 頁照舊「🔔 追蹤加減價」（帶去登記）。
 - Demo（假數據靜態頁）：`docs/demo/home-monitor-first.html`（未入 git）。
 - 未做（C 組下一步）：主選單收成「今日／屋苑／搵盤／睇樓／設定」、收藏收成兩種、五粒捷徑收斂、新手白話解釋。
+
+## 功能介紹 onboarding（2026-11-01）
+
+- 打開每個功能，喺頂部「介紹位」（`ob-slot-*`）出一張細卡（`ONBOARD` 內容、`obSlot(slotId, key)`）：「明白」＝今次 session 唔再出（sessionStorage `pw_ob_seen`）；「唔再提醒」＝永久（`POST /api/onboard-off {key}`，存 `settings.onboard_off_<accountId>`，隨 `/api/config.onboardOff` 返）。⚙️ 設定「💡 功能介紹 → 重新顯示」＝`{reset:true}`。
+- key 白名單：worker `ONBOARD_KEYS`（加新介紹要兩邊一齊加，否則存唔到）。現有：home、estate、txns、analysis、estate_viewings、diary、friends、fav、dyn、search、mortgage、viewing_add、history。
+- 用固定介紹位而唔插入內容：屋苑分頁／主頁分頁內容會成個 innerHTML 重畫。開主頁預設分頁（`switchDashTab('comps', true)`）唔出分頁介紹，免得同主頁介紹兩張一齊。
+- 搜尋預設：偏好買租都有 → 預設買盤（用戶 2026-11-01 確認維持）。

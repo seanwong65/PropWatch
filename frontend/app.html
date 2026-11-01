@@ -1112,6 +1112,14 @@
     .vw-cover img { display: block; width: 100%; height: 170px; object-fit: cover; }
     .vw-cover-n { position: absolute; right: 0.5rem; bottom: 0.5rem; background: rgba(15,28,46,0.65); color: #fff; font-size: 0.72rem; padding: 0.15rem 0.55rem; border-radius: 999px; }
     /* 待跟進（主頁）：睇樓記錄資料未齊／未對應放盤 */
+    /* 功能介紹（onboarding，2026-11-01）：每個功能頂部一張細卡，「明白」＝今次收埋，「唔再提醒」＝永久（跟帳戶） */
+    .ob-tip { background: var(--brand-soft); border: 1px solid var(--border); border-radius: 12px; padding: 0.6rem 0.8rem; margin: 0 0 0.7rem; font-size: 0.82rem; line-height: 1.55; }
+    .ob-t { font-weight: 700; margin-bottom: 0.15rem; }
+    .ob-act { display: flex; gap: 0.5rem; justify-content: flex-end; margin-top: 0.35rem; }
+    .ob-act button { border: none; border-radius: 999px; padding: 0.25rem 0.8rem; font-size: 0.76rem; font-weight: 700; cursor: pointer; font-family: inherit; }
+    .ob-ok { background: var(--brand); color: var(--brand-ink, #fff); }
+    .ob-off { background: none; color: var(--muted); }
+    .modal .ob-tip { margin-top: -0.3rem; }
     /* 主頁頂部（2026-11-01，監察為主）：「你嘅屋苑今日」／今日冇變動／新用戶歡迎 ＋ 搵樓 */
     .mon-card { background: var(--glass-bg); border: 1px solid var(--border); border-left: 3px solid var(--brand-bright, var(--brand)); border-radius: 14px; padding: 0.7rem 0.9rem; margin-bottom: 0.7rem; }
     .mon-head { display: flex; align-items: baseline; justify-content: space-between; gap: 0.5rem; font-weight: 700; font-size: 0.95rem; margin-bottom: 0.15rem; }
@@ -2066,6 +2074,7 @@
   <div class="modal" style="max-width:460px;max-height:92vh;overflow-y:auto">
     <button class="modal-close" onclick="closeMortgageModal()">✕</button>
     <div class="modal-title">🧮 按揭計算機</div>
+    <div id="ob-slot-mortgage"></div>
     <div id="mc-form-host"></div>
   </div>
 </div>
@@ -2256,6 +2265,12 @@
       <div class="modal-sub" style="margin-top:1.25rem">📧 Email 通知</div>
       <div id="settings-email-box"></div>
 
+      <div class="modal-sub" style="margin-top:1.25rem">💡 功能介紹</div>
+      <div style="display:flex;align-items:center;gap:0.6rem;font-size:0.8rem;color:var(--muted);margin-top:0.3rem">
+        <span style="flex:1">打開每個功能嗰陣嘅簡單介紹。揀咗「唔再提醒」嘅想再睇，可以喺度重設。</span>
+        <button class="vf-submit" style="width:auto;padding:0.45rem 0.9rem;margin:0;white-space:nowrap" onclick="obResetAll()">重新顯示</button>
+      </div>
+
       <div class="modal-sub" style="margin-top:1.25rem">🔗 我分享過嘅連結</div>
       <div id="settings-shares" style="font-size:0.82rem;margin-top:0.35rem;color:var(--muted)">載入中…</div>
     </div>
@@ -2390,6 +2405,7 @@
     <button class="modal-close" onclick="closeViewingModal()">✕</button>
     <div class="modal-title">＋ 新增睇樓記錄</div>
     <div class="modal-sub" id="viewing-modal-estate-name"></div>
+    <div id="ob-slot-viewing"></div>
     <!-- 改記錄先出：可以揀返另一個自己追蹤緊嘅屋苑（新增時屋苑固定，唔出呢個） -->
     <select class="vf-input" id="vf-estate-select" style="display:none;margin:-0.4rem 0 1rem" aria-label="屋苑"></select>
     <form id="viewingForm" onsubmit="submitViewing(event)">
@@ -3247,6 +3263,7 @@ async function showDashboard(estates) {
         <button class="qa-btn" onclick="openMortgageModal()">
           <span class="qa-icon">🧮</span><span class="qa-label">按揭<br>計算機</span></button>
       </div>
+      <div id="ob-slot-home"></div>
       <div id="viewing-todo"></div>
       <div class="highlights-section" id="highlights-section">
         <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:0.4rem;margin-bottom:0.75rem">
@@ -3262,6 +3279,7 @@ async function showDashboard(estates) {
             <button class="history-btn" id="dash-history-btn" style="font-size:0.88rem;padding:0.35rem 0.85rem" onclick="isPaid() ? showHistoryPage() : showUpgrade('歷史動態')">歷史動態 →</button>
           </div>
         </div>
+        <div id="ob-slot-dash"></div>
         <div id="dash-panel-today">
           <div class="dyn-toggle" role="tablist" aria-label="動態範圍">
             <button class="dyn-chip on" id="dyn-chip-today" role="tab" onclick="setDynMode('today')">今日 <span id="highlights-date" style="font-weight:400;font-size:0.76rem"></span></button>
@@ -3278,8 +3296,9 @@ async function showDashboard(estates) {
     </div>
   `;
   renderHomeCarousel();   // 主頁頂部：你嘅屋苑今日／待跟進／搵樓（見 renderHomeCarousel）
+  obSlot('ob-slot-home', 'home');
   // 預設開「睇樓日記」；「今日動態」撳入去先載（慳 D1：今日動態一次讀幾萬 rows）
-  switchDashTab('comps');
+  switchDashTab('comps', true);
 }
 
 // ── 快捷功能面板 ───────────────────────────────────────────────────────────
@@ -3388,8 +3407,10 @@ async function openPublicSearch(initialQs) {
   const main = document.getElementById('main');
   main.innerHTML = `<div class="ps-root ps-embed">
     <div class="ps-embed-bar"><button type="button" class="ps-back" onclick="goHome()">← 返去日記</button><h2>🔍 搵樓：四大地產網一次過搜尋</h2></div>
+    <div id="ob-slot-search"></div>
     <div id="psEmbedRoot"><div class="loading"><div class="spinner"></div> 載入中…</div></div>
   </div>`;
+  obSlot('ob-slot-search', 'search');
   try {
     await _loadPublicSearchAssets();
     const root = document.getElementById('psEmbedRoot');
@@ -3425,8 +3446,11 @@ let _compsLoaded = false;
 let _radarLoaded = false;
 let _friendsLoaded = false;
 let _todayLoaded = false;
-function switchDashTab(tab) {
+function switchDashTab(tab, auto = false) {
   const tabs = ['today', 'comps', 'radar', 'friends', 'fav'];
+  // 功能介紹：用戶自己撳分頁先出（開主頁預設嗰個唔出，免得同主頁介紹兩張一齊）
+  if (auto) obSlot('ob-slot-dash', '');
+  else obSlot('ob-slot-dash', { today: 'dyn', comps: 'diary', friends: 'friends', fav: 'fav' }[tab] || '');
   for (const id of tabs) {
     const active = id === tab;
     const panel = document.getElementById('dash-panel-' + id);
@@ -3956,6 +3980,54 @@ function viewingTodos() {
   // 最近睇嘅排先（記憶仲新，跟進最容易）
   return out.sort((a, b) => String(b.v.view_date || '').localeCompare(String(a.v.view_date || '')));
 }
+// ── 功能介紹（onboarding，2026-11-01）──────────────────────────────────────────
+// 打開每個功能嗰陣，喺頂部「介紹位」（ob-slot-*）出一張細卡簡單講用法：「明白」＝今次（呢個分頁 session）唔再出，
+// 下次開 app 再出；「唔再提醒」＝永久唔出（存 server：POST /api/onboard-off，跟帳戶，換機都記得；key 要喺 worker ONBOARD_KEYS 白名單）。
+// ⚙️ 設定「重新顯示功能介紹」＝全部重置。用固定介紹位而唔係插入內容，因為分頁內容會成個重畫。
+const ONBOARD = {
+  home: ['主頁', '最頂會話你追蹤嘅屋苑今日有咩新盤、減價、成交；冇變動嘅日子就幫你喺四大地產網搵盤。下面「睇樓日記」記低你睇過嘅單位。'],
+  estate: ['屋苑頁', '「最新放盤」係各地產網而家放緊嘅盤，可以按房數、價錢篩，仲會話你個盤放咗幾耐、減過幾多次價。睇中咗就撳「記睇樓」記入睇樓日記。'],
+  txns: ['成交記錄', '呢度係土地註冊處登記咗嘅真實成交價（唔係叫價），通常比叫價低。想知一個盤大概值幾多，睇同座、同層數嘅成交最準。'],
+  analysis: ['樓盤分析', '睇呢個屋苑嘅呎價走勢同市況。「去貨月數」越長＝盤多買家少，買家較有議價空間；越短＝賣家話事。'],
+  estate_viewings: ['睇樓記錄', '你喺呢個屋苑睇過嘅單位。記低睇樓價同感覺，之後呢個單位減價、落架、成交，我哋都會通知你。'],
+  diary: ['睇樓日記', '所有睇過嘅單位都喺度，可以影相、打分、寫備註，方便之後比較。撳「📝 新增睇樓」開始記錄。'],
+  friends: ['朋友屋企', '記低親戚朋友住邊，就可以睇佢哋層樓而家大概值幾多、同屋苑最近成交價，做個參考。'],
+  fav: ['心儀樓盤', '搵樓時撳 ♡ 收藏嘅盤會喺度，價錢有變或者落咗架都會標示出嚟。'],
+  dyn: ['動態', '你追蹤嘅屋苑每日嘅新盤、減價、下架同新成交。設定咗睇樓偏好嘅話，只會顯示啱你預算同房數嘅盤（撳「🎯 偏好」可以熄）。'],
+  search: ['搵樓（四大地產網）', '一次過搜中原、美聯、香港置業、利嘉閣嘅放盤。見到心水屋苑撳「🔔 追蹤屋苑」，之後每日幫你睇佢嘅新盤同加減價。'],
+  mortgage: ['按揭計算機', '輸入樓價同首期，就計到每月供款、要預備幾多現金（包括印花稅），同埋要幾多月入先過到壓力測試。月入同現金會記喺你部機，唔使每次重填。'],
+  viewing_add: ['新增睇樓', '揀屋苑、填座數同樓層，記低睇樓價同感覺。資料齊嘅話，之後呢個單位減價、落架、成交都會通知你。評分同相片可以之後先補。'],
+  history: ['歷史動態', '過去幾個月嘅新盤、減價、成交記錄，睇返一個屋苑嘅成交節奏同減價趨勢。'],
+};
+let _onboardOff = new Set();
+const _obSeenKey = 'pw_ob_seen';
+function _obSeen() { try { return new Set(JSON.parse(sessionStorage.getItem(_obSeenKey) || '[]')); } catch (_) { return new Set(); } }
+function obSlot(slotId, key) {
+  const el = document.getElementById(slotId);
+  if (!el) return;
+  const t = ONBOARD[key];
+  if (!t || _onboardOff.has(key) || _obSeen().has(key)) { el.innerHTML = ''; return; }
+  el.innerHTML = `<div class="ob-tip" data-ob="${key}"><div class="ob-t">💡 ${escHtml(t[0])}</div><div>${escHtml(t[1])}</div>
+    <div class="ob-act"><button type="button" class="ob-off" onclick="obOff('${key}')">唔再提醒</button><button type="button" class="ob-ok" onclick="obOk('${key}')">明白</button></div></div>`;
+}
+function _obHide(key) { document.querySelectorAll(`.ob-tip[data-ob="${key}"]`).forEach(x => x.remove()); }
+function obOk(key) {
+  const s = _obSeen(); s.add(key);
+  try { sessionStorage.setItem(_obSeenKey, JSON.stringify([...s])); } catch (_) { /* 私隱模式：今次收埋就算 */ }
+  _obHide(key);
+}
+function obOff(key) {
+  _onboardOff.add(key);
+  _obHide(key);
+  api('/api/onboard-off', { method: 'POST', body: JSON.stringify({ key }) }).catch(() => {});
+}
+async function obResetAll() {
+  try { await api('/api/onboard-off', { method: 'POST', body: JSON.stringify({ reset: true }) }); } catch (_) { toast('重設失敗，請再試', 'error'); return; }
+  _onboardOff = new Set();
+  try { sessionStorage.removeItem(_obSeenKey); } catch (_) { /* 冇所謂 */ }
+  toast('已重設：打開各功能會再見到介紹', 'success');
+}
+
 // ── 主頁頂部（2026-11-01，UI review C 組；主線＝監察已追蹤屋苑）──────────────────────────────
 // A 有更新：「📈 你嘅屋苑今日」（每屋苑一行新盤／減價／加價／新成交，數字係 cron 預先計好嘅 stats.d1，開主頁唔讀 D1）
 //   ＋ 待跟進併入同一張卡 ＋ 搵樓摺埋做一行（撳先展開）。
@@ -4916,6 +4988,7 @@ function showHistoryPage() {
   const main = document.getElementById("main");
   main.innerHTML = `
     <div class="dashboard">
+      <div id="ob-slot-history"></div>
       <div class="highlights-section" id="history-section">
         <div class="highlights-title" style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:0.4rem">
           <span>歷史動態</span>
@@ -4933,6 +5006,7 @@ function showHistoryPage() {
         <div id="history-body" style="color:var(--muted);font-size:0.75rem;margin-top:0.75rem">載入中…</div>
       </div>
     </div>`;
+  obSlot('ob-slot-history', 'history');
   loadHistoryHighlights(1);
 }
 
@@ -5164,7 +5238,8 @@ let _cfgGroup = '全部';   // 設定 modal 揀緊嘅分類
 let _userRole = 'user';   // 'admin' 先可以改「分析參數」；一般 user 得睇樓偏好
 async function loadAppConfig() {
   try {
-    const { items, groups, role, tier, freeMaxEstates, freeMaxFriendHomes, maxViewingImgs, hsTrialCap, hsTrialsLeft } = await api('/api/config');
+    const { items, groups, role, tier, freeMaxEstates, freeMaxFriendHomes, maxViewingImgs, hsTrialCap, hsTrialsLeft, onboardOff } = await api('/api/config');
+    if (Array.isArray(onboardOff)) _onboardOff = new Set(onboardOff);
     _cfgDefs = items || [];
     _cfgGroups = groups || [];
     _appCfg = Object.fromEntries(_cfgDefs.map(d => [d.key, d.value]));
@@ -5753,6 +5828,7 @@ async function showEstate(id, name, district) {
         <button class="estate-tab" id="tab-btn-viewings" onclick="switchTab('viewings',${id})">睇樓記錄</button>
         <button class="estate-tab" onclick="switchTab('analysis',${id})">樓盤分析</button>
       </div>
+      <div id="ob-slot-estate" style="margin-top:0.6rem"></div>
 
       <div id="tab-listings">
       <div id="buyListingsWrap" style="display:${_estateDeal === 'R' ? 'none' : ''}">
@@ -5847,6 +5923,7 @@ async function showEstate(id, name, district) {
         </div>
       </div>
     `;
+    obSlot('ob-slot-estate', 'estate');
 
     // Init listings sort/filter state and render
     if (listings.length > 0) {
@@ -6457,6 +6534,7 @@ function switchTab(tab, estateId) {
   document.getElementById("tab-transactions").style.display = tab === "transactions" ? "" : "none";
   document.getElementById("tab-viewings").style.display = tab === "viewings" ? "" : "none";
   document.getElementById("tab-analysis").style.display = tab === "analysis" ? "" : "none";
+  obSlot('ob-slot-estate', { listings: 'estate', transactions: 'txns', viewings: 'estate_viewings', analysis: 'analysis' }[tab] || '');
   if (tab === "transactions") {
     if (_estateDeal === 'R') loadRentalTransactions(estateId);
     else loadTransactions(estateId, 0, false);
@@ -8588,6 +8666,7 @@ function openViewingModal(viewing = null, readOnly = false, opts = {}) {
   }
   _viewingEditId = viewing ? viewing.id : null;
   document.getElementById('viewingModalOverlay').style.display = 'flex';
+  obSlot('ob-slot-viewing', isEdit || readOnly ? '' : 'viewing_add');
   document.getElementById('viewing-modal-estate-name').textContent = _viewingEstateName;
   document.querySelector('#viewingModalOverlay .modal-title').textContent = isEdit ? (readOnly ? '👁 查看睇樓記錄' : '✏️ 更改睇樓記錄') : '＋ 新增睇樓記錄';
   const today = new Date(Date.now() + 8*3600000).toISOString().slice(0,10);
@@ -10739,6 +10818,7 @@ let _mcBackToPrefs = false;   // 由偏好 popup 入嚟？計完要返得返去
 function openMortgageModal() {
   mountMortgageForm();
   document.getElementById("mortgageModalOverlay").style.display = "flex";
+  obSlot('ob-slot-mortgage', 'mortgage');
   renderMortgage();
 }
 // 由放盤卡／睇樓記錄「🧮 計按揭」入嚟（2026-11-01 UI review B2）：開「睇中咗層樓」，樓價填好即計。
