@@ -1317,6 +1317,11 @@
     .lc-actions { display: flex; gap: 0.3rem; flex-wrap: wrap; padding-top: 0.4rem; align-items: flex-start; }
     .fav-group-h { font-weight: 700; font-size: 0.88rem; margin: 0.9rem 0 0.4rem; padding-left: 0.2rem; }
     .fav-group-h span { font-weight: 400; color: var(--muted); font-size: 0.76rem; margin-left: 0.3rem; }
+    .vf-ratings-wrap { margin-top: 0.75rem; }
+    .vf-ratings-wrap > summary { cursor: pointer; list-style: none; margin: 0; }
+    .vf-ratings-wrap > summary::-webkit-details-marker { display: none; }
+    .vf-ratings-wrap > summary::after { content: " ▾"; color: var(--muted); }
+    .vf-ratings-wrap[open] > summary::after { content: " ▴"; }
     .lc-act { background: var(--brand-soft); color: var(--brand); border: 1px solid transparent; border-radius: 999px; font-size: 0.72rem; font-weight: 600; padding: 0.2rem 0.6rem; cursor: pointer; font-family: inherit; white-space: nowrap; }
     .lc-act:hover { border-color: var(--brand); }
     .lc-more { font-size: 0.72rem; }
@@ -1929,7 +1934,7 @@
   <div class="modal" style="max-width:440px;max-height:90vh;overflow-y:auto">
     <button class="modal-close" onclick="closeFriendModal()">✕</button>
     <div class="modal-title" id="friend-modal-title">👥 新增朋友屋企</div>
-    <p style="font-size:0.8rem;color:var(--muted);margin:0.25rem 0 1rem">入朋友名同單位，自動搵過往成交、恆生估值、相對市價同類近在售。</p>
+    <p style="font-size:0.8rem;color:var(--muted);margin:0.25rem 0 1rem">記低朋友屋企邊個單位，儲存後會自動幫你搵返過往成交同估值。</p>
     <label class="vf-label">朋友名<span>*</span></label>
     <input class="vf-input" type="text" id="fh-name" placeholder="例：阿明">
     <label class="vf-label" style="margin-top:0.7rem">屋苑<span>*</span>（搜尋——未追蹤嘅屋苑會一次過抓數據，唔會加入追蹤）</label>
@@ -2443,11 +2448,12 @@
         </div>
       </div>
 
-      <label class="vf-label" style="display:flex;align-items:center;justify-content:space-between;gap:0.5rem">
-        <span>睇樓評分</span>
-        <span onclick="openRatingCritEditor()" style="font-size:0.75rem;color:var(--accent2);cursor:pointer;font-weight:400">✏️ 編輯選項</span>
-      </label>
-      <div id="vf-ratings" style="margin-bottom:0.7rem"></div>
+      <!-- 評分係選填（2026-11-01 UI review B10）：新記錄預設收埋，唔好令張表睇落好長；有評分嘅記錄打開時自動展開 -->
+      <details id="vf-ratings-wrap" class="vf-ratings-wrap">
+        <summary class="vf-label">⭐ 睇樓評分（選填，儲存後都可以再打）</summary>
+        <div style="display:flex;justify-content:flex-end;margin:0.2rem 0 0.1rem"><span onclick="openRatingCritEditor()" style="font-size:0.75rem;color:var(--accent2);cursor:pointer">✏️ 編輯選項</span></div>
+        <div id="vf-ratings" style="margin-bottom:0.7rem"></div>
+      </details>
 
       <label class="vf-label" style="display:flex;align-items:center;justify-content:space-between;gap:0.5rem">
         <span>備注</span>
@@ -8587,6 +8593,7 @@ function openViewingModal(viewing = null, readOnly = false, opts = {}) {
   document.getElementById('vf-mgmt').value = viewing ? (viewing.mgmt_fee || '') : '';
   populateNotesSelect(viewing ? (viewing.notes || '') : '');
   _vfRatings = viewing ? parseRatings(viewing) : {};
+  document.getElementById('vf-ratings-wrap').open = Object.keys(_vfRatings).length > 0;
   renderVfRatings();
   loadRatingCriteria().then(renderVfRatings);
   const preview = document.getElementById('vf-img-preview');
