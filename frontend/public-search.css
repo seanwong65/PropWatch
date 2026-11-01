@@ -110,7 +110,10 @@ button.ps-track { cursor: pointer; font-family: inherit; }
 .ps-top .ps-like { margin-right: auto; margin-left: 0.4rem; }
 .ps-like { font-size: 0.72rem; font-weight: 600; color: #e11d48; background: #ffe4ea; border-radius: 999px; padding: 0.05rem 0.5rem; white-space: nowrap; }
 /* 「已套用你嘅睇樓偏好」晶片（app 入面） */
-.ps-applied { margin-top: 0.7rem; display: flex; flex-wrap: wrap; align-items: center; gap: 0.4rem 0.6rem; font-size: 0.82rem; color: var(--text); background: var(--brand-soft, #e8f1fa); border: 1px solid var(--border); border-radius: 12px; padding: 0.45rem 0.75rem; }
+.ps-applied { margin: 0; display: flex; flex-wrap: wrap; align-items: center; gap: 0.4rem 0.6rem; font-size: 0.82rem; color: var(--text); background: var(--brand-soft, #e8f1fa); border: 1px solid var(--border); border-radius: 12px; padding: 0.45rem 0.75rem; }
 .ps-applied[hidden] { display: none; }
 .ps-applied-x { background: none; border: 1px solid var(--border-strong, #c9d6e3); border-radius: 999px; padding: 0.1rem 0.6rem; font-size: 0.78rem; cursor: pointer; color: var(--muted); font-family: inherit; }
 .ps-applied-x:hover { color: var(--text); border-color: var(--brand); }
+/* 放喺表單入面：闊屏（類型｜屋苑｜搜尋同一行）排去嗰行下面成行；手機單欄就喺「類型」同「屋苑」之間 */
+.ps-row1 .ps-applied { grid-column: 1 / -1; order: 10; }
+@media (max-width: 720px) { .ps-row1 .ps-applied { order: 0; } }

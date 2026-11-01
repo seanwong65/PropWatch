@@ -21,6 +21,7 @@ const PANEL_HTML = `
           <label><input type="radio" name="deal" value="R"><span>租盤</span></label>
         </div>
       </div>
+      <div class="ps-applied" id="ps-applied" hidden></div>
       <label class="ps-field" for="ps-kw"><span class="ps-label">屋苑（可留空）</span>
         <input class="ps-input" id="ps-kw" name="kw" type="search" maxlength="30" placeholder="例如：天晉、太古城、嘉湖山莊" autocomplete="off">
       </label>
@@ -65,7 +66,6 @@ const PANEL_HTML = `
     </div>
   </form>
 
-  <div class="ps-applied" id="ps-applied" hidden></div>
   <div class="ps-recent" id="ps-recent" hidden></div>
   <div class="ps-srcbar" id="ps-srcbar" aria-live="polite"></div>
   <div class="ps-head">
