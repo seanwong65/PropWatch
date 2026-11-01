@@ -677,6 +677,10 @@ const SEC_DEFS = [
     desc: "免費版每個睇樓記錄（同一單位）可以手動試查恒生估值一次（查唔到數據都算一次，刪咗再加同一單位唔會重置）。呢個係每個免費帳戶終身最多試查幾多個單位，純粹防濫用恒生接口。0 = 完全唔俾試。" },
   { key: "sec_paid_max_friend_homes", def: 30, min: 1, max: 500, label: "收費版：最多朋友屋企",
     desc: "收費用戶（含 admin 以外）可以記低幾多個「朋友屋企」，純粹防濫用嘅安全上限。" },
+  { key: "sec_signup_trial_months", def: 3, min: 0, max: 12, label: "新用戶註冊送收費版（月，0＝唔送）",
+    desc: "新註冊用戶自動開通收費版幾多個月（2026-11-01 推廣期用）。只影響改咗設定之後註冊嘅人，已註冊嘅唔變。"
+        + "到期自動轉返免費版（超出免費上限嘅屋苑暫停追蹤，資料保留），到期當日寄「免費試用完結」email，唔會扣錢。"
+        + "試用期內訂閱：扣款由試用完結日先開始（Stripe trial），唔會蝕試用期。推廣完結設 0 即停。" },
   { key: "sec_onboard_per_day", def: 1, min: 1, max: 20, label: "新屋苑：每日最多完整 sync 幾個",
     desc: "從未 sync 過嘅新屋苑，第一次要抓齊 4 個地產網放盤＋幾年成交，一個大屋苑約寫 ~40k 行 D1（免費版每日上限 10 萬，普通日已用 ~48k）。"
         + "每個 UTC 日（＝香港 08:00 重置）最多俾呢個數量嘅新屋苑做完整 sync，超出嘅排隊，次日按加入先後逐個做；"
@@ -708,7 +712,14 @@ const SEC_DEFS = [
         + "呢個係後端硬閘。唔可以超過 D1 單格上限（實測 ~4MB 以上就 SQLITE_TOOBIG），留定位。" },
 ];
 const SEC_DEFAULTS = Object.fromEntries(SEC_DEFS.map((d) => [d.key, d.def]));
+const SEC_MIN0 = new Set(SEC_DEFS.filter((d) => d.min === 0).map((d) => d.key));
 let _secCfgCache = { at: 0, vals: null };
+// 香港今日 + n 個月（YYYY-MM-DD）；月尾唔夠日就用嗰個月最後一日（1/31 + 1 個月 → 2/28）
+export function hkAddMonths(n, from = null) {
+  const [y, m, d] = (from || hkDateStr()).split("-").map(Number);
+  const last = new Date(Date.UTC(y, m - 1 + n + 1, 0)).getUTCDate();
+  return new Date(Date.UTC(y, m - 1 + n, Math.min(d, last))).toISOString().slice(0, 10);
+}
 async function getSecCfg(db) {
   const now = Date.now();
   if (_secCfgCache.vals && now - _secCfgCache.at < 60000) return _secCfgCache.vals;
@@ -717,7 +728,8 @@ async function getSecCfg(db) {
     const { results } = await db.prepare("SELECT key, value FROM settings WHERE key LIKE 'sec_%'").all();
     for (const r of results) {
       const n = Number(r.value);
-      if (Number.isFinite(n) && n > 0 && r.key in SEC_DEFAULTS) vals[r.key] = n;
+      // 一般唔准 0（rate limit 變 0 會鎖死 API）；SEC_DEFS 寫明 min: 0 嘅（例如送試用月數、恒生試查上限）先准 0＝關閉
+      if (Number.isFinite(n) && (n > 0 || (n === 0 && SEC_MIN0.has(r.key))) && r.key in SEC_DEFAULTS) vals[r.key] = n;
     }
   } catch (_) { /* settings 表未有都照用 default */ }
   _secCfgCache = { at: now, vals };
@@ -953,7 +965,7 @@ let _authTablesReady = false;
 // 而家 settings.schema_version 同 SCHEMA_VERSION 一樣就當全部 DDL 做齊，直接跳過（cold 只多 1 次往返）。
 // ⚠️ 加／改任何 ensure*（新表、新欄、新 index）一定要 bump SCHEMA_VERSION，否則 production 唔會行嗰段 DDL。
 // 版本唔同嗰次（deploy 之後第一個 request）會逐個行晒再寫返版本。
-const SCHEMA_VERSION = "2026-10-30a";
+const SCHEMA_VERSION = "2026-11-01a";   // 11-01：accounts.trial
 let _schemaP = null;
 function markSchemaReady() {
   _authTablesReady = _multiAccountDDLReady = _priceSeenReady = _listingSpanReady = true;
@@ -3099,6 +3111,7 @@ async function ensureBilling(db) {
     "current_period_end TEXT",       // YYYY-MM-DD，下次扣費日
     "cancel_at_period_end INTEGER NOT NULL DEFAULT 0",
     "subscription_interval TEXT",    // month/year
+    "trial INTEGER NOT NULL DEFAULT 0",   // 1＝新用戶免費試用（sec_signup_trial_months）；訂閱／admin 改 tier 會清返 0
   ]) {
     try { await db.prepare(`ALTER TABLE accounts ADD COLUMN ${col}`).run(); } catch (_) {}
   }
@@ -3274,10 +3287,11 @@ async function notifyDowngraded(db, env, ctx, accountId, { periodEnd = "", reaso
 // 每日排程（搭 runDailyEmailTask）：①人手開通嘅收費帳戶過咗 current_period_end 但冇人登入（authenticate 先會降級）→ 主動降級＋寄到期信
 // （否則佢哋仲收緊每日 email）；②近 10 日內人手到期嘅（可能係 authenticate 已經降咗）補寄一次。（「3 日前提醒」用戶決定唔做。）
 async function runLifecycleEmails(db, env, { dryRun = false } = {}) {
+  await ensureBilling(db);   // trial 欄位
   const today = hkDateStr(), back10 = hkDateStr(-10);
   const out = { downgraded: [], expired: [] };
   const { results: lapsed } = await db.prepare(
-    `SELECT id, email, tier, current_period_end FROM accounts
+    `SELECT id, email, tier, current_period_end, trial FROM accounts
      WHERE role != 'admin' AND stripe_subscription_id IS NULL AND current_period_end IS NOT NULL
        AND current_period_end < ? AND current_period_end >= ? AND (tier = 'paid' OR tier = 'free')`).bind(today, back10).all();
   for (const a of lapsed) {
@@ -3285,17 +3299,18 @@ async function runLifecycleEmails(db, env, { dryRun = false } = {}) {
       out.downgraded.push(a.email || a.id);
       if (!dryRun) { await db.prepare("UPDATE accounts SET tier = 'free' WHERE id = ?").bind(a.id).run(); await applyTierEstateLimit(db, a.id, false); }
     }
-    const r = dryRun ? { dry_run: true } : await notifyDowngradedSync(db, env, a.id, a.current_period_end);
-    out.expired.push({ account: a.email || a.id, periodEnd: a.current_period_end, result: r });
+    const r = dryRun ? { dry_run: true } : await notifyDowngradedSync(db, env, a.id, a.current_period_end, a.trial ? "trial" : "expired");
+    out.expired.push({ account: a.email || a.id, periodEnd: a.current_period_end, trial: !!a.trial, result: r });
   }
   return out;
 }
-async function notifyDowngradedSync(db, env, accountId, periodEnd) {
+async function notifyDowngradedSync(db, env, accountId, periodEnd, reason = "expired") {
   const r = await db.prepare("SELECT COUNT(*) AS paused FROM account_estates WHERE account_id = ? AND paused_at IS NOT NULL").bind(accountId).first().catch(() => null);
-  return sendLifecycleEmail(db, env, accountId, "expired", `lc_expired_${accountId}_${periodEnd}`, { reason: "expired", periodEnd, pausedCount: r?.paused || 0 });
+  return sendLifecycleEmail(db, env, accountId, "expired", `lc_expired_${accountId}_${periodEnd}`, { reason, periodEnd, pausedCount: r?.paused || 0 });
 }
 
 async function applySubscription(db, accountId, sub, env = null, ctx = null) {
+  await ensureBilling(db);   // trial 欄位
   const status = sub?.status || null;
   const tier = PAID_SUB_STATUSES.has(status) ? "paid" : "free";
   const prev = await db.prepare("SELECT tier, role FROM accounts WHERE id = ?").bind(accountId).first().catch(() => null);
@@ -3305,7 +3320,7 @@ async function applySubscription(db, accountId, sub, env = null, ctx = null) {
   const periodEnd = item?.current_period_end ?? sub?.current_period_end ?? null;
   await db.prepare(
     `UPDATE accounts SET tier = ?, stripe_subscription_id = ?, subscription_status = ?,
-       current_period_end = ?, cancel_at_period_end = ?, subscription_interval = ?
+       current_period_end = ?, cancel_at_period_end = ?, subscription_interval = ?, trial = 0
      WHERE id = ?`
   ).bind(
     tier, sub?.id ?? null, status, hkDate(periodEnd),
@@ -7730,11 +7745,22 @@ export default {
         const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
         await db.prepare("INSERT INTO sessions (token, account_id, created_at, expires_at) VALUES (?, ?, ?, ?)")
           .bind(token, ins.meta.last_row_id, now2, expiresAt).run();
+        // 新用戶免費試用收費版（admin 設定 sec_signup_trial_months，0＝唔送）。到期由 authenticate／runLifecycleEmails 自動降級＋寄「試用完結」信
+        let tier = "free", trialUntil = null;
         if (role !== "admin") {
+          const months = (await getSecCfg(db)).sec_signup_trial_months;
+          if (months > 0) {
+            try {
+              await ensureBilling(db);
+              trialUntil = hkAddMonths(months);
+              await db.prepare("UPDATE accounts SET tier = 'paid', current_period_end = ?, trial = 1 WHERE id = ?").bind(trialUntil, ins.meta.last_row_id).run();
+              tier = "paid";
+            } catch (e) { console.error("signup trial failed:", e?.message || e); trialUntil = null; }   // 送唔到都照註冊成功
+          }
           const c = await accountCounts(db);
-          notifyOwner(env, ctx, `🆕 搵樓日記：新用戶註冊\n${maskEmail(em)}\n累計 ${c.total} 個用戶（收費 ${c.paid}）`);
+          notifyOwner(env, ctx, `🆕 搵樓日記：新用戶註冊\n${maskEmail(em)}${trialUntil ? `\n（送收費版試用至 ${trialUntil}）` : ""}\n累計 ${c.total} 個用戶（收費 ${c.paid}）`);
         }
-        return json(200, { token, email: em, role, tier: "free" });
+        return json(200, { token, email: em, role, tier, trial_until: trialUntil });
       }
 
       // ── 忘記密碼（email OTP 重設）── public auth route。
@@ -7828,7 +7854,7 @@ export default {
       // 每週摘要手動驗證：body { account_id?, preview? }。有 account_id＝只寄嗰個帳戶（唔受一週一封限制）；
       // preview＝淨係回 subject／html，唔寄、唔認領。冇 account_id＝行返 cron 嘅正式路徑（一週一封）。
       // 到期／扣款失敗 email 嘅管理入口。body：
-      //  { kind: "expired"|"payment_failed", sample: true }  → 寄樣本去呼叫者自己個 email（假數據）
+      //  { kind: "expired"|"payment_failed", sample: true, reason?: "canceled"|"trial" }  → 寄樣本去呼叫者自己個 email（假數據）
       //  { run: true, dry_run?: true }                                   → 行排程掃描（dry_run 只列邊個會被降級／寄信）
       if (method === "POST" && path === "/api/admin/lifecycle-emails") {
         if (!isAdminSession(session)) return json(403, { error: "admin only" });
@@ -7837,7 +7863,7 @@ export default {
           const me = await db.prepare("SELECT email FROM accounts WHERE id = ?").bind(session.account_id).first();
           if (!me?.email) return json(400, { error: "你個帳戶冇 email" });
           const kind = ["expired", "payment_failed"].includes(b.kind) ? b.kind : "expired";
-          const info = { expired: { reason: b.reason === "canceled" ? "canceled" : "expired", periodEnd: hkDateStr(), pausedCount: 4 },
+          const info = { expired: { reason: ["canceled", "trial"].includes(b.reason) ? b.reason : "expired", periodEnd: hkDateStr(), pausedCount: 4 },
                          payment_failed: { amount: "HK$400", nextTry: hkDateStr(3) } }[kind];
           return json(200, await sendLifecycleEmail(db, env, session.account_id, kind, "", info, { toOverride: me.email }));
         }
@@ -10571,6 +10597,8 @@ export default {
           maxViewings: paid ? null : sc.sec_free_max_viewings,   // null = 無限
           maxViewingImgs: paid ? null : sc.sec_free_max_viewing_imgs,   // null = 無限（收費版）
           onboardOff: await getOnboardOff(db, session.account_id).catch(() => []),   // 功能介紹：揀咗「唔再提醒」嘅功能
+          trialUntil: paid ? await db.prepare("SELECT current_period_end AS e FROM accounts WHERE id = ? AND trial = 1 AND stripe_subscription_id IS NULL")
+            .bind(session.account_id).first().then((r) => r?.e || null).catch(() => null) : null,   // 新用戶免費試用至（頂欄 chip）
         });
       }
       if (method === "PUT" && path === "/api/config") {
@@ -11055,7 +11083,7 @@ export default {
         await ensureBilling(db);
         const acc = await db.prepare(
           `SELECT tier, subscription_status, current_period_end, cancel_at_period_end,
-                  subscription_interval, stripe_customer_id
+                  subscription_interval, stripe_customer_id, trial, stripe_subscription_id
            FROM accounts WHERE id = ?`
         ).bind(session.account_id).first();
         const plans = {};
@@ -11070,12 +11098,20 @@ export default {
           cancel_at_period_end: !!acc?.cancel_at_period_end,
           interval: acc?.subscription_interval || null,
           hasCustomer: !!acc?.stripe_customer_id,
+          trial: !!acc?.trial && isPaidSession(session) && !acc?.stripe_subscription_id,   // 新用戶免費試用中（current_period_end＝試用最後一日）
           plans,
         });
       }
 
       // 落訂閱：起 Stripe Checkout Session，回個 url 畀前端 redirect 過去。
       // 卡資料全程喺 Stripe 嗰邊入，我哋永遠掂唔到——唔使處理 PCI。
+      // 新用戶試用中訂閱：扣款由試用完結先開始（Stripe trial_end＝試用最後一日翌日 00:00 HKT），唔會蝕試用期。
+      // Stripe 要求 trial_end 最少 48 小時後，唔夠就照即刻扣。
+      const trialEndFor = (acc) => {
+        if (!acc?.trial || acc.tier !== "paid" || !acc.current_period_end) return {};
+        const t = Math.floor(Date.parse(acc.current_period_end + "T00:00:00+08:00") / 1000) + 86400;
+        return t - Date.now() / 1000 > 49 * 3600 ? { trial_end: t } : {};
+      };
       if (path === "/api/billing/checkout" && method === "POST") {
         await ensureBilling(db);
         const { interval } = await request.json();
@@ -11100,7 +11136,7 @@ export default {
             ...(acc?.stripe_customer_id
               ? { customer: acc.stripe_customer_id }
               : (acc?.email ? { customer_email: acc.email } : {})),
-            subscription_data: { metadata: { account_id: String(session.account_id) } },
+            subscription_data: { metadata: { account_id: String(session.account_id) }, ...trialEndFor(acc) },
           });
           return json(200, { url: s.url });
         } catch (e) {
@@ -11179,10 +11215,12 @@ export default {
           }
           if (tier === "paid" && !acc.stripe_subscription_id) {
             // 人手開通（或者改到期日）：until 冇傳就當長期（清走舊到期日）。
-            await db.prepare("UPDATE accounts SET tier = 'paid', current_period_end = ? WHERE id = ?")
+            await ensureBilling(db);
+            await db.prepare("UPDATE accounts SET tier = 'paid', current_period_end = ?, trial = 0 WHERE id = ?")   // admin 手動改＝唔再當試用
               .bind(until || null, acc.id).run();
           } else {
-            await db.prepare("UPDATE accounts SET tier = ? WHERE id = ?").bind(tier, acc.id).run();
+            await ensureBilling(db);
+            await db.prepare("UPDATE accounts SET tier = ?, trial = 0 WHERE id = ?").bind(tier, acc.id).run();
           }
           await applyTierEstateLimit(db, acc.id, tier === "paid");
           return json(200, { ok: true, email, tier, until: tier === "paid" ? (until || null) : null });
