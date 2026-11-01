@@ -692,3 +692,9 @@ drip sync（`*/2`）同樣被雙重觸發：兩個 invocation 同時揀同一批
 - key 白名單：worker `ONBOARD_KEYS`（加新介紹要兩邊一齊加，否則存唔到）。現有：home、estate、txns、analysis、estate_viewings、diary、friends、fav、dyn、search、mortgage、viewing_add、history。
 - 用固定介紹位而唔插入內容：屋苑分頁／主頁分頁內容會成個 innerHTML 重畫。開主頁預設分頁（`switchDashTab('comps', true)`）唔出分頁介紹，免得同主頁介紹兩張一齊。
 - 搜尋預設：偏好買租都有 → 預設買盤（用戶 2026-11-01 確認維持）。
+
+## 新手白話（2026-11-01，目標用戶＝首次置業）
+
+- 術語：`gl(key, 顯示字)` 包住，虛線底，撳／Enter 彈出一句解釋（`glossShow`，`GLOSS` 表：實呎、實呎價、叫價、成交價、恒生估值、去貨月數）。用喺放盤表頭、成交表頭、屋苑卡「叫價中位」、市況。表頭撳術語 stopPropagation，唔會觸發排序。
+- 市況：`_mtVerdict` 加 `plain`（極淡＝盤多買家少，可以大膽講價…），屋苑頁頭市況一句同分析 tab 市場溫度卡都顯示。
+- 成交表進階欄位預設收埋（`_txnAdv`，之前 A 組已做）。
