@@ -192,11 +192,12 @@ export async function computeWeekChanges(db, estateId, sources) {
 export async function refreshEstateStats(db, { limit = 6, sources = ["centanet", "midland", "hkp", "ricacorp"], force = false } = {}) {
   await ensureEstateStats(db);
   const { results } = await db.prepare(
-    `SELECT e.id, st.as_of, (SELECT MAX(snapshot_date) FROM listings l WHERE l.estate_id = e.id) AS lmax
+    `SELECT e.id, st.as_of, json_type(st.data, '$.d1') AS d1t, (SELECT MAX(snapshot_date) FROM listings l WHERE l.estate_id = e.id) AS lmax
      FROM estates e LEFT JOIN estate_stats st ON st.estate_id = e.id
      WHERE (e.is_disabled = 0 OR e.is_disabled IS NULL)
        AND EXISTS (SELECT 1 FROM account_estates ae WHERE ae.estate_id = e.id AND ae.paused_at IS NULL)`).all();
-  const isDue = (r) => r.lmax && (force || !r.as_of || r.lmax > r.as_of);
+  // d1t：舊統計未有 d1 欄位（2026-11-01 前計嘅）→ 補算一次；d1 係 null（新屋苑）唔算，唔會每轉重算
+  const isDue = (r) => r.lmax && (force || !r.as_of || r.lmax > r.as_of || r.d1t == null);
   const due = results.filter(isDue).slice(0, limit);
   let done = 0;
   for (const r of due) {

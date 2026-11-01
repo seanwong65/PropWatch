@@ -668,3 +668,20 @@ drip sync（`*/2`）同樣被雙重觸發：兩個 invocation 同時揀同一批
 - 目標用戶：**首次置業新手**（預設收埋成交大表／進階分析／估值參數，多啲白話解釋）。
 - 四網搜尋：**照套用個人偏好＋「已套用」晶片可關**（維持現狀）。
 - 主頁輪播搜尋表單：跟主線——有更新時退後（摺埋），冇更新時做主角。具體方案待用戶批准。
+
+## 主頁頂部改版：監察為主（2026-11-01，UI review C 組第一步）
+
+- 取代主頁輪播（`renderHomeCarousel` 個名保留，內容重寫）。三個情況：
+  - **A 有更新**：「📈 你嘅屋苑今日」卡，每個有變動屋苑一行「新盤／減價／加價／新成交」（撳入屋苑）；冇變動嘅縮成「其餘 N 個屋苑今日冇變動．睇全部動態 ›」；待跟進併入同一張卡（`#hc-todo.mon-todo`，精簡版冇外框／說明）；搵樓摺埋做一行（`homeOpenFind` 先 mount 搜尋）。
+  - **B 冇更新**：一句「✓ 你追蹤嘅 N 個屋苑今日冇新變動」（收費版有「睇本週動態」）＋待跟進卡＋搵樓做主角（展開、套用偏好）。
+  - **C 未追蹤任何屋苑**：歡迎＋熱門屋苑晶片（`HOME_POPULAR`，撳＝`trackNameFromSearch` 帶去側欄揀，唔自動追蹤）＋搵樓做主角。新用戶唔再自動跳去搵樓頁（`_autoSearchDone` 已刪）。
+- 「今日／尋日」：取所有屋苑 `stats.d1.day` 最大值；＝今日顯示「今日」，＝尋日顯示「尋日」（06:00 sync 完之前），再舊就當冇更新（情況 B）。數字**唔套偏好**（避免同「入去冇嘢」矛盾）。
+- 數字來源 `estate_stats.data.d1 = {day, new, cuts, ups, txns}`（`computeDayChanges`，`refreshEstateStats` 閒時預先計）：
+  - 新盤／改價：當日 listings JOIN 當日 lph 新行（lph 稀疏，價錢冇變唔會有新行），對上一行冇＝新盤，差 > $1,000＝減／加價；新成交：`first_seen`＝當日、登記日 90 日內。同 `getTodayHighlights` 同一套定義，但唔計個人設定（`ae.added_at`、`new_txn_max_age_days`）。
+  - 屋苑 first_seen 未夠兩日回 null（第一次 sync 全部盤都係新）。
+  - 成本：每屋苑約讀 4×當日盤數（太古城 850 盤 → 3,413 rows read）。
+  - 免費版 `/api/estates` 都回 `d1`（今日 snapshot 免費）。
+  - 舊統計冇 `d1` 欄位（`json_type` IS NULL）會自動補算一次；admin `POST /api/admin/refresh-estate-stats?force=1` 可全部重算。
+- 搵樓結果卡（app 內，`opts.track`）：「🔔 追蹤屋苑」改實色掣（`.ps-track-app`）；公開 `/search` 頁照舊「🔔 追蹤加減價」（帶去登記）。
+- Demo（假數據靜態頁）：`docs/demo/home-monitor-first.html`（未入 git）。
+- 未做（C 組下一步）：主選單收成「今日／屋苑／搵盤／睇樓／設定」、收藏收成兩種、五粒捷徑收斂、新手白話解釋。

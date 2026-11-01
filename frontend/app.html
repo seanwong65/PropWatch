@@ -1112,18 +1112,37 @@
     .vw-cover img { display: block; width: 100%; height: 170px; object-fit: cover; }
     .vw-cover-n { position: absolute; right: 0.5rem; bottom: 0.5rem; background: rgba(15,28,46,0.65); color: #fff; font-size: 0.72rem; padding: 0.15rem 0.55rem; border-radius: 999px; }
     /* 待跟進（主頁）：睇樓記錄資料未齊／未對應放盤 */
-    /* 主頁輪播：待跟進 ＋ 搵樓搜尋表單 */
-    .hc { margin-bottom: 0.4rem; }
-    .hc-view { overflow: hidden; transition: height 0.25s ease; }
-    .hc-track { display: flex; align-items: flex-start; transition: transform 0.3s ease; }
-    .hc-slide { flex: 0 0 100%; min-width: 0; box-sizing: border-box; padding-bottom: 12px; }   /* 俾卡片陰影位，唔好俾 overflow:hidden 切崩 */
-    .hc-slide .todo-card { margin-bottom: 0; }
-    .hc-shead { font-weight: 700; font-size: 0.9rem; margin: 0 0 0.45rem 0.2rem; }
+    /* 主頁頂部（2026-11-01，監察為主）：「你嘅屋苑今日」／今日冇變動／新用戶歡迎 ＋ 搵樓 */
+    .mon-card { background: var(--glass-bg); border: 1px solid var(--border); border-left: 3px solid var(--brand-bright, var(--brand)); border-radius: 14px; padding: 0.7rem 0.9rem; margin-bottom: 0.7rem; }
+    .mon-head { display: flex; align-items: baseline; justify-content: space-between; gap: 0.5rem; font-weight: 700; font-size: 0.95rem; margin-bottom: 0.15rem; }
+    .mon-head small { font-weight: 400; color: var(--muted); font-size: 0.74rem; }
+    .mon-row { display: flex; align-items: center; gap: 0.6rem; padding: 0.55rem 0; border-top: 1px solid var(--border); cursor: pointer; font-size: 0.86rem; }
+    .mon-row:first-of-type { border-top: none; }
+    .mon-row:hover .mon-name { color: var(--brand); }
+    .mon-name { font-weight: 600; flex: 0 0 auto; min-width: 5.5em; max-width: 45%; overflow-wrap: anywhere; }
+    .mon-stats { flex: 1; display: flex; flex-wrap: wrap; gap: 0.25rem 0.7rem; color: var(--muted); font-size: 0.8rem; }
+    .mon-stats b { color: var(--text); }
+    .mon-stats .cut b { color: var(--up); }
+    .mon-go { color: var(--muted); }
+    .mon-rest { font-size: 0.74rem; color: var(--muted); padding-top: 0.45rem; border-top: 1px solid var(--border); }
+    .mon-rest a, .quiet-line a { color: var(--accent2); cursor: pointer; }
+    .mon-todo:not(:empty) { margin-top: 0.3rem; padding-top: 0.55rem; border-top: 1px dashed var(--border-strong); }
+    .mon-todo .todo-head { font-size: 0.86rem; }
+    .mon-todo .todo-row:first-of-type { border-top: none; }
+    .find-row { display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; width: 100%; background: var(--glass-bg); border: 1px solid var(--border); border-radius: 14px; padding: 0.7rem 0.9rem; margin-bottom: 0.9rem; font-size: 0.88rem; color: var(--text); cursor: pointer; font-family: inherit; text-align: left; }
+    .find-row:hover { border-color: var(--brand); }
+    .find-row small { display: block; color: var(--muted); font-size: 0.74rem; margin-top: 0.1rem; }
+    .quiet-line { font-size: 0.82rem; color: var(--muted); margin: 0 0 0.55rem; }
+    .home-hero { background: var(--glass-bg); border: 1px solid var(--border); border-left: 3px solid var(--accent); border-radius: 14px; padding: 0.8rem 0.9rem; margin-bottom: 0.9rem; }
+    .home-hero[hidden] { display: none; }
+    .home-hero-title { font-weight: 700; font-size: 1rem; }
+    .home-hero-sub { font-size: 0.78rem; color: var(--muted); margin: 0.15rem 0 0.6rem; line-height: 1.5; }
     .hc-ps.ps-embed { padding: 0; }
-    .hc-dots { display: flex; justify-content: center; gap: 0.4rem; margin-top: 0.45rem; }
-    .hc-dots[hidden] { display: none; }
-    .hc-dot { width: 8px; height: 8px; border-radius: 999px; border: none; padding: 0; background: var(--border); cursor: pointer; transition: width 0.2s, background 0.2s; }
-    .hc-dot.on { width: 20px; background: var(--brand-bright, var(--accent2)); }
+    .nu-welcome { background: var(--brand-soft); border-radius: 14px; padding: 0.75rem 0.9rem; margin-bottom: 0.7rem; font-size: 0.85rem; line-height: 1.55; }
+    .nu-welcome b { font-size: 0.95rem; }
+    .nu-chips { display: flex; flex-wrap: wrap; gap: 0.35rem; margin-top: 0.45rem; }
+    .nu-chips button { background: var(--surface); border: 1px solid var(--border); border-radius: 999px; padding: 0.2rem 0.65rem; font-size: 0.78rem; cursor: pointer; color: var(--text); font-family: inherit; }
+    .nu-chips button:hover { border-color: var(--brand); }
     .todo-card { background: var(--glass-bg); border: 1px solid var(--border); border-left: 3px solid var(--accent); border-radius: 14px; padding: 0.65rem 0.9rem; margin-bottom: 0.8rem; }
     .todo-head { display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; cursor: pointer; font-weight: 700; font-size: 0.9rem; }
     .todo-sub { font-size: 0.76rem; color: var(--muted); margin: 0.2rem 0 0.35rem; line-height: 1.5; }
@@ -3258,7 +3277,7 @@ async function showDashboard(estates) {
       </div>
     </div>
   `;
-  renderHomeCarousel();   // 「待跟進」＋搵樓搜尋輪播（見 renderHomeCarousel）
+  renderHomeCarousel();   // 主頁頂部：你嘅屋苑今日／待跟進／搵樓（見 renderHomeCarousel）
   // 預設開「睇樓日記」；「今日動態」撳入去先載（慳 D1：今日動態一次讀幾萬 rows）
   switchDashTab('comps');
 }
@@ -3325,7 +3344,7 @@ async function pickEstateForQuick(id) {
 // 手機版 sidebar 收埋咗，快捷掣要幫手拉返出嚟先 focus 到個搜尋框
 // 側欄「🔍 搵樓」：喺主畫面（#main）入面開四大地產網搜尋——同公開 /search 頁共用
 // public-search.js／.css（第一次先載入）。「🔔 追蹤加減價」直接帶去側欄屋苑搜尋，唔使再登記。
-const PS_VER = '20261101c';   // 改 public-search.js/.css 要同 search.html 一齊 bump（Pages 靜態檔 cache 4 小時）
+const PS_VER = '20261101d';   // 改 public-search.js/.css 要同 search.html 一齊 bump（Pages 靜態檔 cache 4 小時）
 let _psAssets = null;
 function _loadPublicSearchAssets() {
   if (!_psAssets) _psAssets = new Promise((resolve, reject) => {
@@ -3932,75 +3951,83 @@ function viewingTodos() {
   // 最近睇嘅排先（記憶仲新，跟進最容易）
   return out.sort((a, b) => String(b.v.view_date || '').localeCompare(String(a.v.view_date || '')));
 }
-// ── 主頁輪播（2026-10-29）：「待跟進」＋「🔍 搵樓：四大地產網一次過搜尋」同一個位置 ──────────
-// 冇待跟進就淨係見搜尋表單；有就兩張卡左右輪播（點點／撳點點／手指橫掃）。
-// 撳搜尋 → 跳去搵樓頁（openPublicSearch）照條件搜。結構只建一次（同 #viewing-todo 一齊重建），
-// renderViewingTodo 只更新待跟進嗰張，所以用戶打緊嘅搜尋條件唔會被洗走。
-let _hcIdx = 0, _hcObs = null;
+// ── 主頁頂部（2026-11-01，UI review C 組；主線＝監察已追蹤屋苑）──────────────────────────────
+// A 有更新：「📈 你嘅屋苑今日」（每屋苑一行新盤／減價／加價／新成交，數字係 cron 預先計好嘅 stats.d1，開主頁唔讀 D1）
+//   ＋ 待跟進併入同一張卡 ＋ 搵樓摺埋做一行（撳先展開）。
+// B 冇更新：一句「今日冇新變動」＋ 待跟進卡 ＋ 搵樓做主角（展開）——幫新手搵啱嘅盤、發掘想追蹤嘅新屋苑。
+// C 未追蹤任何屋苑：歡迎＋熱門屋苑（一撳帶去側欄搜尋揀返啱嗰個，唔自動追蹤：同名／分期多）＋ 搵樓做主角。
+// 數字唔套偏好（套咗會同「入去冇嘢」自相矛盾，見 review H-P0-05）。renderViewingTodo 只更新 #hc-todo，搜尋條件唔會被洗走。
+const HOME_POPULAR = ['太古城', '嘉湖山莊', '沙田第一城', '新都城', '麗港城'];
+function _homeDay() {
+  const ests = (dashboardEstates || []).filter(e => !e.paused);
+  const today = hkTodayStr();
+  const yest = new Date(Date.now() + 8 * 3600000 - 86400000).toISOString().slice(0, 10);
+  const day = ests.reduce((m, e) => (e.stats?.d1?.day > m ? e.stats.d1.day : m), '');
+  const label = day === today ? '今日' : day === yest ? '尋日' : '';     // 06:00 sync 做完之前顯示尋日嘅
+  const tot = (d) => (Number(d.new) || 0) + (Number(d.cuts) || 0) + (Number(d.ups) || 0) + (Number(d.txns) || 0);
+  const upd = label ? ests.filter(e => e.stats?.d1?.day === day && tot(e.stats.d1) > 0) : [];
+  return { ests, day, label, upd };
+}
+function homeGoDyn(mode) {
+  if (mode === 'week' && !isPaid()) { showUpgrade('本週動態'); return; }
+  switchDashTab('today');
+  if (mode === 'week') setDynMode('week');
+  document.getElementById('highlights-section')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
 function renderHomeCarousel() {
   const host = document.getElementById('viewing-todo');
   if (!host) return;
-  _hcIdx = 0;
-  host.innerHTML = `<div class="hc">
-    <div class="hc-view" id="hc-view"><div class="hc-track" id="hc-track">
-      <div class="hc-slide" id="hc-todo" style="display:none"></div>
-      <div class="hc-slide" id="hc-search"><div class="hc-shead">🔍 搵樓：四大地產網一次過搜尋</div><div class="ps-root ps-embed hc-ps" id="hc-ps"></div></div>
-    </div></div>
-    <div class="hc-dots" id="hc-dots" hidden></div>
-  </div>`;
-  const view = document.getElementById('hc-view');
-  let x0 = null, y0 = 0;
-  view.addEventListener('touchstart', (e) => { x0 = e.touches[0].clientX; y0 = e.touches[0].clientY; }, { passive: true });
-  view.addEventListener('touchend', (e) => {
-    if (x0 === null) return;
-    const dx = e.changedTouches[0].clientX - x0, dy = e.changedTouches[0].clientY - y0; x0 = null;
-    if (Math.abs(dx) > 50 && Math.abs(dx) > Math.abs(dy) * 1.5) hcGo(_hcIdx + (dx < 0 ? 1 : -1));
-  }, { passive: true });
-  if (_hcObs) _hcObs.disconnect();
-  if (window.ResizeObserver) {
-    _hcObs = new ResizeObserver(() => hcFit());
-    for (const id of ['hc-todo', 'hc-search']) _hcObs.observe(document.getElementById(id));
+  const { ests, day, label, upd } = _homeDay();
+  const mode = !ests.length ? 'C' : upd.length ? 'A' : 'B';
+  const n = (x) => Number(x) || 0;
+  const st = (lbl, x, cls = '') => n(x) ? `<span${cls ? ` class="${cls}"` : ''}>${lbl} <b>${n(x)}</b></span>` : '';
+  const hero = (title, sub, hidden) => `<div class="home-hero" id="hc-search"${hidden ? ' hidden' : ''}>
+      <div class="home-hero-title">🔍 ${title}</div><div class="home-hero-sub">${sub}</div>
+      <div class="ps-root ps-embed hc-ps" id="hc-ps"></div></div>`;
+  const trackSub = '四大地產網一次過搜尋。見到心水屋苑，撳「🔔 追蹤屋苑」，之後每日幫你睇加減價。';
+  if (mode === 'A') {
+    const quiet = ests.length - upd.length;
+    host.innerHTML = `<div class="mon-card">
+        <div class="mon-head"><span>📈 你嘅屋苑${label}</span><small>${escHtml(day.slice(5).replace('-', '/'))}</small></div>
+        ${upd.map(e => { const d = e.stats.d1; return `<div class="mon-row" role="button" tabindex="0" onclick="showEstate(${Number(e.id)})" onkeydown="if(event.key==='Enter')showEstate(${Number(e.id)})">
+          <span class="mon-name">${escHtml(e.name)}</span>
+          <span class="mon-stats">${st('新盤', d.new)}${st('減價', d.cuts, 'cut')}${st('加價', d.ups)}${st('新成交', d.txns)}</span><span class="mon-go">›</span></div>`; }).join('')}
+        <div class="mon-rest">${quiet ? `其餘 ${quiet} 個屋苑${label}冇變動．` : ''}<a onclick="homeGoDyn('today')">睇${label === '今日' ? '今日' : ''}全部動態 ›</a></div>
+        <div class="mon-todo" id="hc-todo"></div>
+      </div>
+      <button class="find-row" id="hc-find" onclick="homeOpenFind()"><span>🔍 搵其他屋苑／全港搵盤<small>四大地產網一次過搜尋，發掘想追蹤嘅新屋苑</small></span><span>›</span></button>
+      ${hero('搵其他屋苑／全港搵盤', '四大地產網一次過搜尋，發掘想追蹤嘅新屋苑。', true)}`;
+  } else if (mode === 'B') {
+    host.innerHTML = `<div class="quiet-line">✓ 你追蹤嘅 ${ests.length} 個屋苑${label || '暫時'}冇新變動${isPaid() ? `．<a onclick="homeGoDyn('week')">睇本週動態 ›</a>` : ''}</div>
+      <div id="hc-todo"></div>
+      ${hero('幫你搵啱你嘅盤', trackSub, false)}`;
+  } else {
+    host.innerHTML = `<div class="nu-welcome"><b>👋 歡迎！先揀幾個屋苑追蹤</b><br>追蹤之後，每日幫你睇新盤、減價、成交，唔使自己逐個地產網碌。未有目標？用下面搜尋睇下邊度啱你預算。
+        <div class="nu-chips">${HOME_POPULAR.map(x => `<button type="button" onclick="trackNameFromSearch('${escJsAttr(x)}')">${escHtml(x)}</button>`).join('')}<button type="button" onclick="focusEstateSearch()">＋ 搜尋屋苑</button></div></div>
+      <div id="hc-todo"></div>
+      ${hero('幫你搵啱你嘅盤', trackSub, false)}`;
   }
   renderViewingTodo();    // 資料已載入就即刻填待跟進
-  hcLayout();
-  (async () => {
-    const el = document.getElementById('hc-ps');
-    try { await _loadPublicSearchAssets(); } catch (_) { document.getElementById('hc-search')?.remove(); hcLayout(); return; }
-    if (document.getElementById('hc-ps') !== el) return;      // 期間已經離開主頁
-    window.PublicSearch.mount(el, { embedded: true, formOnly: true, expanded: window.innerWidth > 768, initial: _searchDefaultsFromPrefs(), onSearch: (qs) => openPublicSearch(qs) });   // 闊屏預設展開（同搵樓頁一樣）；手機收埋免得主頁太高
-    hcFit();
-  })();
+  if (mode !== 'A') _homeMountSearch();
 }
-function _hcSlides() {
-  const todo = document.getElementById('hc-todo'), search = document.getElementById('hc-search');
-  return [todo && todo.innerHTML.trim() ? todo : null, search].filter(Boolean);
+function homeOpenFind() {
+  document.getElementById('hc-find')?.remove();
+  const h = document.getElementById('hc-search');
+  if (h) { h.hidden = false; _homeMountSearch(); }
 }
-function hcGo(i) { _hcIdx = i; hcLayout(); }
-function hcLayout() {
-  const track = document.getElementById('hc-track');
-  if (!track) return;
-  const todo = document.getElementById('hc-todo');
-  const slides = _hcSlides();
-  if (todo) todo.style.display = slides.includes(todo) ? '' : 'none';
-  _hcIdx = Math.max(0, Math.min(_hcIdx, slides.length - 1));
-  track.style.transform = `translateX(-${_hcIdx * 100}%)`;
-  const dots = document.getElementById('hc-dots');
-  if (dots) {
-    dots.hidden = slides.length < 2;
-    dots.innerHTML = slides.map((s, i) => `<button type="button" class="hc-dot${i === _hcIdx ? ' on' : ''}" aria-label="${i === 0 ? '待跟進' : '搵樓搜尋'}" onclick="hcGo(${i})"></button>`).join('');
-  }
-  hcFit();
-}
-function hcFit() {
-  const view = document.getElementById('hc-view');
-  const s = _hcSlides()[_hcIdx];
-  if (view && s) view.style.height = s.offsetHeight + 'px';
+async function _homeMountSearch() {
+  const el = document.getElementById('hc-ps');
+  if (!el || el.dataset.mounted) return;
+  el.dataset.mounted = '1';
+  try { await _loadPublicSearchAssets(); } catch (_) { document.getElementById('hc-search')?.remove(); return; }
+  if (document.getElementById('hc-ps') !== el) return;      // 期間已經離開主頁
+  window.PublicSearch.mount(el, { embedded: true, formOnly: true, expanded: window.innerWidth > 768, initial: _searchDefaultsFromPrefs(), onSearch: (qs) => openPublicSearch(qs) });   // 闊屏預設展開（同搵樓頁一樣）；手機收埋免得主頁太高
 }
 function renderViewingTodo() {
   const el = document.getElementById('hc-todo');
   if (!el) return;
   const todos = _compsScope ? [] : viewingTodos();
-  if (!todos.length) { el.innerHTML = ''; hcLayout(); return; }
+  if (!todos.length) { el.innerHTML = ''; return; }
   const shown = _todoOpen ? (_todoAll ? todos : todos.slice(0, 5)) : [];
   const title = v => {
     const blk = (v.block && String(v.block) !== v.estate_name) ? escHtml(String(v.block)) + '座' : '';
@@ -4015,13 +4042,13 @@ function renderViewingTodo() {
       ${needLink ? `<button class="todo-btn" onclick="todoGo(${Number(v.id)})">去確認</button>` : ''}
       <button class="todo-x" title="唔再提醒呢個記錄" onclick="todoDismiss(${Number(v.id)})">✕ 唔再提醒</button>
     </div>`).join('');
-  el.innerHTML = `<div class="todo-card">
+  const inMon = el.classList.contains('mon-todo');     // 併入「你嘅屋苑今日」卡：唔使外框同說明
+  el.innerHTML = `<div class="${inMon ? '' : 'todo-card'}">
     <div class="todo-head" onclick="_todoOpen=!_todoOpen;renderViewingTodo()"><span>📌 待跟進 <span style="color:var(--accent)">${todos.length}</span> 個睇樓記錄</span><span style="color:var(--muted);font-size:0.8rem">${_todoOpen ? '收起 ▴' : '睇下 ▾'}</span></div>
-    <div class="todo-sub">補返資料、或者確認係邊個放盤，之後呢個單位<b>減價、落架、成交</b>都會通知你。</div>
+    ${inMon ? '' : '<div class="todo-sub">補返資料、或者確認係邊個放盤，之後呢個單位<b>減價、落架、成交</b>都會通知你。</div>'}
     ${rows}
     ${_todoOpen && todos.length > 5 ? `<button class="todo-more" onclick="_todoAll=!_todoAll;renderViewingTodo()">${_todoAll ? '只睇最近 5 個 ▴' : `睇晒全部 ${todos.length} 個 ▾`}</button>` : ''}
   </div>`;
-  hcLayout();
 }
 function todoDismiss(id) {
   const s = _todoDismissed(); s.add(Number(id));
@@ -5228,7 +5255,6 @@ function estateCardMeta(e) {
   return `<div class="estate-card-meta" style="line-height:1.55">${lines.map(l => `<div>${l}</div>`).join('')}</div>`;
 }
 
-let _autoSearchDone = false;
 async function loadEstates() {
   const list = document.getElementById("estateList");
   // /api/config 帶住 tier（free／paid）。同 /api/estates 一齊飛，但畫主頁前一定要等到——
@@ -5240,10 +5266,10 @@ async function loadEstates() {
     estates.forEach(e => { estatesById[e.id] = e; });
     if (!estates.length) {
       list.innerHTML = '<div class="sidebar-empty">未追蹤任何屋苑<br><small>在上方搜尋並新增</small></div>';
-      // 咩都未有（新用戶）：唔好留個空白畫面，直接帶去「搵樓」頁（四大地產網一次過搜尋）；每次載入頁面只自動帶一次，
-      // 之後用戶撳「← 返去日記」會見到下面嘅歡迎畫面（有「去搵樓」掣），唔會彈返去。
-      document.getElementById("main").innerHTML = '<div class="welcome"><div class="welcome-icon">🏠</div><h2>追蹤香港樓市動態</h2><p>在左側搜尋屋苑名稱，系統每日自動更新售價，並顯示趨勢走勢。</p><button class="vf-submit" style="width:auto;padding:0.6rem 1.4rem;margin-top:0.8rem" onclick="openPublicSearch()">🔍 去搵樓</button></div>';
-      if (!_autoSearchDone) { _autoSearchDone = true; openPublicSearch(); }
+      // 咩都未有（新用戶）：出主頁情況 C（歡迎＋熱門屋苑＋搵樓搜尋做主角）。
+      // 2026-11-01 之前係直接自動跳去搵樓頁，而家主頁本身已經可以搜尋，唔使跳。
+      await cfgReady;
+      if (!activeEstateId) showDashboard([]);
       return;
     }
     await cfgReady;
