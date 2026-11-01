@@ -1314,7 +1314,8 @@
     .lc-lock:hover { background: #d97706; color: #fff; }
     /* 合併行喺表格度係一抹綠底，卡片跟返同一個訊號 */
     .lc-combined { background: rgba(28,158,232,0.07); }
-    .lc-actions { display: flex; gap: 0.3rem; flex-wrap: wrap; padding-top: 0.4rem; align-items: flex-start; }
+    /* 全部動作一行（用戶 2026-11-01 唔要「更多」）：375 闊手機放得落；更窄嘅機先會 wrap，唔會收埋 */
+    .lc-actions { display: flex; gap: 0.18rem; flex-wrap: wrap; padding-top: 0.4rem; align-items: center; }
     .fav-group-h { font-weight: 700; font-size: 0.88rem; margin: 0.9rem 0 0.4rem; padding-left: 0.2rem; }
     .fav-group-h span { font-weight: 400; color: var(--muted); font-size: 0.76rem; margin-left: 0.3rem; }
     .vf-ratings-wrap { margin-top: 0.75rem; }
@@ -1322,17 +1323,12 @@
     .vf-ratings-wrap > summary::-webkit-details-marker { display: none; }
     .vf-ratings-wrap > summary::after { content: " ▾"; color: var(--muted); }
     .vf-ratings-wrap[open] > summary::after { content: " ▴"; }
-    .lc-act { background: var(--brand-soft); color: var(--brand); border: 1px solid transparent; border-radius: 999px; font-size: 0.72rem; font-weight: 600; padding: 0.2rem 0.6rem; cursor: pointer; font-family: inherit; white-space: nowrap; }
+    .lc-act { background: var(--brand-soft); color: var(--brand); border: 1px solid transparent; border-radius: 999px; font-size: 0.7rem; font-weight: 600; padding: 0.15rem 0.42rem; cursor: pointer; font-family: inherit; white-space: nowrap; }
     .lc-act:hover { border-color: var(--brand); }
-    .lc-more { font-size: 0.72rem; }
-    .lc-more > summary { list-style: none; cursor: pointer; color: var(--muted); padding: 0.2rem 0.45rem; border-radius: 999px; border: 1px solid var(--border); }
-    .lc-more > summary::-webkit-details-marker { display: none; }
-    .lc-more > summary::after { content: " ▾"; }
-    .lc-more[open] > summary::after { content: " ▴"; }
-    .lc-more-body { display: flex; flex-wrap: wrap; gap: 0.3rem; align-items: center; margin-top: 0.35rem; }
+    .lc-actions .lc-btn { white-space: nowrap; }
     .lc-btn { font-size: 0.68rem; padding: 0.1rem 0.4rem; margin: 0; }
     /* 次要動作（標記已下架／還原）：細字底線，唔似主掣（2026-11-01 UI review：新用戶以為要佢幫系統報下架） */
-    .lc-mini { background: none; border: none; padding: 0.1rem 0.2rem; margin: 0; color: var(--muted); font-size: 0.68rem; text-decoration: underline; text-underline-offset: 2px; cursor: pointer; font-family: inherit; }
+    .lc-mini { background: none; border: none; padding: 0.1rem 0.1rem; margin: 0; color: var(--muted); font-size: 0.68rem; text-decoration: underline; text-underline-offset: 2px; cursor: pointer; font-family: inherit; }
     .lc-mini:hover { color: var(--text); }
     .estate-market { background: none; border: none; padding: 0; margin-top: 0.3rem; font-size: 0.82rem; color: var(--muted); cursor: pointer; font-family: inherit; text-align: left; }
     .estate-market:hover { color: var(--text); }
@@ -10467,11 +10463,11 @@ function renderListingCards(el, displayRows) {
       : '';
     // 類近成交（表格喺單位格底下）
     const lineBtn = (l.building_name && l.unit)
-      ? `<button class="history-btn lc-btn" onclick="event.stopPropagation();openLineHistory('${escJsAttr(l.building_name)}','${escJsAttr(l.unit)}','${escJsAttr(l.floor||'')}')">類近成交 ↓</button>`
+      ? `<button class="history-btn lc-btn" title="同一條線（座＋室）嘅過往成交" onclick="event.stopPropagation();openLineHistory('${escJsAttr(l.building_name)}','${escJsAttr(l.unit)}','${escJsAttr(l.floor||'')}')">類近成交</button>`
       : '';
     // 叫價歷史（收費）
     const histBtn = (isPaid() && !l._combined && l.ref_no)
-      ? `<button class="history-btn lc-btn" onclick="event.stopPropagation();showHistory('${escJsAttr(l.ref_no)}','${escJsAttr((l.building_name||'')+' '+(l.floor||'')+(l.unit||''))}')">歷史 ↓</button>`
+      ? `<button class="history-btn lc-btn" title="呢個盤嘅叫價歷史" onclick="event.stopPropagation();showHistory('${escJsAttr(l.ref_no)}','${escJsAttr((l.building_name||'')+' '+(l.floor||'')+(l.unit||''))}')">歷史</button>`
       : '';
     // 合併／還原（表格喺來源格）
     const groupBtn = (() => {
@@ -10495,15 +10491,15 @@ function renderListingCards(el, displayRows) {
           ? `<a href="${safeUrl(l.detail_url)}" target="_blank" class="detail-link lc-src" data-vref="${escHtml(l.ref_no||'')}" onclick="event.stopPropagation();trackListingClick('${escJsAttr(l.ref_no||'')}')">${escHtml(sourceLabel(l.source))} ↗</a>${visitedMark(l.ref_no)}`
           : `<span class="lc-src" style="color:var(--muted)">${escHtml(sourceLabel(l.source))}</span>`);
 
-    // 主動作（2026-11-01 UI review B5）：記睇樓、計按揭；去地產網嘅連結喺上面 lc-badges。
-    // 歷史／類近成交／拆開合併／標記已下架 收入「更多」，唔好同主動作同級。
+    // 主動作（2026-11-01 UI review B5）：記睇樓、計按揭（藍色）；去地產網嘅連結喺上面 lc-badges。
+    // 用戶唔要「更多」摺埋（2026-11-01）：全部放同一行，次要嘅（類近成交／歷史／拆開／標記已下架）用細啲、淡啲嘅樣。
     const refKey = l._combined ? (l.sources?.[0]?.ref_no || '') : (l.ref_no || '');
     const primary = removed ? '' : [
       refKey ? `<button class="lc-act" onclick="event.stopPropagation();vfFromListing('${escJsAttr(refKey)}')" title="用呢個盤嘅座、樓、室、呎、價預填睇樓記錄">📝 記睇樓</button>` : '',
       l.price ? `<button class="lc-act" onclick="event.stopPropagation();openMortgageForPrice(${Number(l.price)})" title="用呢個叫價計首期、印花稅、月供">🧮 計按揭</button>` : '',
     ].join('');
     const moreBtns = lineBtn + histBtn + groupBtn + manualBtn;
-    const btns = primary + (moreBtns ? `<details class="lc-more" onclick="event.stopPropagation()"><summary>更多</summary><div class="lc-more-body">${moreBtns}</div></details>` : '');
+    const btns = primary + moreBtns;
     return `
     <div class="lc-card${l._combined ? ' lc-combined' : ''}"${removed ? ' style="opacity:0.55"' : ''}>
       ${favBtnHtml(refs, 'S')}
