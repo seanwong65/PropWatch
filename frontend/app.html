@@ -1891,9 +1891,8 @@
     /* ── 主選單（2026-11-01，UI review C 組）：今日／屋苑／搵盤／睇樓／設定。闊屏＝左邊直排，手機＝底部一排 ──
        body.authed＝登入咗先出（未登入有登入卡蓋住）。屋苑列表（原本左邊側欄 .sidebar）變做「屋苑」頁：
        body.nv-estlist 時 .sidebar 佔主內容位、.main 收埋；其他頁 .sidebar 收埋。
-       手機：.nv-mobile 固定喺底部。iOS 26 Safari（iPhone、瀏覽器分頁）底部有浮動網址列蓋住 fixed 底部元素，safe-area 唔包佢，
-       所以 html.ios-float-bar 時加 --ios-bar 預留位（掣企喺網址列上面，底色延伸落網址列後面）。數值按 iPhone 實機截圖量（2026-11-01）。 */
-    html.ios-float-bar { --ios-bar: 64px; }
+       手機：.nv-mobile 固定喺底部，靠 env(safe-area-inset-bottom)（要 viewport-fit=cover）——iOS 26 Safari 嘅安全區已經包埋浮動網址列。
+       2026-11-01 實機：被網址列遮住嘅真正原因係頁面被 iOS 自動放大（輸入框 <16px），唔係安全區唔夠；曾經額外加 64px 結果多出一大截空位，已拎走。 */
     .nv-rail, .nv-mobile { display: none; }
     .nv-rail button, .nv-mobile button { border: none; background: none; cursor: pointer; font-family: inherit; color: var(--muted); font-weight: 600; }
     body.authed .layout { grid-template-columns: 176px minmax(0, 1fr); }
@@ -1927,11 +1926,11 @@
       body.authed .layout { grid-template-columns: minmax(0, 1fr); }
       body.authed .nv-rail { display: none; }
       body.authed .layout > .sidebar, body.authed .layout > .main { grid-column: 1; }
-      body.authed .nv-mobile { display: flex; position: fixed; left: 0; right: 0; bottom: 0; z-index: 300; background: var(--surface); border-top: 1px solid var(--border-strong); padding: 0.3rem max(0.3rem, env(safe-area-inset-right)) calc(0.3rem + env(safe-area-inset-bottom) + var(--ios-bar, 0px)) max(0.3rem, env(safe-area-inset-left)); box-shadow: 0 -4px 16px rgba(0,0,0,0.06); }
+      body.authed .nv-mobile { display: flex; position: fixed; left: 0; right: 0; bottom: 0; z-index: 300; background: var(--surface); border-top: 1px solid var(--border-strong); padding: 0.3rem max(0.3rem, env(safe-area-inset-right)) calc(0.3rem + env(safe-area-inset-bottom)) max(0.3rem, env(safe-area-inset-left)); box-shadow: 0 -4px 16px rgba(0,0,0,0.06); }
       .nv-mobile button { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 0.1rem; font-size: 0.68rem; padding: 0.25rem 0; }
       .nv-mobile button .i { font-size: 1.25rem; line-height: 1.1; }
-      body.authed .main, body.authed.nv-estlist .sidebar { padding-bottom: calc(76px + env(safe-area-inset-bottom) + var(--ios-bar, 0px)); }
-      body.authed .toast { bottom: calc(80px + env(safe-area-inset-bottom) + var(--ios-bar, 0px)); }
+      body.authed .main, body.authed.nv-estlist .sidebar { padding-bottom: calc(76px + env(safe-area-inset-bottom)); }
+      body.authed .toast { bottom: calc(80px + env(safe-area-inset-bottom)); }
       body.authed.kb-open .nv-mobile { display: none; }     /* 打字時收埋：iOS 收鍵盤後 fixed 底部元素會錯位（已知 bug） */
       body.authed.nv-estlist .sidebar { position: static; transform: none; width: auto; max-width: none; box-shadow: none; z-index: auto; border: none; }
     }
@@ -1964,7 +1963,7 @@
     <button class="sync-btn" id="logout-btn" onclick="doLogout()" style="display:none" title="登出">登出</button>
   </div>
 </header>
-<!-- 主選單（手機，固定喺底部；iOS 26 Safari 網址列處理見 CSS .nv-mobile／html.ios-float-bar） -->
+<!-- 主選單（手機，固定喺底部；底部安全區處理見 CSS .nv-mobile） -->
 <nav class="nv-mobile" aria-label="主選單">
     <button type="button" data-nav="today" onclick="navGo('today')"><span class="i">🏠</span><span>今日</span></button>
     <button type="button" data-nav="estates" onclick="navGo('estates')"><span class="i">🏢</span><span>屋苑</span></button>
@@ -2633,18 +2632,6 @@
 <!-- 按揭計算機共用 code（同 /mortgage-calculator 獨立頁共用一份） -->
 <script src="/mortgage.js"></script>
 <script>
-// iOS 26+ Safari（iPhone、唔係加咗落主畫面嘅 app 模式）底部有浮動網址列，會蓋住 fixed 底部選單 → 加 class 預留位（見 CSS --ios-bar）。
-// Chrome／Firefox iOS 版（CriOS／FxiOS…）網址列唔係咁浮，唔加。
-(() => {
-  try {
-    const ua = navigator.userAgent;
-    const iphone = /iPhone|iPod/.test(ua);
-    const safari = /Safari\//.test(ua) && !/(CriOS|FxiOS|EdgiOS|OPiOS|GSA|DuckDuckGo)\//.test(ua);
-    const standalone = navigator.standalone === true || matchMedia('(display-mode: standalone)').matches;
-    const ver = Number((ua.match(/Version\/(\d+)/) || [])[1]);
-    if (iphone && safari && !standalone && ver >= 26) document.documentElement.classList.add('ios-float-bar');
-  } catch (_) { /* 偵測唔到就當普通瀏覽器 */ }
-})();
 // 手機打字時收埋底部選單（iOS 收鍵盤後 fixed 底部元素會錯位；亦免得鍵盤上面多咗一條選單）
 document.addEventListener('focusin', (e) => { if (e.target.matches?.('input:not([type=checkbox]):not([type=radio]):not([type=button]):not([type=submit]), textarea, select')) document.body.classList.add('kb-open'); });
 document.addEventListener('focusout', () => setTimeout(() => { if (!document.activeElement?.matches?.('input, textarea, select')) document.body.classList.remove('kb-open'); }, 100));
