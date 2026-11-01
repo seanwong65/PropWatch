@@ -16,7 +16,7 @@ for name in ["app.html","index.html","search.html"]:
 PY
 cat > "$TMP/eslint.config.mjs" <<'EOF2'
 const g = Object.fromEntries("window document localStorage sessionStorage fetch navigator location console setTimeout clearTimeout setInterval clearInterval URL URLSearchParams FormData Blob Image FileReader Promise requestAnimationFrame cancelAnimationFrame alert confirm prompt history performance getComputedStyle matchMedia Intl CSS Chart btoa atob AbortController IntersectionObserver ResizeObserver MutationObserver HTMLElement HTMLVideoElement HTMLImageElement HTMLCanvasElement Event CustomEvent File createImageBitmap Notification screen innerWidth innerHeight scrollTo open print structuredClone TextEncoder TextDecoder crypto caches DOMParser XMLHttpRequest queueMicrotask Element Node KeyboardEvent MouseEvent TouchEvent getSelection Option ClipboardItem DataTransfer Headers Response Request visualViewport scrollY scrollX pageYOffset top parent self outerWidth devicePixelRatio gtag dataLayer".split(" ").map(k=>[k,"readonly"]));
-export default [{ files:["*.js"], languageOptions:{ ecmaVersion:2023, sourceType:"script", globals:{...g, mountMortgageForm:"readonly", renderMortgage:"readonly", setMcMode:"readonly"} }, rules:{ "no-undef":"error" } }];
+export default [{ files:["*.js"], languageOptions:{ ecmaVersion:2023, sourceType:"script", globals:{...g, mountMortgageForm:"readonly", renderMortgage:"readonly", setMcMode:"readonly", mcCalculate:"readonly"} }, rules:{ "no-undef":"error" } }];
 EOF2
 cd "$TMP"; fail=0
 for f in *.js; do

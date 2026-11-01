@@ -628,3 +628,15 @@ drip sync（`*/2`）同樣被雙重觸發：兩個 invocation 同時揀同一批
 - A4 屋苑卡呎價寫明「叫價中位 $X/呎」（tooltip：唔分房數、唔係成交價）。
 - A5 今日動態冇嘢時 `_todayEmptyHtml`：講明「今日冇符合你偏好（…）嘅變動」＋「睇返今日全部 N 項」（關 🎯）＋收費版「本週有 N 項變動 →」（加總側欄卡 stats，唔多打 API）。
 - 唔做：A10（四小龍＝中原板塊名 `estates.district`）。
+
+### UI review B 組（2026-11-01）
+
+- B1＋B8 `viewingGaps(v)`：睇樓記錄「待補」唯一真相（core＝座／樓層／室／售價或租金；extra＝實用呎數／房數）。主頁待跟進（core）、日記列「待補 N 項」、日記詳情、儲存確認框、每週摘要 email（weekly.js）全部用「待補：…」「待確認放盤」；說明改「補返資料、或者確認係邊個放盤，之後呢個單位減價、落架、成交都會通知你」。
+- B2 `openMortgageForPrice(price)`：放盤卡「🧮 計按揭」、睇樓卡 🧮 → 計算機「睇中咗層樓」填樓價即計。mortgage.js `_mcRestore/_mcSave`：月入、現金、花紅、成數、年期、利率、佣金、律師費、裝修存 localStorage `pw_mc_inputs`（唔記樓價；唔上傳）。lint globals 加 `mcCalculate`。
+- B3 四網搜尋「唔睇居屋（未補地價）」（`nohos`，前端篩，講明隱藏幾多個；URL／最近搜尋帶住）；卡面「居屋・未補地價」＋tooltip。
+- B4 成交表預設 4 欄（日期、單位、成交價連估值比較、實呎價），「顯示更多欄」先出持有年期／升跌／估值／查估值／詳情（`pw_txn_adv`）。
+- B5 放盤卡：主動作「📝 記睇樓」「🧮 計按揭」（＋原有去地產網連結）；類近成交／歷史／拆開／標記已下架收入「更多」`<details>`。
+- B6 `vfFromListing(ref)` 預填新睇樓（唔自動對應放盤，儲存後照 ✓ 確認）；`openViewingModal(viewing, readOnly, {pickEstate})`：有 id 先係改舊記錄；主頁快捷／空日記「新增睇樓」→ `openQuickAddViewing()` 直接開表單，屋苑預設最近睇樓嗰個、可改。
+- B7 屋苑頁頭「市況：極淡 · 買家話事 · 約 N 個月去貨 ›」（`loadEstateMarketLine`，撳去樓盤分析）；`fetchMarketTemp` 同分析卡共用一個 request；租盤唔顯示。頁頭同時改「N 個在售單位（各地產網共 M 個放盤）」。
+- B9 心儀樓盤按屋苑分組（組次序跟最近收藏；搜尋結果按地產網屋苑名）。
+- B10 睇樓評分 `<details>` 選填（新記錄收埋，有評分先展開）；朋友屋企說明改短。

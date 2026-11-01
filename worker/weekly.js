@@ -107,7 +107,7 @@ export function weeklyTodos({ viewings = [], dismissed = [], linkMaxDays = 30, t
     if (!v.block) missing.push("座");
     if (!v.floor) missing.push("樓層");
     if (!v.unit) missing.push("室");
-    if (!v.price) missing.push(v.deal_type === "R" ? "睇樓租金" : "睇樓價");
+    if (!v.price) missing.push(v.deal_type === "R" ? "租金" : "售價");   // 同 app viewingGaps 同一套字眼
     let needLink = !!(v.block && v.unit) && !String(v.linked_ref_no || "").trim();
     if (needLink && isoDate(String(v.view_date || "").slice(0, 10)) && isoDate(today)
         && daysBetween(String(v.view_date).slice(0, 10), today) > linkMaxDays) needLink = false;
@@ -293,13 +293,13 @@ export function renderWeeklyHtml(w, { appUrl, unsubUrl, iconUrl, prefLabel = "",
   const todoRow = (t) => {
     const blk = t.block && t.block !== t.estate ? `${t.block}${/座$/.test(t.block) ? "" : "座"}` : "";
     const unitLabel = `${blk}${t.floor ? `${t.floor}${/[樓層]$/.test(t.floor) ? "" : "樓"}` : ""}${t.unit ? `${t.unit}${/[室號]$/.test(t.unit) ? "" : "室"}` : ""}`;
-    const tags = [t.missing.length ? `欠 ${t.missing.join("、")}` : "", t.needLink ? "未對應放盤" : ""].filter(Boolean);
+    const tags = [t.missing.length ? `待補：${t.missing.join("、")}` : "", t.needLink ? "待確認放盤" : ""].filter(Boolean);
     return `<tr><td style="${TD}">${esc(t.estate)} ${esc(unitLabel)}<br><span style="color:#7a8ca0;font-size:12.5px">睇樓 ${esc(String(t.viewDate).slice(5, 10))}</span></td>`
       + `<td style="${TD};text-align:right"><span style="display:inline-block;background:#fff4e0;color:#b45309;border-radius:8px;padding:2px 8px;font-size:12px;font-weight:700">${esc(tags.join("・"))}</span></td></tr>`;
   };
   const todoBox = w.todo && w.todo.total
     ? `<h2 style="font-size:15px;margin:18px 0 6px">📝 有 ${w.todo.total} 個睇樓記錄等你跟進</h2>`
-      + `<div style="background:#fff;border:1px solid #dde8f3;border-radius:14px;padding:4px 14px"><div style="font-size:12.5px;color:#4f647a;line-height:1.7;padding:8px 0 4px">資料未填齊或者未對應放盤嘅記錄，系統追蹤唔到佢哋嘅改價、下架同成交。補返就會自動追蹤。</div>`
+      + `<div style="background:#fff;border:1px solid #dde8f3;border-radius:14px;padding:4px 14px"><div style="font-size:12.5px;color:#4f647a;line-height:1.7;padding:8px 0 4px">補返資料、或者確認係邊個放盤，之後呢個單位減價、落架、成交都會通知你。</div>`
       + `<table role="presentation" style="width:100%;border-collapse:collapse;font-size:13.5px;color:#22344a">${w.todo.items.slice(0, TODO_MAX).map(todoRow).join("")}</table>`
       + `${w.todo.total > TODO_MAX ? `<div style="font-size:12.5px;color:#7a8ca0;padding:6px 0 4px;border-top:1px solid #edf2f8">另有 ${w.todo.total - TODO_MAX} 個，返 app 睇全部</div>` : ""}`
       + `<div style="text-align:center;padding:8px 0 10px;border-top:1px solid #edf2f8"><a href="${esc(appUrl)}" style="color:#1270ac;font-weight:700;text-decoration:none;font-size:13.5px">返 app 補資料 →</a></div></div>`

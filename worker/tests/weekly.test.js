@@ -74,9 +74,9 @@ const infoOf = (vs, extra) => T(vs, extra).items.map((i) => [i.id, i.missing.joi
 
 describe("weeklyTodos", () => {
   it("填齊＋已對應 → 唔提", () => expect(T([V()]).total).toBe(0));
-  it("欠樓層／室／價／座各自列明；租盤叫睇樓租金", () => {
-    expect(infoOf([V({ floor: "", unit: "", price: 0, block: "", linked_ref_no: null })])).toEqual([[1, "座+樓層+室+睇樓價", false]]);
-    expect(infoOf([V({ price: 0, deal_type: "R" })])).toEqual([[1, "睇樓租金", false]]);
+  it("欠樓層／室／價／座各自列明；租盤叫租金", () => {
+    expect(infoOf([V({ floor: "", unit: "", price: 0, block: "", linked_ref_no: null })])).toEqual([[1, "座+樓層+室+售價", false]]);
+    expect(infoOf([V({ price: 0, deal_type: "R" })])).toEqual([[1, "租金", false]]);
   });
   it("未對應放盤：要有座＋室、冇 linked_ref_no", () => {
     expect(infoOf([V({ linked_ref_no: "" })])).toEqual([[1, "", true]]);
@@ -84,7 +84,7 @@ describe("weeklyTodos", () => {
   });
   it("睇樓超過 30 日唔再提「未對應」，但欠資料照提", () => {
     expect(T([V({ view_date: "2026-09-01", linked_ref_no: null })]).total).toBe(0);
-    expect(infoOf([V({ view_date: "2026-09-01", linked_ref_no: null, price: 0 })])).toEqual([[1, "睇樓價", false]]);
+    expect(infoOf([V({ view_date: "2026-09-01", linked_ref_no: null, price: 0 })])).toEqual([[1, "售價", false]]);
     expect(T([V({ view_date: "2026-09-01", linked_ref_no: null })], { linkMaxDays: 90 }).total).toBe(1);   // ⚙️ todo_link_max_days 跟設定
   });
   it("已成交、用戶 ✕ 唔再提醒、全部放盤都 ✕ 過 → 唔提", () => {
@@ -104,7 +104,7 @@ describe("每週摘要：待跟進 section", () => {
   it("最多列 5 條，其餘寫「另有 N 個」；標題寫總數；動態字串 escape", () => {
     const html = withTodo(8);
     expect(html).toContain("有 8 個睇樓記錄等你跟進");
-    expect(html.match(/欠 睇樓價/g).length).toBe(5);
+    expect(html.match(/待補：售價/g).length).toBe(5);
     expect(html).toContain("另有 3 個，返 app 睇全部");
     expect(html).toContain("返 app 補資料");
     expect(html).not.toContain("<img src=x"); expect(html).toContain("&lt;img src=x");

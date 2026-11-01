@@ -63,6 +63,7 @@ const PANEL_HTML = `
       <label><input type="checkbox" name="src" value="midland" checked> 美聯</label>
       <label><input type="checkbox" name="src" value="hkp" checked> 香港置業</label>
       <label><input type="checkbox" name="src" value="ricacorp" checked> 利嘉閣</label>
+      <label class="ps-nohos" title="居屋／綠表置居盤叫價係未補地價價錢，一般買家要另外補地價（或者要有白居二／綠表資格）"><input type="checkbox" name="nohos" value="1"> 唔睇居屋（未補地價）</label>
     </div>
   </form>
 
@@ -137,6 +138,7 @@ function readCond(sp) {
     beds: beds >= 1 && beds <= 4 ? beds : null,
     pmin: n("pmin"), pmax: n("pmax"), smin: n("smin"), smax: n("smax"),
     srcs: srcs.length ? [...new Set(srcs)] : SRC_KEYS.slice(),
+    nohos: sp.get("nohos") === "1",
   };
 }
 function condToQuery(c) {
@@ -146,6 +148,7 @@ function condToQuery(c) {
   if (c.area) sp.set("area", c.area);
   for (const k of ["beds", "pmin", "pmax", "smin", "smax"]) if (c[k] != null) sp.set(k, c[k]);
   if (c.srcs.length < SRC_KEYS.length) for (const s of c.srcs) sp.append("src", s);
+  if (c.nohos) sp.set("nohos", "1");
   return sp.toString();
 }
 function fillForm(c) {
@@ -155,6 +158,8 @@ function fillForm(c) {
   $("ps-beds").value = c.beds ?? "";
   for (const k of ["pmin", "pmax", "smin", "smax"]) $("ps-" + k).value = c[k] ?? "";
   for (const el of form.querySelectorAll('input[name="src"]')) el.checked = c.srcs.includes(el.value);
+  const nh = form.querySelector('input[name="nohos"]');
+  if (nh) nh.checked = !!c.nohos;
   syncPriceLabel();
 }
 function syncPriceLabel() {
@@ -289,6 +294,7 @@ function condLabel(c) {
     bits.push(c.pmin != null && c.pmax != null ? `${u(c.pmin)}–${u(c.pmax)}` : c.pmin != null ? `${u(c.pmin)}以上` : `${u(c.pmax)}以下`);
   }
   if (c.smin != null || c.smax != null) bits.push(`${c.smin ?? 0}–${c.smax ?? "∞"}呎`);
+  if (c.nohos) bits.push("唔睇居屋");
   return bits.length ? `${bits.join(" · ")} ${c.deal === "R" ? "租盤" : "買盤"}` : "";
 }
 // 搜尋框下面「最近搜尋：…」列；撳咗填返條件再搜（唔跳頁）
@@ -350,7 +356,10 @@ function renderSrcbar() {
 }
 
 function renderGrid() {
-  const list = ordered();
+  const all = ordered();
+  // 「唔睇居屋（未補地價）」：前端篩（地產網 API 冇呢個條件）。篩走幾多個要講，唔好靜靜少咗盤
+  const list = state.cond.nohos ? all.filter((it) => !it.hos) : all;
+  const nHos = all.length - list.length;
   const grid = $("ps-grid");
   grid.replaceChildren(...list.map(cardEl));
   const msg = $("ps-msg");
@@ -361,7 +370,11 @@ function renderGrid() {
     msg.hidden = false;
     msg.textContent = loading ? "搵緊四大地產網…"
       : allFailed ? (sts.some((s) => s.status === "busy") ? "搜尋太頻密，請一分鐘後再試" : "連唔到搜尋服務（唔係冇盤），請檢查網絡或者稍後再試")
+      : nHos ? `已載入嘅 ${nHos} 個盤全部係居屋（未補地價），已隱藏。可以載入更多，或者取消「唔睇居屋」。`
       : "冇搵到符合條件嘅放盤，試吓放寬價錢或者面積？";
+  } else if (nHos) {
+    msg.hidden = false;
+    msg.textContent = `已隱藏 ${nHos} 個居屋（未補地價）盤`;
   } else msg.hidden = true;
 }
 
@@ -438,7 +451,7 @@ function cardHtml(it) {
   const price = it.price
     ? (rent ? `$${escHtml(it.price.toLocaleString("en-US"))}<small>/月</small>` : `$${escHtml(fmtWan(it.price))}<small>萬</small>`)
     : `<small>價錢請睇原網站</small>`;
-  const hos = it.hos ? `<span class="ps-hos" title="居屋／綠表置居盤，呢個係未補地價價錢">居屋未補</span>` : "";
+  const hos = it.hos ? `<span class="ps-hos" title="居屋／綠表置居盤：呢個係未補地價價錢，一般買家要另外補地價（或者要有白居二／綠表資格）">居屋・未補地價</span>` : "";
   const psf = it.psf ? `@$${escHtml(it.psf.toLocaleString("en-US"))}/呎` : "";
   const track = !it.estate ? "" : (opts.track
     ? `<button type="button" class="ps-track" data-track="${escHtml(it.estate)}" title="追蹤${escHtml(it.estate)}嘅加減價">🔔 追蹤加減價</button>`
@@ -502,7 +515,7 @@ if (opts.formOnly) {
   more.append(form.querySelector(".ps-row2"), form.querySelector(".ps-srcs"));
   const updToggle = () => {
     const fd = new FormData(form);
-    const n = ["area", "beds", "pmin", "pmax", "smin", "smax"].filter((k) => fd.get(k)).length + (fd.getAll("src").length < SRC_KEYS.length ? 1 : 0);
+    const n = ["area", "beds", "pmin", "pmax", "smin", "smax", "nohos"].filter((k) => fd.get(k)).length + (fd.getAll("src").length < SRC_KEYS.length ? 1 : 0);
     tg.textContent = (more.hidden ? "更多條件" : "收起條件") + (n ? `（已設 ${n} 項）` : "") + (more.hidden ? " ▾" : " ▴");
   };
   tg.addEventListener("click", () => { more.hidden = !more.hidden; tg.setAttribute("aria-expanded", String(!more.hidden)); updToggle(); });

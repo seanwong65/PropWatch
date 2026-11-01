@@ -518,6 +518,7 @@ const MC_FORM_HTML = `
 
 <button type="button" class="vf-submit" id="mc-calc-btn" onclick="mcCalculate()" style="margin-top:1rem">計算</button>
 <div id="mc-calc-msg" role="alert" style="display:none;color:var(--down);font-size:0.82rem;margin-top:0.5rem"></div>
+<div style="font-size:0.72rem;color:var(--muted);margin-top:0.4rem">月入、現金等數字只會記喺呢部機，下次唔使再填；唔會上傳。</div>
 <div id="mc-out" style="margin-top:1rem;scroll-margin-top:0.6rem"></div>
 
 <details style="margin:0.9rem 0 0;font-size:0.76rem;color:var(--muted)">
@@ -529,9 +530,30 @@ const MC_FORM_HTML = `
 </ul>
 </details>
 `;
+// 記住用戶自己嘅數字（2026-11-01 UI review B2）：月入、現金、花紅、年期、利率等存喺呢部機瀏覽器（localStorage），
+// 下次開唔使由零填；樓價唔記（每次睇唔同層樓）。唔上傳、唔寫 D1，同「數字唔會上傳」一致。私隱模式讀唔到就當冇。
+const MC_SAVE_KEY = "pw_mc_inputs";
+const MC_SAVE_IDS = ["mc-income", "mc-cash", "mc-bonus-y1", "mc-bonus-y2", "mc-ltv", "mc-years", "mc-rate", "mc-agent", "mc-legal", "mc-reno"];
+function _mcRestore() {
+  let o = {};
+  try { o = JSON.parse(localStorage.getItem(MC_SAVE_KEY) || "{}") || {}; } catch (_) { return; }
+  for (const id of MC_SAVE_IDS) {
+    const el = document.getElementById(id);
+    if (el && typeof o[id] === "string" && o[id].length <= 20) el.value = o[id];
+  }
+  // 有記低花紅就打開個 box（收埋嘅話唔會計入，用戶會以為冇記到）
+  if ((o["mc-bonus-y1"] || o["mc-bonus-y2"]) && document.getElementById("mc-bonus-box")?.style.display === "none") toggleMcBonus();
+}
+function _mcSave() {
+  const o = {};
+  for (const id of MC_SAVE_IDS) { const el = document.getElementById(id); if (el && el.value !== "") o[id] = String(el.value).slice(0, 20); }
+  try { localStorage.setItem(MC_SAVE_KEY, JSON.stringify(o)); } catch (_) { /* 私隱模式：今次有效，唔記 */ }
+}
 function mountMortgageForm(hostId = "mc-form-host") {
   const host = document.getElementById(hostId);
   if (!host || host.dataset.mounted) return;
   host.innerHTML = MC_FORM_HTML;
   host.dataset.mounted = "1";
+  _mcRestore();
+  host.addEventListener("input", (e) => { if (MC_SAVE_IDS.includes(e.target.id)) _mcSave(); });
 }

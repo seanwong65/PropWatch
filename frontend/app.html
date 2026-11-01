@@ -1314,11 +1314,28 @@
     .lc-lock:hover { background: #d97706; color: #fff; }
     /* 合併行喺表格度係一抹綠底，卡片跟返同一個訊號 */
     .lc-combined { background: rgba(28,158,232,0.07); }
-    .lc-actions { display: flex; gap: 0.3rem; flex-wrap: wrap; padding-top: 0.4rem; }
+    .lc-actions { display: flex; gap: 0.3rem; flex-wrap: wrap; padding-top: 0.4rem; align-items: flex-start; }
+    .fav-group-h { font-weight: 700; font-size: 0.88rem; margin: 0.9rem 0 0.4rem; padding-left: 0.2rem; }
+    .fav-group-h span { font-weight: 400; color: var(--muted); font-size: 0.76rem; margin-left: 0.3rem; }
+    .vf-ratings-wrap { margin-top: 0.75rem; }
+    .vf-ratings-wrap > summary { cursor: pointer; list-style: none; margin: 0; }
+    .vf-ratings-wrap > summary::-webkit-details-marker { display: none; }
+    .vf-ratings-wrap > summary::after { content: " ▾"; color: var(--muted); }
+    .vf-ratings-wrap[open] > summary::after { content: " ▴"; }
+    .lc-act { background: var(--brand-soft); color: var(--brand); border: 1px solid transparent; border-radius: 999px; font-size: 0.72rem; font-weight: 600; padding: 0.2rem 0.6rem; cursor: pointer; font-family: inherit; white-space: nowrap; }
+    .lc-act:hover { border-color: var(--brand); }
+    .lc-more { font-size: 0.72rem; }
+    .lc-more > summary { list-style: none; cursor: pointer; color: var(--muted); padding: 0.2rem 0.45rem; border-radius: 999px; border: 1px solid var(--border); }
+    .lc-more > summary::-webkit-details-marker { display: none; }
+    .lc-more > summary::after { content: " ▾"; }
+    .lc-more[open] > summary::after { content: " ▴"; }
+    .lc-more-body { display: flex; flex-wrap: wrap; gap: 0.3rem; align-items: center; margin-top: 0.35rem; }
     .lc-btn { font-size: 0.68rem; padding: 0.1rem 0.4rem; margin: 0; }
     /* 次要動作（標記已下架／還原）：細字底線，唔似主掣（2026-11-01 UI review：新用戶以為要佢幫系統報下架） */
     .lc-mini { background: none; border: none; padding: 0.1rem 0.2rem; margin: 0; color: var(--muted); font-size: 0.68rem; text-decoration: underline; text-underline-offset: 2px; cursor: pointer; font-family: inherit; }
     .lc-mini:hover { color: var(--text); }
+    .estate-market { background: none; border: none; padding: 0; margin-top: 0.3rem; font-size: 0.82rem; color: var(--muted); cursor: pointer; font-family: inherit; text-align: left; }
+    .estate-market:hover { color: var(--text); }
     .hl-empty { color: var(--muted); font-size: 0.85rem; line-height: 1.8; }
     .hl-empty-link { background: none; border: none; padding: 0; color: var(--accent2); font-size: inherit; font-weight: 600; cursor: pointer; font-family: inherit; }
     .hl-empty-link:hover { text-decoration: underline; }
@@ -1917,7 +1934,7 @@
   <div class="modal" style="max-width:440px;max-height:90vh;overflow-y:auto">
     <button class="modal-close" onclick="closeFriendModal()">✕</button>
     <div class="modal-title" id="friend-modal-title">👥 新增朋友屋企</div>
-    <p style="font-size:0.8rem;color:var(--muted);margin:0.25rem 0 1rem">入朋友名同單位，自動搵過往成交、恆生估值、相對市價同類近在售。</p>
+    <p style="font-size:0.8rem;color:var(--muted);margin:0.25rem 0 1rem">記低朋友屋企邊個單位，儲存後會自動幫你搵返過往成交同估值。</p>
     <label class="vf-label">朋友名<span>*</span></label>
     <input class="vf-input" type="text" id="fh-name" placeholder="例：阿明">
     <label class="vf-label" style="margin-top:0.7rem">屋苑<span>*</span>（搜尋——未追蹤嘅屋苑會一次過抓數據，唔會加入追蹤）</label>
@@ -2431,11 +2448,12 @@
         </div>
       </div>
 
-      <label class="vf-label" style="display:flex;align-items:center;justify-content:space-between;gap:0.5rem">
-        <span>睇樓評分</span>
-        <span onclick="openRatingCritEditor()" style="font-size:0.75rem;color:var(--accent2);cursor:pointer;font-weight:400">✏️ 編輯選項</span>
-      </label>
-      <div id="vf-ratings" style="margin-bottom:0.7rem"></div>
+      <!-- 評分係選填（2026-11-01 UI review B10）：新記錄預設收埋，唔好令張表睇落好長；有評分嘅記錄打開時自動展開 -->
+      <details id="vf-ratings-wrap" class="vf-ratings-wrap">
+        <summary class="vf-label">⭐ 睇樓評分（選填，儲存後都可以再打）</summary>
+        <div style="display:flex;justify-content:flex-end;margin:0.2rem 0 0.1rem"><span onclick="openRatingCritEditor()" style="font-size:0.75rem;color:var(--accent2);cursor:pointer">✏️ 編輯選項</span></div>
+        <div id="vf-ratings" style="margin-bottom:0.7rem"></div>
+      </details>
 
       <label class="vf-label" style="display:flex;align-items:center;justify-content:space-between;gap:0.5rem">
         <span>備注</span>
@@ -3204,7 +3222,7 @@ async function showDashboard(estates) {
       <!-- 快捷功能：新增睇樓／睇樓記錄係跟屋苑嘅，所以要先經屋苑揀選器；
            朋友屋企唔綁屋苑（個 modal 自己有屋苑搜尋），可以直接開。 -->
       <div class="qa-row">
-        <button class="qa-btn" onclick="openEstatePicker('add')">
+        <button class="qa-btn" onclick="openQuickAddViewing()">
           <span class="qa-icon">📝</span><span class="qa-label">新增睇樓</span></button>
         <button class="qa-btn" onclick="goViewingDiary()">
           <span class="qa-icon">📋</span><span class="qa-label">睇樓日記</span></button>
@@ -3312,7 +3330,7 @@ async function pickEstateForQuick(id) {
 // 手機版 sidebar 收埋咗，快捷掣要幫手拉返出嚟先 focus 到個搜尋框
 // 側欄「🔍 搵樓」：喺主畫面（#main）入面開四大地產網搜尋——同公開 /search 頁共用
 // public-search.js／.css（第一次先載入）。「🔔 追蹤加減價」直接帶去側欄屋苑搜尋，唔使再登記。
-const PS_VER = '20261101b';   // 改 public-search.js/.css 要同 search.html 一齊 bump（Pages 靜態檔 cache 4 小時）
+const PS_VER = '20261101c';   // 改 public-search.js/.css 要同 search.html 一齊 bump（Pages 靜態檔 cache 4 小時）
 let _psAssets = null;
 function _loadPublicSearchAssets() {
   if (!_psAssets) _psAssets = new Promise((resolve, reject) => {
@@ -3873,17 +3891,26 @@ function syncTodoDismissed(serverIds) {
   if (changed) { try { localStorage.setItem(_TODO_KEY, JSON.stringify([...local])); } catch (_) { /* 私隱模式 */ } }
   if (toServer.length) api('/api/todo-dismissed', { method: 'POST', body: JSON.stringify({ ids: toServer.slice(0, 200) }) }).catch(() => {});
 }
+// 睇樓記錄「待補」欄位：主頁待跟進、日記列表、日記詳情、儲存確認框全部用呢一套字眼（2026-11-01 UI review B1：
+// 以前「欠睇樓價」「⚠ 未填齊資料」「售價未填」三套講法，似三個唔同問題）。名稱跟表單 label（售價／租金）。
+//   core：認唔到單位／冇價錢 → 系統跟唔到改價（待跟進用呢組）；extra：分析用（呎價、房數比較）
+function viewingGaps(v) {
+  const core = [], extra = [];
+  if (!v.block) core.push('座');
+  if (!v.floor) core.push('樓層');
+  if (!v.unit) core.push('室');
+  if (!v.price) core.push(v.deal_type === 'R' ? '租金' : '售價');
+  if (!v.size_net) extra.push('實用呎數');
+  if (!v.bedrooms) extra.push('房數');
+  return { core, extra, all: [...core, ...extra] };
+}
 function _todoDismissed() { try { return new Set(JSON.parse(localStorage.getItem(_TODO_KEY) || '[]')); } catch (_) { return new Set(); } }
 function viewingTodos() {
   const hidden = _todoDismissed();
   const out = [];
   for (const v of _compsData || []) {
     if (!v || v.status === 'sold' || hidden.has(v.id)) continue;
-    const missing = [];
-    if (!v.block) missing.push('座');
-    if (!v.floor) missing.push('樓層');
-    if (!v.unit) missing.push('室');
-    if (!v.price) missing.push(v.deal_type === 'R' ? '睇樓租金' : '睇樓價');
+    const missing = viewingGaps(v).core;
     let needLink = !!(v.block && v.unit) && _linkedRefs(v).length === 0;
     // 睇樓超過一個月（⚙️ todo_link_max_days，預設 30 日）仲未對應＝多數已經賣咗／落架，對唔返，唔再提「未對應放盤」；
     // 資料欠缺（missing）就唔受呢個限制，照提。
@@ -3987,15 +4014,15 @@ function renderViewingTodo() {
   const rows = shown.map(({ v, missing, needLink }) => `
     <div class="todo-row">
       <div class="todo-title">${title(v)} <span style="font-weight:400;color:var(--muted)">· 睇樓 ${escHtml(String(v.view_date || '').slice(5))}</span></div>
-      ${missing.length ? `<span class="todo-tag">欠 ${missing.map(escHtml).join('、')}</span>` : ''}
-      ${needLink ? '<span class="todo-tag">未對應放盤</span>' : ''}
+      ${missing.length ? `<span class="todo-tag">待補：${missing.map(escHtml).join('、')}</span>` : ''}
+      ${needLink ? '<span class="todo-tag">待確認放盤</span>' : ''}
       ${missing.length ? `<button class="todo-btn" onclick="todoFill(${Number(v.id)})">補資料</button>` : ''}
       ${needLink ? `<button class="todo-btn" onclick="todoGo(${Number(v.id)})">去確認</button>` : ''}
       <button class="todo-x" title="唔再提醒呢個記錄" onclick="todoDismiss(${Number(v.id)})">✕ 唔再提醒</button>
     </div>`).join('');
   el.innerHTML = `<div class="todo-card">
     <div class="todo-head" onclick="_todoOpen=!_todoOpen;renderViewingTodo()"><span>📌 待跟進 <span style="color:var(--accent)">${todos.length}</span> 個睇樓記錄</span><span style="color:var(--muted);font-size:0.8rem">${_todoOpen ? '收起 ▴' : '睇下 ▾'}</span></div>
-    <div class="todo-sub">呢啲記錄資料未齊，或者未對應返放盤，系統追蹤唔到佢哋嘅<b>改價、下架、成交</b>。補返資料／確認對應放盤就會自動追蹤。</div>
+    <div class="todo-sub">補返資料、或者確認係邊個放盤，之後呢個單位<b>減價、落架、成交</b>都會通知你。</div>
     ${rows}
     ${_todoOpen && todos.length > 5 ? `<button class="todo-more" onclick="_todoAll=!_todoAll;renderViewingTodo()">${_todoAll ? '只睇最近 5 個 ▴' : `睇晒全部 ${todos.length} 個 ▾`}</button>` : ''}
   </div>`;
@@ -4203,21 +4230,15 @@ function _compsPriceLabel(v) {
   return v.deal_type === 'R' ? `$${Math.round(v.price).toLocaleString()}/月`
     : `$${(v.price / 1e4).toFixed(v.price % 10000 === 0 ? 0 : 1)}萬`;
 }
-// 資料未填齊嘅項目（售價／呎數／房數；其餘係真正選填，唔計）。冇價錢／呎數存 0。
-function _compsMissing(v) {
-  const m = [];
-  if (!v.price) m.push(v.deal_type === 'R' ? '月租' : '售價');
-  if (!v.size_net) m.push('實用呎數');
-  if (!v.bedrooms) m.push('房數');
-  return m;
-}
+// 資料未填齊嘅項目：同主頁待跟進同一套（viewingGaps），日記列多計埋分析用嘅呎數／房數。
+function _compsMissing(v) { return viewingGaps(v).all; }
 const _DJ_WEEKDAY = ['日', '一', '二', '三', '四', '五', '六'];
 
 // 詳細卡：用返「睇樓記錄」同一個 renderOneViewing（卡片版），屋苑名淨係喺呢度加返。
 // buildMatchCell 靠全局 allListings，跨屋苑要逐張卡換返啱嗰個屋苑先 render。
 function _compsCardHtml(v) {
   const miss = _compsMissing(v);
-  const missHtml = miss.length ? `<div class="dj-missing">⚠ 提提你：仲有 <b>${escHtml(miss.join('、'))}</b> 未填，撳右上角 ✏️ 補返。</div>` : '';
+  const missHtml = miss.length ? `<div class="dj-missing">待補：<b>${escHtml(miss.join('、'))}</b>，撳右上角 ✏️ 補返。</div>` : '';
   // 屋苑頁：allListings 本身就係呢個屋苑，唔使換，亦唔使重覆寫屋苑名
   if (_compsScope) return `<div style="margin-bottom:0.15rem">${missHtml}${renderOneViewing(v, _compsScope, true, wantsDeal('R'))}</div>`;
   const saved = allListings;
@@ -4318,7 +4339,7 @@ function renderCompsPanel() {
       : `<div class="dj"><div class="dj-empty">
           <div style="margin-bottom:0.7rem">未有睇樓記錄。去搵樓，睇完樓再喺度記低，呢度就會顯示。</div>
           <button class="vf-submit" style="width:auto;padding:0.5rem 1.2rem;margin:0 0.3rem 0.3rem 0" onclick="openPublicSearch()">🔍 去搵樓</button>
-          <button class="vf-submit" style="width:auto;padding:0.5rem 1.2rem;margin:0 0 0.3rem 0;background:#15803d" onclick="openEstatePicker('add')">📝 新增睇樓記錄</button>
+          <button class="vf-submit" style="width:auto;padding:0.5rem 1.2rem;margin:0 0 0.3rem 0;background:#15803d" onclick="openQuickAddViewing()">📝 新增睇樓記錄</button>
         </div></div>`);
     return;
   }
@@ -4385,7 +4406,7 @@ function renderCompsPanel() {
         + `<span class="dj-unit">${escHtml(_compsUnitLabel(v))}</span>`
         + (v.price ? `<span class="dj-price">${escHtml(_compsPriceLabel(v))}</span>` : '')
         + (v.status === 'sold' ? `<span class="dj-tag">已${v.deal_type === 'R' ? '租' : '沽'}</span>` : '')
-        + (_compsMissing(v).length ? `<span class="dj-tag dj-warn" title="仲有 ${escHtml(_compsMissing(v).join('、'))} 未填">⚠ 未填齊資料</span>` : '')
+        + (_compsMissing(v).length ? `<span class="dj-tag dj-warn" title="待補：${escHtml(_compsMissing(v).join('、'))}">待補 ${_compsMissing(v).length} 項</span>` : '')
         + (r != null ? `<span class="dj-meta">⭐${r.toFixed(1)}</span>` : '')
         + (n ? `<span class="dj-meta">📷${n}</span>` : '') + `</button>`;
     }).join('');
@@ -5677,12 +5698,18 @@ async function showEstate(id, name, district) {
     // 「未攞過先攞」，唔清就會誤以為舊屋苑嗰份仲啱用）。
     _estateChartId = null;
     _marketTempLoadedFor = null;
+    setTimeout(() => loadEstateMarketLine(id), 0);   // 屋苑頁頭「市況：…」一句（B7），等 main.innerHTML 畫完先填
 
     main.innerHTML = `
       <div class="estate-header" style="display:flex;align-items:flex-start;justify-content:space-between">
         <div>
           <div class="estate-title">${escHtml(name)}</div>
-          <div class="estate-sub">${district ? escHtml(district) + ' · ' : ''}共 ${listings.length} 個在售單位${crowdEstateChip()}</div>
+          <div class="estate-sub">${district ? escHtml(district) + ' · ' : ''}${(() => {
+            // 同側欄卡一致（A3）：單位數＝去重後；放盤數＝各地產網分開計
+            const nU = Number(estatesById?.[id]?.stats?.n) || 0;
+            return nU ? `${nU} 個在售單位（各地產網共 ${listings.length} 個放盤）` : `共 ${listings.length} 個放盤`;
+          })()}${crowdEstateChip()}</div>
+          <div id="estate-market-line"></div>
           <div id="estate-info-bar"></div>
         </div>
         <button class="sync-btn" style="background:var(--brand);border-color:var(--brand);color:var(--brand-ink);white-space:nowrap;flex-shrink:0;margin-top:0.2rem" onclick="openViewingModal()">＋ 新增睇樓</button>
@@ -6432,6 +6459,7 @@ async function setEstateDeal(deal, estateId) {
   // 顯住舊嘅買盤數字會好誤導，索性隱藏（未來想做返租務市場溫度先再加）。
   const tempCard = document.getElementById('market-temp-card');
   if (tempCard) tempCard.style.display = deal === 'R' ? 'none' : '';
+  loadEstateMarketLine(estateId);
   const shown = ['listings', 'transactions', 'viewings']
     .find((t) => document.getElementById('tab-' + t)?.style.display !== 'none') || 'listings';
   // 買/租兩張表分開兩個常駐 wrap（顯/隱切換，唔會互相destroy DOM）——租盤表
@@ -7433,7 +7461,7 @@ function renderFavListings() {
       <span id="fav-sel-count" style="color:var(--muted);font-size:0.78rem"></span>
       <button type="button" class="share-btn" id="fav-share-btn" disabled onclick="shareSelectedFavs()">📤 分享</button></div>`;
   const wan = (p) => `$${(Math.round(p / 1000) / 10).toLocaleString()}萬`;
-  body.innerHTML = bar + sorted.map(f => {
+  const card = (f) => {
     const sn = f.snap || {};
     const rent = f.deal === 'R';
     const fmt = (p) => p ? (rent ? `$${Math.round(p).toLocaleString()}/月` : wan(p)) : '-';
@@ -7488,7 +7516,22 @@ function renderFavListings() {
           <span style="font-size:0.7rem;color:var(--muted)">收藏於 ${escHtml(String(f.created_at || '').slice(0, 10))}${f.fav_price ? ' · 當時 ' + fmt(f.fav_price) : ''}</span></div>
       </div>
     </div>`;
-  }).join('');
+  };
+  // 按屋苑分組（2026-11-01 UI review B9）：同一個屋苑嘅心儀盤擺埋一齊，組嘅次序跟最近收藏；組內照舊（未下架先、新收藏先）。
+  // 搜尋結果收藏（estate_id＝0）按地產網畀嘅屋苑名分組，冇名就歸「其他搜尋結果」。
+  const groups = new Map();
+  for (const f of sorted) {
+    const name = _favEstateName(f) || '其他搜尋結果';
+    const key = f.estate_id ? 'e' + f.estate_id : 'n' + name;
+    if (!groups.has(key)) groups.set(key, { name, items: [], latest: '' });
+    const g = groups.get(key);
+    g.items.push(f);
+    if (String(f.created_at || '') > g.latest) g.latest = String(f.created_at || '');
+  }
+  const ordered = [...groups.values()].sort((a, b) => b.latest.localeCompare(a.latest));
+  body.innerHTML = bar + (ordered.length > 1
+    ? ordered.map(g => `<div class="fav-group-h">${escHtml(g.name)} <span>${g.items.length} 個</span></div>${g.items.map(card).join('')}`).join('')
+    : sorted.map(card).join(''));
 }
 function favSelChanged() {
   const sel = [...document.querySelectorAll('.fav-sel:checked')];
@@ -8512,7 +8555,9 @@ async function deleteRatingCriterion(id) {
 }
 
 let _vfBorrowedEstate = null;   // 由 dashboard（冇開屋苑頁）開編輯時，暫借記錄本身嘅屋苑，閂窗還原
-function openViewingModal(viewing = null, readOnly = false) {
+// viewing 有 id＝改舊記錄；冇 id 但有欄位＝預填新記錄（例：由放盤卡「記睇樓」）。opts.pickEstate＝新增都俾揀屋苑（主頁快捷）
+function openViewingModal(viewing = null, readOnly = false, opts = {}) {
+  const isEdit = !!(viewing && viewing.id);
   if (!_viewingEstateId) {
     if (!viewing?.estate_id) return;
     _vfBorrowedEstate = { id: _viewingEstateId, name: _viewingEstateName };
@@ -8522,15 +8567,15 @@ function openViewingModal(viewing = null, readOnly = false) {
   _viewingEditId = viewing ? viewing.id : null;
   document.getElementById('viewingModalOverlay').style.display = 'flex';
   document.getElementById('viewing-modal-estate-name').textContent = _viewingEstateName;
-  document.querySelector('#viewingModalOverlay .modal-title').textContent = viewing ? (readOnly ? '👁 查看睇樓記錄' : '✏️ 更改睇樓記錄') : '＋ 新增睇樓記錄';
+  document.querySelector('#viewingModalOverlay .modal-title').textContent = isEdit ? (readOnly ? '👁 查看睇樓記錄' : '✏️ 更改睇樓記錄') : '＋ 新增睇樓記錄';
   const today = new Date(Date.now() + 8*3600000).toISOString().slice(0,10);
-  document.getElementById('vf-date').value = viewing ? viewing.view_date : today;
+  document.getElementById('vf-date').value = viewing?.view_date || today;
   // 單幢屋苑冇座數：block 存成屋苑名（見儲存），編輯時唔好將屋苑名當座數顯示出嚟
   document.getElementById('vf-block').value = viewing ? (String(viewing.block || '') === String(_viewingEstateName || viewing.estate_name || '') ? '' : (viewing.block || '')) : '';
-  document.getElementById('vf-floor').value = viewing ? viewing.floor : '';
-  document.getElementById('vf-unit').value = viewing ? viewing.unit : '';
+  document.getElementById('vf-floor').value = viewing ? (viewing.floor || '') : '';
+  document.getElementById('vf-unit').value = viewing ? (viewing.unit || '') : '';
   document.getElementById('vf-size').value = viewing ? (viewing.size_net || '') : '';
-  document.getElementById('vf-bedrooms').value = viewing ? (viewing.bedrooms ?? '') : 2;
+  document.getElementById('vf-bedrooms').value = viewing ? (viewing.bedrooms ?? (isEdit ? '' : 2)) : 2;
   document.getElementById('vf-direction').value = viewing ? (viewing.direction || '') : '';
   document.getElementById('vf-toilet').value = viewing ? (viewing.toilet || '') : '';
 
@@ -8540,7 +8585,7 @@ function openViewingModal(viewing = null, readOnly = false) {
   const showDealPicker = prefDeals.includes('R');
   document.getElementById('vf-deal-row').style.display = showDealPicker ? '' : 'none';
   document.getElementById('vf-deal-types').style.display = showDealPicker ? 'flex' : 'none';
-  _vfDeal = viewing ? (viewing.deal_type === 'R' ? 'R' : 'S') : (prefDeals.length === 1 ? prefDeals[0] : (prefDeals.includes('S') ? 'S' : prefDeals[0]));
+  _vfDeal = viewing?.deal_type ? (viewing.deal_type === 'R' ? 'R' : 'S') : (prefDeals.length === 1 ? prefDeals[0] : (prefDeals.includes('S') ? 'S' : prefDeals[0]));
   document.querySelectorAll('#vf-deal-types .filter-chip').forEach(b => b.classList.toggle('active', b.dataset.deal === _vfDeal));
   syncVfPriceLabels();
 
@@ -8548,6 +8593,7 @@ function openViewingModal(viewing = null, readOnly = false) {
   document.getElementById('vf-mgmt').value = viewing ? (viewing.mgmt_fee || '') : '';
   populateNotesSelect(viewing ? (viewing.notes || '') : '');
   _vfRatings = viewing ? parseRatings(viewing) : {};
+  document.getElementById('vf-ratings-wrap').open = Object.keys(_vfRatings).length > 0;
   renderVfRatings();
   loadRatingCriteria().then(renderVfRatings);
   const preview = document.getElementById('vf-img-preview');
@@ -8571,13 +8617,36 @@ function openViewingModal(viewing = null, readOnly = false) {
       if (_viewingEditId === editId) setVfImgStatus('相片載入失敗，請關咗再開一次（未載入前唔可以儲存，避免洗走原有相片）');
     });
   }
-  if (!viewing && _vfDeal !== 'R') {
+  if (!isEdit && _vfDeal !== 'R') {
     api(`/api/viewings/last-mgmt-fee?estate_id=${_viewingEstateId}`).then(r => {
       if (r?.mgmt_fee) document.getElementById('vf-mgmt').value = r.mgmt_fee;
     }).catch(() => {});
   }
-  setVfReadOnly(!!viewing && readOnly);
-  setVfEstateEditable(!!viewing && !readOnly);
+  setVfReadOnly(isEdit && readOnly);
+  setVfEstateEditable((isEdit && !readOnly) || !!opts.pickEstate);
+}
+
+// 放盤卡「📝 記睇樓」（2026-11-01 UI review B6）：用放盤嘅座／樓／室／呎／房／座向／叫價預填新睇樓記錄。
+// 唔自動對應放盤——儲存後喺記錄度 ✓ 確認（同手動記錄一樣，用戶睇真先算）。
+function vfFromListing(ref) {
+  const l = (allListings || []).find(x => x.ref_no === ref);
+  if (!l || !activeEstateId) return;
+  const est = estatesById?.[activeEstateId];
+  openViewingModal({
+    estate_id: activeEstateId, estate_name: est?.name || _viewingEstateName || '',
+    block: l.building_name || '', floor: l.floor || '', unit: l.unit || '',
+    size_net: l.size_net ? Math.round(l.size_net) : '', bedrooms: l.bedrooms ?? '', direction: l.direction || '',
+    price: l.price || '', deal_type: 'S',
+  });
+}
+// 主頁快捷「📝 新增睇樓」：唔使先揀屋苑——直接開表單，屋苑可以喺表單入面揀（預設最近睇樓嗰個，冇就第一個追蹤屋苑）
+function openQuickAddViewing() {
+  const ests = dashboardEstates || [];
+  if (!ests.length) { openEstatePicker('add'); return; }
+  const recent = [...(_compsData || [])].sort((a, b) => String(b.view_date || '').localeCompare(String(a.view_date || '')))
+    .find(v => ests.some(e => e.id === v.estate_id));
+  const est = recent ? ests.find(e => e.id === recent.estate_id) : ests[0];
+  openViewingModal({ estate_id: est.id, estate_name: est.name }, false, { pickEstate: true });
 }
 
 // 查看模式：同一個 modal，但整個表單 inert（撳唔到、Tab 唔到、Enter 都唔會 submit），
@@ -8835,7 +8904,7 @@ async function submitViewing(e) {
   if (!val('vf-bedrooms')) missing.push('房數');
   if (!val('vf-direction')) missing.push('方向');
   if (!val('vf-toilet')) missing.push('明／暗廁');
-  if (!val('vf-price')) missing.push(deal === 'R' ? '月租' : '售價');
+  if (!val('vf-price')) missing.push(deal === 'R' ? '租金' : '售價');
   if (deal !== 'R' && !val('vf-mgmt')) missing.push('管理費');
   {
     // 儲存前一律要用戶確認（填齊都彈）；有欄位未填就喺確認框入面列出嚟。
@@ -8851,7 +8920,7 @@ async function submitViewing(e) {
     const ok = await appConfirm(
       `${_viewingEditId ? '更改' : '新增'} ${vfEstName || ''} ${unitLabel} 睇樓記錄`.replace(/\s+/g, ' ') + (facts ? '\n' + facts : ''),
       '儲存',
-      missing.length ? ['提提你：你仲有 ', missing.join('、'), ' 未填㗎，之後都可以補填返。'] : '',
+      missing.length ? ['待補：', missing.join('、'), '。可以先儲存，之後撳 ✏️ 或者喺主頁「待跟進」補返。'] : '',
       vfEstName || '');
     if (!ok) return;
   }
@@ -9108,7 +9177,8 @@ function renderOneViewing(v, estateId, isMobile, showTypeFilter) {
       const viewBtn = `<button class="viewing-del-btn vw-view-btn" onclick='openViewingModal(JSON.parse(decodeURIComponent("${vData}")), true)' title="查看" style="background:var(--btn2-bg);border:1px solid var(--btn2-border);margin-right:0.3rem">👁</button>`;
       const editBtn = `<button class="viewing-del-btn" onclick='openViewingModal(JSON.parse(decodeURIComponent("${vData}")))' title="更改" style="background:var(--btn2-bg);border:1px solid var(--btn2-border);margin-right:0.3rem">✏️</button>`;
       const delBtn = `<button class="viewing-del-btn" onclick="deleteViewing(${v.id},${estateId})" title="刪除">🗑</button>`;
-      const shareBtn = `<button class="viewing-del-btn vw-edit-only" onclick='openShareModal([JSON.parse(decodeURIComponent("${vData}"))], "viewing")' title="分享" style="background:var(--btn2-bg);border:1px solid var(--btn2-border);margin-right:0.3rem;font-weight:600">📤 分享</button>`;
+      const shareBtn = `<button class="viewing-del-btn vw-edit-only" onclick='openShareModal([JSON.parse(decodeURIComponent("${vData}"))], "viewing")' title="分享" style="background:var(--btn2-bg);border:1px solid var(--btn2-border);margin-right:0.3rem;font-weight:600">📤 分享</button>`
+        + (v.price && v.deal_type !== 'R' ? `<button class="viewing-del-btn" onclick="openMortgageForPrice(${Number(v.price)})" title="用呢個睇樓價計首期、印花稅、月供" style="background:var(--btn2-bg);border:1px solid var(--btn2-border);margin-right:0.3rem">🧮</button>` : '');
 
       if (isMobile) {
         // 卡片版面：一格一格垂直疊，唔使橫拉。同一組 id（vmatch-/vprev-）
@@ -9389,9 +9459,19 @@ function setTxnSort(col) {
   renderTransactionsTable(txnEstateId, txnOffset, !!document.querySelector(".load-more-btn"));
 }
 
+// 成交表欄位（2026-11-01 UI review B4）：預設淨係睇「登記日期、單位、成交價（連同估值比較）、實呎價」，
+// 持有年期／升跌／恒生估值／查估值／詳情收埋，撳「顯示更多欄」先出；揀法記喺呢部機。
+let _txnAdv = (() => { try { return localStorage.getItem('pw_txn_adv') === '1'; } catch (_) { return false; } })();
+let _txnLast = null;   // 重畫用：{ estateId, offset, hasMore }
+function toggleTxnAdv() {
+  _txnAdv = !_txnAdv;
+  try { localStorage.setItem('pw_txn_adv', _txnAdv ? '1' : '0'); } catch (_) { /* 私隱模式 */ }
+  if (_txnLast) renderTransactionsTable(_txnLast.estateId, _txnLast.offset, _txnLast.hasMore);
+}
 function renderTransactionsTable(estateId, offset, hasMore) {
   const panel = document.getElementById("tab-transactions");
   if (!panel) return;
+  _txnLast = { estateId, offset, hasMore };
   const estateName = document.querySelector('.estate-title')?.textContent?.trim() || '';
 
   const colMap = {
@@ -9414,12 +9494,12 @@ function renderTransactionsTable(estateId, offset, hasMore) {
     { key: null,           label: "單位" },
     { key: "price",        label: "成交價" },
     { key: "price_per_ft", label: "實呎價", sub: "*房數為估算" },
-    { key: "held_days",    label: "持有年期" },
-    { key: "gain_annual",  label: "升跌" },
-    { key: "hs_price",     label: "恆生估值" },
-    { key: null,           label: "查估值" },
-    { key: null,           label: "" },
-  ];
+    { key: "held_days",    label: "持有年期", adv: true },
+    { key: "gain_annual",  label: "升跌", adv: true },
+    { key: "hs_price",     label: "恆生估值", adv: true },
+    { key: null,           label: "查估值", adv: true },
+    { key: null,           label: "", adv: true },
+  ].filter(c => _txnAdv || !c.adv);
   const thLabel = (c) => c.sub
     ? `${c.label}<div style="font-size:0.65rem;font-weight:400;color:var(--muted)">${c.sub}</div>`
     : c.label;
@@ -9468,11 +9548,11 @@ function renderTransactionsTable(estateId, offset, hasMore) {
         <div>$${t.price_per_ft_net ? t.price_per_ft_net.toLocaleString() : '-'}/呎</div>
         <div class="unit-price">實${t.size_net ? t.size_net+'呎' : ''}${t.bedrooms != null ? ` · ${t.bedrooms}房` : ''}</div>
       </td>
-      <td>${heldStr}</td>
+      ${_txnAdv ? `<td>${heldStr}</td>
       <td>${annualHtml}${totalHtml}</td>
       <td>${hsValCell}</td>
       <td>${hsQueryCell}</td>
-      <td>${t.detail_url ? `<a href="${safeUrl(t.detail_url)}" target="_blank" class="detail-link">詳情 ↗</a>` : ''}</td>
+      <td>${t.detail_url ? `<a href="${safeUrl(t.detail_url)}" target="_blank" class="detail-link">詳情 ↗</a>` : ''}</td>` : ''}
     </tr>`;
   }).join('');
 
@@ -9562,6 +9642,7 @@ function renderTransactionsTable(estateId, offset, hasMore) {
     <div class="listings-section">
       <div class="sticky-bar">${filterBar}</div>
       ${premiumStrip}
+      <div style="display:flex;justify-content:flex-end;margin:0 0 0.4rem"><button class="filter-chip" onclick="toggleTxnAdv()">${_txnAdv ? '收埋進階欄 ▴' : '顯示更多欄（持有年期、升跌、恒生估值）▾'}</button></div>
       <div id="txnTableWrap"></div>
       ${hasMore ? `<button class="load-more-btn" onclick="loadTransactions(${estateId}, ${allTransactions.length}, true)">載入更多…</button>` : ''}
     </div>`;
@@ -10414,7 +10495,15 @@ function renderListingCards(el, displayRows) {
           ? `<a href="${safeUrl(l.detail_url)}" target="_blank" class="detail-link lc-src" data-vref="${escHtml(l.ref_no||'')}" onclick="event.stopPropagation();trackListingClick('${escJsAttr(l.ref_no||'')}')">${escHtml(sourceLabel(l.source))} ↗</a>${visitedMark(l.ref_no)}`
           : `<span class="lc-src" style="color:var(--muted)">${escHtml(sourceLabel(l.source))}</span>`);
 
-    const btns = manualBtn + lineBtn + histBtn + groupBtn;
+    // 主動作（2026-11-01 UI review B5）：記睇樓、計按揭；去地產網嘅連結喺上面 lc-badges。
+    // 歷史／類近成交／拆開合併／標記已下架 收入「更多」，唔好同主動作同級。
+    const refKey = l._combined ? (l.sources?.[0]?.ref_no || '') : (l.ref_no || '');
+    const primary = removed ? '' : [
+      refKey ? `<button class="lc-act" onclick="event.stopPropagation();vfFromListing('${escJsAttr(refKey)}')" title="用呢個盤嘅座、樓、室、呎、價預填睇樓記錄">📝 記睇樓</button>` : '',
+      l.price ? `<button class="lc-act" onclick="event.stopPropagation();openMortgageForPrice(${Number(l.price)})" title="用呢個叫價計首期、印花稅、月供">🧮 計按揭</button>` : '',
+    ].join('');
+    const moreBtns = lineBtn + histBtn + groupBtn + manualBtn;
+    const btns = primary + (moreBtns ? `<details class="lc-more" onclick="event.stopPropagation()"><summary>更多</summary><div class="lc-more-body">${moreBtns}</div></details>` : '');
     return `
     <div class="lc-card${l._combined ? ' lc-combined' : ''}"${removed ? ' style="opacity:0.55"' : ''}>
       ${favBtnHtml(refs, 'S')}
@@ -10629,6 +10718,18 @@ function openMortgageModal() {
   mountMortgageForm();
   document.getElementById("mortgageModalOverlay").style.display = "flex";
   renderMortgage();
+}
+// 由放盤卡／睇樓記錄「🧮 計按揭」入嚟（2026-11-01 UI review B2）：開「睇中咗層樓」，樓價填好即計。
+// 月入、現金、利率等由 mortgage.js 喺本機記住（唔上傳），唔使每次由零填。
+function openMortgageForPrice(price) {
+  const wan = Math.round(Number(price) / 1e4);
+  if (!wan) { openMortgageModal(); return; }
+  mountMortgageForm();
+  setMcMode('cost');
+  const el = document.getElementById('mc-price');
+  el.value = wan.toLocaleString('en-US');
+  openMortgageModal();
+  mcCalculate();
 }
 // 由偏好 popup 入嚟：暫時收埋偏好個 popup（兩個疊住會撞 scroll），
 // 閂計算機嗰陣自動彈返出嚟，用戶唔會失去打咗一半嘅偏好。
@@ -10960,17 +11061,40 @@ async function showHistory(refNo, label) {
 }
 
 // 市場溫度卡:在售量 / 月成交 / 消化率 → 買家定賣家市場
+// 市場溫度：屋苑頁頭一句（B7）同「樓盤分析」卡共用同一個 request（同一屋苑只問一次）
+let _mtCache = { id: null, p: null };
+function fetchMarketTemp(estateId) {
+  if (_mtCache.id !== estateId) {
+    _mtCache = { id: estateId, p: api(`/api/estates/${estateId}/market-temp`) };
+    _mtCache.p.catch(() => { if (_mtCache.id === estateId) _mtCache = { id: null, p: null }; });
+  }
+  return _mtCache.p;
+}
+function _mtVerdict(t) {
+  const months = t.txn_30d > 0 ? (t.active_listings / t.txn_30d) : null;
+  if (months == null || months > 12) return { months, tier: 0, verdict: '極淡 · 買家話事', color: 'var(--up)' };
+  if (months > 6) return { months, tier: 1, verdict: '偏淡 · 買家有利', color: 'var(--up)' };
+  if (months > 3) return { months, tier: 2, verdict: '均衡', color: 'var(--muted)' };
+  return { months, tier: 3, verdict: '偏熱 · 賣家有利', color: 'var(--down)' };
+}
+// 屋苑頁頭「市況」一句（2026-11-01 UI review B7）：分析 tab 最有用嗰句搬上第一屏；撳去「樓盤分析」睇點計。租盤冇呢個概念，唔顯示。
+async function loadEstateMarketLine(estateId) {
+  const el = document.getElementById('estate-market-line');
+  if (!el) return;
+  if (_estateDeal === 'R') { el.innerHTML = ''; return; }
+  try {
+    const t = await fetchMarketTemp(estateId);
+    if (activeEstateId !== estateId || _estateDeal === 'R') return;
+    const v = _mtVerdict(t);
+    el.innerHTML = `<button type="button" class="estate-market" onclick="switchTab('analysis',${Number(estateId)})" title="去貨月數＝在售盤數 ÷ 近30日成交宗數。撳入去睇點計">市況：<b style="color:${v.color}">${v.verdict}</b>${v.months != null ? ` · 約 ${Math.round(v.months)} 個月去貨` : ' · 近 30 日冇成交'} ›</button>`;
+  } catch (_) { el.innerHTML = ''; }
+}
 async function loadMarketTemp(estateId) {
   const card = document.getElementById('market-temp-card');
   if (!card) return;
   try {
-    const t = await api(`/api/estates/${estateId}/market-temp`);
-    const months = t.txn_30d > 0 ? (t.active_listings / t.txn_30d) : null;
-    let tier, verdict, color;
-    if (months == null || months > 12) { tier = 0; verdict = '極淡 · 買家話事'; color = 'var(--up)'; }
-    else if (months > 6) { tier = 1; verdict = '偏淡 · 買家有利'; color = 'var(--up)'; }
-    else if (months > 3) { tier = 2; verdict = '均衡'; color = 'var(--muted)'; }
-    else { tier = 3; verdict = '偏熱 · 賣家有利'; color = 'var(--down)'; }
+    const t = await fetchMarketTemp(estateId);
+    const { months, tier, verdict, color } = _mtVerdict(t);
     const tempTitle = '去貨月數＝在售盤數 ÷ 近30日成交宗數，即係幾多個月先賣晒現有在售盤。>12個月＝極淡．買家話事；6–12個月＝偏淡．買家有利；3–6個月＝均衡；<3個月＝偏熱．賣家有利。';
     // 四級全部列出，現時 tier 用粗體＋原色 highlight，其餘保持灰色
     const legendParts = [
