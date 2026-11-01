@@ -719,3 +719,11 @@ drip sync（`*/2`）同樣被雙重觸發：兩個 invocation 同時揀同一批
 - 到期：沿用人手開通到期機制（`authenticate` 過期即降級；`runLifecycleEmails` 每日掃、降級＋寄信）。trial=1 寄「免費試用已完結」版本（`expiredEmail reason:"trial"`：唔會扣錢、資料保留、可以訂閱）。用戶決定**唔做到期前提醒**，淨係到期當日通知。Admin 樣本：`POST /api/admin/lifecycle-emails {kind:"expired", sample:true, reason:"trial"}`。
 - 試用中訂閱：checkout 加 Stripe `subscription_data.trial_end`＝試用最後一日翌日 00:00 HKT（Stripe 要求 ≥48 小時後，唔夠就即刻扣），扣款由試用完結先開始。Stripe webhook／admin 改 tier 會清 `trial=0`。
 - 前端：設定「訂閱」顯示 🎁 免費試用中＋用到幾時＋唔會扣錢＋訂閱方案（`/api/billing.trial`）。頂欄唔顯示試用 chip（用戶決定收埋，同收費版一樣）；`/api/config.trialUntil` 後端照回，暫時冇用。
+
+## 加入屋苑唔再即場抓（2026-11-02，日出康城「Load failed」）
+
+- 事件：用戶 iPhone 加入日出康城，`/api/track` 即場 `fetchCentanet`＋`saveSearchResults`，正式站（worker↔D1 遠）做到 60–90 秒（GraphQL wallTimeP99 86 秒）→ Safari 斷線「Load failed」→ Cloudflare 取消 worker，乜都冇寫到（listings 冇今日 snapshot），但 account_estates 已經加咗，畫面報錯、側欄冇刷新。
+- 改法：`/api/track` 只做加訂閱＋（新屋苑）搶名額＋叫醒 drip，即刻回 `{ok, estate, pending, eta}`（`eta`：`soon`＝同步時段內，`morning`＝凌晨 0–6 點要等 06:00）。前端 toast 跟住講。
+- `getDailySyncEstateIds` 加：今日有人新加入（`account_estates.added_at = 今日`）嘅已 sync 屋苑，今日補做一次（取代以前 track 即場抓中原）。
+- 防重複屋苑：搜尋有時中原結果未返，用戶撳咗美聯同名屋苑（`EXT-M-…`）→ 開咗重複屋苑（id 60 vs 59，重複抓同一批盤、白食新屋苑名額）。`/api/track` 收到 `EXT-` 代號而已有同名 `is_bigest=1` 屋苑 → 用返嗰個。
+- `subscribe:false`（朋友屋企 one-off）仲係即場 `syncOneEstate`，大屋苑都可能慢，未改。

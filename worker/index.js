@@ -5951,7 +5951,13 @@ async function getDailySyncEstateIds(db, today, activeEstateIds, neverSynced = n
   }
   // 今日（香港日）放行嘅一律今日做晒；跨咗香港午夜（同一個 UTC 日）就唔好再重做一次
   const grantedToday = ob.ids.filter((x) => x.hk === today).map((x) => x.id);
-  return new Set([...fav, ...(plan.rotate || []), ...grantedToday]);
+  // 今日有人新加入嘅（已 sync 過嘅）屋苑：今日補做一次（2026-11-02 起 /api/track 唔再即場抓，避免大屋苑請求做到 60–90 秒、手機斷線）
+  let addedToday = [];
+  try {
+    addedToday = (await db.prepare("SELECT DISTINCT estate_id AS id FROM account_estates WHERE added_at = ? AND paused_at IS NULL").bind(today).all())
+      .results.map((r) => r.id).filter((id) => !neverSynced.has(id) && activeEstateIds.includes(id));
+  } catch (_) { /* 攞唔到就等日常輪流 */ }
+  return new Set([...fav, ...(plan.rotate || []), ...grantedToday, ...addedToday]);
 }
 
 // ── 新屋苑名額（2026-10-29）──────────────────────────────────────────────
@@ -8287,6 +8293,12 @@ export default {
 
         const useBigest = isBigest !== false;
 
+        // 搜尋有時中原結果未返到，用戶撳咗美聯／其他網站嘅同名屋苑（bigestcode EXT-…）——
+        // 已經有同名中原屋苑就用返佢，唔好開多個重複屋苑（2026-11-02 日出康城：重複抓同一批盤、白食新屋苑名額）
+        if (!estate && /^EXT-/.test(String(bigestcode))) {
+          estate = await db.prepare("SELECT * FROM estates WHERE name = ? AND is_bigest = 1 ORDER BY is_disabled, id LIMIT 1").bind(String(name).trim()).first();
+        }
+
         if (!estate) {
           const srcCols = SOURCES.map((s) => s.enabledCol).join(", ");
           const srcOnes = SOURCES.map(() => "1").join(", ");
@@ -8377,27 +8389,11 @@ export default {
         if (isPaidSession(session)) {
           try { await hsQueuePriorityScan(db, estate.id, estate.name); } catch (_) {}
         }
-        try { await syncPlanAddEstate(db, estate.id); } catch (_) {}   // 叫醒 drip（新屋苑名額已放行／舊屋苑）
-        // drip 今日已經做過 centanet 放盤就唔使再抓再寫（舊屋苑被另一個用戶加入，平白 ~1 萬行寫入）
-        const doneToday = await db.prepare(
-          "SELECT 1 FROM sync_log WHERE estate_id = ? AND source = 'centanet' AND kind = 'listings' AND sync_date = ? AND ok = 1").bind(estate.id, today).first();
-        if (doneToday) {
-          const c = await db.prepare("SELECT COUNT(*) c FROM listings WHERE estate_id = ? AND snapshot_date = ? AND source = 'centanet'").bind(estate.id, today).first();
-          return json(200, { ok: true, estate, count: c?.c || 0 });
-        }
-        const data = await fetchCentanet(name);
-        const listings = data.data || [];
-        await saveSearchResults(db, estate.id, listings);
-        // 呢度已經用同 drip 一模一樣嘅 scrape＋save 寫咗今日 centanet 放盤；記低 sync_log，
-        // 否則 drip 當日會再寫多一次（新增一個大屋苑平白多 ~1 萬行寫入，2026-10-28 D1 寫入爆額成因之一）。
-        try {
-          await db.prepare(
-            `INSERT OR IGNORE INTO sync_log (estate_id, source, kind, sync_date, ok, attempts, detail)
-             VALUES (?, 'centanet', 'listings', ?, 1, 1, ?)`
-          ).bind(estate.id, today, `${listings.length} 個盤（加入屋苑時已抓）`).run();
-        } catch (_) { /* 記唔到只係 drip 重做一次，唔影響結果 */ }
-
-        return json(200, { ok: true, estate, count: listings.length });
+        try { await syncPlanAddEstate(db, estate.id); } catch (_) {}   // 叫醒 drip（新屋苑名額已放行／今日新加入嘅舊屋苑，getDailySyncEstateIds 會排入今日）
+        // 2026-11-02：唔再喺呢個 request 即場抓中原放盤＋寫 D1——大屋苑（例如日出康城 2,000+ 盤）喺正式站要 60–90 秒，
+        // iPhone Safari 等唔切斷線（「Load failed」），Cloudflare 跟住取消 worker，結果乜都冇寫到。交俾 drip（每 2 分鐘）做。
+        // pending＝從未有數據；eta：'soon'＝同步時段內幾分鐘有，'morning'＝凌晨（同步時段外）要等 06:00 後
+        return json(200, { ok: true, estate, pending: !everSynced, eta: syncWindowOpen() ? "soon" : "morning" });
       }
 
       if (method === "GET" && path.match(/^\/api\/estates\/\d+\/listings$/)) {
