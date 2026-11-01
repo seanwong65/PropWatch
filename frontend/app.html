@@ -1884,16 +1884,21 @@
     ::-webkit-scrollbar-corner { background: transparent; }
   
 
+    /* iOS Safari：輸入框字細過 16px，撳落去會自動放大成頁（放大咗唔會自己縮返，左右被切）。只對 iOS（-webkit-touch-callout）強制 16px */
+    @supports (-webkit-touch-callout: none) {
+      input, select, textarea, .ps-root .ps-input, .ps-root .ps-select { font-size: 16px !important; }
+    }
     /* ── 主選單（2026-11-01，UI review C 組）：今日／屋苑／搵盤／睇樓／設定。闊屏＝左邊直排，手機＝底部一排 ──
        body.authed＝登入咗先出（未登入有登入卡蓋住）。屋苑列表（原本左邊側欄 .sidebar）變做「屋苑」頁：
-       body.nv-estlist 時 .sidebar 佔主內容位、.main 收埋；其他頁 .sidebar 收埋。 */
-    .nv-rail, .nv-bottom { display: none; }
-    .nv-rail button, .nv-bottom button { border: none; background: none; cursor: pointer; font-family: inherit; color: var(--muted); font-weight: 600; }
+       body.nv-estlist 時 .sidebar 佔主內容位、.main 收埋；其他頁 .sidebar 收埋。
+       手機：.nv-mobile 黏喺頂欄下面（唔放底：iOS 26 Safari 浮動網址列會遮住 fixed 底部嘅嘢）。 */
+    .nv-rail, .nv-mobile { display: none; }
+    .nv-rail button, .nv-mobile button { border: none; background: none; cursor: pointer; font-family: inherit; color: var(--muted); font-weight: 600; }
     body.authed .layout { grid-template-columns: 176px minmax(0, 1fr); }
     body.authed .nv-rail { display: flex; flex-direction: column; gap: 0.2rem; padding: 0.9rem 0.6rem; border-right: 1px solid var(--border-strong); background: var(--chrome-bg); overflow-y: auto; grid-column: 1; grid-row: 1; }
     .nv-rail button { display: flex; align-items: center; gap: 0.6rem; width: 100%; padding: 0.6rem 0.8rem; border-radius: 12px; font-size: 0.92rem; text-align: left; }
     .nv-rail button .i { font-size: 1.15rem; width: 1.4rem; text-align: center; }
-    .nv-rail button.on, .nv-bottom button.on { color: var(--brand); }
+    .nv-rail button.on, .nv-mobile button.on { color: var(--brand); }
     .nv-rail button.on { background: var(--brand-soft); }
     .nv-rail button:hover:not(.on) { background: var(--glass-bg); color: var(--text); }
     body.authed .layout > .sidebar, body.authed .layout > .main { grid-column: 2; grid-row: 1; }
@@ -1920,12 +1925,13 @@
       body.authed .layout { grid-template-columns: minmax(0, 1fr); }
       body.authed .nv-rail { display: none; }
       body.authed .layout > .sidebar, body.authed .layout > .main { grid-column: 1; }
-      body.authed .nv-bottom { display: flex; position: fixed; left: 0; right: 0; bottom: 0; z-index: 300; background: var(--surface); border-top: 1px solid var(--border-strong); padding: 0.3rem max(0.3rem, env(safe-area-inset-right)) calc(0.3rem + env(safe-area-inset-bottom)) max(0.3rem, env(safe-area-inset-left)); box-shadow: 0 -4px 16px rgba(0,0,0,0.06); }
-      .nv-bottom button { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 0.1rem; font-size: 0.68rem; padding: 0.25rem 0; }
-      .nv-bottom button .i { font-size: 1.25rem; line-height: 1.1; }
+      body.authed .nv-mobile { display: flex; position: sticky; top: var(--header-h); z-index: 150; height: var(--nv-h); background: var(--surface); border-bottom: 1px solid var(--border-strong); padding: 0 max(0.3rem, env(safe-area-inset-right)) 0 max(0.3rem, env(safe-area-inset-left)); box-shadow: 0 4px 12px rgba(0,0,0,0.05); }
+      .nv-mobile button { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 0.05rem; font-size: 0.68rem; padding: 0; border-bottom: 2px solid transparent !important; }
+      .nv-mobile button .i { font-size: 1.15rem; line-height: 1.1; }
+      .nv-mobile button.on { border-bottom-color: var(--brand) !important; }
+      body.authed { --nv-h: 50px; }
+      body.authed .sticky-bar { top: calc(var(--header-h) + var(--nv-h)); }   /* 放盤篩選列黏喺選單下面，唔好俾選單遮住 */
       body.authed.nv-estlist .sidebar { position: static; transform: none; width: auto; max-width: none; box-shadow: none; z-index: auto; border: none; }
-      body.authed .main, body.authed.nv-estlist .sidebar { padding-bottom: calc(72px + env(safe-area-inset-bottom)); }
-      body.authed .toast { bottom: calc(76px + env(safe-area-inset-bottom)); }
     }
   </style>
 </head>
@@ -1956,6 +1962,14 @@
     <button class="sync-btn" id="logout-btn" onclick="doLogout()" style="display:none" title="登出">登出</button>
   </div>
 </header>
+<!-- 主選單（手機）：固定喺頂欄下面。2026-11-01 原本放底部，iOS 26 Safari 浮動網址列會遮住 fixed 底部元素（safe-area 都救唔到），改放頂 -->
+<nav class="nv-mobile" aria-label="主選單">
+    <button type="button" data-nav="today" onclick="navGo('today')"><span class="i">🏠</span><span>今日</span></button>
+    <button type="button" data-nav="estates" onclick="navGo('estates')"><span class="i">🏢</span><span>屋苑</span></button>
+    <button type="button" data-nav="find" onclick="navGo('find')"><span class="i">🔍</span><span>搵盤</span></button>
+    <button type="button" data-nav="view" onclick="navGo('view')"><span class="i">📝</span><span>睇樓</span></button>
+    <button type="button" data-nav="settings" onclick="navGo('settings')"><span class="i">⚙️</span><span>設定</span></button>
+</nav>
 
 <!-- Login Screen -->
 <!-- 登入頁：唔好落實色底，否則會蓋住 body::before 個光暈層，成塊變死黑。
@@ -2613,14 +2627,6 @@
   </main>
 </div>
 
-<!-- 主選單（手機，底部一排） -->
-<nav class="nv-bottom" aria-label="主選單">
-    <button type="button" data-nav="today" onclick="navGo('today')"><span class="i">🏠</span><span>今日</span></button>
-    <button type="button" data-nav="estates" onclick="navGo('estates')"><span class="i">🏢</span><span>屋苑</span></button>
-    <button type="button" data-nav="find" onclick="navGo('find')"><span class="i">🔍</span><span>搵盤</span></button>
-    <button type="button" data-nav="view" onclick="navGo('view')"><span class="i">📝</span><span>睇樓</span></button>
-    <button type="button" data-nav="settings" onclick="navGo('settings')"><span class="i">⚙️</span><span>設定</span></button>
-</nav>
 
 <!-- 按揭計算機共用 code（同 /mortgage-calculator 獨立頁共用一份） -->
 <script src="/mortgage.js"></script>
@@ -3308,7 +3314,7 @@ let _estateOverlay = null;       // 全組合 overlay（呎價指數，只喺 pr
 // navSet 只負責高亮＋屋苑列表顯示；真正換頁由各自嘅函數做（showDashboard／showEstate／openPublicSearch…，佢哋入面會 call navSet）。
 function navSet(tab, estList = false) {
   document.body.classList.toggle('nv-estlist', !!estList);
-  document.querySelectorAll('.nv-rail [data-nav], .nv-bottom [data-nav]').forEach(b => {
+  document.querySelectorAll('.nv-rail [data-nav], .nv-mobile [data-nav]').forEach(b => {
     const on = b.dataset.nav === tab;
     b.classList.toggle('on', on);
     if (on) b.setAttribute('aria-current', 'page'); else b.removeAttribute('aria-current');
@@ -3445,7 +3451,7 @@ async function pickEstateForQuick(id) {
 // 手機版 sidebar 收埋咗，快捷掣要幫手拉返出嚟先 focus 到個搜尋框
 // 側欄「🔍 搵樓」：喺主畫面（#main）入面開四大地產網搜尋——同公開 /search 頁共用
 // public-search.js／.css（第一次先載入）。「🔔 追蹤加減價」直接帶去側欄屋苑搜尋，唔使再登記。
-const PS_VER = '20261101e';   // 改 public-search.js/.css 要同 search.html 一齊 bump（Pages 靜態檔 cache 4 小時）
+const PS_VER = '20261101f';   // 改 public-search.js/.css 要同 search.html 一齊 bump（Pages 靜態檔 cache 4 小時）
 let _psAssets = null;
 function _loadPublicSearchAssets() {
   if (!_psAssets) _psAssets = new Promise((resolve, reject) => {

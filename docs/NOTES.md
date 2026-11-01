@@ -701,10 +701,12 @@ drip sync（`*/2`）同樣被雙重觸發：兩個 invocation 同時揀同一批
 
 ## 主選單（2026-11-01，UI review C 組）
 
-- 今日／屋苑／搵盤／睇樓／設定。闊屏＝左邊直排（`.nv-rail`，`.layout` grid 第 1 欄），手機＝底部一排（`.nv-bottom`，fixed）。`body.authed`（`hideLoginScreen` 加）先出。Demo：`docs/demo/main-nav.html`。
+- 今日／屋苑／搵盤／睇樓／設定。闊屏＝左邊直排（`.nv-rail`，`.layout` grid 第 1 欄），手機＝黏喺頂欄下面一排（`.nv-mobile`，sticky，`--nv-h` 50px；`.sticky-bar` 跟住移落）。⚠️ 唔好放返底部：iOS 26 Safari 浮動網址列會遮住 fixed 底部元素，`viewport-fit=cover`＋safe-area 都救唔到（用戶實機 2026-11-01）。`body.authed`（`hideLoginScreen` 加）先出。Demo：`docs/demo/main-nav.html`。
 - `navGo(tab)` 換頁；`navSet(tab, estList)` 只負責高亮＋屋苑列表。各頁函數自己 call navSet：`showDashboard`（today／view）、`showEstate`（estates）、`openPublicSearch`（find）、`showHistoryPage`（today）。
 - **屋苑**＝原本左邊側欄（`.sidebar`）：`body.nv-estlist` 先出，佔主內容位、`.main` 收埋；其他頁側欄收埋。`toggleSidebar()`（登入後）＝`navGo('estates')`；`trackNameFromSearch`／`focusEstateSearch`／track_name handoff 一律 `navGo('estates')`。屋苑卡加「今日：新盤 N．減價 N…」（stats.d1）。
 - **今日**＝`showDashboard(estates,'today')`：你嘅屋苑今日／待跟進（＋冇更新時搵樓）＋「動態」（撳「睇動態」先載，慳 D1）。睇樓日記資料照背景載（待跟進要用），panel 收埋。五粒捷徑已拎走。
 - **睇樓**＝`showDashboard(estates,'view')`：📝 新增睇樓大掣＋睇樓日記／朋友屋企分頁。兩頁共用同一骨架（panel id 唔變），`.dashboard[data-page]` CSS 決定出邊啲分頁。`todoGo` 會先轉去睇樓頁再等 `_compsLoadP` 載完先展開卡。
 - **搵盤**＝`openPublicSearch`：四網搜尋／♥ 心儀單位（原本主頁分頁，`#dash-panel-fav` 搬嚟，放喺 `.ps-root` 外面免走色）／🧮 按揭計算（開彈窗）。`findSeg(seg)`。
 - **設定**＝開返 ⚙️ 彈窗（唔換頁）；頂欄 ⚙️ 同漢堡掣登入後收埋。
+
+- iOS Safari 輸入框細過 16px 撳落去會自動放大成頁（左右被切）：`@supports (-webkit-touch-callout: none)` 只對 iOS 強制 16px（app.html＋public-search.css）。

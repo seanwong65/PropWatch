@@ -119,3 +119,7 @@ button.ps-track { cursor: pointer; font-family: inherit; }
 .ps-row1 .ps-applied { grid-column: 1 / -1; order: 10; }
 @media (max-width: 720px) { .ps-row1 .ps-applied { order: 0; } }
 .ps-nohos { color: var(--muted); }
+/* iOS Safari：輸入框細過 16px 撳落去會自動放大成頁（2026-11-01）；只對 iOS 強制 16px */
+@supports (-webkit-touch-callout: none) {
+  .ps-root .ps-input, .ps-root .ps-select { font-size: 16px; }
+}
