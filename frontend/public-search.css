@@ -117,3 +117,4 @@ button.ps-track { cursor: pointer; font-family: inherit; }
 /* 放喺表單入面：闊屏（類型｜屋苑｜搜尋同一行）排去嗰行下面成行；手機單欄就喺「類型」同「屋苑」之間 */
 .ps-row1 .ps-applied { grid-column: 1 / -1; order: 10; }
 @media (max-width: 720px) { .ps-row1 .ps-applied { order: 0; } }
+.ps-nohos { color: var(--muted); }
