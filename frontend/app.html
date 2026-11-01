@@ -2314,7 +2314,7 @@
 
       <div class="modal-sub" style="margin-top:1.25rem">💡 功能介紹</div>
       <div style="display:flex;align-items:center;gap:0.6rem;font-size:0.8rem;color:var(--muted);margin-top:0.3rem">
-        <span style="flex:1">打開每個功能嗰陣嘅簡單介紹。撳咗「明白」嘅想再睇，可以喺度重設。</span>
+        <span style="flex:1">打開每個功能嗰陣嘅簡單介紹。撳咗「不再提醒」嘅想再睇，可以喺度重設。</span>
         <button class="vf-submit" style="width:auto;padding:0.45rem 0.9rem;margin:0;white-space:nowrap" onclick="obResetAll()">重新顯示</button>
       </div>
 
@@ -4134,7 +4134,7 @@ function obSlot(slotId, key) {
   const t = ONBOARD[key];
   if (!t || _onboardOff.has(key)) { el.innerHTML = ''; return; }
   el.innerHTML = `<div class="ob-tip" data-ob="${key}"><div class="ob-t">💡 ${escHtml(t[0])}</div><div>${escHtml(t[1])}</div>
-    <div class="ob-act"><button type="button" class="ob-ok" onclick="obOff('${key}')">明白</button></div></div>`;
+    <div class="ob-act"><button type="button" class="ob-ok" onclick="obOff('${key}')">不再提醒</button></div></div>`;
 }
 function _obHide(key) { document.querySelectorAll(`.ob-tip[data-ob="${key}"]`).forEach(x => x.remove()); }
 function obOff(key) {
