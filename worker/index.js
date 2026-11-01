@@ -1035,6 +1035,12 @@ function weekChangesCached(db, estateId, sources) {
 }
 
 // 待跟進「✕ 唔再提醒」：以前只存喺瀏覽器 localStorage，email（每週摘要）睇唔到。而家存 settings.todo_dismissed_<accountId>（JSON 數字陣列），前端同步。
+// 功能介紹（onboarding）白名單：前端 ONBOARD 嘅 key 要喺度有先存得到
+const ONBOARD_KEYS = ["home", "estate", "txns", "analysis", "estate_viewings", "diary", "friends", "fav", "dyn", "search", "mortgage", "viewing_add", "history"];
+async function getOnboardOff(db, accountId) {
+  const row = await db.prepare("SELECT value FROM settings WHERE key = ?").bind(`onboard_off_${accountId}`).first();
+  try { const a = JSON.parse(row?.value || "[]"); return Array.isArray(a) ? a.filter((k) => ONBOARD_KEYS.includes(k)) : []; } catch (_) { return []; }
+}
 async function getTodoDismissed(db, accountId) {
   try {
     const r = await db.prepare("SELECT value FROM settings WHERE key = ?").bind(`todo_dismissed_${accountId}`).first();
@@ -10564,6 +10570,7 @@ export default {
           maxEstates: paid ? sc.sec_paid_max_estates : sc.sec_free_max_estates,
           maxViewings: paid ? null : sc.sec_free_max_viewings,   // null = 無限
           maxViewingImgs: paid ? null : sc.sec_free_max_viewing_imgs,   // null = 無限（收費版）
+          onboardOff: await getOnboardOff(db, session.account_id).catch(() => []),   // 功能介紹：揀咗「唔再提醒」嘅功能
         });
       }
       if (method === "PUT" && path === "/api/config") {
@@ -10682,6 +10689,21 @@ export default {
       // { price_min, price_max, beds, size_min, size_max, dismissed }
       // 全部欄位 optional；dismissed=true 即係「以後不再提醒」
       // 待跟進「唔再提醒」同步（只准記自己嘅睇樓記錄 id；每帳戶最多留 1000 個）
+      // 功能介紹（onboarding，2026-11-01）：用戶揀「唔再提醒」嘅功能。key 一定要喺 ONBOARD_KEYS 白名單；{reset:true}＝全部重新顯示。
+      if (method === "POST" && path === "/api/onboard-off") {
+        const body = await request.json().catch(() => ({}));
+        let keys;
+        if (body.reset === true) keys = [];
+        else {
+          const k = String(body.key || "");
+          if (!ONBOARD_KEYS.includes(k)) return json(400, { error: "參數唔啱" });
+          keys = [...new Set([...(await getOnboardOff(db, session.account_id)), k])];
+        }
+        await db.prepare("INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value")
+          .bind(`onboard_off_${session.account_id}`, JSON.stringify(keys)).run();
+        return json(200, { ok: true, keys });
+      }
+
       if (method === "POST" && path === "/api/todo-dismissed") {
         const body = await request.json().catch(() => ({}));
         const ids = [...new Set((Array.isArray(body.ids) ? body.ids : []).map(Number))].filter((n) => Number.isInteger(n) && n > 0).slice(0, 200);
