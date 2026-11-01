@@ -1327,6 +1327,8 @@
     /* 次要動作（標記已下架／還原）：細字底線，唔似主掣（2026-11-01 UI review：新用戶以為要佢幫系統報下架） */
     .lc-mini { background: none; border: none; padding: 0.1rem 0.2rem; margin: 0; color: var(--muted); font-size: 0.68rem; text-decoration: underline; text-underline-offset: 2px; cursor: pointer; font-family: inherit; }
     .lc-mini:hover { color: var(--text); }
+    .estate-market { background: none; border: none; padding: 0; margin-top: 0.3rem; font-size: 0.82rem; color: var(--muted); cursor: pointer; font-family: inherit; text-align: left; }
+    .estate-market:hover { color: var(--text); }
     .hl-empty { color: var(--muted); font-size: 0.85rem; line-height: 1.8; }
     .hl-empty-link { background: none; border: none; padding: 0; color: var(--accent2); font-size: inherit; font-weight: 600; cursor: pointer; font-family: inherit; }
     .hl-empty-link:hover { text-decoration: underline; }
@@ -5688,12 +5690,18 @@ async function showEstate(id, name, district) {
     // 「未攞過先攞」，唔清就會誤以為舊屋苑嗰份仲啱用）。
     _estateChartId = null;
     _marketTempLoadedFor = null;
+    setTimeout(() => loadEstateMarketLine(id), 0);   // 屋苑頁頭「市況：…」一句（B7），等 main.innerHTML 畫完先填
 
     main.innerHTML = `
       <div class="estate-header" style="display:flex;align-items:flex-start;justify-content:space-between">
         <div>
           <div class="estate-title">${escHtml(name)}</div>
-          <div class="estate-sub">${district ? escHtml(district) + ' · ' : ''}共 ${listings.length} 個在售單位${crowdEstateChip()}</div>
+          <div class="estate-sub">${district ? escHtml(district) + ' · ' : ''}${(() => {
+            // 同側欄卡一致（A3）：單位數＝去重後；放盤數＝各地產網分開計
+            const nU = Number(estatesById?.[id]?.stats?.n) || 0;
+            return nU ? `${nU} 個在售單位（各地產網共 ${listings.length} 個放盤）` : `共 ${listings.length} 個放盤`;
+          })()}${crowdEstateChip()}</div>
+          <div id="estate-market-line"></div>
           <div id="estate-info-bar"></div>
         </div>
         <button class="sync-btn" style="background:var(--brand);border-color:var(--brand);color:var(--brand-ink);white-space:nowrap;flex-shrink:0;margin-top:0.2rem" onclick="openViewingModal()">＋ 新增睇樓</button>
@@ -6443,6 +6451,7 @@ async function setEstateDeal(deal, estateId) {
   // 顯住舊嘅買盤數字會好誤導，索性隱藏（未來想做返租務市場溫度先再加）。
   const tempCard = document.getElementById('market-temp-card');
   if (tempCard) tempCard.style.display = deal === 'R' ? 'none' : '';
+  loadEstateMarketLine(estateId);
   const shown = ['listings', 'transactions', 'viewings']
     .find((t) => document.getElementById('tab-' + t)?.style.display !== 'none') || 'listings';
   // 買/租兩張表分開兩個常駐 wrap（顯/隱切換，唔會互相destroy DOM）——租盤表
@@ -11028,17 +11037,40 @@ async function showHistory(refNo, label) {
 }
 
 // 市場溫度卡:在售量 / 月成交 / 消化率 → 買家定賣家市場
+// 市場溫度：屋苑頁頭一句（B7）同「樓盤分析」卡共用同一個 request（同一屋苑只問一次）
+let _mtCache = { id: null, p: null };
+function fetchMarketTemp(estateId) {
+  if (_mtCache.id !== estateId) {
+    _mtCache = { id: estateId, p: api(`/api/estates/${estateId}/market-temp`) };
+    _mtCache.p.catch(() => { if (_mtCache.id === estateId) _mtCache = { id: null, p: null }; });
+  }
+  return _mtCache.p;
+}
+function _mtVerdict(t) {
+  const months = t.txn_30d > 0 ? (t.active_listings / t.txn_30d) : null;
+  if (months == null || months > 12) return { months, tier: 0, verdict: '極淡 · 買家話事', color: 'var(--up)' };
+  if (months > 6) return { months, tier: 1, verdict: '偏淡 · 買家有利', color: 'var(--up)' };
+  if (months > 3) return { months, tier: 2, verdict: '均衡', color: 'var(--muted)' };
+  return { months, tier: 3, verdict: '偏熱 · 賣家有利', color: 'var(--down)' };
+}
+// 屋苑頁頭「市況」一句（2026-11-01 UI review B7）：分析 tab 最有用嗰句搬上第一屏；撳去「樓盤分析」睇點計。租盤冇呢個概念，唔顯示。
+async function loadEstateMarketLine(estateId) {
+  const el = document.getElementById('estate-market-line');
+  if (!el) return;
+  if (_estateDeal === 'R') { el.innerHTML = ''; return; }
+  try {
+    const t = await fetchMarketTemp(estateId);
+    if (activeEstateId !== estateId || _estateDeal === 'R') return;
+    const v = _mtVerdict(t);
+    el.innerHTML = `<button type="button" class="estate-market" onclick="switchTab('analysis',${Number(estateId)})" title="去貨月數＝在售盤數 ÷ 近30日成交宗數。撳入去睇點計">市況：<b style="color:${v.color}">${v.verdict}</b>${v.months != null ? ` · 約 ${Math.round(v.months)} 個月去貨` : ' · 近 30 日冇成交'} ›</button>`;
+  } catch (_) { el.innerHTML = ''; }
+}
 async function loadMarketTemp(estateId) {
   const card = document.getElementById('market-temp-card');
   if (!card) return;
   try {
-    const t = await api(`/api/estates/${estateId}/market-temp`);
-    const months = t.txn_30d > 0 ? (t.active_listings / t.txn_30d) : null;
-    let tier, verdict, color;
-    if (months == null || months > 12) { tier = 0; verdict = '極淡 · 買家話事'; color = 'var(--up)'; }
-    else if (months > 6) { tier = 1; verdict = '偏淡 · 買家有利'; color = 'var(--up)'; }
-    else if (months > 3) { tier = 2; verdict = '均衡'; color = 'var(--muted)'; }
-    else { tier = 3; verdict = '偏熱 · 賣家有利'; color = 'var(--down)'; }
+    const t = await fetchMarketTemp(estateId);
+    const { months, tier, verdict, color } = _mtVerdict(t);
     const tempTitle = '去貨月數＝在售盤數 ÷ 近30日成交宗數，即係幾多個月先賣晒現有在售盤。>12個月＝極淡．買家話事；6–12個月＝偏淡．買家有利；3–6個月＝均衡；<3個月＝偏熱．賣家有利。';
     // 四級全部列出，現時 tier 用粗體＋原色 highlight，其餘保持灰色
     const legendParts = [
