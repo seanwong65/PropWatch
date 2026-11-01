@@ -5371,8 +5371,7 @@ let _cfgGroup = '全部';   // 設定 modal 揀緊嘅分類
 let _userRole = 'user';   // 'admin' 先可以改「分析參數」；一般 user 得睇樓偏好
 async function loadAppConfig() {
   try {
-    const { items, groups, role, tier, freeMaxEstates, freeMaxFriendHomes, maxViewingImgs, hsTrialCap, hsTrialsLeft, onboardOff, trialUntil } = await api('/api/config');
-    _trialUntil = trialUntil || null;
+    const { items, groups, role, tier, freeMaxEstates, freeMaxFriendHomes, maxViewingImgs, hsTrialCap, hsTrialsLeft, onboardOff } = await api('/api/config');
     if (Array.isArray(onboardOff)) _onboardOff = new Set(onboardOff);
     _cfgDefs = items || [];
     _cfgGroups = groups || [];
@@ -5393,23 +5392,11 @@ async function loadAppConfig() {
 }
 
 // 免費版喺 header 顯示「免費版」chip，撳落去睇收費版有咩。
-// 新用戶免費試用中（2026-11-01）：顯示「試用至 M/D」，撳落去開設定睇試用／訂閱。
-let _trialUntil = null;
+// 新用戶免費試用中當收費版，唔顯示 chip（2026-11-01 用戶決定；試用狀態喺 ⚙️ 設定「訂閱」睇）。
 function applyTierToChrome() {
   const el = document.getElementById('tierChip');
   if (!el) return;
-  if (isPaid() && _trialUntil) {
-    const [, m, d] = _trialUntil.split('-').map(Number);
-    el.textContent = `試用至 ${m}/${d}`;
-    el.title = '新用戶免費試用收費版，到期自動轉返免費版，唔會扣錢';
-    el.onclick = () => openSettingsModal();
-    el.style.display = '';
-  } else {
-    el.textContent = '免費版 ⭐';
-    el.title = '睇下收費版有咩';
-    el.onclick = () => showUpgrade();
-    el.style.display = isPaid() ? 'none' : '';
-  }
+  el.style.display = isPaid() ? 'none' : '';
   const lk = document.getElementById('dyn-week-lock'); if (lk) lk.textContent = isPaid() ? '' : ' 🔒';   // 動態→本週係收費版
 }
 

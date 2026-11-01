@@ -718,4 +718,4 @@ drip sync（`*/2`）同樣被雙重觸發：兩個 invocation 同時揀同一批
 - `/api/register`：非 admin＋月數 > 0 → `tier='paid'`、`current_period_end`＝今日＋N 月（`hkAddMonths`，月尾唔夠日用最後一日）、`accounts.trial=1`（新欄，SCHEMA_VERSION 2026-11-01a）。Telegram 新用戶通知會寫「送收費版試用至…」。
 - 到期：沿用人手開通到期機制（`authenticate` 過期即降級；`runLifecycleEmails` 每日掃、降級＋寄信）。trial=1 寄「免費試用已完結」版本（`expiredEmail reason:"trial"`：唔會扣錢、資料保留、可以訂閱）。用戶決定**唔做到期前提醒**，淨係到期當日通知。Admin 樣本：`POST /api/admin/lifecycle-emails {kind:"expired", sample:true, reason:"trial"}`。
 - 試用中訂閱：checkout 加 Stripe `subscription_data.trial_end`＝試用最後一日翌日 00:00 HKT（Stripe 要求 ≥48 小時後，唔夠就即刻扣），扣款由試用完結先開始。Stripe webhook／admin 改 tier 會清 `trial=0`。
-- 前端：頂欄 chip「試用至 M/D」（撳開設定）；設定「訂閱」顯示 🎁 免費試用中＋用到幾時＋唔會扣錢＋訂閱方案。`/api/config.trialUntil`、`/api/billing.trial`。
+- 前端：設定「訂閱」顯示 🎁 免費試用中＋用到幾時＋唔會扣錢＋訂閱方案（`/api/billing.trial`）。頂欄唔顯示試用 chip（用戶決定收埋，同收費版一樣）；`/api/config.trialUntil` 後端照回，暫時冇用。
