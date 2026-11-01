@@ -5836,15 +5836,19 @@ async function doSearch(keyword) {
 async function trackEstate(name, bigestcode, district, isBigest) {
   autocomplete.classList.add("hidden");
   searchInput.value = "";
-  toast("正在抓取 " + name + " 資料…");
+  toast("正在加入 " + name + "…");
   try {
     const data = await api("/api/track", {
       method: "POST",
       body: JSON.stringify({ name, bigestcode, district, isBigest }),
     });
+    // 2026-11-02：後端唔再即場抓資料（大屋苑會做到 60–90 秒，手機斷線），交俾自動同步（每 2 分鐘）
     // 新屋苑每日名額用完（worker sec_onboard_per_day）：已加入清單，但數據要排隊，額度日一轉（香港 08:00）後逐個補
-    if (data.queued) toast(`已加入 ${name}。今日新屋苑名額已用完，數據會排隊，明早 8 點後陸續更新（之後會見到放盤同成交）`, "info", 9000);
-    else toast(`已新增 ${name}，共 ${data.count} 個盤`, "success");
+    if (data.queued) toast(`已加入 ${data.estate?.name || name}。今日新屋苑名額已用完，數據會排隊，明早 8 點後陸續更新（之後會見到放盤同成交）`, "info", 9000);
+    else if (data.pending) toast(data.eta === 'morning'
+      ? `已加入 ${data.estate?.name || name}。資料會喺今朝 6 點後自動抓（凌晨暫停同步）`
+      : `已加入 ${data.estate?.name || name}，正在抓放盤同成交，大約幾分鐘後會出`, "info", 8000);
+    else toast(`已加入 ${data.estate?.name || name}`, "success");
     await loadEstates();
     showEstate(data.estate.id, name, district);
   } catch (err) {
