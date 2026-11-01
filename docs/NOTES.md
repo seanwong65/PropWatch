@@ -688,7 +688,7 @@ drip sync（`*/2`）同樣被雙重觸發：兩個 invocation 同時揀同一批
 
 ## 功能介紹 onboarding（2026-11-01）
 
-- 打開每個功能，喺頂部「介紹位」（`ob-slot-*`）出一張細卡（`ONBOARD` 內容、`obSlot(slotId, key)`）：得一粒「明白」＝永久唔再出（`POST /api/onboard-off {key}`，存 `settings.onboard_off_<accountId>`，隨 `/api/config.onboardOff` 返）。原本分「明白（今次）／唔再提醒（永久）」，用戶覺得一樣，改做一粒。⚙️ 設定「💡 功能介紹 → 重新顯示」＝`{reset:true}`。
+- 打開每個功能，喺頂部「介紹位」（`ob-slot-*`）出一張細卡（`ONBOARD` 內容、`obSlot(slotId, key)`）：得一粒「不再提醒」＝永久唔再出（`POST /api/onboard-off {key}`，存 `settings.onboard_off_<accountId>`，隨 `/api/config.onboardOff` 返）。原本分「明白（今次）／唔再提醒（永久）」，用戶覺得一樣，改做一粒。⚙️ 設定「💡 功能介紹 → 重新顯示」＝`{reset:true}`。
 - key 白名單：worker `ONBOARD_KEYS`（加新介紹要兩邊一齊加，否則存唔到）。現有：home、estate、txns、analysis、estate_viewings、diary、friends、fav、dyn、search、mortgage、viewing_add、history。
 - 用固定介紹位而唔插入內容：屋苑分頁／主頁分頁內容會成個 innerHTML 重畫。開主頁預設分頁（`switchDashTab('comps', true)`）唔出分頁介紹，免得同主頁介紹兩張一齊。
 - 搜尋預設：偏好買租都有 → 預設買盤（用戶 2026-11-01 確認維持）。
