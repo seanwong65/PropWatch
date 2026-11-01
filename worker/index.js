@@ -7869,7 +7869,7 @@ export default {
       // 重算屋苑卡片重點數字（estate_stats）。平時由 drip cron 閒時自動做；呢度俾 admin 即時刷新／驗證。
       if (method === "POST" && path === "/api/admin/refresh-estate-stats") {
         if (!isAdminSession(session)) return json(403, { error: "admin only" });
-        return json(200, await refreshEstateStats(db, { limit: 60, sources: SOURCES.map((x) => x.id) }));
+        return json(200, await refreshEstateStats(db, { limit: 60, sources: SOURCES.map((x) => x.id), force: url.searchParams.get("force") === "1" }));
       }
       // 驗證「新用戶／新收費用戶」Telegram 通知有冇通：發兩條【測試】訊息去 owner（格式同真實一樣）。admin only。
       if (method === "POST" && path === "/api/admin/test-owner-notify") {
@@ -7988,7 +7988,8 @@ export default {
         } catch (e) { console.error("estate_stats read failed:", e?.message || e); }
         for (const r of results) {
           const st = statsBy.get(r.id) || null;
-          r.stats = st && !paid ? { as_of: st.as_of, n: st.n, psf: st.psf, tx_n: st.tx_n } : st;
+          // d1＝最新 sync 嗰日嘅新盤／改價／新成交數（主頁「你嘅屋苑今日」）：係「今日 snapshot」，免費版都有
+          r.stats = st && !paid ? { as_of: st.as_of, n: st.n, psf: st.psf, tx_n: st.tx_n, d1: st.d1 ?? null } : st;
         }
         return json(200, { estates: results });
       }

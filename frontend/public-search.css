@@ -98,6 +98,7 @@
 .ps-embed-bar h2 { margin: 0; font-size: 1.15rem; }
 .ps-back { border: 1px solid var(--btn2-border); background: var(--btn2-bg); color: var(--text); border-radius: 999px; padding: 0.35rem 0.9rem; font-size: 0.85rem; cursor: pointer; font-family: inherit; }
 button.ps-track { cursor: pointer; font-family: inherit; }
+.ps-track.ps-track-app { border: 1px solid var(--brand, #1270ac); background: var(--brand, #1270ac); color: var(--brand-ink, #fff); font-weight: 700; }
 
 .ps-recent { margin-top: 0.7rem; display: flex; flex-wrap: wrap; align-items: center; gap: 0.35rem 0.5rem; font-size: 0.82rem; color: var(--muted); }
 .ps-recent-chip { color: var(--brand); border: 1px solid var(--border); background: var(--surface); border-radius: 999px; padding: 0.15rem 0.65rem; font-size: 0.82rem; cursor: pointer; font-family: inherit; }

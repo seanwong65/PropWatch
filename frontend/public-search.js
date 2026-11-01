@@ -454,7 +454,7 @@ function cardHtml(it) {
   const hos = it.hos ? `<span class="ps-hos" title="居屋／綠表置居盤：呢個係未補地價價錢，一般買家要另外補地價（或者要有白居二／綠表資格）">居屋・未補地價</span>` : "";
   const psf = it.psf ? `@$${escHtml(it.psf.toLocaleString("en-US"))}/呎` : "";
   const track = !it.estate ? "" : (opts.track
-    ? `<button type="button" class="ps-track" data-track="${escHtml(it.estate)}" title="追蹤${escHtml(it.estate)}嘅加減價">🔔 追蹤加減價</button>`
+    ? `<button type="button" class="ps-track ps-track-app" data-track="${escHtml(it.estate)}" title="每日追蹤${escHtml(it.estate)}嘅新盤、加減價、成交">🔔 追蹤屋苑</button>`   // app 入面（2026-11-01）：實色掣，由搵盤自然變追蹤
     : `<a class="ps-track" href="/app?track_name=${encodeURIComponent(it.estate)}#register" title="免費登記，每日記錄${escHtml(it.estate)}嘅加減價">🔔 追蹤加減價</a>`);
   // ♡ 心儀樓盤（淨 app 入面，opts.fav 由 app 提供）：收藏呢個搜尋結果，之後喺首頁「心儀樓盤」睇
   const favOn = opts.fav && it.url ? opts.fav.has(it.url, state.cond.deal) : false;

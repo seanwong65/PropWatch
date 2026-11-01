@@ -80,7 +80,51 @@ export async function computeEstateStats(db, estateId, sources) {
   const txPsf = (await db.prepare(
     `SELECT price_per_ft AS psf FROM transactions WHERE estate_id = ? AND price_per_ft > 0 AND reg_date >= date('now', '+8 hours', '-3 months')`)
     .bind(id).all()).results.map((r) => r.psf);
-  return statsFromSnapshots({ now: pair.now, prev: pair.prev, txPsf });
+  const st = statsFromSnapshots({ now: pair.now, prev: pair.prev, txPsf });
+  if (st) {
+    // 一日變動唔可以拖垮成份統計（卡片數字照出）
+    try { st.d1 = await computeDayChanges(db, id, st.as_of, sources); } catch (e) { console.error("day changes failed:", e?.message || e); }
+  }
+  return st;
+}
+
+// ── 主頁「你嘅屋苑今日」（2026-11-01）：最新 sync 嗰日嘅新盤／減價／加價／新成交數目 ──
+// 同 getTodayHighlights（今日動態）同一套定義，但每個屋苑每日預先計一次，開主頁唔使讀 D1：
+//   新盤＝嗰日有 lph 新行、之前冇任何 lph 記錄；改價＝嗰日有 lph 新行、對上一行價錢差 > $1,000（lph 稀疏：價錢冇變唔會有新行）；
+//   新成交＝first_seen＝嗰日、登記日 90 日內（影子成交入庫前已經由 newTxnsOnly 剔走）。
+// 屋苑第一次 sync 未夠兩日（estates.first_seen）＝全部盤都係「新」，回 null。
+export const DAY_TXN_MAX_AGE = 90;     // 同 CONFIG_DEFS new_txn_max_age_days 預設一致
+export const DAY_PRICE_EPS = 1000;     // 同今日動態 ABS(diff) > 1000 一致
+// 純計算（有單元測試）：rows＝[{p, prev}]，prev＝對上一個 lph 價錢（冇＝新盤）
+export function dayChangesFrom(rows) {
+  let nNew = 0, cuts = 0, ups = 0;
+  for (const r of rows) {
+    if (r.prev == null) nNew++;
+    else if (r.prev - r.p > DAY_PRICE_EPS) cuts++;
+    else if (r.p - r.prev > DAY_PRICE_EPS) ups++;
+  }
+  return { new: nNew, cuts, ups };
+}
+export async function computeDayChanges(db, estateId, day, sources) {
+  const id = Number(estateId);
+  if (!isoDate(day)) return null;
+  const est = await db.prepare("SELECT date(first_seen) AS fs FROM estates WHERE id = ?").bind(id).first();
+  if (!est?.fs || est.fs > addDays(day, -2)) return null;
+  const srcs = sources.filter((x) => /^[a-z]+$/.test(x));
+  // source IN (…) 令佢行 idx_listings_estate_src_date（每 source 一次 seek），唔好掃成個屋苑歷史；
+  // lph 用 UNIQUE(ref_no, snapshot_date) seek，對上一行用 idx_lph_ref。每屋苑約讀 2×當日盤數。
+  const { results } = await db.prepare(
+    `SELECT ph.price AS p,
+       (SELECT q.price FROM listing_price_history q WHERE q.ref_no = l.ref_no AND q.snapshot_date < ?2
+         ORDER BY q.snapshot_date DESC LIMIT 1) AS prev
+     FROM listings l
+     JOIN listing_price_history ph ON ph.ref_no = l.ref_no AND ph.snapshot_date = ?2
+     WHERE l.estate_id = ?1 AND l.source IN (${srcs.map((x) => `'${x}'`).join(",")}) AND l.snapshot_date = ?2
+       AND l.ref_no IS NOT NULL`).bind(id, day).all();
+  const tx = await db.prepare(
+    `SELECT COUNT(*) AS n FROM transactions WHERE estate_id = ? AND first_seen = ? AND reg_date >= ?`)
+    .bind(id, day, addDays(day, -DAY_TXN_MAX_AGE)).first();
+  return { day, ...dayChangesFrom(results), txns: Number(tx?.n) || 0 };
 }
 
 // ── 本週變動面板（卡片「本週：新盤 N・減價 N・下架 N」撳入去睇逐個）──
@@ -144,14 +188,17 @@ export async function computeWeekChanges(db, estateId, sources) {
 }
 
 // 有新 snapshot 嘅屋苑先重算（as_of 落後最新 snapshot）。limit 控制一次 invocation 嘅工作量。
-export async function refreshEstateStats(db, { limit = 6, sources = ["centanet", "midland", "hkp", "ricacorp"] } = {}) {
+// force：唔理 as_of，全部重算（admin 手動補數用，例如加咗新欄位）
+export async function refreshEstateStats(db, { limit = 6, sources = ["centanet", "midland", "hkp", "ricacorp"], force = false } = {}) {
   await ensureEstateStats(db);
   const { results } = await db.prepare(
-    `SELECT e.id, st.as_of, (SELECT MAX(snapshot_date) FROM listings l WHERE l.estate_id = e.id) AS lmax
+    `SELECT e.id, st.as_of, json_type(st.data, '$.d1') AS d1t, (SELECT MAX(snapshot_date) FROM listings l WHERE l.estate_id = e.id) AS lmax
      FROM estates e LEFT JOIN estate_stats st ON st.estate_id = e.id
      WHERE (e.is_disabled = 0 OR e.is_disabled IS NULL)
        AND EXISTS (SELECT 1 FROM account_estates ae WHERE ae.estate_id = e.id AND ae.paused_at IS NULL)`).all();
-  const due = results.filter((r) => r.lmax && (!r.as_of || r.lmax > r.as_of)).slice(0, limit);
+  // d1t：舊統計未有 d1 欄位（2026-11-01 前計嘅）→ 補算一次；d1 係 null（新屋苑）唔算，唔會每轉重算
+  const isDue = (r) => r.lmax && (force || !r.as_of || r.lmax > r.as_of || r.d1t == null);
+  const due = results.filter(isDue).slice(0, limit);
   let done = 0;
   for (const r of due) {
     const st = await computeEstateStats(db, r.id, sources);
@@ -162,5 +209,5 @@ export async function refreshEstateStats(db, { limit = 6, sources = ["centanet",
       .bind(r.id, st.as_of, JSON.stringify(st)).run();
     done++;
   }
-  return { due: results.filter((r) => r.lmax && (!r.as_of || r.lmax > r.as_of)).length, done };
+  return { due: results.filter(isDue).length, done };
 }
