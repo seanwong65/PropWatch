@@ -1315,6 +1315,8 @@
     /* 合併行喺表格度係一抹綠底，卡片跟返同一個訊號 */
     .lc-combined { background: rgba(28,158,232,0.07); }
     .lc-actions { display: flex; gap: 0.3rem; flex-wrap: wrap; padding-top: 0.4rem; align-items: flex-start; }
+    .fav-group-h { font-weight: 700; font-size: 0.88rem; margin: 0.9rem 0 0.4rem; padding-left: 0.2rem; }
+    .fav-group-h span { font-weight: 400; color: var(--muted); font-size: 0.76rem; margin-left: 0.3rem; }
     .lc-act { background: var(--brand-soft); color: var(--brand); border: 1px solid transparent; border-radius: 999px; font-size: 0.72rem; font-weight: 600; padding: 0.2rem 0.6rem; cursor: pointer; font-family: inherit; white-space: nowrap; }
     .lc-act:hover { border-color: var(--brand); }
     .lc-more { font-size: 0.72rem; }
@@ -7453,7 +7455,7 @@ function renderFavListings() {
       <span id="fav-sel-count" style="color:var(--muted);font-size:0.78rem"></span>
       <button type="button" class="share-btn" id="fav-share-btn" disabled onclick="shareSelectedFavs()">📤 分享</button></div>`;
   const wan = (p) => `$${(Math.round(p / 1000) / 10).toLocaleString()}萬`;
-  body.innerHTML = bar + sorted.map(f => {
+  const card = (f) => {
     const sn = f.snap || {};
     const rent = f.deal === 'R';
     const fmt = (p) => p ? (rent ? `$${Math.round(p).toLocaleString()}/月` : wan(p)) : '-';
@@ -7508,7 +7510,22 @@ function renderFavListings() {
           <span style="font-size:0.7rem;color:var(--muted)">收藏於 ${escHtml(String(f.created_at || '').slice(0, 10))}${f.fav_price ? ' · 當時 ' + fmt(f.fav_price) : ''}</span></div>
       </div>
     </div>`;
-  }).join('');
+  };
+  // 按屋苑分組（2026-11-01 UI review B9）：同一個屋苑嘅心儀盤擺埋一齊，組嘅次序跟最近收藏；組內照舊（未下架先、新收藏先）。
+  // 搜尋結果收藏（estate_id＝0）按地產網畀嘅屋苑名分組，冇名就歸「其他搜尋結果」。
+  const groups = new Map();
+  for (const f of sorted) {
+    const name = _favEstateName(f) || '其他搜尋結果';
+    const key = f.estate_id ? 'e' + f.estate_id : 'n' + name;
+    if (!groups.has(key)) groups.set(key, { name, items: [], latest: '' });
+    const g = groups.get(key);
+    g.items.push(f);
+    if (String(f.created_at || '') > g.latest) g.latest = String(f.created_at || '');
+  }
+  const ordered = [...groups.values()].sort((a, b) => b.latest.localeCompare(a.latest));
+  body.innerHTML = bar + (ordered.length > 1
+    ? ordered.map(g => `<div class="fav-group-h">${escHtml(g.name)} <span>${g.items.length} 個</span></div>${g.items.map(card).join('')}`).join('')
+    : sorted.map(card).join(''));
 }
 function favSelChanged() {
   const sel = [...document.querySelectorAll('.fav-sel:checked')];
