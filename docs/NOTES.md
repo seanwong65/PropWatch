@@ -710,3 +710,12 @@ drip sync（`*/2`）同樣被雙重觸發：兩個 invocation 同時揀同一批
 - **設定**＝開返 ⚙️ 彈窗（唔換頁）；頂欄 ⚙️ 同漢堡掣登入後收埋。
 
 - iOS Safari 輸入框細過 16px 撳落去會自動放大成頁（左右被切）：`@supports (-webkit-touch-callout: none)` 只對 iOS 強制 16px（app.html＋public-search.css）。
+
+## 新用戶免費試用收費版（2026-11-01）
+
+- Admin ⚙️ 系統設定（SEC_DEFS）`sec_signup_trial_months`（預設 3，0–12，0＝唔送）。只影響設定之後註冊嘅人（用戶決定：現有免費用戶唔送）。
+- `getSecCfg` 而家准 `min: 0` 嘅 sec 設定存 0（之前 `n > 0` 先生效，`sec_free_hs_trials`／`sec_feedback_max_images` 設 0 其實冇效，順手修正）。
+- `/api/register`：非 admin＋月數 > 0 → `tier='paid'`、`current_period_end`＝今日＋N 月（`hkAddMonths`，月尾唔夠日用最後一日）、`accounts.trial=1`（新欄，SCHEMA_VERSION 2026-11-01a）。Telegram 新用戶通知會寫「送收費版試用至…」。
+- 到期：沿用人手開通到期機制（`authenticate` 過期即降級；`runLifecycleEmails` 每日掃、降級＋寄信）。trial=1 寄「免費試用已完結」版本（`expiredEmail reason:"trial"`：唔會扣錢、資料保留、可以訂閱）。用戶決定**唔做到期前提醒**，淨係到期當日通知。Admin 樣本：`POST /api/admin/lifecycle-emails {kind:"expired", sample:true, reason:"trial"}`。
+- 試用中訂閱：checkout 加 Stripe `subscription_data.trial_end`＝試用最後一日翌日 00:00 HKT（Stripe 要求 ≥48 小時後，唔夠就即刻扣），扣款由試用完結先開始。Stripe webhook／admin 改 tier 會清 `trial=0`。
+- 前端：頂欄 chip「試用至 M/D」（撳開設定）；設定「訂閱」顯示 🎁 免費試用中＋用到幾時＋唔會扣錢＋訂閱方案。`/api/config.trialUntil`、`/api/billing.trial`。

@@ -5371,7 +5371,8 @@ let _cfgGroup = '全部';   // 設定 modal 揀緊嘅分類
 let _userRole = 'user';   // 'admin' 先可以改「分析參數」；一般 user 得睇樓偏好
 async function loadAppConfig() {
   try {
-    const { items, groups, role, tier, freeMaxEstates, freeMaxFriendHomes, maxViewingImgs, hsTrialCap, hsTrialsLeft, onboardOff } = await api('/api/config');
+    const { items, groups, role, tier, freeMaxEstates, freeMaxFriendHomes, maxViewingImgs, hsTrialCap, hsTrialsLeft, onboardOff, trialUntil } = await api('/api/config');
+    _trialUntil = trialUntil || null;
     if (Array.isArray(onboardOff)) _onboardOff = new Set(onboardOff);
     _cfgDefs = items || [];
     _cfgGroups = groups || [];
@@ -5392,10 +5393,23 @@ async function loadAppConfig() {
 }
 
 // 免費版喺 header 顯示「免費版」chip，撳落去睇收費版有咩。
+// 新用戶免費試用中（2026-11-01）：顯示「試用至 M/D」，撳落去開設定睇試用／訂閱。
+let _trialUntil = null;
 function applyTierToChrome() {
   const el = document.getElementById('tierChip');
   if (!el) return;
-  el.style.display = isPaid() ? 'none' : '';
+  if (isPaid() && _trialUntil) {
+    const [, m, d] = _trialUntil.split('-').map(Number);
+    el.textContent = `試用至 ${m}/${d}`;
+    el.title = '新用戶免費試用收費版，到期自動轉返免費版，唔會扣錢';
+    el.onclick = () => openSettingsModal();
+    el.style.display = '';
+  } else {
+    el.textContent = '免費版 ⭐';
+    el.title = '睇下收費版有咩';
+    el.onclick = () => showUpgrade();
+    el.style.display = isPaid() ? 'none' : '';
+  }
   const lk = document.getElementById('dyn-week-lock'); if (lk) lk.textContent = isPaid() ? '' : ' 🔒';   // 動態→本週係收費版
 }
 
@@ -5430,6 +5444,16 @@ function renderBillingSummary() {
   if (b.tier !== 'paid') {
     el.innerHTML = `
       <div style="color:var(--muted);font-size:0.8rem;margin-bottom:0.5rem">你而家用緊免費版</div>
+      ${planPickerHtml()}`;
+    return;
+  }
+  if (b.trial) {   // 新用戶免費試用中：講清楚幾時完、完咗唔會扣錢；想繼續可以而家訂閱（扣款由試用完結先開始）
+    el.innerHTML = `
+      <div style="display:flex;align-items:center;gap:0.5rem;flex-wrap:wrap">
+        <span style="background:rgba(245,158,11,0.15);color:var(--accent);border-radius:999px;padding:0.1rem 0.55rem;font-size:0.75rem;font-weight:600">🎁 免費試用中</span>
+        <span style="color:var(--muted);font-size:0.8rem">用到 ${escHtml(b.current_period_end || '')}</span>
+      </div>
+      <div style="color:var(--muted);font-size:0.78rem;margin:0.4rem 0 0.5rem;line-height:1.6">試用完結會自動轉返免費版，<b>唔會扣錢</b>，資料全部保留。想試用完繼續用收費功能，可以而家訂閱——由試用完結之後先開始收費。</div>
       ${planPickerHtml()}`;
     return;
   }

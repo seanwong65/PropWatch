@@ -31,16 +31,24 @@ const lockedList = (cap) => [
   "恒生估值（免費版每個盤可以手動查一次）",
 ].map(li).join("");
 
-export function expiredSubject({ reason }) { return reason === "canceled" ? "你嘅搵樓日記收費版已經結束" : "你嘅搵樓日記收費版已經到期"; }
+// reason：expired（人手開通到期）／canceled（取消訂閱）／trial（新用戶免費試用完結，2026-11-01）
+export function expiredSubject({ reason }) {
+  if (reason === "trial") return "你嘅搵樓日記收費版免費試用已經完結";
+  return reason === "canceled" ? "你嘅搵樓日記收費版已經結束" : "你嘅搵樓日記收費版已經到期";
+}
 export function expiredEmail({ appUrl, iconUrl, reason = "expired", periodEnd = "", cap = 3, pausedCount = 0 }) {
   const when = fmtDate(periodEnd);
-  const intro = reason === "canceled"
+  const intro = reason === "trial"
+    ? `多謝你試用搵樓日記。你嘅收費版免費試用${when ? `喺 <b>${esc(when)}</b> ` : ""}<b>已經完結</b>，帳戶轉返免費版，<b>唔會扣你任何錢</b>。`
+    : reason === "canceled"
     ? `多謝你一路支持搵樓日記。你嘅訂閱已經取消，<b>收費版已經結束</b>，帳戶轉返免費版。`
     : `多謝你一路支持搵樓日記。你嘅收費版${when ? `喺 <b>${esc(when)}</b> ` : ""}<b>已經到期</b>，帳戶轉返免費版。`;
   const keep = `<div style="margin-top:8px"><b>你嘅資料全部保留</b>：睇樓記錄、心儀樓盤、朋友屋企、偏好設定唔會刪。${pausedCount > 0
     ? `<br>免費版最多追蹤 ${cap} 個屋苑，所以有 <b>${pausedCount} 個屋苑暫停咗追蹤</b>（歷史資料保留，重新訂閱即刻恢復）。` : ""}</div>`;
-  return shell({ iconUrl, appUrl, title: reason === "canceled" ? "收費版已結束" : "收費版已到期", introHtml: intro + keep,
-    sectionsHtml: box("免費版會有啲功能鎖住", lockedList(cap)) + `<div style="font-size:13px;color:#4f647a;margin-top:12px;line-height:1.8">想繼續用返？喺 app 右上角「免費版 ⭐」可以重新訂閱，資料即時恢復。</div>`
+  const title = reason === "trial" ? "免費試用已完結" : reason === "canceled" ? "收費版已結束" : "收費版已到期";
+  const again = reason === "trial" ? "想繼續用返全部功能？喺 app 右上角「免費版 ⭐」可以訂閱收費版，資料即時恢復。" : "想繼續用返？喺 app 右上角「免費版 ⭐」可以重新訂閱，資料即時恢復。";
+  return shell({ iconUrl, appUrl, title, introHtml: intro + keep,
+    sectionsHtml: box("免費版會有啲功能鎖住", lockedList(cap)) + `<div style="font-size:13px;color:#4f647a;margin-top:12px;line-height:1.8">${again}</div>`
       + `<div style="background:#fff7e6;border:1px solid #f3d9a4;border-radius:12px;padding:12px 16px;margin-top:14px;font-size:14px;line-height:1.8;color:#7a4b00">師兄，如果搵樓日記幫到你，俾個機會我繼續幫你吖</div>`,
     ctaLabel: "返去搵樓日記" });
 }
