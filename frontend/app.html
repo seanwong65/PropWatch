@@ -1112,13 +1112,12 @@
     .vw-cover img { display: block; width: 100%; height: 170px; object-fit: cover; }
     .vw-cover-n { position: absolute; right: 0.5rem; bottom: 0.5rem; background: rgba(15,28,46,0.65); color: #fff; font-size: 0.72rem; padding: 0.15rem 0.55rem; border-radius: 999px; }
     /* 待跟進（主頁）：睇樓記錄資料未齊／未對應放盤 */
-    /* 功能介紹（onboarding，2026-11-01）：每個功能頂部一張細卡，「明白」＝今次收埋，「唔再提醒」＝永久（跟帳戶） */
+    /* 功能介紹（onboarding，2026-11-01）：每個功能頂部一張細卡，撳「明白」就永久唔再出（跟帳戶） */
     .ob-tip { background: var(--brand-soft); border: 1px solid var(--border); border-radius: 12px; padding: 0.6rem 0.8rem; margin: 0 0 0.7rem; font-size: 0.82rem; line-height: 1.55; }
     .ob-t { font-weight: 700; margin-bottom: 0.15rem; }
     .ob-act { display: flex; gap: 0.5rem; justify-content: flex-end; margin-top: 0.35rem; }
     .ob-act button { border: none; border-radius: 999px; padding: 0.25rem 0.8rem; font-size: 0.76rem; font-weight: 700; cursor: pointer; font-family: inherit; }
     .ob-ok { background: var(--brand); color: var(--brand-ink, #fff); }
-    .ob-off { background: none; color: var(--muted); }
     .modal .ob-tip { margin-top: -0.3rem; }
     /* 主頁頂部（2026-11-01，監察為主）：「你嘅屋苑今日」／今日冇變動／新用戶歡迎 ＋ 搵樓 */
     .mon-card { background: var(--glass-bg); border: 1px solid var(--border); border-left: 3px solid var(--brand-bright, var(--brand)); border-radius: 14px; padding: 0.7rem 0.9rem; margin-bottom: 0.7rem; }
@@ -2267,7 +2266,7 @@
 
       <div class="modal-sub" style="margin-top:1.25rem">💡 功能介紹</div>
       <div style="display:flex;align-items:center;gap:0.6rem;font-size:0.8rem;color:var(--muted);margin-top:0.3rem">
-        <span style="flex:1">打開每個功能嗰陣嘅簡單介紹。揀咗「唔再提醒」嘅想再睇，可以喺度重設。</span>
+        <span style="flex:1">打開每個功能嗰陣嘅簡單介紹。撳咗「明白」嘅想再睇，可以喺度重設。</span>
         <button class="vf-submit" style="width:auto;padding:0.45rem 0.9rem;margin:0;white-space:nowrap" onclick="obResetAll()">重新顯示</button>
       </div>
 
@@ -3981,8 +3980,8 @@ function viewingTodos() {
   return out.sort((a, b) => String(b.v.view_date || '').localeCompare(String(a.v.view_date || '')));
 }
 // ── 功能介紹（onboarding，2026-11-01）──────────────────────────────────────────
-// 打開每個功能嗰陣，喺頂部「介紹位」（ob-slot-*）出一張細卡簡單講用法：「明白」＝今次（呢個分頁 session）唔再出，
-// 下次開 app 再出；「唔再提醒」＝永久唔出（存 server：POST /api/onboard-off，跟帳戶，換機都記得；key 要喺 worker ONBOARD_KEYS 白名單）。
+// 打開每個功能嗰陣，喺頂部「介紹位」（ob-slot-*）出一張細卡簡單講用法。撳「明白」＝永久唔再出（用戶 2026-11-01：明白咗就唔使再提；
+// 原本分「明白／唔再提醒」兩粒，用戶覺得一樣）。存 server：POST /api/onboard-off，跟帳戶，換機都記得；key 要喺 worker ONBOARD_KEYS 白名單。
 // ⚙️ 設定「重新顯示功能介紹」＝全部重置。用固定介紹位而唔係插入內容，因為分頁內容會成個重畫。
 const ONBOARD = {
   home: ['主頁', '最頂會話你追蹤嘅屋苑今日有咩新盤、減價、成交；冇變動嘅日子就幫你喺四大地產網搵盤。下面「睇樓日記」記低你睇過嘅單位。'],
@@ -4000,22 +3999,15 @@ const ONBOARD = {
   history: ['歷史動態', '過去幾個月嘅新盤、減價、成交記錄，睇返一個屋苑嘅成交節奏同減價趨勢。'],
 };
 let _onboardOff = new Set();
-const _obSeenKey = 'pw_ob_seen';
-function _obSeen() { try { return new Set(JSON.parse(sessionStorage.getItem(_obSeenKey) || '[]')); } catch (_) { return new Set(); } }
 function obSlot(slotId, key) {
   const el = document.getElementById(slotId);
   if (!el) return;
   const t = ONBOARD[key];
-  if (!t || _onboardOff.has(key) || _obSeen().has(key)) { el.innerHTML = ''; return; }
+  if (!t || _onboardOff.has(key)) { el.innerHTML = ''; return; }
   el.innerHTML = `<div class="ob-tip" data-ob="${key}"><div class="ob-t">💡 ${escHtml(t[0])}</div><div>${escHtml(t[1])}</div>
-    <div class="ob-act"><button type="button" class="ob-off" onclick="obOff('${key}')">唔再提醒</button><button type="button" class="ob-ok" onclick="obOk('${key}')">明白</button></div></div>`;
+    <div class="ob-act"><button type="button" class="ob-ok" onclick="obOff('${key}')">明白</button></div></div>`;
 }
 function _obHide(key) { document.querySelectorAll(`.ob-tip[data-ob="${key}"]`).forEach(x => x.remove()); }
-function obOk(key) {
-  const s = _obSeen(); s.add(key);
-  try { sessionStorage.setItem(_obSeenKey, JSON.stringify([...s])); } catch (_) { /* 私隱模式：今次收埋就算 */ }
-  _obHide(key);
-}
 function obOff(key) {
   _onboardOff.add(key);
   _obHide(key);
@@ -4024,7 +4016,6 @@ function obOff(key) {
 async function obResetAll() {
   try { await api('/api/onboard-off', { method: 'POST', body: JSON.stringify({ reset: true }) }); } catch (_) { toast('重設失敗，請再試', 'error'); return; }
   _onboardOff = new Set();
-  try { sessionStorage.removeItem(_obSeenKey); } catch (_) { /* 冇所謂 */ }
   toast('已重設：打開各功能會再見到介紹', 'success');
 }
 
