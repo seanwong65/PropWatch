@@ -2350,6 +2350,14 @@
         <button class="vf-submit" style="width:auto;padding:0.45rem 0.9rem;margin:0" onclick="openAdminBilling()">💳 付款管理後台</button>
         <button class="vf-submit" style="width:auto;padding:0.45rem 0.9rem;margin:0" onclick="openAdminClicks()">👁 放盤點擊統計</button>
       </div>
+      <!-- 寄樣本 email 去自己個郵箱（假數據，標題有【樣本】）：後端 /api/admin/lifecycle-emails（admin only） -->
+      <div class="modal-sub" style="margin-top:0">✉️ 寄樣本 email 俾自己</div>
+      <div style="display:flex;gap:0.4rem;flex-wrap:wrap;margin:0.35rem 0 1.25rem">
+        <button class="history-btn" onclick="adminSampleEmail('expired','trial')">試用完結</button>
+        <button class="history-btn" onclick="adminSampleEmail('expired','expired')">收費版到期</button>
+        <button class="history-btn" onclick="adminSampleEmail('expired','canceled')">取消訂閱</button>
+        <button class="history-btn" onclick="adminSampleEmail('payment_failed')">扣款失敗</button>
+      </div>
       <div id="settings-cfg-section">
         <div class="modal-sub" style="margin-top:0;display:flex;align-items:center;justify-content:space-between;gap:0.6rem">
           <span>📐 分析參數（per-account）</span>
@@ -8581,6 +8589,13 @@ function switchSettingsTab(tab) {
 // route）。呢啲數字影響所有用戶，所以 UI 上刻意同 per-account 參數分開。
 let _secDefs = [];
 
+async function adminSampleEmail(kind, reason) {
+  try {
+    const r = await api('/api/admin/lifecycle-emails', { method: 'POST', body: JSON.stringify({ kind, reason, sample: true }) });
+    if (r.ok) toast(`已寄樣本去 ${r.to}`, 'success');
+    else toast(`寄唔到：${r.error || r.skipped || '未知原因'}`, 'error');
+  } catch (e) { toast(`寄唔到：${e.message || e}`, 'error'); }
+}
 async function loadSecConfig() {
   try {
     const { items } = await api('/api/admin/sec-config');
