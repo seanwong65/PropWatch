@@ -1112,6 +1112,10 @@
     .vw-cover img { display: block; width: 100%; height: 170px; object-fit: cover; }
     .vw-cover-n { position: absolute; right: 0.5rem; bottom: 0.5rem; background: rgba(15,28,46,0.65); color: #fff; font-size: 0.72rem; padding: 0.15rem 0.55rem; border-radius: 999px; }
     /* 待跟進（主頁）：睇樓記錄資料未齊／未對應放盤 */
+    /* 術語解釋（2026-11-01，新手白話）：虛線底，撳一下彈出一句解釋 */
+    .gl { border-bottom: 1px dotted currentColor; cursor: help; }
+    .gl-pop { position: fixed; z-index: 10000; max-width: min(300px, calc(100vw - 24px)); background: var(--surface); color: var(--text); border: 1px solid var(--border-strong); border-radius: 10px; box-shadow: 0 8px 24px rgba(0,0,0,0.18); padding: 0.55rem 0.7rem; font-size: 0.8rem; line-height: 1.55; font-weight: 400; text-align: left; white-space: normal; }
+    .mt-plain { font-weight: 400; color: var(--muted); }
     /* 功能介紹（onboarding，2026-11-01）：每個功能頂部一張細卡，撳「明白」就永久唔再出（跟帳戶） */
     .ob-tip { background: var(--brand-soft); border: 1px solid var(--border); border-radius: 12px; padding: 0.6rem 0.8rem; margin: 0 0 0.7rem; font-size: 0.82rem; line-height: 1.55; }
     .ob-t { font-weight: 700; margin-bottom: 0.15rem; }
@@ -3979,6 +3983,37 @@ function viewingTodos() {
   // 最近睇嘅排先（記憶仲新，跟進最容易）
   return out.sort((a, b) => String(b.v.view_date || '').localeCompare(String(a.v.view_date || '')));
 }
+// ── 術語解釋（2026-11-01，新手白話；目標用戶＝首次置業）──────────────────────────────
+// gl(key, 顯示字) 包住術語：虛線底，撳／Enter 彈出一句解釋（glossShow）。表頭撳術語唔會觸發排序（stopPropagation）。
+const GLOSS = {
+  sqft: ['實呎', '實用面積：單位入面真正用到嘅面積，唔計大堂、電梯等公用地方。香港放盤而家以實用面積為準。'],
+  psf: ['實呎價', '樓價 ÷ 實用面積，即係每呎幾錢。用嚟比較唔同大細嘅單位邊個貴邊個平，越低越抵。'],
+  ask: ['叫價', '業主放盤開出嚟嘅價，通常仲可以傾，最後成交價多數低過叫價。'],
+  deal: ['成交價', '土地註冊處登記咗嘅真實買賣價，比叫價更反映一層樓實際值幾多。'],
+  hs: ['恒生估值', '恒生銀行網上估價。做按揭時銀行係按估價（唔係買價）計借得幾多，估價低過買價嘅話，差額要自己俾。'],
+  mt: ['去貨月數', '在售盤數 ÷ 近 30 日成交宗數，即係照而家速度要幾多個月先賣晒。越長＝盤多買家少，買家越有議價空間。'],
+};
+function gl(key, text) {
+  const g = GLOSS[key];
+  if (!g) return escHtml(text || '');
+  return `<span class="gl" role="button" tabindex="0" onclick="glossShow(event,'${key}')" onkeydown="if(event.key==='Enter')glossShow(event,'${key}')">${escHtml(text || g[0])}</span>`;
+}
+function glossClose() { document.querySelectorAll('.gl-pop').forEach(x => x.remove()); document.removeEventListener('click', glossClose, true); }
+function glossShow(ev, key) {
+  ev.stopPropagation(); ev.preventDefault();
+  const g = GLOSS[key];
+  if (!g) return;
+  glossClose();
+  const pop = document.createElement('div');
+  pop.className = 'gl-pop';
+  pop.innerHTML = `<b>${escHtml(g[0])}</b>：${escHtml(g[1])}`;
+  document.body.appendChild(pop);
+  const r = ev.currentTarget.getBoundingClientRect(), w = pop.offsetWidth, h = pop.offsetHeight;
+  pop.style.left = Math.max(12, Math.min(r.left, innerWidth - w - 12)) + 'px';
+  pop.style.top = (r.bottom + 6 + h > innerHeight ? Math.max(12, r.top - h - 6) : r.bottom + 6) + 'px';
+  setTimeout(() => document.addEventListener('click', glossClose, true), 0);   // 撳任何地方收埋
+}
+
 // ── 功能介紹（onboarding，2026-11-01）──────────────────────────────────────────
 // 打開每個功能嗰陣，喺頂部「介紹位」（ob-slot-*）出一張細卡簡單講用法。撳「明白」＝永久唔再出（用戶 2026-11-01：明白咗就唔使再提；
 // 原本分「明白／唔再提醒」兩粒，用戶覺得一樣）。存 server：POST /api/onboard-off，跟帳戶，換機都記得；key 要喺 worker ONBOARD_KEYS 白名單。
@@ -5312,7 +5347,7 @@ function estateCardMeta(e) {
   const num = (x) => Number(x) || 0;
   const lines = [];
   // 卡面係「去重後嘅單位數」（同一單位喺幾個地產網只計一次），屋苑頁「最新放盤」係各網放盤行數，兩個數字唔同係正常
-  lines.push(`<span title="同一個單位喺幾個地產網放售，只計一次"><b>${num(st.n)}</b> 個單位</span>${st.psf ? `．<span style="white-space:nowrap" title="所有在售單位嘅叫價呎價中位數（唔分房數，唔係成交價）">叫價中位 $${num(st.psf).toLocaleString()}/呎</span>` : ''}`);
+  lines.push(`<span title="同一個單位喺幾個地產網放售，只計一次"><b>${num(st.n)}</b> 個單位</span>${st.psf ? `．<span style="white-space:nowrap" title="所有在售單位嘅叫價呎價中位數（唔分房數，唔係成交價）">${gl('ask')}中位 $${num(st.psf).toLocaleString()}/呎</span>` : ''}`);
   if (isPaid()) {
     if (st.new == null) lines.push('<span title="需要多一個星期嘅數據先比較到">週變動：數據累積中</span>');
     else {
@@ -9584,11 +9619,11 @@ function renderTransactionsTable(estateId, offset, hasMore) {
   const thCols = [
     { key: "reg_date",     label: "登記日期" },
     { key: null,           label: "單位" },
-    { key: "price",        label: "成交價" },
-    { key: "price_per_ft", label: "實呎價", sub: "*房數為估算" },
+    { key: "price",        label: gl('deal') },
+    { key: "price_per_ft", label: gl('psf'), sub: "*房數為估算" },
     { key: "held_days",    label: "持有年期", adv: true },
     { key: "gain_annual",  label: "升跌", adv: true },
-    { key: "hs_price",     label: "恆生估值", adv: true },
+    { key: "hs_price",     label: gl('hs', '恆生估值'), adv: true },
     { key: null,           label: "查估值", adv: true },
     { key: null,           label: "", adv: true },
   ].filter(c => _txnAdv || !c.adv);
@@ -10658,9 +10693,9 @@ function renderListingsTable() {
   const cols = [
     ...(groupSelectMode ? [{ key: null, label: '' }] : []),
     { key: isPaid() ? "first_seen" : null, label: isPaid() ? "上盤日期" : "上盤日期 🔒" },
-    { key: "size_net",      label: "座/樓層/房數/實呎" },
-    { key: "price",         label: "售價" },
-    { key: "price_per_ft",  label: "實呎價" },
+    { key: "size_net",      label: `座/樓層/房數/${gl('sqft')}` },
+    { key: "price",         label: gl('ask', '售價') },
+    { key: "price_per_ft",  label: gl('psf') },
     { key: "direction",     label: "座向" },
     { key: null,            label: "來源" },
   ];
@@ -11148,10 +11183,11 @@ function fetchMarketTemp(estateId) {
 }
 function _mtVerdict(t) {
   const months = t.txn_30d > 0 ? (t.active_listings / t.txn_30d) : null;
-  if (months == null || months > 12) return { months, tier: 0, verdict: '極淡 · 買家話事', color: 'var(--up)' };
-  if (months > 6) return { months, tier: 1, verdict: '偏淡 · 買家有利', color: 'var(--up)' };
-  if (months > 3) return { months, tier: 2, verdict: '均衡', color: 'var(--muted)' };
-  return { months, tier: 3, verdict: '偏熱 · 賣家有利', color: 'var(--down)' };
+  // plain：新手白話（2026-11-01）——即係點？
+  if (months == null || months > 12) return { months, tier: 0, verdict: '極淡 · 買家話事', plain: '盤多買家少，可以大膽講價', color: 'var(--up)' };
+  if (months > 6) return { months, tier: 1, verdict: '偏淡 · 買家有利', plain: '買家有議價空間', color: 'var(--up)' };
+  if (months > 3) return { months, tier: 2, verdict: '均衡', plain: '買賣雙方差唔多，照市價傾', color: 'var(--muted)' };
+  return { months, tier: 3, verdict: '偏熱 · 賣家有利', plain: '盤少搶手，議價空間細', color: 'var(--down)' };
 }
 // 屋苑頁頭「市況」一句（2026-11-01 UI review B7）：分析 tab 最有用嗰句搬上第一屏；撳去「樓盤分析」睇點計。租盤冇呢個概念，唔顯示。
 async function loadEstateMarketLine(estateId) {
@@ -11162,7 +11198,7 @@ async function loadEstateMarketLine(estateId) {
     const t = await fetchMarketTemp(estateId);
     if (activeEstateId !== estateId || _estateDeal === 'R') return;
     const v = _mtVerdict(t);
-    el.innerHTML = `<button type="button" class="estate-market" onclick="switchTab('analysis',${Number(estateId)})" title="去貨月數＝在售盤數 ÷ 近30日成交宗數。撳入去睇點計">市況：<b style="color:${v.color}">${v.verdict}</b>${v.months != null ? ` · 約 ${Math.round(v.months)} 個月去貨` : ' · 近 30 日冇成交'} ›</button>`;
+    el.innerHTML = `<button type="button" class="estate-market" onclick="switchTab('analysis',${Number(estateId)})" title="去貨月數＝在售盤數 ÷ 近30日成交宗數。撳入去睇點計">市況：<b style="color:${v.color}">${v.verdict}</b> <span class="mt-plain">（${v.plain}）</span>${v.months != null ? ` · 約 ${Math.round(v.months)} 個月${gl('mt', '去貨')}` : ' · 近 30 日冇成交'} ›</button>`;
   } catch (_) { el.innerHTML = ''; }
 }
 async function loadMarketTemp(estateId) {
@@ -11170,7 +11206,7 @@ async function loadMarketTemp(estateId) {
   if (!card) return;
   try {
     const t = await fetchMarketTemp(estateId);
-    const { months, tier, verdict, color } = _mtVerdict(t);
+    const { months, tier, verdict, plain, color } = _mtVerdict(t);
     const tempTitle = '去貨月數＝在售盤數 ÷ 近30日成交宗數，即係幾多個月先賣晒現有在售盤。>12個月＝極淡．買家話事；6–12個月＝偏淡．買家有利；3–6個月＝均衡；<3個月＝偏熱．賣家有利。';
     // 四級全部列出，現時 tier 用粗體＋原色 highlight，其餘保持灰色
     const legendParts = [
@@ -11184,8 +11220,9 @@ async function loadMarketTemp(estateId) {
     ).join('');
     card.innerHTML = `<div class="stat-label" title="${tempTitle}">市場溫度</div>
       <div style="margin-top:0.35rem"><span class="stat-value" style="font-size:1.1rem">${t.txn_30d}</span><span class="stat-unit"> 宗/30日</span> <span style="font-size:0.75rem;color:var(--muted)">(90日 ${t.txn_90d} 宗)</span></div>
-      <div style="margin-top:0.25rem;font-size:0.8rem;color:var(--muted)">在售 ${t.active_listings} 個${months != null ? ` · 約 ${months.toFixed(0)} 個月去貨` : ''}</div>
+      <div style="margin-top:0.25rem;font-size:0.8rem;color:var(--muted)">在售 ${t.active_listings} 個${months != null ? ` · 約 ${months.toFixed(0)} 個月${gl('mt', '去貨')}` : ''}</div>
       <div style="margin-top:0.25rem;font-size:0.8rem;font-weight:600;color:${color}" title="${tempTitle}">${verdict}</div>
+      <div style="margin-top:0.15rem;font-size:0.78rem;color:var(--muted)">即係：${plain}</div>
       <div style="margin-top:0.5rem;font-size:0.7rem;color:var(--muted)">去貨月數 = 在售盤數 ÷ 近30日成交宗數(即係按而家嘅成交速度,幾多個月先賣晒現有在售嘅盤)</div>
       <div style="margin-top:0.3rem;font-size:0.7rem;color:var(--muted);line-height:1.7">${legendHtml}</div>`;
   } catch (_) { card.innerHTML = `<div class="stat-label">市場溫度</div><div style="margin-top:0.35rem;font-size:0.8rem;color:var(--muted)">載入失敗</div>`; }
