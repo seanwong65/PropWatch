@@ -1319,6 +1319,9 @@
     /* 次要動作（標記已下架／還原）：細字底線，唔似主掣（2026-11-01 UI review：新用戶以為要佢幫系統報下架） */
     .lc-mini { background: none; border: none; padding: 0.1rem 0.2rem; margin: 0; color: var(--muted); font-size: 0.68rem; text-decoration: underline; text-underline-offset: 2px; cursor: pointer; font-family: inherit; }
     .lc-mini:hover { color: var(--text); }
+    .hl-empty { color: var(--muted); font-size: 0.85rem; line-height: 1.8; }
+    .hl-empty-link { background: none; border: none; padding: 0; color: var(--accent2); font-size: inherit; font-weight: 600; cursor: pointer; font-family: inherit; }
+    .hl-empty-link:hover { text-decoration: underline; }
 
     /* Loading */
     .loading {
@@ -4819,7 +4822,7 @@ async function loadTodayHighlights() {
       }
     }
 
-    if (!html) html = `<span style="color:var(--muted)">今日暫無更新${_hlPrefFilterOn && _hlPrefsUsable() ? '（🎯 偏好 filter 開緊——右上角撳一下可以睇返全部）' : ''}</span>`;
+    if (!html) html = _todayEmptyHtml(data);
     body.innerHTML = html;
 
     // Auto-fetch HS valuation for new transactions (throttled to avoid
@@ -5199,7 +5202,7 @@ function estateCardMeta(e) {
   const num = (x) => Number(x) || 0;
   const lines = [];
   // 卡面係「去重後嘅單位數」（同一單位喺幾個地產網只計一次），屋苑頁「最新放盤」係各網放盤行數，兩個數字唔同係正常
-  lines.push(`<span title="同一個單位喺幾個地產網放售，只計一次"><b>${num(st.n)}</b> 個單位</span>${st.psf ? `．$${num(st.psf).toLocaleString()}/呎` : ''}`);
+  lines.push(`<span title="同一個單位喺幾個地產網放售，只計一次"><b>${num(st.n)}</b> 個單位</span>${st.psf ? `．<span style="white-space:nowrap" title="所有在售單位嘅叫價呎價中位數（唔分房數，唔係成交價）">叫價中位 $${num(st.psf).toLocaleString()}/呎</span>` : ''}`);
   if (isPaid()) {
     if (st.new == null) lines.push('<span title="需要多一個星期嘅數據先比較到">週變動：數據累積中</span>');
     else {
@@ -8034,6 +8037,26 @@ async function closePrefsModal() {
     try { _userPrefs = (await api('/api/preferences', { method: 'PUT', body: JSON.stringify({ dismissed: true }) })).prefs; } catch (_) {}
   }
   document.getElementById('prefsModalOverlay').style.display = 'none';
+}
+
+// 「今日」動態冇嘢顯示時嘅文字（2026-11-01 UI review）：講清楚係「今日＋你嘅偏好」冇嘢，
+// 唔好同側欄卡「本週：新盤 8．減價 10」似自相矛盾。有未篩選嘅變動就俾一撳睇返；收費版再帶本週總數（用側欄卡已有嘅數字，唔多打 API）。
+function _todayEmptyHtml(data) {
+  const n = (g, keys) => keys.reduce((s, k) => s + ((g[k] || []).length), 0);
+  const rawToday = (data.byEstate || []).reduce((s, g) => s + n(g, ['newTransactions', 'priceChanges', 'newListings', 'removedListings']), 0)
+    + (data.byEstateRent || []).reduce((s, g) => s + n(g, ['newRentTransactions', 'rentPriceChanges', 'newRentals', 'removedRentals']), 0);
+  const weekTotal = isPaid() ? (dashboardEstates || []).reduce((s, e) => {
+    const st = e.stats; return s + (st && st.new != null ? (Number(st.new) || 0) + (Number(st.cuts) || 0) + (Number(st.removed) || 0) : 0);
+  }, 0) : 0;
+  const link = (fn, txt) => `<button type="button" class="hl-empty-link" onclick="${fn}">${txt}</button>`;
+  const week = weekTotal ? link(`setDynMode('week')`, `本週有 ${weekTotal} 項變動 →`) : '';
+  if (_hlPrefFilterOn && _hlPrefsUsable()) {
+    const parts = [`今日冇符合你偏好（${escHtml(formatPrefsSummary(_userPrefs))}）嘅變動。`];
+    if (rawToday) parts.push(link('toggleHlPrefFilter()', `睇返今日全部 ${rawToday} 項`));
+    if (week) parts.push(week);
+    return `<div class="hl-empty">${parts.join(' ')}</div>`;
+  }
+  return `<div class="hl-empty">今日暫無更新。${week}</div>`;
 }
 
 // ── Dashboard 動態跟偏好 filter ──
