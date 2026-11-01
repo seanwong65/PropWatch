@@ -1874,7 +1874,6 @@
       style="display:none;background:transparent;border-color:var(--accent);color:var(--accent);font-size:0.75rem;padding:0.3rem 0.55rem">免費版 ⭐</button>
     <!-- 手動同步係 admin 專用（一般 user 靠自動 scrape，唔使／唔應該自己撳）；
          admin-btn 用藍色（--accent2）同其他掣分開，一睇就知係管理員功能 -->
-    <button class="sync-btn admin-btn" id="syncBtn" onclick="syncAll()" style="display:none">↻ 立即同步</button>
     <!-- 唔好喺呢度 inline 覆蓋 background／border-color：原本寫死 --surface2 +
          --border（深色時代嘅淡值），白底之下同頁面幾乎一樣色，粒掣搵唔到。
          交返 .sync-btn 處理（佢用 --btn2-* 有足夠視覺重量）。 -->
@@ -5180,10 +5179,6 @@ function applyRoleToSettings() {
   // 由 admin 變返一般 user（例如登出再登入）要拉返第一個 tab，否則會停留喺
   // 一個已經隱藏嘅 panel，成個設定睇落係空白。
   if (!isAdmin && _settingsTab !== 'user') switchSettingsTab('user');
-  // 「立即同步」都係 admin 專用：一般 user 靠自動 scrape，冇必要（亦唔應該）
-  // 自己手動觸發全站 sync。
-  const sync = document.getElementById('syncBtn');
-  if (sync) sync.style.display = _userRole === 'admin' ? '' : 'none';
 }
 
 // ⚙️ 設定入面嘅訂閱狀態：未訂閱就出計劃卡，訂咗就出到期日 + 管理入口
@@ -10936,23 +10931,6 @@ function drawChart(trends, overlay, soldTrend) {
 }
 
 // ── Sync all ──────────────────────────────────────────────────
-async function syncAll() {
-  toast("同步中…");
-  try {
-    const endpoint = activeEstateId ? `/api/sync?estateId=${activeEstateId}` : "/api/sync";
-    const { results } = await api(endpoint, { method: "POST" });
-    const ok = results.filter(r => r.ok).length;
-    toast(`同步完成：${ok}/${results.length} 個屋苑`, "success");
-    await loadEstates();
-    if (activeEstateId) {
-      const card = document.querySelector(".estate-card.active");
-      if (card) card.click();
-    }
-  } catch (err) {
-    toast("同步失敗：" + err.message, "error");
-  }
-}
-
 const _daysBetween = (a, b) => Math.round((Date.parse(b) - Date.parse(a)) / 86400000);
 
 // 售價歷史 collapse：後端回逐日一行（放咗一年嘅盤就三百幾行，絕大部分係

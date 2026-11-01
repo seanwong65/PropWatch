@@ -65,7 +65,8 @@ const other = Number(process.env.PW_UNTRACKED_ESTATE || (E === 7 ? 8 : 7));
 await call("404 未追蹤屋苑 listings", `/api/estates/${other}/listings`, { expect: [404] });
 await call("404 未追蹤屋苑 transactions", `/api/estates/${other}/transactions`, { expect: [404] });
 await call("404 未追蹤屋苑 crowd", `/api/estates/${other}/crowd`, { expect: [404] });
-await call("404 sync 未追蹤屋苑", `/api/sync?estateId=${other}`, { method: "POST", expect: [404] });
+await call("403 sync（admin 專用）", `/api/sync?estateId=${other}`, { method: "POST", expect: [403] });
+await call("403 sync 全部屋苑（admin 專用）", `/api/sync`, { method: "POST", expect: [403] });
 for (const [n, p, m] of [["admin usage-stats", "/api/admin/usage-stats"], ["admin feedback", "/api/admin/feedback"], ["admin sync-status", "/api/admin/sync-status"], ["admin listing-clicks", "/api/admin/listing-clicks"],
   ["admin tiers", "/api/admin/tiers", "POST"], ["admin preview-daily", "/api/admin/preview-daily", "POST"], ["admin run-weekly", "/api/admin/run-weekly-task", "POST"], ["test-email", "/api/test-email", "POST"], ["send-today-email", "/api/send-today-email", "POST"]])
   await call("403 " + n, p, { method: m || "GET", expect: [403] });

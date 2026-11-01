@@ -9542,37 +9542,19 @@ export default {
       }
 
       if (method === "POST" && path === "/api/sync") {
+        // 手動即時同步（2026-11-01 收緊）：前端「↻ 立即同步」掣已拎走——每日 drip 自動做晒。
+        // 以前一般帳戶都打得（同步自己嘅屋苑）、admin 喺主頁撳會一次過同步全部屋苑（單次可寫十萬行以上，
+        // 一撳就爆 D1 免費寫入額度）。而家：admin 專用＋一定要指定一個屋苑（除錯用）。
+        if (!isAdminSession(session)) return json(403, { error: "admin only" });
         const estateId = url.searchParams.get("estateId");
-        if (estateId) {
-          // 淨係准 sync 自己有資格讀嘅屋苑（否則任何帳戶可以叫 worker 去 scrape 任何屋苑）
-          if (!(await canReadEstate(db, session, estateId))) return json(404, { error: "Not found" });
-          // Single estate stays synchronous — it's one estate, well under the limit.
-          const estate = await db.prepare("SELECT * FROM estates WHERE id = ?").bind(estateId).first();
-          if (!estate) return json(404, { error: "Not found" });
-          try {
-            return json(200, { ok: true, results: [await syncOneEstate(db, estate)] });
-          } catch (err) {
-            return json(200, { ok: true, results: [{ estate: estate.name, error: userSafeError(err, "sync " + estate.name), ok: false }] });
-          }
+        if (!estateId) return json(400, { error: "要指定 estateId（全部屋苑由每日自動同步做）" });
+        const estate = await db.prepare("SELECT * FROM estates WHERE id = ?").bind(estateId).first();
+        if (!estate) return json(404, { error: "Not found" });
+        try {
+          return json(200, { ok: true, results: [await syncOneEstate(db, estate)] });
+        } catch (err) {
+          return json(200, { ok: true, results: [{ estate: estate.name, error: userSafeError(err, "sync " + estate.name), ok: false }] });
         }
-        // All estates in one request (best-effort, immediate feedback). The
-        // automated daily sync is split across cron slots to stay under the
-        // per-invocation subrequest limit; see the scheduled handler.
-        // 一般帳戶：只 sync 自己追蹤緊嘅屋苑；全站 sync 淨係 admin（否則免費帳戶一撳就打晒全部
-        // 帳戶嘅屋苑去四大地產網）。
-        const mineOnly = !isAdminSession(session);
-        const { results: estates } = await db.prepare(
-          `SELECT * FROM estates e
-           WHERE (e.is_disabled = 0 OR e.is_disabled IS NULL)
-             AND EXISTS (SELECT 1 FROM account_estates ae
-                         WHERE ae.estate_id = e.id AND ae.paused_at IS NULL
-                           AND (?1 = 0 OR ae.account_id = ?2))
-           ORDER BY e.id`).bind(mineOnly ? 1 : 0, session.account_id).all();
-        const results = await Promise.all(estates.map(async (estate) => {
-          try { return await syncOneEstate(db, estate); }
-          catch (err) { return { estate: estate.name, error: userSafeError(err, "sync " + estate.name), ok: false }; }
-        }));
-        return json(200, { ok: true, results });
       }
 
       if (method === "POST" && path === "/api/test-email") {
