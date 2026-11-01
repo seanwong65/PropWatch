@@ -3873,17 +3873,26 @@ function syncTodoDismissed(serverIds) {
   if (changed) { try { localStorage.setItem(_TODO_KEY, JSON.stringify([...local])); } catch (_) { /* 私隱模式 */ } }
   if (toServer.length) api('/api/todo-dismissed', { method: 'POST', body: JSON.stringify({ ids: toServer.slice(0, 200) }) }).catch(() => {});
 }
+// 睇樓記錄「待補」欄位：主頁待跟進、日記列表、日記詳情、儲存確認框全部用呢一套字眼（2026-11-01 UI review B1：
+// 以前「欠睇樓價」「⚠ 未填齊資料」「售價未填」三套講法，似三個唔同問題）。名稱跟表單 label（售價／租金）。
+//   core：認唔到單位／冇價錢 → 系統跟唔到改價（待跟進用呢組）；extra：分析用（呎價、房數比較）
+function viewingGaps(v) {
+  const core = [], extra = [];
+  if (!v.block) core.push('座');
+  if (!v.floor) core.push('樓層');
+  if (!v.unit) core.push('室');
+  if (!v.price) core.push(v.deal_type === 'R' ? '租金' : '售價');
+  if (!v.size_net) extra.push('實用呎數');
+  if (!v.bedrooms) extra.push('房數');
+  return { core, extra, all: [...core, ...extra] };
+}
 function _todoDismissed() { try { return new Set(JSON.parse(localStorage.getItem(_TODO_KEY) || '[]')); } catch (_) { return new Set(); } }
 function viewingTodos() {
   const hidden = _todoDismissed();
   const out = [];
   for (const v of _compsData || []) {
     if (!v || v.status === 'sold' || hidden.has(v.id)) continue;
-    const missing = [];
-    if (!v.block) missing.push('座');
-    if (!v.floor) missing.push('樓層');
-    if (!v.unit) missing.push('室');
-    if (!v.price) missing.push(v.deal_type === 'R' ? '睇樓租金' : '睇樓價');
+    const missing = viewingGaps(v).core;
     let needLink = !!(v.block && v.unit) && _linkedRefs(v).length === 0;
     // 睇樓超過一個月（⚙️ todo_link_max_days，預設 30 日）仲未對應＝多數已經賣咗／落架，對唔返，唔再提「未對應放盤」；
     // 資料欠缺（missing）就唔受呢個限制，照提。
@@ -3987,15 +3996,15 @@ function renderViewingTodo() {
   const rows = shown.map(({ v, missing, needLink }) => `
     <div class="todo-row">
       <div class="todo-title">${title(v)} <span style="font-weight:400;color:var(--muted)">· 睇樓 ${escHtml(String(v.view_date || '').slice(5))}</span></div>
-      ${missing.length ? `<span class="todo-tag">欠 ${missing.map(escHtml).join('、')}</span>` : ''}
-      ${needLink ? '<span class="todo-tag">未對應放盤</span>' : ''}
+      ${missing.length ? `<span class="todo-tag">待補：${missing.map(escHtml).join('、')}</span>` : ''}
+      ${needLink ? '<span class="todo-tag">待確認放盤</span>' : ''}
       ${missing.length ? `<button class="todo-btn" onclick="todoFill(${Number(v.id)})">補資料</button>` : ''}
       ${needLink ? `<button class="todo-btn" onclick="todoGo(${Number(v.id)})">去確認</button>` : ''}
       <button class="todo-x" title="唔再提醒呢個記錄" onclick="todoDismiss(${Number(v.id)})">✕ 唔再提醒</button>
     </div>`).join('');
   el.innerHTML = `<div class="todo-card">
     <div class="todo-head" onclick="_todoOpen=!_todoOpen;renderViewingTodo()"><span>📌 待跟進 <span style="color:var(--accent)">${todos.length}</span> 個睇樓記錄</span><span style="color:var(--muted);font-size:0.8rem">${_todoOpen ? '收起 ▴' : '睇下 ▾'}</span></div>
-    <div class="todo-sub">呢啲記錄資料未齊，或者未對應返放盤，系統追蹤唔到佢哋嘅<b>改價、下架、成交</b>。補返資料／確認對應放盤就會自動追蹤。</div>
+    <div class="todo-sub">補返資料、或者確認係邊個放盤，之後呢個單位<b>減價、落架、成交</b>都會通知你。</div>
     ${rows}
     ${_todoOpen && todos.length > 5 ? `<button class="todo-more" onclick="_todoAll=!_todoAll;renderViewingTodo()">${_todoAll ? '只睇最近 5 個 ▴' : `睇晒全部 ${todos.length} 個 ▾`}</button>` : ''}
   </div>`;
@@ -4203,21 +4212,15 @@ function _compsPriceLabel(v) {
   return v.deal_type === 'R' ? `$${Math.round(v.price).toLocaleString()}/月`
     : `$${(v.price / 1e4).toFixed(v.price % 10000 === 0 ? 0 : 1)}萬`;
 }
-// 資料未填齊嘅項目（售價／呎數／房數；其餘係真正選填，唔計）。冇價錢／呎數存 0。
-function _compsMissing(v) {
-  const m = [];
-  if (!v.price) m.push(v.deal_type === 'R' ? '月租' : '售價');
-  if (!v.size_net) m.push('實用呎數');
-  if (!v.bedrooms) m.push('房數');
-  return m;
-}
+// 資料未填齊嘅項目：同主頁待跟進同一套（viewingGaps），日記列多計埋分析用嘅呎數／房數。
+function _compsMissing(v) { return viewingGaps(v).all; }
 const _DJ_WEEKDAY = ['日', '一', '二', '三', '四', '五', '六'];
 
 // 詳細卡：用返「睇樓記錄」同一個 renderOneViewing（卡片版），屋苑名淨係喺呢度加返。
 // buildMatchCell 靠全局 allListings，跨屋苑要逐張卡換返啱嗰個屋苑先 render。
 function _compsCardHtml(v) {
   const miss = _compsMissing(v);
-  const missHtml = miss.length ? `<div class="dj-missing">⚠ 提提你：仲有 <b>${escHtml(miss.join('、'))}</b> 未填，撳右上角 ✏️ 補返。</div>` : '';
+  const missHtml = miss.length ? `<div class="dj-missing">待補：<b>${escHtml(miss.join('、'))}</b>，撳右上角 ✏️ 補返。</div>` : '';
   // 屋苑頁：allListings 本身就係呢個屋苑，唔使換，亦唔使重覆寫屋苑名
   if (_compsScope) return `<div style="margin-bottom:0.15rem">${missHtml}${renderOneViewing(v, _compsScope, true, wantsDeal('R'))}</div>`;
   const saved = allListings;
@@ -4385,7 +4388,7 @@ function renderCompsPanel() {
         + `<span class="dj-unit">${escHtml(_compsUnitLabel(v))}</span>`
         + (v.price ? `<span class="dj-price">${escHtml(_compsPriceLabel(v))}</span>` : '')
         + (v.status === 'sold' ? `<span class="dj-tag">已${v.deal_type === 'R' ? '租' : '沽'}</span>` : '')
-        + (_compsMissing(v).length ? `<span class="dj-tag dj-warn" title="仲有 ${escHtml(_compsMissing(v).join('、'))} 未填">⚠ 未填齊資料</span>` : '')
+        + (_compsMissing(v).length ? `<span class="dj-tag dj-warn" title="待補：${escHtml(_compsMissing(v).join('、'))}">待補 ${_compsMissing(v).length} 項</span>` : '')
         + (r != null ? `<span class="dj-meta">⭐${r.toFixed(1)}</span>` : '')
         + (n ? `<span class="dj-meta">📷${n}</span>` : '') + `</button>`;
     }).join('');
@@ -8835,7 +8838,7 @@ async function submitViewing(e) {
   if (!val('vf-bedrooms')) missing.push('房數');
   if (!val('vf-direction')) missing.push('方向');
   if (!val('vf-toilet')) missing.push('明／暗廁');
-  if (!val('vf-price')) missing.push(deal === 'R' ? '月租' : '售價');
+  if (!val('vf-price')) missing.push(deal === 'R' ? '租金' : '售價');
   if (deal !== 'R' && !val('vf-mgmt')) missing.push('管理費');
   {
     // 儲存前一律要用戶確認（填齊都彈）；有欄位未填就喺確認框入面列出嚟。
@@ -8851,7 +8854,7 @@ async function submitViewing(e) {
     const ok = await appConfirm(
       `${_viewingEditId ? '更改' : '新增'} ${vfEstName || ''} ${unitLabel} 睇樓記錄`.replace(/\s+/g, ' ') + (facts ? '\n' + facts : ''),
       '儲存',
-      missing.length ? ['提提你：你仲有 ', missing.join('、'), ' 未填㗎，之後都可以補填返。'] : '',
+      missing.length ? ['待補：', missing.join('、'), '。可以先儲存，之後撳 ✏️ 或者喺主頁「待跟進」補返。'] : '',
       vfEstName || '');
     if (!ok) return;
   }
