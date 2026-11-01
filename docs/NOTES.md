@@ -640,3 +640,24 @@ drip sync（`*/2`）同樣被雙重觸發：兩個 invocation 同時揀同一批
 - B7 屋苑頁頭「市況：極淡 · 買家話事 · 約 N 個月去貨 ›」（`loadEstateMarketLine`，撳去樓盤分析）；`fetchMarketTemp` 同分析卡共用一個 request；租盤唔顯示。頁頭同時改「N 個在售單位（各地產網共 M 個放盤）」。
 - B9 心儀樓盤按屋苑分組（組次序跟最近收藏；搜尋結果按地產網屋苑名）。
 - B10 睇樓評分 `<details>` 選填（新記錄收埋，有評分先展開）；朋友屋企說明改短。
+
+## 舊 branch 清理（2026-11-01）
+
+- 刪咗 16 個 6–7 月未 merge 入 main 嘅舊 branch（local＋origin）。要救返：`git branch <名> <sha>`（commit 仲喺 reflog／GC 前都搵得返）。
+  - `6e1880efb37c58895be1f744eb03b542420005e3` feat/hkp-source
+  - `9dffc7d18f71ae5e752d56b738b801f062706cc4` feat/photo-lightbox
+  - `b9030622ab275023d56cfdc63b25df4ab5ea1987` feat/source-filter
+  - `e7a71f8c439318021445c1e45597b36133c04edc` feat/source-filter-and-centanet-fix
+  - `07fdcac298687c2aeb8df86030d59c93ad522269` feat/viewed-txn-alert
+  - `5701f8fd16c139eac610b403e2a1e9d9cca73b98` fix/email-sync-today-highlights
+  - `eb929d624cac30d67585cff676e77d880b27a6ed` fix/normalize-ricacorp-floor
+  - `8de198b021e4cc17fb067e616ae92c5411606d31` fix/remove-old-ricacorp-btn
+  - `fc6efe130a5d29bae47b848e72d14426b0944a8e` fix/removed-listing-shown-active
+  - `946cc87aaa73b7f3f6f8cb5c4601f454d6a432b6` fix/removed-listings-query
+  - `63399059a163bb991d23ff25147f07e701775bc9` fix/ricacorp-canonical-slug
+  - `90b94214713c8ff9fcd181a147bbaf9220d3922a` fix/ricacorp-floor-backfill
+  - `d97b720ce03761737d7c9b300b13ec2482efc4be` fix/ricacorp-pagination
+  - `405f25bca4cfa31f8130cca6093aa053f1259682` fix/ricacorp-slug-extraction
+  - `2b9cc00b938f3c5fa5bef6705494a74d8e97d308` fix/ricacorp-timeout-truncation
+  - `2dc413b3dd400d153f932ec38dfe4cc16848b2d7` test/ricacorp-pagination
+- D1 慳寫入實測見 `docs/d1-savings-report-2026-10-30.md`：全日寫入 10.3 萬 → 1.5–3.1 萬。用戶決定**暫時唔升 Workers Paid／唔開 Smart Placement**（2026-11-01）。
