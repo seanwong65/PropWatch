@@ -65,6 +65,7 @@ const PANEL_HTML = `
     </div>
   </form>
 
+  <div class="ps-applied" id="ps-applied" hidden></div>
   <div class="ps-recent" id="ps-recent" hidden></div>
   <div class="ps-srcbar" id="ps-srcbar" aria-live="polite"></div>
   <div class="ps-head">
@@ -513,6 +514,7 @@ if (opts.formOnly) {
 }
 form.addEventListener("submit", (e) => {
   e.preventDefault();
+  hideApplied();                     // 用戶自己撳搜尋＝佢自己揀嘅條件，唔再係「自動套用」
   const c = readCond(new FormData(form));
   if (!new FormData(form).getAll("src").length) {
     alert("最少揀一個地產網");
@@ -573,6 +575,24 @@ fillForm(initCond);
 renderRecent();
 startSearch(initCond);
 if (embedded && typeof opts.initialQs === "string") { saveRecent(initCond, condLabel(initCond), condToQuery(initCond)); renderRecent(); }
+// 「已套用睇樓偏好」晶片（2026-11-01 UI review）：app 自動用偏好預填（opts.initial）而唔係用戶自己揀嘅條件時，
+// 明確話俾佢知而家篩緊乜，一撳 ✕ 就清走偏好條件（房數／價錢／面積）再搜。由主頁表單帶過嚟（initialQs）嘅唔出。
+if (embedded && typeof opts.initialQs !== "string") {
+  const prefOnly = { ...initCond, kw: "", area: null };
+  const label = ["beds", "pmin", "pmax", "smin", "smax"].some((k) => initCond[k] != null) ? condLabel(prefOnly) : "";
+  if (label) {
+    const box = $("ps-applied");
+    box.innerHTML = `<span>已套用你嘅睇樓偏好：<b>${escHtml(label)}</b></span><button type="button" class="ps-applied-x" title="清除偏好條件再搜">✕ 清除</button>`;
+    box.hidden = false;
+    box.querySelector("button").addEventListener("click", () => {
+      const c = { ...readCond(new FormData(form)), beds: null, pmin: null, pmax: null, smin: null, smax: null };
+      hideApplied();
+      fillForm(c);
+      startSearch(c);
+    });
+  }
+}
+function hideApplied() { const b = $("ps-applied"); if (b) { b.hidden = true; b.innerHTML = ""; } }
 
 // ── Escape helpers（同 app.html 一樣；地產網資料當唔可信）──
 function escHtml(s) {
