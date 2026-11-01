@@ -435,41 +435,29 @@
       border: 1px dashed var(--border-strong); border-radius: var(--radius-sm);
     }
     .paused-note a { color: var(--accent2); }
-    .estate-card-delete {
-      position: absolute;
-      top: 0.6rem;
-      right: 0.6rem;
-      background: none;
-      border: none;
-      color: var(--muted);
-      cursor: pointer;
-      font-size: 0.8rem;
-      padding: 2px 5px;
-      border-radius: 4px;
-      opacity: 0;
-      transition: opacity 0.15s, color 0.15s;
-    }
-    .estate-card:hover .estate-card-delete { opacity: 1; }
-    .estate-card-delete:hover { color: var(--down); }
-
+    /* 屋苑卡頭：★（名前面，常駐）＋名＋⋯（右邊）。2026-11-01 UI review：以前 ★ 同 ✕ 喺右上角並排、只 hover 先見，
+       觸控機睇唔到但撳得中，容易誤刪；而家刪除收入 ⋯ 選單＋確認框，★ 常駐顯示等用戶知道有呢樣。 */
+    .estate-card-head { display: flex; align-items: center; gap: 0.3rem; }
+    .estate-card-head .estate-card-name { flex: 1; min-width: 0; }
     .estate-card-star {
-      position: absolute;
-      top: 0.6rem;
-      right: 2rem;
-      background: none;
-      border: none;
-      color: var(--muted);
-      cursor: pointer;
-      font-size: 0.85rem;
-      padding: 2px 4px;
-      border-radius: 4px;
-      opacity: 0;
-      transition: opacity 0.15s, color 0.15s;
-      line-height: 1;
+      flex: none; background: none; border: none; padding: 0 2px; margin-left: -2px; cursor: pointer;
+      color: var(--muted); font-size: 0.95rem; line-height: 1; border-radius: 4px;
     }
-    .estate-card:hover .estate-card-star { opacity: 1; }
-    .estate-card-star.starred { opacity: 1; color: var(--accent); }
+    .estate-card-star.starred { color: var(--accent); }
     .estate-card-star:hover { color: var(--accent); }
+    .estate-card-more {
+      flex: none; background: none; border: none; color: var(--muted); cursor: pointer;
+      font-size: 1rem; line-height: 1; padding: 0.1rem 0.35rem; border-radius: 6px; letter-spacing: 1px;
+    }
+    .estate-card-more:hover { background: var(--btn2-bg); color: var(--text); }
+    .estate-menu {
+      position: absolute; right: 0.5rem; top: 2.1rem; z-index: 20; min-width: 10rem;
+      background: var(--surface); border: 1px solid var(--border); border-radius: 10px; box-shadow: var(--shadow); padding: 0.25rem;
+    }
+    .estate-menu button { display: block; width: 100%; text-align: left; background: none; border: none; padding: 0.5rem 0.65rem; border-radius: 7px; font-size: 0.82rem; cursor: pointer; font-family: inherit; color: var(--text); }
+    .estate-menu button:hover { background: var(--btn2-bg); }
+    .estate-menu .estate-menu-danger { color: var(--down); }
+    .star-legend { font-size: 0.7rem; color: var(--muted); line-height: 1.5; padding: 0 0.2rem 0.1rem; }
 
     .drag-handle {
       position: absolute;
@@ -1328,6 +1316,9 @@
     .lc-combined { background: rgba(28,158,232,0.07); }
     .lc-actions { display: flex; gap: 0.3rem; flex-wrap: wrap; padding-top: 0.4rem; }
     .lc-btn { font-size: 0.68rem; padding: 0.1rem 0.4rem; margin: 0; }
+    /* 次要動作（標記已下架／還原）：細字底線，唔似主掣（2026-11-01 UI review：新用戶以為要佢幫系統報下架） */
+    .lc-mini { background: none; border: none; padding: 0.1rem 0.2rem; margin: 0; color: var(--muted); font-size: 0.68rem; text-decoration: underline; text-underline-offset: 2px; cursor: pointer; font-family: inherit; }
+    .lc-mini:hover { color: var(--text); }
 
     /* Loading */
     .loading {
@@ -3318,7 +3309,7 @@ async function pickEstateForQuick(id) {
 // 手機版 sidebar 收埋咗，快捷掣要幫手拉返出嚟先 focus 到個搜尋框
 // 側欄「🔍 搵樓」：喺主畫面（#main）入面開四大地產網搜尋——同公開 /search 頁共用
 // public-search.js／.css（第一次先載入）。「🔔 追蹤加減價」直接帶去側欄屋苑搜尋，唔使再登記。
-const PS_VER = '20261030b';   // 改 public-search.js/.css 要同 search.html 一齊 bump（Pages 靜態檔 cache 4 小時）
+const PS_VER = '20261101a';   // 改 public-search.js/.css 要同 search.html 一齊 bump（Pages 靜態檔 cache 4 小時）
 let _psAssets = null;
 function _loadPublicSearchAssets() {
   if (!_psAssets) _psAssets = new Promise((resolve, reject) => {
@@ -4189,9 +4180,17 @@ function toggleCompsRange() {
   document.getElementById('dj-range')?.classList.toggle('open', _compsRangeOpen);
 }
 
+// 座數標籤：座名就係屋苑名（單幢屋苑，例：太安樓）唔好砌成「太安樓座」，直接唔顯示座（2026-11-01 UI review）
+function _blockLabel(v) {
+  const b = String(v.block || '').trim();
+  if (!b) return null;
+  const en = String(v.estate_name || estatesById?.[v.estate_id]?.name || '').trim();
+  if (en && b === en) return null;
+  return /座$/.test(b) ? b : b + '座';
+}
 // 同 renderOneViewing 一樣嘅叫法：7座 11樓 F室
 function _compsUnitLabel(v) {
-  const b = v.block ? (/座$/.test(v.block) ? v.block : v.block + '座') : null;
+  const b = _blockLabel(v);
   const f = v.floor ? (/樓$/.test(v.floor) || /層$/.test(v.floor) ? v.floor : v.floor + '樓') : null;
   const u = v.unit ? (/室$/.test(v.unit) || /號$/.test(v.unit) ? v.unit : v.unit + '室') : null;
   return [b, f, u].filter(Boolean).join(' ');
@@ -4395,7 +4394,7 @@ function renderCompsPanel() {
           <div class="dj-right">
             <div class="dj-rows">${rowsHtml}</div>
             ${g.items.length > 1 ? `<div class="dj-foot"><span></span>
-              <button type="button" class="dj-share-day" title="分享今日睇樓日記" onclick="openShareForIds([${g.items.map(v => Number(v.id)).join(',')}],'day')">📤 Share</button>
+              <button type="button" class="dj-share-day" title="分享今日睇樓日記" onclick="openShareForIds([${g.items.map(v => Number(v.id)).join(',')}],'day')">📤 分享</button>
             </div>` : ''}
           </div>
         </div>
@@ -5195,11 +5194,12 @@ function renderBillingSummary() {
 function estateCardMeta(e) {
   const st = e.stats;
   if (!st || !st.n) {   // 未有統計（新屋苑／未算）：用返舊版一行
-    return `<div class="estate-card-meta">${e.today_count ?? 0}個盤</div>`;
+    return `<div class="estate-card-meta">${e.today_count ?? 0} 個放盤</div>`;
   }
   const num = (x) => Number(x) || 0;
   const lines = [];
-  lines.push(`<b>${num(st.n)}</b>個盤${st.psf ? `．$${num(st.psf).toLocaleString()}/呎` : ''}`);
+  // 卡面係「去重後嘅單位數」（同一單位喺幾個地產網只計一次），屋苑頁「最新放盤」係各網放盤行數，兩個數字唔同係正常
+  lines.push(`<span title="同一個單位喺幾個地產網放售，只計一次"><b>${num(st.n)}</b> 個單位</span>${st.psf ? `．$${num(st.psf).toLocaleString()}/呎` : ''}`);
   if (isPaid()) {
     if (st.new == null) lines.push('<span title="需要多一個星期嘅數據先比較到">週變動：數據累積中</span>');
     else {
@@ -5238,8 +5238,10 @@ async function loadEstates() {
            已經停咗 sync），改為擺個「恢復」掣。特登唔隱藏——要俾用戶見到
            啲屋苑仲喺度、冇被刪，先唔會以為系統食咗佢啲嘢。 -->
       <div class="estate-card estate-card-paused" data-id="${e.id}">
-        <button class="estate-card-delete" onclick="deleteEstate(event,${e.id})">✕</button>
-        <div class="estate-card-name">${escHtml(e.name)}</div>
+        <div class="estate-card-head">
+          <div class="estate-card-name">${escHtml(e.name)}</div>
+          <button class="estate-card-more" title="更多" aria-label="更多選項" onclick="openEstateMenu(event,${e.id})">⋯</button>
+        </div>
         <div class="estate-card-meta">
           <span class="paused-badge">⏸ 已暫停</span>
           <button class="paused-resume" onclick="resumeEstate(event,${e.id})">恢復</button>
@@ -5251,13 +5253,19 @@ async function loadEstates() {
            draggable="true"
            onclick="showEstate(${e.id})">
         <span class="drag-handle" title="拖拽排序">⠿</span>
-        <button class="estate-card-star ${e.is_favourite ? 'starred' : ''}"
-                onclick="toggleFavourite(event,${e.id})" title="標記最愛">★</button>
-        <button class="estate-card-delete" onclick="deleteEstate(event,${e.id})">✕</button>
-        <div class="estate-card-name">${escHtml(e.name)}</div>
+        <div class="estate-card-head">
+          <button class="estate-card-star ${e.is_favourite ? 'starred' : ''}" onclick="toggleFavourite(event,${e.id})"
+                  title="${escHtml(_starHelp(e.is_favourite))}" aria-label="${e.is_favourite ? '取消最愛' : '設為最愛'}">${e.is_favourite ? '★' : '☆'}</button>
+          <div class="estate-card-name">${escHtml(e.name)}</div>
+          <button class="estate-card-more" title="更多" aria-label="更多選項" onclick="openEstateMenu(event,${e.id})">⋯</button>
+        </div>
         ${estateCardMeta(e)}
       </div>
     `).join('');
+    // ★ 有實際作用（每日更新＋每週摘要），唔係純書籤：列表頂一行講清楚（2026-11-01 UI review）
+    list.insertAdjacentHTML('afterbegin', `<div class="star-legend">${isPaid()
+      ? '★ 最愛：每日更新數據，每週摘要只計最愛'
+      : '★ 最愛（收費版）：每日更新數據＋每週摘要；免費版每隔幾日更新'}</div>`);
     // 有暫停咗嘅就喺列表頂解釋一次，唔好淨係得個 badge 冇下文
     const nPaused = estates.filter(e => e.paused).length;
     if (nPaused) {
@@ -5273,6 +5281,25 @@ async function loadEstates() {
     list.innerHTML = `<div class="sidebar-empty">載入失敗：${err.message}</div>`;
   }
 }
+
+// ★ 嘅說明（tooltip）：付費＝每日更新＋每週摘要；免費＝收費版功能
+function _starHelp(on) {
+  if (!isPaid()) return '設為最愛（收費版）：每日更新數據＋每週摘要';
+  return on ? '已設為最愛：每日更新數據，每週摘要會計呢個屋苑（撳一下取消）' : '設為最愛：每日更新數據，每週摘要會計呢個屋苑';
+}
+// 屋苑卡 ⋯ 選單：放「取消追蹤」（以前 ✕ 同 ★ 並排，容易誤撳；而家刪除要兩步＋確認框）
+function openEstateMenu(ev, id) {
+  ev.stopPropagation();
+  const card = ev.currentTarget.closest('.estate-card');
+  const open = card.querySelector('.estate-menu');
+  document.querySelectorAll('.estate-menu').forEach(m => m.remove());
+  if (open) return;   // 再撳一下＝閂
+  card.insertAdjacentHTML('beforeend', `<div class="estate-menu" role="menu" onclick="event.stopPropagation()">
+    <button type="button" role="menuitem" class="estate-menu-danger" onclick="document.querySelectorAll('.estate-menu').forEach(m=>m.remove());deleteEstate(event,${Number(id)})">取消追蹤呢個屋苑</button>
+  </div>`);
+}
+document.addEventListener('click', () => document.querySelectorAll('.estate-menu').forEach(m => m.remove()));
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape') document.querySelectorAll('.estate-menu').forEach(m => m.remove()); });
 
 async function toggleFavourite(e, id) {
   e.stopPropagation();
@@ -7173,7 +7200,7 @@ function _shareOptsNow() {
 }
 function _shareUnit(v) {
   const suf = (x, re, u) => { x = String(x || ''); return x && !re.test(x) ? x + u : x; };
-  return [suf(v.block, /座$/, '座'), suf(v.floor, /[樓層]$/, '樓'), suf(v.unit, /[室號]$/, '室')].filter(Boolean).join(' ');
+  return [_blockLabel(v), suf(v.floor, /[樓層]$/, '樓'), suf(v.unit, /[室號]$/, '室')].filter(Boolean).join(' ');
 }
 const _shareEstate = (v) => v.estate_name || estatesById?.[v.estate_id]?.name || _viewingEstateName || '';
 function openShareForIds(ids, kind) {
@@ -7401,7 +7428,7 @@ function renderFavListings() {
   const sorted = [..._favItems].sort((a, b) => (b.active - a.active) || String(b.created_at).localeCompare(String(a.created_at)));
   const bar = `<div class="fav-bar"><label><input type="checkbox" id="fav-all" onchange="favSelectAll(this.checked)"> 全選</label>
       <span id="fav-sel-count" style="color:var(--muted);font-size:0.78rem"></span>
-      <button type="button" class="share-btn" id="fav-share-btn" disabled onclick="shareSelectedFavs()">📤 Share</button></div>`;
+      <button type="button" class="share-btn" id="fav-share-btn" disabled onclick="shareSelectedFavs()">📤 分享</button></div>`;
   const wan = (p) => `$${(Math.round(p / 1000) / 10).toLocaleString()}萬`;
   body.innerHTML = bar + sorted.map(f => {
     const sn = f.snap || {};
@@ -8975,7 +9002,7 @@ function renderOneViewing(v, estateId, isMobile, showTypeFilter) {
       window._viewingMap = window._viewingMap || {};
       window._viewingMap[v.id] = v;
       const imgHtml = imgCount ? `<button type="button" class="viewing-photos-btn" onclick="openViewingPhotos(${v.id}, this)">📷 ${imgCount} 張相</button>` : '';
-      const fmtBlock = v.block ? ((/座$/.test(v.block) ? v.block : v.block+'座')) : null;
+      const fmtBlock = _blockLabel(v);
       const fmtFloor = v.floor ? ((/樓$/.test(v.floor)||/層$/.test(v.floor) ? v.floor : v.floor+'樓')) : null;
       const fmtUnit = v.unit ? ((/室$/.test(v.unit)||/號$/.test(v.unit) ? v.unit : v.unit+'室')) : null;
       const unitStr = typeBadge + [fmtBlock, fmtFloor, fmtUnit].filter(Boolean).map(s => escHtml(s)).join(' ');
@@ -9058,7 +9085,7 @@ function renderOneViewing(v, estateId, isMobile, showTypeFilter) {
       const viewBtn = `<button class="viewing-del-btn vw-view-btn" onclick='openViewingModal(JSON.parse(decodeURIComponent("${vData}")), true)' title="查看" style="background:var(--btn2-bg);border:1px solid var(--btn2-border);margin-right:0.3rem">👁</button>`;
       const editBtn = `<button class="viewing-del-btn" onclick='openViewingModal(JSON.parse(decodeURIComponent("${vData}")))' title="更改" style="background:var(--btn2-bg);border:1px solid var(--btn2-border);margin-right:0.3rem">✏️</button>`;
       const delBtn = `<button class="viewing-del-btn" onclick="deleteViewing(${v.id},${estateId})" title="刪除">🗑</button>`;
-      const shareBtn = `<button class="viewing-del-btn vw-edit-only" onclick='openShareModal([JSON.parse(decodeURIComponent("${vData}"))], "viewing")' title="分享" style="background:var(--btn2-bg);border:1px solid var(--btn2-border);margin-right:0.3rem;font-weight:600">📤 Share</button>`;
+      const shareBtn = `<button class="viewing-del-btn vw-edit-only" onclick='openShareModal([JSON.parse(decodeURIComponent("${vData}"))], "viewing")' title="分享" style="background:var(--btn2-bg);border:1px solid var(--btn2-border);margin-right:0.3rem;font-weight:600">📤 分享</button>`;
 
       if (isMobile) {
         // 卡片版面：一格一格垂直疊，唔使橫拉。同一組 id（vmatch-/vprev-）
@@ -10332,7 +10359,7 @@ function renderListingCards(el, displayRows) {
 
     // ── 掣：標記已下架／還原（同表格一樣，淨係單一盤先有）──────────────
     const manualBtn = (!l._combined && l.ref_no && !l.removed_date)
-      ? `<button class="history-btn lc-btn" onclick="event.stopPropagation();toggleManualRemoved('${escJsAttr(l.ref_no)}', this)">${l.manual_removed_at ? '↺ 還原' : '標記已下架'}</button>`
+      ? `<button class="lc-mini" title="地產網已經冇咗呢個盤？幫手標記（其他用戶會見到提示）" onclick="event.stopPropagation();toggleManualRemoved('${escJsAttr(l.ref_no)}', this)">${l.manual_removed_at ? '↺ 還原' : '標記已下架'}</button>`
       : '';
     // 類近成交（表格喺單位格底下）
     const lineBtn = (l.building_name && l.unit)
@@ -10401,14 +10428,14 @@ function renderListingsTable() {
   const displayRows = groupListings(visible);
   if (_listingView === "card" && !groupSelectMode) {
     const fc0 = document.getElementById("filterCount_buy");
-    if (fc0) fc0.textContent = `顯示 ${visible.length} / ${allListings.length} 個盤${displayRows.length < visible.length ? `(合併為 ${displayRows.length} 張卡)` : ''}`;
+    if (fc0) fc0.textContent = `顯示 ${visible.length} / ${allListings.length} 個放盤（各地產網分開計）${displayRows.length < visible.length ? `，合併為 ${displayRows.length} 張卡` : ''}`;
     renderListingCards(el, displayRows);
     return;
   }
   { const btn = document.getElementById("listingViewBtn"); if (btn) btn.textContent = "🖼 卡片"; }
 
   const fc = document.getElementById("filterCount_buy");
-  if (fc) fc.textContent = `顯示 ${visible.length} / ${allListings.length} 個盤${displayRows.length < visible.length ? `(合併為 ${displayRows.length} 行)` : ''}`;
+  if (fc) fc.textContent = `顯示 ${visible.length} / ${allListings.length} 個放盤（各地產網分開計）${displayRows.length < visible.length ? `，合併為 ${displayRows.length} 行` : ''}`;
 
   const modeBtn = document.getElementById('groupModeBtn');
   if (modeBtn) {
@@ -10506,8 +10533,8 @@ function renderListingsTable() {
         ? (l.removed_date
             ? ''
             : l.manual_removed_at
-              ? `<button class="history-btn" style="font-size:0.68rem;padding:0.05rem 0.35rem;margin-top:0.15rem" onclick="toggleManualRemoved('${escJsAttr(l.ref_no)}', this)">↺ 還原</button>`
-              : `<button class="history-btn" style="font-size:0.68rem;padding:0.05rem 0.35rem;margin-top:0.15rem" onclick="toggleManualRemoved('${escJsAttr(l.ref_no)}', this)">標記已下架</button>`)
+              ? `<button class="lc-mini" style="margin-top:0.15rem" onclick="toggleManualRemoved('${escJsAttr(l.ref_no)}', this)">↺ 還原</button>`
+              : `<button class="lc-mini" style="margin-top:0.15rem" title="地產網已經冇咗呢個盤？幫手標記（其他用戶會見到提示）" onclick="toggleManualRemoved('${escJsAttr(l.ref_no)}', this)">標記已下架</button>`)
         : '';
       return `
       <tr${rowStyle}>
