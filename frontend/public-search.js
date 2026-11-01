@@ -493,7 +493,16 @@ function fmtDate(d) {
 }
 
 // ── 事件 ───────────────────────────────────────────────────
-form.addEventListener("change", (e) => { if (e.target.name === "deal") syncPriceLabel(); });
+// 切換買／租：價錢單位唔同（萬 vs 元），舊數字搬過去冇意義（之前買盤 800 萬會變「月租 800 元」）。
+// 換成嗰邊嘅預設（opts.priceByDeal＝app 嘅睇樓偏好：{S:{pmin,pmax}, R:{pmin,pmax}}），冇就清空。
+form.addEventListener("change", (e) => {
+  if (e.target.name !== "deal") return;
+  const d = (opts.priceByDeal || {})[e.target.value] || {};
+  $("ps-pmin").value = d.pmin ?? "";
+  $("ps-pmax").value = d.pmax ?? "";
+  hideApplied();                     // 「已套用偏好」晶片寫住舊類型嘅價錢，用戶自己轉咗就唔再準
+  syncPriceLabel();
+});
 if (opts.formOnly) {
   // 只畫表單：預填偏好，撳搜尋就交俾 opts.onSearch(query string)，唔喺度出結果
   form.addEventListener("submit", (e) => {
