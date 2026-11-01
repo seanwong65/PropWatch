@@ -701,7 +701,7 @@ drip sync（`*/2`）同樣被雙重觸發：兩個 invocation 同時揀同一批
 
 ## 主選單（2026-11-01，UI review C 組）
 
-- 今日／屋苑／搵盤／睇樓／設定。闊屏＝左邊直排（`.nv-rail`，`.layout` grid 第 1 欄），手機＝黏喺頂欄下面一排（`.nv-mobile`，sticky，`--nv-h` 50px；`.sticky-bar` 跟住移落）。⚠️ 唔好放返底部：iOS 26 Safari 浮動網址列會遮住 fixed 底部元素，`viewport-fit=cover`＋safe-area 都救唔到（用戶實機 2026-11-01）。`body.authed`（`hideLoginScreen` 加）先出。Demo：`docs/demo/main-nav.html`。
+- 今日／屋苑／搵盤／睇樓／設定。闊屏＝左邊直排（`.nv-rail`，`.layout` grid 第 1 欄），手機＝底部一排（`.nv-mobile`，fixed）。⚠️ iOS 26 Safari 浮動網址列會遮住 fixed 底部元素，`viewport-fit=cover`＋safe-area 唔包佢：iPhone Safari 瀏覽器分頁（非 standalone、Version≥26、非 CriOS／FxiOS…）時 `<html class="ios-float-bar">`，`--ios-bar: 64px` 加落選單底部 padding／`.main` padding／toast（數值按用戶實機截圖量，要調就改呢個）。打字時（focusin input）`body.kb-open` 收埋選單（iOS 收鍵盤後 fixed 元素錯位）。曾經試過搬去頂欄下面，用戶想留喺底。`body.authed`（`hideLoginScreen` 加）先出。Demo：`docs/demo/main-nav.html`。
 - `navGo(tab)` 換頁；`navSet(tab, estList)` 只負責高亮＋屋苑列表。各頁函數自己 call navSet：`showDashboard`（today／view）、`showEstate`（estates）、`openPublicSearch`（find）、`showHistoryPage`（today）。
 - **屋苑**＝原本左邊側欄（`.sidebar`）：`body.nv-estlist` 先出，佔主內容位、`.main` 收埋；其他頁側欄收埋。`toggleSidebar()`（登入後）＝`navGo('estates')`；`trackNameFromSearch`／`focusEstateSearch`／track_name handoff 一律 `navGo('estates')`。屋苑卡加「今日：新盤 N．減價 N…」（stats.d1）。
 - **今日**＝`showDashboard(estates,'today')`：你嘅屋苑今日／待跟進（＋冇更新時搵樓）＋「動態」（撳「睇動態」先載，慳 D1）。睇樓日記資料照背景載（待跟進要用），panel 收埋。五粒捷徑已拎走。
