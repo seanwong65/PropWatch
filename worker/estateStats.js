@@ -105,6 +105,38 @@ export function dayChangesFrom(rows) {
   }
   return { new: nNew, cuts, ups };
 }
+// 逐個列（主頁「你嘅屋苑今日」撳「睇下」展開，2026-11-02）：同 computeDayChanges 同一套 SQL／分類，數字一定對得上。
+// 每類最多 cap 條（總數照回）。
+export async function dayChangeRows(db, estateId, day, sources, cap = 50) {
+  const id = Number(estateId);
+  if (!isoDate(day)) return null;
+  const est = await db.prepare("SELECT date(first_seen) AS fs FROM estates WHERE id = ?").bind(id).first();
+  if (!est?.fs || est.fs > addDays(day, -2)) return { day, unavailable: true };
+  const srcs = sources.filter((x) => /^[a-z]+$/.test(x));
+  const { results } = await db.prepare(
+    `SELECT l.source, l.building_name AS b, l.floor AS f, l.unit AS u, l.bedrooms AS beds, l.size_net AS s,
+       ph.price AS p, l.price_per_ft AS psf, l.detail_url AS url,
+       (SELECT q.price FROM listing_price_history q WHERE q.ref_no = l.ref_no AND q.snapshot_date < ?2
+         ORDER BY q.snapshot_date DESC LIMIT 1) AS prev
+     FROM listings l
+     JOIN listing_price_history ph ON ph.ref_no = l.ref_no AND ph.snapshot_date = ?2
+     WHERE l.estate_id = ?1 AND l.source IN (${srcs.map((x) => `'${x}'`).join(",")}) AND l.snapshot_date = ?2
+       AND l.ref_no IS NOT NULL`).bind(id, day).all();
+  const out = { new: [], cuts: [], ups: [] };
+  for (const r of results) {
+    const row = { src: r.source, b: r.b || "", f: r.f || "", u: r.u || "", beds: r.beds ?? null, s: r.s || null, p: r.p, psf: r.psf || null, url: r.url || null };
+    if (r.prev == null) out.new.push(row);
+    else if (r.prev - r.p > DAY_PRICE_EPS) out.cuts.push({ ...row, from: r.prev, pct: Math.round((r.p / r.prev - 1) * 1000) / 10 });
+    else if (r.p - r.prev > DAY_PRICE_EPS) out.ups.push({ ...row, from: r.prev, pct: Math.round((r.p / r.prev - 1) * 1000) / 10 });
+  }
+  out.new.sort((a, b) => a.p - b.p); out.cuts.sort((a, b) => a.pct - b.pct); out.ups.sort((a, b) => b.pct - a.pct);
+  const { results: tx } = await db.prepare(
+    `SELECT building AS b, floor AS f, unit AS u, price AS p, size_net AS s, price_per_ft AS psf, reg_date AS reg, source AS src
+     FROM transactions WHERE estate_id = ? AND first_seen = ? AND reg_date >= ? ORDER BY reg_date DESC, price DESC`)
+    .bind(id, day, addDays(day, -DAY_TXN_MAX_AGE)).all();
+  const counts = { new: out.new.length, cuts: out.cuts.length, ups: out.ups.length, txns: tx.length };
+  return { day, counts, new: out.new.slice(0, cap), cuts: out.cuts.slice(0, cap), ups: out.ups.slice(0, cap), txns: tx.slice(0, cap) };
+}
 export async function computeDayChanges(db, estateId, day, sources) {
   const id = Number(estateId);
   if (!isoDate(day)) return null;

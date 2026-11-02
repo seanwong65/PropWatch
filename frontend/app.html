@@ -1135,6 +1135,23 @@
     .mon-stats b { color: var(--text); }
     .mon-stats .cut b { color: var(--up); }
     .mon-go { color: var(--muted); }
+    .mon-item { border-top: 1px solid var(--border); }
+    .mon-item:first-of-type { border-top: none; }
+    .mon-item .mon-row { border-top: none; cursor: default; }
+    .mon-name { background: none; border: none; padding: 0; font: inherit; font-weight: 600; color: var(--text); cursor: pointer; text-align: left; }
+    .mon-stats { cursor: pointer; }
+    .mon-more { background: none; border: none; color: var(--muted); font-size: 0.8rem; cursor: pointer; white-space: nowrap; font-family: inherit; padding: 0.2rem 0 0.2rem 0.3rem; }
+    .mon-detail { padding: 0 0 0.6rem; font-size: 0.8rem; }
+    .mon-detail[hidden] { display: none; }
+    .md-h { font-weight: 700; margin: 0.45rem 0 0.15rem; font-size: 0.8rem; }
+    .md-r { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.15rem 0.5rem; padding: 0.3rem 0; border-top: 1px dashed var(--border); }
+    .md-r:first-of-type { border-top: none; }
+    .md-u { font-weight: 600; flex: 1 1 100%; }
+    .md-m { color: var(--muted); }
+    .md-p { font-weight: 700; color: var(--accent); }
+    .md-r a { color: var(--accent2); text-decoration: none; margin-left: auto; }
+    .md-foot { margin-top: 0.35rem; }
+    .md-foot a { color: var(--accent2); cursor: pointer; }
     .mon-rest { font-size: 0.74rem; color: var(--muted); padding-top: 0.45rem; border-top: 1px solid var(--border); }
     .mon-rest a, .quiet-line a { color: var(--accent2); cursor: pointer; }
     .mon-todo:not(:empty) { margin-top: 0.3rem; padding-top: 0.55rem; border-top: 1px dashed var(--border-strong); }
@@ -4196,9 +4213,13 @@ function renderHomeCarousel() {
     const quiet = ests.length - upd.length;
     host.innerHTML = `<div class="mon-card">
         <div class="mon-head"><span>📈 你嘅屋苑${label}</span><small>${escHtml(day.slice(5).replace('-', '/'))}</small></div>
-        ${upd.map(e => { const d = e.stats.d1; return `<div class="mon-row" role="button" tabindex="0" onclick="showEstate(${Number(e.id)})" onkeydown="if(event.key==='Enter')showEstate(${Number(e.id)})">
-          <span class="mon-name">${escHtml(e.name)}</span>
-          <span class="mon-stats">${st('新盤', d.new)}${st('減價', d.cuts, 'cut')}${st('加價', d.ups)}${st('新成交', d.txns)}</span><span class="mon-go">›</span></div>`; }).join('')}
+        ${upd.map(e => { const d = e.stats.d1, id = Number(e.id); return `<div class="mon-item">
+          <div class="mon-row">
+            <button type="button" class="mon-name" onclick="showEstate(${id})" title="入屋苑頁">${escHtml(e.name)}</button>
+            <span class="mon-stats" onclick="monToggle(${id},'${escJsAttr(d.day)}')">${st('新盤', d.new)}${st('減價', d.cuts, 'cut')}${st('加價', d.ups)}${st('新成交', d.txns)}</span>
+            <button type="button" class="mon-more" id="mon-more-${id}" onclick="monToggle(${id},'${escJsAttr(d.day)}')" aria-expanded="false">睇下 ▾</button>
+          </div>
+          <div class="mon-detail" id="mon-detail-${id}" hidden></div></div>`; }).join('')}
         <div class="mon-rest">${quiet ? `其餘 ${quiet} 個屋苑${label}冇變動．` : ''}<a onclick="homeGoDyn('today')">睇${label === '今日' ? '今日' : ''}全部動態 ›</a></div>
         <div class="mon-todo" id="hc-todo"></div>
       </div>
@@ -4216,6 +4237,38 @@ function renderHomeCarousel() {
   }
   renderViewingTodo();    // 資料已載入就即刻填待跟進
   if (mode !== 'A') _homeMountSearch();
+}
+// 「你嘅屋苑今日」撳「睇下」：喺原位列出嗰日嘅新盤／減價／加價／新成交（GET /api/estates/:id/day-changes，數字同主頁一致）
+const _monCache = {};
+const _monWan = (p) => p ? `$${(Math.round(p / 1e3) / 10).toLocaleString('en-US', { maximumFractionDigits: 1 })}萬` : '-';
+async function monToggle(id, day) {
+  const box = document.getElementById(`mon-detail-${id}`), btn = document.getElementById(`mon-more-${id}`);
+  if (!box) return;
+  const open = box.hidden;
+  box.hidden = !open;
+  if (btn) { btn.textContent = open ? '收起 ▴' : '睇下 ▾'; btn.setAttribute('aria-expanded', String(open)); }
+  if (!open) return;
+  const key = `${id}|${day}`;
+  if (!_monCache[key]) {
+    box.innerHTML = '<div class="md-m">載入中…</div>';
+    try { _monCache[key] = await api(`/api/estates/${id}/day-changes?day=${encodeURIComponent(day)}`); }
+    catch (e) { box.innerHTML = `<div style="color:var(--down)">載入失敗：${escHtml(e.message || '')}</div>`; return; }
+  }
+  box.innerHTML = _monDetailHtml(id, _monCache[key]);
+}
+function _monDetailHtml(id, r) {
+  if (!r || r.unavailable) return '<div class="md-m">暫時未有資料</div>';
+  const unit = (x) => escHtml([x.b, x.f, x.u].filter(Boolean).join(' ') || '單位未有資料');
+  const facts = (x) => [x.beds != null ? `${Number(x.beds)}房` : '', x.s ? `${Math.round(x.s)}呎` : '', x.psf ? `$${Math.round(x.psf).toLocaleString()}/呎` : ''].filter(Boolean).join('．');
+  const link = (x) => x.url ? `<a href="${safeUrl(x.url)}" target="_blank" rel="noopener noreferrer">${escHtml(sourceLabel(x.src))} ↗</a>` : `<span class="md-m">${escHtml(sourceLabel(x.src))}</span>`;
+  const more = (shown, total) => total > shown ? `<div class="md-m">另有 ${total - shown} 個，去屋苑頁睇</div>` : '';
+  const c = r.counts || {};
+  let h = '';
+  if (r.new?.length) h += `<div class="md-h">🆕 新盤 ${Number(c.new)}</div>` + r.new.map(x => `<div class="md-r"><span class="md-u">${unit(x)}</span><span class="md-p">${_monWan(x.p)}</span><span class="md-m">${facts(x)}</span>${link(x)}</div>`).join('') + more(r.new.length, c.new);
+  if (r.cuts?.length) h += `<div class="md-h" style="color:var(--up)">🔻 減價 ${Number(c.cuts)}</div>` + r.cuts.map(x => `<div class="md-r"><span class="md-u">${unit(x)}</span><span class="md-m">${_monWan(x.from)} →</span><span class="md-p">${_monWan(x.p)}</span><span style="color:var(--up)">${Number(x.pct)}%</span><span class="md-m">${facts(x)}</span>${link(x)}</div>`).join('') + more(r.cuts.length, c.cuts);
+  if (r.ups?.length) h += `<div class="md-h">🔺 加價 ${Number(c.ups)}</div>` + r.ups.map(x => `<div class="md-r"><span class="md-u">${unit(x)}</span><span class="md-m">${_monWan(x.from)} →</span><span class="md-p">${_monWan(x.p)}</span><span style="color:var(--down)">+${Number(x.pct)}%</span><span class="md-m">${facts(x)}</span>${link(x)}</div>`).join('') + more(r.ups.length, c.ups);
+  if (r.txns?.length) h += `<div class="md-h">🤝 新成交 ${Number(c.txns)}</div>` + r.txns.map(x => `<div class="md-r"><span class="md-u">${unit(x)}</span><span class="md-p">${_monWan(x.p)}</span><span class="md-m">${[x.s ? `${Math.round(x.s)}呎` : '', x.psf ? `$${Math.round(x.psf).toLocaleString()}/呎` : '', x.reg ? `登記 ${escHtml(String(x.reg).slice(5))}` : ''].filter(Boolean).join('．')}</span></div>`).join('') + more(r.txns.length, c.txns);
+  return (h || '<div class="md-m">冇變動</div>') + `<div class="md-foot"><a onclick="showEstate(${Number(id)})">去屋苑頁睇全部放盤 ›</a></div>`;
 }
 function homeOpenFind() {
   document.getElementById('hc-find')?.remove();

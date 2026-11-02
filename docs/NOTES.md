@@ -727,3 +727,8 @@ drip sync（`*/2`）同樣被雙重觸發：兩個 invocation 同時揀同一批
 - `getDailySyncEstateIds` 加：今日有人新加入（`account_estates.added_at = 今日`）嘅已 sync 屋苑，今日補做一次（取代以前 track 即場抓中原）。
 - 防重複屋苑：搜尋有時中原結果未返，用戶撳咗美聯同名屋苑（`EXT-M-…`）→ 開咗重複屋苑（id 60 vs 59，重複抓同一批盤、白食新屋苑名額）。`/api/track` 收到 `EXT-` 代號而已有同名 `is_bigest=1` 屋苑 → 用返嗰個。
 - `subscribe:false`（朋友屋企 one-off）仲係即場 `syncOneEstate`，大屋苑都可能慢，未改。
+
+## 主頁「你嘅屋苑今日」撳「睇下」展開（2026-11-02）
+
+- 每行：屋苑名（撳入屋苑頁）＋數字＋「睇下 ▾」；撳數字或「睇下」喺原位列出嗰日嘅新盤／減價（原價→新價、%）／加價／新成交，每個盤有地產網連結（`monToggle`、`_monDetailHtml`，結果 cache 喺 `_monCache`）。
+- 後端 `GET /api/estates/:id/day-changes?day=`（`dayChangeRows`，同 `computeDayChanges` 同一套 SQL／分類，數字一定對得上；每類最多 50 條，總數照回）。要過 canReadEstate（加入咗 `/api/estates/:id/*` regex），day 只准最近 7 日。今日 snapshot＝免費都有。
