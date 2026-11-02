@@ -1977,8 +1977,9 @@
     .nv-bigbtn { display: block; width: 100%; background: var(--brand); color: var(--brand-ink, #fff); border: none; border-radius: 12px; padding: 0.75rem; font-size: 0.95rem; font-weight: 700; cursor: pointer; font-family: inherit; margin: 0 0 0.8rem; }
     .nv-findwrap { max-width: 1100px; }
     /* 今日頁：只出「動態」分頁；睇樓頁：只出睇樓日記／朋友屋企 */
-    .dashboard[data-page="today"] #dash-tab-comps, .dashboard[data-page="today"] #dash-tab-friends,
-    .dashboard[data-page="view"] #dash-tab-today, .dashboard[data-page="view"] #dash-tab-actions { display: none !important; }
+    .dashboard[data-page="today"] #dash-tab-comps, .dashboard[data-page="today"] #dash-tab-friends { display: none !important; }
+    /* 睇樓記錄／朋友屋企（2026-11-02 第 5 個 tab）：各自一頁，唔使分頁列 */
+    .dashboard[data-page="view"] #dash-head, .dashboard[data-page="friends"] #dash-head { display: none !important; }
     @media (min-width: 769px) and (max-width: 1024px) {
       body.authed .layout { grid-template-columns: 150px minmax(0, 1fr); }
     }
@@ -2029,6 +2030,7 @@
     <button type="button" data-nav="estates" onclick="navGo('estates')"><span class="i">🏢</span><span>追蹤中屋苑</span></button>
     <button type="button" data-nav="find" onclick="navGo('find')"><span class="i">🔍</span><span>搵盤</span></button>
     <button type="button" data-nav="view" onclick="navGo('view')"><span class="i">📝</span><span>睇樓記錄</span></button>
+    <button type="button" data-nav="friends" onclick="navGo('friends')"><span class="i">👥</span><span>朋友屋企</span></button>
 </nav>
 
 <!-- Login Screen -->
@@ -2652,6 +2654,7 @@
     <button type="button" data-nav="estates" onclick="navGo('estates')"><span class="i">🏢</span><span>追蹤中屋苑</span></button>
     <button type="button" data-nav="find" onclick="navGo('find')"><span class="i">🔍</span><span>搵盤</span></button>
     <button type="button" data-nav="view" onclick="navGo('view')"><span class="i">📝</span><span>睇樓記錄</span></button>
+    <button type="button" data-nav="friends" onclick="navGo('friends')"><span class="i">👥</span><span>朋友屋企</span></button>
   </nav>
   <!-- Sidebar：2026-11-01 起係「屋苑」頁（body.nv-estlist 先出） -->
   <aside class="sidebar">
@@ -3392,11 +3395,13 @@ function navGo(tab) {
   }
   else if (tab === 'find') openPublicSearch();
   else if (tab === 'view') showDashboard(dashboardEstates, 'view');
+  else if (tab === 'friends') showDashboard(dashboardEstates, 'friends');
   window.scrollTo(0, 0);
   document.getElementById('main')?.scrollTo?.(0, 0);
 }
 
-// page：'today'（主選單「今日」：你嘅屋苑今日／待跟進／動態）或 'view'（「睇樓」：新增睇樓＋睇樓日記／朋友屋企）。
+// page：'today'（主選單「今日」：你嘅屋苑今日／待跟進／動態）、'view'（「睇樓記錄」：新增睇樓＋睇樓日記）、
+// 'friends'（「朋友屋企」，2026-11-02 第 5 個 tab：用戶話係滿足好奇心嘅「遊戲」性質功能，獨立一格）。
 // 兩頁共用同一個骨架（panel id 唔變，舊 code 照用得），用 data-page 決定顯示邊啲分頁。
 let _dashPage = 'today';
 let _compsLoadP = null;    // 睇樓日記載入中嘅 promise（todoGo 要等佢載完先展開卡，否則載完重畫會收返埋）
@@ -3411,12 +3416,12 @@ async function showDashboard(estates, page = 'today') {
   main.innerHTML = `
     <div class="dashboard" data-page="${page}">
       <!-- 2026-11-01 主選單取代「五粒捷徑」：新增睇樓→睇樓頁大掣；搵樓／按揭計算機→搵盤頁；朋友屋企→睇樓頁分頁 -->
-      ${page === 'view' ? `<div class="nv-pgtitle">睇樓記錄</div>
+      ${page === 'friends' ? `<div class="nv-pgtitle">朋友屋企</div>` : page === 'view' ? `<div class="nv-pgtitle">睇樓記錄</div>
       <button type="button" class="nv-bigbtn" onclick="openQuickAddViewing()">📝 新增睇樓</button>` : `
       <div id="ob-slot-home"></div>
       <div id="viewing-todo"></div>`}
       <div class="highlights-section" id="highlights-section">
-        <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:0.4rem;margin-bottom:0.75rem">
+        <div id="dash-head" style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:0.4rem;margin-bottom:0.75rem">
           <div class="dash-tabs" style="display:flex;gap:0;border-bottom:2px solid var(--border)">
             <button id="dash-tab-comps" onclick="switchDashTab('comps')" style="background:none;border:none;border-bottom:2px solid var(--brand);margin-bottom:-2px;color:var(--text);font-weight:600;font-size:0.9rem;padding:0.35rem 0.85rem;cursor:pointer">睇樓日記</button>
             <button id="dash-tab-radar" hidden onclick="switchDashTab('radar')" style="display:none;background:none;border:none;border-bottom:2px solid transparent;margin-bottom:-2px;color:var(--muted);font-size:0.9rem;padding:0.35rem 0.85rem;cursor:pointer">💎 抵買雷達</button>
@@ -3443,7 +3448,8 @@ async function showDashboard(estates, page = 'today') {
       </div>
     </div>
   `;
-  if (page === 'view') { switchDashTab('comps', true); return; }
+  if (page === 'view') { switchDashTab('comps', true); obSlot('ob-slot-dash', 'diary'); return; }
+  if (page === 'friends') { switchDashTab('friends', true); obSlot('ob-slot-dash', 'friends'); return; }
   renderHomeCarousel();   // 主頁頂部：你嘅屋苑今日／待跟進／搵樓（見 renderHomeCarousel）
   obSlot('ob-slot-home', 'home');
   // 今日頁：動態一開就自動載（2026-11-02 用戶要求；_hlFetch 有 30 分鐘暫存慳 D1）；睇樓日記資料照載（待跟進要用），panel 收埋
@@ -4200,7 +4206,7 @@ function glossShow(ev, key) {
 // 原本分「明白／唔再提醒」兩粒，用戶覺得一樣）。存 server：POST /api/onboard-off，跟帳戶，換機都記得；key 要喺 worker ONBOARD_KEYS 白名單。
 // ⚙️ 設定「重新顯示功能介紹」＝全部重置。用固定介紹位而唔係插入內容，因為分頁內容會成個重畫。
 const ONBOARD = {
-  home: ['今日', '最頂會話你追蹤嘅屋苑今日有咩新盤、減價、成交；冇變動嘅日子就幫你喺四大地產網搵盤。下面「動態」逐個列出。其他功能喺選單：追蹤中屋苑、搵盤、睇樓記錄；設定喺右上角 ⚙️。'],
+  home: ['今日', '最頂會話你追蹤嘅屋苑今日有咩新盤、減價、成交；冇變動嘅日子就幫你喺四大地產網搵盤。下面「動態」逐個列出。其他功能喺選單：追蹤中屋苑、搵盤、睇樓記錄、朋友屋企；設定喺右上角 ⚙️。'],
   estate: ['屋苑頁', '「最新放盤」係各地產網而家放緊嘅盤，可以按房數、價錢篩，仲會話你個盤放咗幾耐、減過幾多次價。睇中咗就撳「記睇樓」記入睇樓日記。'],
   txns: ['成交記錄', '呢度係土地註冊處登記咗嘅真實成交價（唔係叫價），通常比叫價低。想知一個盤大概值幾多，睇同座、同層數嘅成交最準。'],
   analysis: ['樓盤分析', '睇呢個屋苑嘅呎價走勢同市況。「去貨月數」越長＝盤多買家少，買家較有議價空間；越短＝賣家話事。'],
