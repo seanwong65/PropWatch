@@ -1180,8 +1180,15 @@
     table.vc-cmp td.best::after { content: " ✓"; color: var(--up); }
     table.vc-cmp tr.grp td { background: var(--glass-bg); font-weight: 800; color: var(--text); font-size: 0.78rem; }
     /* 功能介紹（onboarding，2026-11-01）：每個功能頂部一張細卡，撳「明白」就永久唔再出（跟帳戶） */
-    .ob-tip { background: var(--brand-soft); border: 1px solid var(--border); border-radius: 12px; padding: 0.6rem 0.8rem; margin: 0 0 0.7rem; font-size: 0.82rem; line-height: 1.55; }
-    .ob-t { font-weight: 700; margin-bottom: 0.15rem; }
+    .ob-tip { background: var(--brand-soft); border: 1px solid var(--border); border-radius: 12px; padding: 0.4rem 0.7rem; margin: 0 0 0.7rem; font-size: 0.82rem; line-height: 1.55; }
+    .ob-tip > summary { display: flex; align-items: center; gap: 0.4rem; cursor: pointer; list-style: none; }
+    .ob-tip > summary::-webkit-details-marker { display: none; }
+    .ob-t { font-weight: 700; flex: 1; min-width: 0; }
+    .ob-chev { color: var(--muted); font-size: 0.75rem; transition: transform 0.15s; }
+    .ob-tip[open] .ob-chev { transform: rotate(180deg); }
+    .ob-x { background: none; border: none; color: var(--muted); font-size: 0.85rem; cursor: pointer; padding: 0.1rem 0.3rem; border-radius: 6px; }
+    .ob-x:hover { background: var(--btn2-bg); color: var(--text); }
+    .ob-body { margin-top: 0.35rem; }
     .ob-act { display: flex; gap: 0.5rem; justify-content: flex-end; margin-top: 0.35rem; }
     .ob-act button { border: none; border-radius: 999px; padding: 0.25rem 0.8rem; font-size: 0.76rem; font-weight: 700; cursor: pointer; font-family: inherit; }
     .ob-ok { background: var(--brand); color: var(--brand-ink, #fff); }
@@ -2849,12 +2856,16 @@ function toast(msg, type = "info", ms = 3000) {
 // ── API calls ──────────────────────────────────────────────────
 function getToken() { return localStorage.getItem("propwatch_token"); }
 
+// D1 讀取副本書籤（2026-11-03）：每個回應帶 x-d1-bookmark，下次請求帶返去，worker 保證讀得返自己啱啱寫嘅嘢（見 worker fetch）
+let _d1Bookmark = (() => { try { return sessionStorage.getItem('pw_d1bm') || ''; } catch (_) { return ''; } })();
 async function api(path, opts = {}) {
   const token = getToken();
   const res = await fetch(API + path, {
-    headers: { "Content-Type": "application/json", ...(token ? { "Authorization": "Bearer " + token } : {}) },
+    headers: { "Content-Type": "application/json", ...(token ? { "Authorization": "Bearer " + token } : {}), ...(_d1Bookmark ? { "x-d1-bookmark": _d1Bookmark } : {}) },
     ...opts,
   });
+  const bm = res.headers.get('x-d1-bookmark');
+  if (bm) { _d1Bookmark = bm; try { sessionStorage.setItem('pw_d1bm', bm); } catch (_) { /* 冇所謂 */ } }
   if (res.status === 401) { showLoginScreen(); throw new Error("請先登入"); }
   const data = await res.json();
   // 402 = 收費版功能。後端係唯一權威（前端收埋個 button 唔算數，
@@ -3553,7 +3564,7 @@ async function pickEstateForQuick(id) {
 // 手機版 sidebar 收埋咗，快捷掣要幫手拉返出嚟先 focus 到個搜尋框
 // 側欄「🔍 搵樓」：喺主畫面（#main）入面開四大地產網搜尋——同公開 /search 頁共用
 // public-search.js／.css（第一次先載入）。「🔔 追蹤加減價」直接帶去側欄屋苑搜尋，唔使再登記。
-const PS_VER = '20261102c';   // 改 public-search.js/.css 要同 search.html 一齊 bump（Pages 靜態檔 cache 4 小時）
+const PS_VER = '20261103a';   // 改 public-search.js/.css 要同 search.html 一齊 bump（Pages 靜態檔 cache 4 小時）
 let _psAssets = null;
 function _loadPublicSearchAssets() {
   if (!_psAssets) _psAssets = new Promise((resolve, reject) => {
@@ -3782,12 +3793,8 @@ async function loadFriendHomes() {
   try {
     const { homes } = await api('/api/friend-homes');
     _fhHomes = homes;
-    // 類近在售要每個屋苑嘅在售放盤（同「睇過嘅盤」tab 同一做法）
+    // 類近在售要每個屋苑嘅全部在售放盤——2026-11-03 起先出卡，之後背景攞（之前等晒先出，要 3 秒幾）
     const eids = [...new Set(homes.map(h => h.estate_id))].filter(id => !window._fhListingsByEstate[id]);
-    await Promise.all(eids.map(async eid => {
-      try { const { listings } = await api(`/api/estates/${eid}/listings`); window._fhListingsByEstate[eid] = listings || []; }
-      catch (_) { window._fhListingsByEstate[eid] = []; }
-    }));
 
     const addBtn = `<button class="vf-submit" style="width:auto;padding:0.45rem 1rem;margin:0 0 0.75rem" onclick="openFriendModal()">＋ 新增朋友屋企</button>`;
     if (!homes.length) {
@@ -3810,10 +3817,16 @@ async function loadFriendHomes() {
         <div class="fh-cell"><div class="fh-lbl">恆生估值</div>${fhHsHtml(h)}</div>
         <div class="fh-cell"><div class="fh-lbl">相對市價</div>${fhMarketHtml(h)}</div>
         <div class="fh-cell"><div class="fh-lbl">過往成交</div>${fhTxnsHtml(h)}</div>
-        <div class="fh-cell"><div class="fh-lbl">類近在售</div>${fhSimilarHtml(h)}</div>
+        <div class="fh-cell"><div class="fh-lbl">類近在售</div><div id="fh-sim-${Number(h.id)}">${window._fhListingsByEstate[h.estate_id] ? fhSimilarHtml(h) : '<span style="color:var(--muted);font-size:0.75rem">計緊…</span>'}</div></div>
       </div>
     </div>`).join('');
     body.innerHTML = addBtn + `<div class="fh-cards">${cards}</div>`;
+    // 背景攞各屋苑放盤，攞到一個就補返嗰個屋苑嘅朋友卡「類近在售」
+    eids.forEach(async (eid) => {
+      try { const { listings } = await api(`/api/estates/${eid}/listings`); window._fhListingsByEstate[eid] = listings || []; }
+      catch (_) { window._fhListingsByEstate[eid] = []; }
+      for (const h of homes.filter(x => x.estate_id === eid)) { const c = document.getElementById(`fh-sim-${Number(h.id)}`); if (c) c.innerHTML = fhSimilarHtml(h); }
+    });
     // 過往成交/估值而家由後端 enrich 一次存 DB、GET 直接俾——render 完就得，
     // 唔使再逐 cell async 抓（快好多，亦冇 stale-DOM / 重算高度問題）
     fhAutoEnrich(homes);
@@ -4263,8 +4276,11 @@ function obSlot(slotId, key) {
   if (!el) return;
   const t = ONBOARD[key];
   if (!t || _onboardOff.has(key)) { el.innerHTML = ''; return; }
-  el.innerHTML = `<div class="ob-tip" data-ob="${key}"><div class="ob-t">💡 ${escHtml(t[0])}</div><div>${escHtml(t[1])}</div>
-    <div class="ob-act"><button type="button" class="ob-ok" onclick="obOff('${key}')">不再提醒</button></div></div>`;
+  // 2026-11-03：縮成一行（「💡 X：點用？▾」），撳先展開（之前成段攤開，每頁頂都佔位）；✕＝不再提醒
+  el.innerHTML = `<details class="ob-tip" data-ob="${key}"><summary><span class="ob-t">💡 ${escHtml(t[0])}：點用？</span><span class="ob-chev">▾</span>
+      <button type="button" class="ob-x" title="不再提醒" aria-label="不再提醒" onclick="event.preventDefault();event.stopPropagation();obOff('${key}')">✕</button></summary>
+    <div class="ob-body">${escHtml(t[1])}</div>
+    <div class="ob-act"><button type="button" class="ob-ok" onclick="obOff('${key}')">不再提醒</button></div></details>`;
 }
 function _obHide(key) { document.querySelectorAll(`.ob-tip[data-ob="${key}"]`).forEach(x => x.remove()); }
 function obOff(key) {
