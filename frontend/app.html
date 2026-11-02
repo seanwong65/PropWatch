@@ -3472,7 +3472,7 @@ async function pickEstateForQuick(id) {
 // 手機版 sidebar 收埋咗，快捷掣要幫手拉返出嚟先 focus 到個搜尋框
 // 側欄「🔍 搵樓」：喺主畫面（#main）入面開四大地產網搜尋——同公開 /search 頁共用
 // public-search.js／.css（第一次先載入）。「🔔 追蹤加減價」直接帶去側欄屋苑搜尋，唔使再登記。
-const PS_VER = '20261101f';   // 改 public-search.js/.css 要同 search.html 一齊 bump（Pages 靜態檔 cache 4 小時）
+const PS_VER = '20261102a';   // 改 public-search.js/.css 要同 search.html 一齊 bump（Pages 靜態檔 cache 4 小時）
 let _psAssets = null;
 function _loadPublicSearchAssets() {
   if (!_psAssets) _psAssets = new Promise((resolve, reject) => {
@@ -3489,6 +3489,26 @@ function _loadPublicSearchAssets() {
 }
 // 搜尋條件跟返用戶嘅「睇樓偏好」（⚙️ 設定／登入後彈嘅偏好）：買盤定租盤、預算、房數、實呎。
 // 單位：買盤預算萬、租盤預算 $/月、面積呎——同搜尋表單一樣，直接帶入。
+// 搵盤「屋苑」欄建議（2026-11-02）：同「屋苑」頁一樣用 /api/search（四大地產網屋苑名），自己追蹤緊嘅排頭。
+// 淨係列主屋苑名（「嘉湖山莊 景湖居」→「嘉湖山莊」）：地產網關鍵字搜尋用期數名多數搵唔到（實測 4 個網站有 3 個 0 結果）。
+const _suggCache = new Map();
+async function _searchSuggest(kw) {
+  const key = kw.trim();
+  if (!_suggCache.has(key)) {
+    const p = api('/api/search', { method: 'POST', body: JSON.stringify({ keyword: key }) }).then(r => r.results || []);
+    _suggCache.set(key, p);
+    p.catch(() => _suggCache.delete(key));
+  }
+  const results = await _suggCache.get(key);
+  const base = (n) => String(n || '').trim().split(/[\s　]+/)[0];
+  const out = new Map();
+  for (const e of (dashboardEstates || [])) if (e.name && e.name.includes(key)) out.set(base(e.name), { name: base(e.name), sub: `${e.district || ''}・你追蹤緊`.replace(/^・/, '') });
+  for (const r of results) {
+    const n = base(r.bigEstateName || r.name);
+    if (n && !out.has(n)) out.set(n, { name: n, sub: r.districtName || r.district || '' });
+  }
+  return [...out.values()];
+}
 // 買／租各自嘅偏好價錢（搜尋表單切換類型時換用；單位同表單一樣：買盤萬／租盤元）
 function _searchPriceByDeal() {
   const p = _userPrefs || {};
@@ -3536,7 +3556,7 @@ async function openPublicSearch(initialQs) {
     const root = document.getElementById('psEmbedRoot');
     if (!root) return;      // 期間用戶已經去咗第度
     root.innerHTML = '';
-    window.PublicSearch.mount(root, { embedded: true, track: trackNameFromSearch, initial: _searchDefaultsFromPrefs(), priceByDeal: _searchPriceByDeal(), initialQs: typeof initialQs === 'string' ? initialQs : undefined, fav: _searchFav });
+    window.PublicSearch.mount(root, { embedded: true, track: trackNameFromSearch, initial: _searchDefaultsFromPrefs(), priceByDeal: _searchPriceByDeal(), suggest: _searchSuggest, initialQs: typeof initialQs === 'string' ? initialQs : undefined, fav: _searchFav });
   } catch (_) {
     const root = document.getElementById('psEmbedRoot');
     if (root) root.innerHTML = '<div style="color:var(--down)">載入失敗，請再試</div>';
@@ -4281,7 +4301,7 @@ async function _homeMountSearch() {
   el.dataset.mounted = '1';
   try { await _loadPublicSearchAssets(); } catch (_) { document.getElementById('hc-search')?.remove(); return; }
   if (document.getElementById('hc-ps') !== el) return;      // 期間已經離開主頁
-  window.PublicSearch.mount(el, { embedded: true, formOnly: true, expanded: window.innerWidth > 768, initial: _searchDefaultsFromPrefs(), priceByDeal: _searchPriceByDeal(), onSearch: (qs) => openPublicSearch(qs) });   // 闊屏預設展開（同搵樓頁一樣）；手機收埋免得主頁太高
+  window.PublicSearch.mount(el, { embedded: true, formOnly: true, expanded: window.innerWidth > 768, initial: _searchDefaultsFromPrefs(), priceByDeal: _searchPriceByDeal(), suggest: _searchSuggest, onSearch: (qs) => openPublicSearch(qs) });   // 闊屏預設展開（同搵樓頁一樣）；手機收埋免得主頁太高
 }
 function renderViewingTodo() {
   const el = document.getElementById('hc-todo');

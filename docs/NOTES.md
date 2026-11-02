@@ -732,3 +732,8 @@ drip sync（`*/2`）同樣被雙重觸發：兩個 invocation 同時揀同一批
 
 - 每行：屋苑名（撳入屋苑頁）＋數字＋「睇下 ▾」；撳數字或「睇下」喺原位列出嗰日嘅新盤／減價（原價→新價、%）／加價／新成交，每個盤有地產網連結（`monToggle`、`_monDetailHtml`，結果 cache 喺 `_monCache`）。
 - 後端 `GET /api/estates/:id/day-changes?day=`（`dayChangeRows`，同 `computeDayChanges` 同一套 SQL／分類，數字一定對得上；每類最多 50 條，總數照回）。要過 canReadEstate（加入咗 `/api/estates/:id/*` regex），day 只准最近 7 日。今日 snapshot＝免費都有。
+
+## 搵盤「屋苑」欄建議（2026-11-02）
+
+- `public-search.js` 加 `opts.suggest(kw) → [{name, sub}]`：打 ≥2 字停 400ms 先問，下拉建議（`.ps-sugg`），撳＝填入屋苑欄（唔即搜）。淨係 app 提供（`_searchSuggest`，用登入後 `/api/search`，結果 cache）；公開 `/search` 冇（未登入用唔到）。
+- 只列主屋苑名（`嘉湖山莊 景湖居`→`嘉湖山莊`）：實測期數名喺 4 個網站有 3 個 0 結果。自己追蹤緊嘅排頭（sub 寫「你追蹤緊」）。
