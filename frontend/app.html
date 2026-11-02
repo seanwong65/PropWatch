@@ -2015,8 +2015,8 @@
       body.authed .layout { grid-template-columns: minmax(0, 1fr); }
       body.authed .nv-rail { display: none; }
       body.authed .layout > .sidebar, body.authed .layout > .main { grid-column: 1; }
-      body.authed .nv-mobile { display: flex; position: fixed; left: 0; right: 0; bottom: 0; z-index: 300; background: var(--surface); border-top: 1px solid var(--border-strong); padding: 0.3rem max(0.3rem, env(safe-area-inset-right)) calc(0.3rem + env(safe-area-inset-bottom)) max(0.3rem, env(safe-area-inset-left)); box-shadow: 0 -4px 16px rgba(0,0,0,0.06); }
-      .nv-mobile button { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 0.1rem; font-size: 0.68rem; padding: 0.25rem 0; }
+      body.authed .nv-mobile { display: flex; position: fixed; left: 0; right: 0; bottom: 0; z-index: 300; background: var(--surface); border-top: 1px solid var(--border-strong); padding: 0.3rem env(safe-area-inset-right) calc(0.3rem + env(safe-area-inset-bottom)) env(safe-area-inset-left);   /* 左右唔留白（2026-11-02：騰位俾「八卦朋友屋企」6 個字，320px 手機每格 64px） */ box-shadow: 0 -4px 16px rgba(0,0,0,0.06); }
+      .nv-mobile button { flex: 1; min-width: 0; display: flex; flex-direction: column; align-items: center; gap: 0.1rem; font-size: 0.65rem; padding: 0.25rem 0; white-space: nowrap; }
       .nv-mobile button .i { font-size: 1.25rem; line-height: 1.1; }
       body.authed .main, body.authed.nv-estlist .sidebar { padding-bottom: calc(76px + env(safe-area-inset-bottom)); }
       body.authed .toast { bottom: calc(80px + env(safe-area-inset-bottom)); }
@@ -2058,7 +2058,7 @@
     <button type="button" data-nav="estates" onclick="navGo('estates')"><span class="i">🏢</span><span>追蹤中屋苑</span></button>
     <button type="button" data-nav="find" onclick="navGo('find')"><span class="i">🔍</span><span>搵盤</span></button>
     <button type="button" data-nav="view" onclick="navGo('view')"><span class="i">📝</span><span>睇樓記錄</span></button>
-    <button type="button" data-nav="friends" onclick="navGo('friends')"><span class="i">👥</span><span>朋友屋企</span></button>
+    <button type="button" data-nav="friends" onclick="navGo('friends')"><span class="i">👥</span><span>八卦朋友屋企</span></button>
 </nav>
 
 <!-- Login Screen -->
@@ -2682,7 +2682,7 @@
     <button type="button" data-nav="estates" onclick="navGo('estates')"><span class="i">🏢</span><span>追蹤中屋苑</span></button>
     <button type="button" data-nav="find" onclick="navGo('find')"><span class="i">🔍</span><span>搵盤</span></button>
     <button type="button" data-nav="view" onclick="navGo('view')"><span class="i">📝</span><span>睇樓記錄</span></button>
-    <button type="button" data-nav="friends" onclick="navGo('friends')"><span class="i">👥</span><span>朋友屋企</span></button>
+    <button type="button" data-nav="friends" onclick="navGo('friends')"><span class="i">👥</span><span>八卦朋友屋企</span></button>
   </nav>
   <!-- Sidebar：2026-11-01 起係「屋苑」頁（body.nv-estlist 先出） -->
   <aside class="sidebar">
@@ -3444,7 +3444,7 @@ async function showDashboard(estates, page = 'today') {
   main.innerHTML = `
     <div class="dashboard" data-page="${page}">
       <!-- 2026-11-01 主選單取代「五粒捷徑」：新增睇樓→睇樓頁大掣；搵樓／按揭計算機→搵盤頁；朋友屋企→睇樓頁分頁 -->
-      ${page === 'friends' ? `<div class="nv-pgtitle">朋友屋企</div>` : page === 'view' ? `<div class="nv-pgtitle">睇樓記錄</div>
+      ${page === 'friends' ? `<div class="nv-pgtitle">八卦朋友屋企</div>` : page === 'view' ? `<div class="nv-pgtitle">睇樓記錄</div>
       <button type="button" class="nv-bigbtn" onclick="openQuickAddViewing()">📝 新增睇樓</button>` : `
       <div class="nv-pgtitle">今日</div>
       <div id="ob-slot-home"></div>
@@ -4243,7 +4243,7 @@ function glossShow(ev, key) {
 // 原本分「明白／唔再提醒」兩粒，用戶覺得一樣）。存 server：POST /api/onboard-off，跟帳戶，換機都記得；key 要喺 worker ONBOARD_KEYS 白名單。
 // ⚙️ 設定「重新顯示功能介紹」＝全部重置。用固定介紹位而唔係插入內容，因為分頁內容會成個重畫。
 const ONBOARD = {
-  home: ['今日', '最頂會話你追蹤嘅屋苑今日有咩新盤、減價、成交；冇變動嘅日子就幫你喺四大地產網搵盤。下面「動態」逐個列出。其他功能喺選單：追蹤中屋苑、搵盤、睇樓記錄、朋友屋企；設定喺右上角 ⚙️。'],
+  home: ['今日', '最頂會話你追蹤嘅屋苑今日有咩新盤、減價、成交；冇變動嘅日子就幫你喺四大地產網搵盤。下面「動態」逐個列出。其他功能喺選單：追蹤中屋苑、搵盤、睇樓記錄、八卦朋友屋企；設定喺右上角 ⚙️。'],
   estate: ['屋苑頁', '「最新放盤」係各地產網而家放緊嘅盤，可以按房數、價錢篩，仲會話你個盤放咗幾耐、減過幾多次價。睇中咗就撳「記睇樓」記入睇樓日記。'],
   txns: ['成交記錄', '呢度係土地註冊處登記咗嘅真實成交價（唔係叫價），通常比叫價低。想知一個盤大概值幾多，睇同座、同層數嘅成交最準。'],
   analysis: ['樓盤分析', '睇呢個屋苑嘅呎價走勢同市況。「去貨月數」越長＝盤多買家少，買家較有議價空間；越短＝賣家話事。'],
