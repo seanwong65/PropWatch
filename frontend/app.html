@@ -3388,7 +3388,7 @@ async function showDashboard(estates, page = 'today') {
           </div>
         </div>
         <div id="ob-slot-dash"></div>
-        ${page === 'today' ? `<div class="dyn-ph" id="dyn-ph"><span>逐個睇你追蹤屋苑嘅新盤、減價、下架同成交</span><button type="button" onclick="switchDashTab('today')">睇動態 ›</button></div>` : ''}
+        ${page === 'today' ? `<div class="dyn-ph" id="dyn-ph"><span>逐個睇你追蹤屋苑嘅新盤、減價、下架同成交</span><button type="button" onclick="homeGoDyn('today')">睇動態 ›</button></div>` : ''}
         <div id="dash-panel-today" style="display:none">
           <div class="dyn-toggle" role="tablist" aria-label="動態範圍">
             <button class="dyn-chip on" id="dyn-chip-today" role="tab" onclick="setDynMode('today')">今日 <span id="highlights-date" style="font-weight:400;font-size:0.76rem"></span></button>
@@ -4209,19 +4209,26 @@ function _homeDay() {
   const day = ests.reduce((m, e) => (e.stats?.d1?.day > m ? e.stats.d1.day : m), '');
   const label = day === today ? '今日' : day === yest ? '尋日' : '';     // 06:00 sync 做完之前顯示尋日嘅
   const tot = (d) => (Number(d.new) || 0) + (Number(d.cuts) || 0) + (Number(d.ups) || 0) + (Number(d.txns) || 0);
-  const upd = label ? ests.filter(e => e.stats?.d1?.day === day && tot(e.stats.d1) > 0) : [];
-  return { ests, day, label, upd };
+  // 今日先加入嘅屋苑唔計（同「動態」一樣由聽日先開始計：佢嘅數字係對上一次 sync 以嚟累積，可能係幾日，唔係今日）
+  const fresh = ests.filter(e => e.added_at === today);
+  const upd = label ? ests.filter(e => e.added_at !== today && e.stats?.d1?.day === day && tot(e.stats.d1) > 0) : [];
+  return { ests, day, label, upd, fresh };
 }
 function homeGoDyn(mode) {
   if (mode === 'week' && !isPaid()) { showUpgrade('本週動態'); return; }
+  // 「睇今日全部動態」＝全部：熄咗「🎯 偏好」篩選先入（2026-11-02 用戶：唔使再撳多次「睇返今日全部」）；想篩可以撳 chip 開返
+  const reload = _hlPrefFilterOn && _todayLoaded;
+  if (_hlPrefFilterOn) { _hlPrefFilterOn = false; syncHlPrefChips(); }
   switchDashTab('today');
   if (mode === 'week') setDynMode('week');
+  else { setDynMode('today'); if (reload) loadTodayHighlights(); }
   document.getElementById('highlights-section')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
 function renderHomeCarousel() {
   const host = document.getElementById('viewing-todo');
   if (!host) return;
-  const { ests, day, label, upd } = _homeDay();
+  const { ests, day, label, upd, fresh } = _homeDay();
+  const freshNote = fresh.length ? `<div class="mon-rest" style="border-top:none;padding-top:0.2rem">${fresh.map(e => escHtml(e.name)).join('、')}今日先加入，聽日開始計變動</div>` : '';
   const mode = !ests.length ? 'C' : upd.length ? 'A' : 'B';
   const n = (x) => Number(x) || 0;
   const st = (lbl, x, cls = '') => n(x) ? `<span${cls ? ` class="${cls}"` : ''}>${lbl} <b>${n(x)}</b></span>` : '';
@@ -4230,7 +4237,7 @@ function renderHomeCarousel() {
       <div class="ps-root ps-embed hc-ps" id="hc-ps"></div></div>`;
   const trackSub = '四大地產網一次過搜尋。見到心水屋苑，撳「🔔 追蹤屋苑」，之後每日幫你睇加減價。';
   if (mode === 'A') {
-    const quiet = ests.length - upd.length;
+    const quiet = ests.length - upd.length - fresh.length;
     host.innerHTML = `<div class="mon-card">
         <div class="mon-head"><span>📈 你嘅屋苑${label}</span><small>${escHtml(day.slice(5).replace('-', '/'))}</small></div>
         ${upd.map(e => { const d = e.stats.d1, id = Number(e.id); return `<div class="mon-item">
@@ -4240,13 +4247,14 @@ function renderHomeCarousel() {
             <button type="button" class="mon-more" id="mon-more-${id}" onclick="monToggle(${id},'${escJsAttr(d.day)}')" aria-expanded="false">睇下 ▾</button>
           </div>
           <div class="mon-detail" id="mon-detail-${id}" hidden></div></div>`; }).join('')}
-        <div class="mon-rest">${quiet ? `其餘 ${quiet} 個屋苑${label}冇變動．` : ''}<a onclick="homeGoDyn('today')">睇${label === '今日' ? '今日' : ''}全部動態 ›</a></div>
+        <div class="mon-rest">${quiet > 0 ? `其餘 ${quiet} 個屋苑${label}冇變動．` : ''}<a onclick="homeGoDyn('today')">睇${label === '今日' ? '今日' : ''}全部動態 ›</a></div>
+        ${freshNote}
         <div class="mon-todo" id="hc-todo"></div>
       </div>
       <button class="find-row" id="hc-find" onclick="homeOpenFind()"><span>🔍 搵其他屋苑／全港搵盤<small>四大地產網一次過搜尋，發掘想追蹤嘅新屋苑</small></span><span>›</span></button>
       ${hero('搵其他屋苑／全港搵盤', '四大地產網一次過搜尋，發掘想追蹤嘅新屋苑。', true)}`;
   } else if (mode === 'B') {
-    host.innerHTML = `<div class="quiet-line">✓ 你追蹤嘅 ${ests.length} 個屋苑${label || '暫時'}冇新變動${isPaid() ? `．<a onclick="homeGoDyn('week')">睇本週動態 ›</a>` : ''}</div>
+    host.innerHTML = `<div class="quiet-line">✓ 你追蹤嘅 ${ests.length - fresh.length || ests.length} 個屋苑${label || '暫時'}冇新變動${isPaid() ? `．<a onclick="homeGoDyn('week')">睇本週動態 ›</a>` : ''}</div>${fresh.length ? `<div class="quiet-line" style="margin-top:-0.3rem">${fresh.map(e => escHtml(e.name)).join('、')}今日先加入，聽日開始計變動</div>` : ''}
       <div id="hc-todo"></div>
       ${hero('幫你搵啱你嘅盤', trackSub, false)}`;
   } else {
@@ -5541,7 +5549,8 @@ function estateCardMeta(e) {
   lines.push(`<span title="同一個單位喺幾個地產網放售，只計一次"><b>${num(st.n)}</b> 個單位</span>${st.psf ? `．<span style="white-space:nowrap" title="所有在售單位嘅叫價呎價中位數（唔分房數，唔係成交價）">${gl('ask')}中位 $${num(st.psf).toLocaleString()}/呎</span>` : ''}`);
   // 今日變動（stats.d1，cron 預先計；同主頁「你嘅屋苑今日」同一組數字）
   const d1 = st.d1, today = hkTodayStr();
-  if (d1 && d1.day === today) {
+  if (e.added_at === today) lines.push('<span title="由聽日開始計今日變動">今日先加入，聽日開始計變動</span>');
+  else if (d1 && d1.day === today) {
     const parts = [['新盤', d1.new], ['減價', d1.cuts], ['加價', d1.ups], ['新成交', d1.txns]].filter(([, n]) => num(n)).map(([l, n]) => `${l} <b>${num(n)}</b>`);
     lines.push(`今日：${parts.length ? parts.join('．') : '冇變動'}`);
   }
