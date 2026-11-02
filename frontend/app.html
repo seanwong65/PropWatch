@@ -1187,9 +1187,24 @@
     .ob-ok { background: var(--brand); color: var(--brand-ink, #fff); }
     .modal .ob-tip { margin-top: -0.3rem; }
     /* 主頁頂部（2026-11-01，監察為主）：「你嘅屋苑今日」／今日冇變動／新用戶歡迎 ＋ 搵樓 */
-    .mon-card { background: var(--glass-bg); border: 1px solid var(--border); border-left: 3px solid var(--brand-bright, var(--brand)); border-radius: 14px; padding: 0.7rem 0.9rem; margin-bottom: 0.7rem; }
-    .mon-head { display: flex; align-items: baseline; justify-content: space-between; gap: 0.5rem; font-weight: 700; font-size: 0.95rem; margin-bottom: 0.15rem; }
-    .mon-head small { font-weight: 400; color: var(--muted); font-size: 0.74rem; }
+    /* ── 共用區塊卡（2026-11-02，UI 統一）：白卡＋標題列（.sec-h：h3 左、動作右）＋卡底（.sec-foot）。新區塊一律用呢套 ── */
+    .sec { background: var(--surface); border: 1px solid var(--border); border-radius: 16px; padding: 0.75rem 0.9rem; margin-bottom: 0.8rem; box-shadow: 0 1px 3px rgba(0,0,0,0.04); }
+    .sec-h { display: flex; align-items: center; gap: 0.5rem; margin: 0 0 0.45rem; }
+    .sec-h h3 { margin: 0; font-size: 0.98rem; font-weight: 800; flex: 1; min-width: 0; color: var(--text); }
+    .sec-h h3 small { font-weight: 400; color: var(--muted); font-size: 0.74rem; margin-left: 0.3rem; }
+    .sec-link { color: var(--accent2); font-size: 0.8rem; font-weight: 600; white-space: nowrap; cursor: pointer; background: none; border: none; padding: 0; font-family: inherit; }
+    .sec-foot { border-top: 1px solid var(--border); padding-top: 0.5rem; margin-top: 0.3rem; font-size: 0.78rem; color: var(--muted); display: flex; justify-content: space-between; align-items: center; gap: 0.3rem 0.6rem; flex-wrap: wrap; }
+    .sec-foot a { color: var(--accent2); font-weight: 600; cursor: pointer; white-space: nowrap; }
+    /* 今日頁：動態區（highlights-section）都係一張 .sec；舊分頁列收埋 */
+    .dashboard[data-page="today"] #dash-head { display: none !important; }
+    .dashboard[data-page="today"] .highlights-section { background: var(--surface); border: 1px solid var(--border); border-radius: 16px; padding: 0.75rem 0.9rem; box-shadow: 0 1px 3px rgba(0,0,0,0.04); }
+    .dyn-h .dyn-toggle { margin: 0; }
+    .dyn-h #highlights-date { display: none; }
+    .rv-row { display: flex; align-items: center; gap: 0.6rem; padding: 0.5rem 0; border-top: 1px solid var(--border); font-size: 0.86rem; cursor: pointer; }
+    .rv-row:first-of-type { border-top: none; }
+    .rv-row .t { flex: 1; min-width: 0; font-weight: 700; }
+    .rv-row .t small { display: block; font-weight: 400; color: var(--muted); font-size: 0.76rem; margin-top: 0.1rem; }
+    .rv-row .go { color: var(--muted); }
     .mon-row { display: flex; align-items: center; gap: 0.6rem; padding: 0.55rem 0; border-top: 1px solid var(--border); cursor: pointer; font-size: 0.86rem; }
     .mon-row:first-of-type { border-top: none; }
     .mon-row:hover .mon-name { color: var(--brand); }
@@ -1215,11 +1230,8 @@
     .md-r a { color: var(--accent2); text-decoration: none; margin-left: auto; }
     .md-foot { margin-top: 0.35rem; }
     .md-foot a { color: var(--accent2); cursor: pointer; }
-    .mon-rest { font-size: 0.74rem; color: var(--muted); padding-top: 0.45rem; border-top: 1px solid var(--border); }
-    .mon-rest a, .quiet-line a { color: var(--accent2); cursor: pointer; }
-    .mon-todo:not(:empty) { margin-top: 0.3rem; padding-top: 0.55rem; border-top: 1px dashed var(--border-strong); }
-    .mon-todo .todo-head { font-size: 0.86rem; }
-    .mon-todo .todo-row:first-of-type { border-top: none; }
+    .quiet-line a { color: var(--accent2); cursor: pointer; }
+    .sec > .sec-h + .todo-row, .sec > .sec-h + .mon-item, .sec > .sec-h + .rv-row { border-top: none; }
     .quiet-line { font-size: 0.82rem; color: var(--muted); margin: 0 0 0.55rem; }
     .home-hero { background: var(--glass-bg); border: 1px solid var(--border); border-left: 3px solid var(--accent); border-radius: 14px; padding: 0.8rem 0.9rem; margin-bottom: 0.9rem; }
     .home-hero[hidden] { display: none; }
@@ -3434,6 +3446,7 @@ async function showDashboard(estates, page = 'today') {
       <!-- 2026-11-01 主選單取代「五粒捷徑」：新增睇樓→睇樓頁大掣；搵樓／按揭計算機→搵盤頁；朋友屋企→睇樓頁分頁 -->
       ${page === 'friends' ? `<div class="nv-pgtitle">朋友屋企</div>` : page === 'view' ? `<div class="nv-pgtitle">睇樓記錄</div>
       <button type="button" class="nv-bigbtn" onclick="openQuickAddViewing()">📝 新增睇樓</button>` : `
+      <div class="nv-pgtitle">今日</div>
       <div id="ob-slot-home"></div>
       <div id="viewing-todo"></div>`}
       <div class="highlights-section" id="highlights-section">
@@ -3450,11 +3463,15 @@ async function showDashboard(estates, page = 'today') {
         </div>
         <div id="ob-slot-dash"></div>
         <div id="dash-panel-today" style="display:none">
-          <div class="hl-applied" hidden></div>
-          <div class="dyn-toggle" role="tablist" aria-label="動態範圍">
-            <button class="dyn-chip on" id="dyn-chip-today" role="tab" onclick="setDynMode('today')">今日 <span id="highlights-date" style="font-weight:400;font-size:0.76rem"></span></button>
-            <button class="dyn-chip" id="dyn-chip-week" role="tab" onclick="setDynMode('week')">本週<span id="dyn-week-lock">${isPaid() ? '' : ' 🔒'}</span></button>
+          <!-- 2026-11-02：標題一行「動態［今日｜本週］歷史 ›」（之前上面有淨得一個分頁嘅橫條＋歷史動態掣，四行控制先到內容） -->
+          <div class="sec-h dyn-h"><h3>動態</h3>
+            <div class="dyn-toggle" role="tablist" aria-label="動態範圍">
+              <button class="dyn-chip on" id="dyn-chip-today" role="tab" onclick="setDynMode('today')">今日 <span id="highlights-date" style="font-weight:400;font-size:0.76rem"></span></button>
+              <button class="dyn-chip" id="dyn-chip-week" role="tab" onclick="setDynMode('week')">本週<span id="dyn-week-lock">${isPaid() ? '' : ' 🔒'}</span></button>
+            </div>
+            <button type="button" class="sec-link" onclick="isPaid() ? showHistoryPage() : showUpgrade('歷史動態')">歷史 ›</button>
           </div>
+          <div class="hl-applied" hidden></div>
           <div id="highlights-body" style="color:var(--muted);font-size:0.75rem">載入中…</div>
           <div id="week-body" style="display:none;color:var(--muted);font-size:0.75rem">載入中…</div>
         </div>
@@ -3462,6 +3479,7 @@ async function showDashboard(estates, page = 'today') {
         <div id="dash-panel-radar" style="display:none"><div id="radar-body" style="color:var(--muted);font-size:0.75rem">載入中…</div></div>
         <div id="dash-panel-friends" style="display:none"><div id="friends-body" style="color:var(--muted);font-size:0.75rem">載入中…</div></div>
       </div>
+      ${page === 'today' ? '<div id="home-recent" style="margin-top:0.8rem"></div>' : ''}
     </div>
   `;
   if (page === 'view') { switchDashTab('comps', true); obSlot('ob-slot-dash', 'diary'); return; }
@@ -4131,7 +4149,7 @@ const _unitTitle = v => {
 //  ② 有座同室但未確認對應放盤（linked_ref_no 空）→ 系統唔會追蹤呢個盤嘅改價／下架／成交。
 // 已成交（status=sold）嘅唔提；用戶可以撳 ✕ 唔再提醒（記喺呢部機 localStorage）。
 const _TODO_KEY = 'pw_todo_dismissed';
-let _todoOpen = false, _todoAll = false;
+let _todoAll = false;
 // 「✕ 唔再提醒」：localStorage（即時）＋server（每週摘要 email 先尊重到）。載入時合併：server 有、本機冇 → 補落本機；
 // 本機有、server 冇（舊版只存本機）→ 一次過補送上 server。
 function syncTodoDismissed(serverIds) {
@@ -4293,7 +4311,7 @@ function renderHomeCarousel() {
   const host = document.getElementById('viewing-todo');
   if (!host) return;
   const { ests, day, label, upd, fresh } = _homeDay();
-  const freshNote = fresh.length ? `<div class="mon-rest" style="border-top:none;padding-top:0.2rem">${fresh.map(e => escHtml(e.name)).join('、')}今日先加入，聽日開始計變動</div>` : '';
+  const freshNote = fresh.length ? `<div style="flex-basis:100%">${fresh.map(e => escHtml(e.name)).join('、')}今日先加入，聽日開始計變動</div>` : '';
   const mode = !ests.length ? 'C' : upd.length ? 'A' : 'B';
   const n = (x) => Number(x) || 0;
   const st = (lbl, x, cls = '') => n(x) ? `<span${cls ? ` class="${cls}"` : ''}>${lbl} <b>${n(x)}</b></span>` : '';
@@ -4303,8 +4321,8 @@ function renderHomeCarousel() {
   const trackSub = '四大地產網一次過搜尋。見到心水屋苑，撳「🔔 追蹤屋苑」，之後每日幫你睇加減價。';
   if (mode === 'A') {
     const quiet = ests.length - upd.length - fresh.length;
-    host.innerHTML = `<div class="mon-card">
-        <div class="mon-head"><span>📈 你嘅屋苑${label}</span><small>${escHtml(day.slice(5).replace('-', '/'))}</small></div>
+    host.innerHTML = `<div class="sec">
+        <div class="sec-h"><h3>📈 你嘅屋苑${label}<small>${escHtml(day.slice(5).replace('-', '/'))}</small></h3></div>
         ${upd.map(e => { const d = e.stats.d1, id = Number(e.id); return `<div class="mon-item">
           <div class="mon-row">
             <button type="button" class="mon-name" onclick="showEstate(${id})" title="入屋苑頁">${escHtml(e.name)}</button>
@@ -4312,10 +4330,9 @@ function renderHomeCarousel() {
             <button type="button" class="mon-more" id="mon-more-${id}" onclick="monToggle(${id},'${escJsAttr(d.day)}')" aria-expanded="false">睇下 ▾</button>
           </div>
           <div class="mon-detail" id="mon-detail-${id}" hidden></div></div>`; }).join('')}
-        <div class="mon-rest">${quiet > 0 ? `其餘 ${quiet} 個屋苑${label}冇變動．` : ''}<a onclick="homeGoDyn('today')">睇${label === '今日' ? '今日' : ''}全部動態 ›</a></div>
-        ${freshNote}
-        <div class="mon-todo" id="hc-todo"></div>
+        <div class="sec-foot"><span>${quiet > 0 ? `其餘 ${quiet} 個屋苑${label}冇變動` : ''}</span><a onclick="homeGoDyn('today')">睇全部動態 ↓</a>${freshNote}</div>
       </div>
+      <div id="hc-todo"></div>
       `;   // 2026-11-02：有更新嘅日子唔再放「搵其他屋苑／全港搵盤」（主選單已有「搵盤」，用戶確認 demo）
   } else if (mode === 'B') {
     host.innerHTML = `<div class="quiet-line">✓ 你追蹤嘅 ${ests.length - fresh.length || ests.length} 個屋苑${label || '暫時'}冇新變動${isPaid() ? `．<a onclick="homeGoDyn('week')">睇本週動態 ›</a>` : ''}</div>${fresh.length ? `<div class="quiet-line" style="margin-top:-0.3rem">${fresh.map(e => escHtml(e.name)).join('、')}今日先加入，聽日開始計變動</div>` : ''}
@@ -4374,8 +4391,9 @@ function renderViewingTodo() {
   const el = document.getElementById('hc-todo');
   if (!el) return;
   const todos = _compsScope ? [] : viewingTodos();
+  renderRecentViewings();
   if (!todos.length) { el.innerHTML = ''; return; }
-  const shown = _todoOpen ? (_todoAll ? todos : todos.slice(0, 5)) : [];
+  const shown = _todoAll ? todos : todos.slice(0, 2);   // 2026-11-02：獨立一張卡，直接列頭 2 個（唔使撳「睇下」）
   const title = v => {
     const blk = (v.block && String(v.block) !== v.estate_name) ? escHtml(String(v.block)) + '座' : '';
     return `${escHtml(v.estate_name || '')} ${blk}${v.floor ? escHtml(String(v.floor)) + '樓' : ''}${v.unit ? escHtml(String(v.unit)) + '室' : ''}`.trim();
@@ -4389,12 +4407,22 @@ function renderViewingTodo() {
       ${needLink ? `<button class="todo-btn" onclick="todoGo(${Number(v.id)})">去確認</button>` : ''}
       <button class="todo-x" title="唔再提醒呢個記錄" onclick="todoDismiss(${Number(v.id)})">✕ 唔再提醒</button>
     </div>`).join('');
-  const inMon = el.classList.contains('mon-todo');     // 併入「你嘅屋苑今日」卡：唔使外框同說明
-  el.innerHTML = `<div class="${inMon ? '' : 'todo-card'}">
-    <div class="todo-head" onclick="_todoOpen=!_todoOpen;renderViewingTodo()"><span>📌 待跟進 <span style="color:var(--accent)">${todos.length}</span> 個睇樓記錄</span><span style="color:var(--muted);font-size:0.8rem">${_todoOpen ? '收起 ▴' : '睇下 ▾'}</span></div>
-    ${inMon ? '' : '<div class="todo-sub">補返資料、或者確認係邊個放盤，之後呢個單位<b>減價、落架、成交</b>都會通知你。</div>'}
+  el.innerHTML = `<div class="sec">
+    <div class="sec-h"><h3>📌 待跟進 <span style="color:var(--accent)">${todos.length}</span></h3></div>
     ${rows}
-    ${_todoOpen && todos.length > 5 ? `<button class="todo-more" onclick="_todoAll=!_todoAll;renderViewingTodo()">${_todoAll ? '只睇最近 5 個 ▴' : `睇晒全部 ${todos.length} 個 ▾`}</button>` : ''}
+    <div class="sec-foot"><span>補齊之後，呢個單位減價、落架、成交都會通知你</span>${todos.length > 2 ? `<a onclick="_todoAll=!_todoAll;renderViewingTodo()">${_todoAll ? '收起 ▴' : `睇晒 ${todos.length} 個 ›`}</a>` : ''}</div>
+  </div>`;
+}
+// 今日頁「📝 最近睇樓」（2026-11-02）：最近 3 個睇樓記錄（_compsData，今日頁已經背景載），撳去睇樓記錄
+function renderRecentViewings() {
+  const el = document.getElementById('home-recent');
+  if (!el) return;
+  const list = (_compsData || []).slice().sort((a, b) => String(b.view_date || '').localeCompare(String(a.view_date || '')) || b.id - a.id).slice(0, 3);
+  if (!list.length) { el.innerHTML = ''; return; }
+  const ttl = (v) => [escHtml(v.estate_name || ''), escHtml(_blockLabel(v) || ''), v.floor ? escHtml(String(v.floor)) + (/[樓層]$/.test(v.floor) ? '' : '樓') : '', v.unit ? escHtml(String(v.unit)) + (/[室號]$/.test(v.unit) ? '' : '室') : ''].filter(Boolean).join(' ');
+  el.innerHTML = `<div class="sec"><div class="sec-h"><h3>📝 最近睇樓</h3><button type="button" class="sec-link" onclick="navGo('view')">睇樓記錄 ›</button></div>
+    ${list.map(v => { const a = ratingAvg(parseRatings(v)), g = viewingGaps(v).all.length; return `<div class="rv-row" role="button" tabindex="0" onclick="navGo('view')">
+      <span class="t">${ttl(v)}<small>${escHtml(String(v.view_date || '').slice(5))}${v.price ? `．${v.deal_type === 'R' ? `$${Math.round(v.price).toLocaleString()}/月` : `$${(Math.round(v.price / 1e3) / 10).toLocaleString('en-US', { maximumFractionDigits: 1 })}萬`}` : ''}${a != null ? `．⭐ ${a.toFixed(1)}` : ''}${g ? `．<span class="todo-tag">待補 ${g} 項</span>` : ''}</small></span><span class="go">›</span></div>`; }).join('')}
   </div>`;
 }
 function todoDismiss(id) {

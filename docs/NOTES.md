@@ -782,3 +782,9 @@ drip sync（`*/2`）同樣被雙重觸發：兩個 invocation 同時揀同一批
 ## 朋友屋企卡片（2026-11-02）
 
 - 由 8 欄大表（`renderFrozenTable`，手機要橫碌 918px）改做每個朋友一張卡（`.fh-cards` grid，手機一欄、闊屏 auto-fill 300px 起）：頂＝名＋屋苑（撳入屋苑頁）＋🔄✏️🗑；單位一行；2×2 格：恆生估值／相對市價／過往成交／類近在售（沿用 `fhHsHtml`／`fhMarketHtml`／`fhTxnsHtml`／`fhSimilarHtml`）。背景補抓／手動更新都係 `loadFriendHomes()` 成個重畫，唔受影響。
+
+## 今日頁卡片化＋共用區塊卡樣式（2026-11-02，跟主選單 demo）
+
+- 共用樣式：`.sec`（白卡）＋`.sec-h`（h3 左、`.sec-link` 動作右）＋`.sec-foot`（卡底說明＋連結）。新區塊一律用呢套。
+- 今日頁由上到下：「今日」標題 →「📈 你嘅屋苑今日」（`.sec`，卡底「其餘 N 個冇變動．睇全部動態 ↓」）→「📌 待跟進 N」（獨立 `.sec`，直接列頭 2 個，`睇晒 N 個 ›` 展開；`_todoOpen` 已刪）→「動態」（標題一行：今日｜本週 chip＋「歷史 ›」；今日頁收埋 `#dash-head` 舊分頁列；`highlights-section` 套 `.sec` 外觀）→「📝 最近睇樓」（`renderRecentViewings`，最近 3 個，撳去睇樓記錄）。
+- demo 檔已全部刪（main-nav／today-page），設計已融入。
