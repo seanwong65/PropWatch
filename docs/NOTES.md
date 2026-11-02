@@ -755,3 +755,9 @@ drip sync（`*/2`）同樣被雙重觸發：兩個 invocation 同時揀同一批
 ## 動態「已套用你嘅睇樓偏好」框（2026-11-02）
 
 - 「🎯 偏好」chip 換成同搵盤 `.ps-applied` 一樣嘅框（`.hl-applied`，`renderHlApplied()`）：開＝「已套用你嘅睇樓偏好：… ［✕ 清除］」；熄＝「顯示緊全部動態 ［🎯 只睇啱我偏好（…）］」。主頁動態（`#dash-panel-today` 頂）同歷史動態頁都用；本週模式收埋（本週唔篩）。冇可篩偏好就唔出。`toggleHlPrefFilter`／`syncHlPrefChips` 會重畫。
+
+## 睇樓記錄「📊 比較」（2026-11-02）
+
+- 睇樓記錄頁（跨屋苑，`!_compsScope`）加「📅 日曆／📊 比較」切換（`_compsView`，記喺 localStorage `pw_comps_view`）；屋苑頁入面嘅睇樓記錄維持日曆。Demo：`docs/demo/viewing-compare.html`。
+- 比較列表（`_vcHtml`）：每個記錄一行：睇樓價、呎價、對比市價、實用、評分、相、待補；排序「最抵（對比市價）／評分最高／最新」（免費版「最抵」改「呎價最平」）；呎價長條。剔 2–3 個（`_vcSel`）→「並排比較」（`_vcSideHtml`）：價錢／評分（逐個評分項目，名嚟自 `_ratingCriteria`）／單位三組，每項最好 ✓、打和唔標。
+- 「對比市價」＝收費版 `computeViewingComps` 嘅 `verdict`（同類成交市價範圍中位），免費版 🔒（相對市價係收費功能，`showUpgrade('相對市價')`）。買盤／租盤分開比（`_vcDeal`）。
