@@ -123,3 +123,12 @@ button.ps-track { cursor: pointer; font-family: inherit; }
 @supports (-webkit-touch-callout: none) {
   .ps-root .ps-input, .ps-root .ps-select { font-size: 16px; }
 }
+
+/* 屋苑建議（app 入面先有，2026-11-02） */
+.ps-sugg { position: absolute; left: 0; right: 0; top: 100%; margin-top: 4px; z-index: 50; background: var(--surface); border: 1px solid var(--border-strong); border-radius: var(--radius-sm); box-shadow: var(--shadow); max-height: 320px; overflow-y: auto; }
+.ps-sugg[hidden] { display: none; }
+.ps-sugg-item { display: block; width: 100%; text-align: left; background: none; border: none; border-top: 1px solid var(--glass-border); padding: 0.6rem 0.8rem; font: inherit; font-size: 0.92rem; color: var(--text); cursor: pointer; }
+.ps-sugg-item:first-child { border-top: none; }
+.ps-sugg-item:hover, .ps-sugg-item:focus { background: var(--surface2, rgba(0,0,0,0.04)); }
+.ps-sugg-item small { display: block; color: var(--faint); font-size: 0.78rem; margin-top: 0.1rem; }
+.ps-sugg-msg { padding: 0.6rem 0.8rem; color: var(--faint); font-size: 0.85rem; }

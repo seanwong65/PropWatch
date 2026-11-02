@@ -493,6 +493,39 @@ function fmtDate(d) {
 }
 
 // ── 事件 ───────────────────────────────────────────────────
+// 屋苑建議（2026-11-02）：opts.suggest(keyword) → Promise<[{name, sub}]>，淨係 app 提供（用登入後嘅屋苑搜尋）；公開 /search 冇。
+// 打 ≥2 字、停 400ms 先問；撳建議＝填入屋苑欄（唔即搜，用戶可能仲想改條件）。name／sub 當唔可信，一律 escHtml。
+if (typeof opts.suggest === "function") {
+  const kw = $("ps-kw");
+  const box = document.createElement("div");
+  box.className = "ps-sugg"; box.hidden = true; box.setAttribute("role", "listbox");
+  kw.parentElement.style.position = "relative";
+  kw.insertAdjacentElement("afterend", box);
+  let timer = null, seq = 0;
+  const hide = () => { box.hidden = true; };
+  kw.addEventListener("input", () => {
+    clearTimeout(timer);
+    const v = kw.value.trim();
+    if (v.length < 2) { hide(); return; }
+    timer = setTimeout(async () => {
+      const my = ++seq;
+      box.innerHTML = '<div class="ps-sugg-msg">搵緊…</div>'; box.hidden = false;
+      let list = [];
+      try { list = await opts.suggest(v); } catch (_) { list = []; }
+      if (my !== seq || kw.value.trim() !== v) return;      // 期間打咗其他字
+      if (!list.length) { box.innerHTML = '<div class="ps-sugg-msg">搵唔到相關屋苑，照樣可以撳「搜尋」</div>'; return; }
+      box.innerHTML = list.slice(0, 8).map((x, i) => `<button type="button" class="ps-sugg-item" data-i="${i}" role="option">${escHtml(x.name)}${x.sub ? `<small>${escHtml(x.sub)}</small>` : ""}</button>`).join("");
+      box.querySelectorAll(".ps-sugg-item").forEach((b) => b.addEventListener("click", () => {   // 同「屋苑」頁一樣用 click＋blur 延遲收埋（iPhone 觸控都撳得到）
+        kw.value = list[Number(b.dataset.i)].name;
+        hide();
+        form.dispatchEvent(new Event("input", { bubbles: true }));
+      }));
+    }, 400);
+  });
+  kw.addEventListener("blur", () => setTimeout(hide, 250));
+  kw.addEventListener("keydown", (e) => { if (e.key === "Escape") hide(); });
+  form.addEventListener("submit", hide);
+}
 // 切換買／租：價錢單位唔同（萬 vs 元），舊數字搬過去冇意義（之前買盤 800 萬會變「月租 800 元」）。
 // 換成嗰邊嘅預設（opts.priceByDeal＝app 嘅睇樓偏好：{S:{pmin,pmax}, R:{pmin,pmax}}），冇就清空。
 form.addEventListener("change", (e) => {
