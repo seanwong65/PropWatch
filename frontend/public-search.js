@@ -138,7 +138,9 @@ function readCond(sp) {
     beds: beds >= 1 && beds <= 4 ? beds : null,
     pmin: n("pmin"), pmax: n("pmax"), smin: n("smin"), smax: n("smax"),
     srcs: srcs.length ? [...new Set(srcs)] : SRC_KEYS.slice(),
-    nohos: sp.get("nohos") === "1",
+    // 「唔睇居屋（未補地價）」2026-11-03 起預設開（價錢低至高時未補地價居屋 $90 萬起排晒頭，新手會誤會）：
+    // 網址冇講明＝開；用戶熄咗會寫 nohos=0。表單（FormData）就照實：冇剔＝熄。
+    nohos: sp.get("nohos") === "1" || (sp.get("nohos") == null && !(sp instanceof FormData)),
   };
 }
 function condToQuery(c) {
@@ -148,7 +150,7 @@ function condToQuery(c) {
   if (c.area) sp.set("area", c.area);
   for (const k of ["beds", "pmin", "pmax", "smin", "smax"]) if (c[k] != null) sp.set(k, c[k]);
   if (c.srcs.length < SRC_KEYS.length) for (const s of c.srcs) sp.append("src", s);
-  if (c.nohos) sp.set("nohos", "1");
+  if (!c.nohos) sp.set("nohos", "0");
   return sp.toString();
 }
 function fillForm(c) {
@@ -339,7 +341,7 @@ function condLabel(c) {
     bits.push(c.pmin != null && c.pmax != null ? `${u(c.pmin)}–${u(c.pmax)}` : c.pmin != null ? `${u(c.pmin)}以上` : `${u(c.pmax)}以下`);
   }
   if (c.smin != null || c.smax != null) bits.push(`${c.smin ?? 0}–${c.smax ?? "∞"}呎`);
-  if (c.nohos) bits.push("唔睇居屋");
+  if (!c.nohos) bits.push("包括居屋");
   return bits.length ? `${bits.join(" · ")} ${c.deal === "R" ? "租盤" : "買盤"}` : "";
 }
 // 搜尋框下面「最近搜尋：…」列；撳咗填返條件再搜（唔跳頁）
@@ -604,7 +606,7 @@ if (opts.formOnly) {
   more.append(form.querySelector(".ps-row2"), form.querySelector(".ps-srcs"));
   const updToggle = () => {
     const fd = new FormData(form);
-    const n = ["area", "beds", "pmin", "pmax", "smin", "smax", "nohos"].filter((k) => fd.get(k)).length + (fd.getAll("src").length < SRC_KEYS.length ? 1 : 0);
+    const n = ["area", "beds", "pmin", "pmax", "smin", "smax"].filter((k) => fd.get(k)).length + (fd.get("nohos") ? 0 : 1) + (fd.getAll("src").length < SRC_KEYS.length ? 1 : 0);   // 唔睇居屋係預設，熄咗先算一項
     tg.textContent = (more.hidden ? "更多條件" : "收起條件") + (n ? `（已設 ${n} 項）` : "") + (more.hidden ? " ▾" : " ▴");
   };
   tg.addEventListener("click", () => { more.hidden = !more.hidden; tg.setAttribute("aria-expanded", String(!more.hidden)); updToggle(); });

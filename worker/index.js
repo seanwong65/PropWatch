@@ -28,7 +28,7 @@ async function ddlOnce(db, key, sql) {
 // 冇 Allow-Origin：由 fetch 出口統一按 allow-list reflect（見 applyCors）。
 const CORS = {
   "Access-Control-Allow-Methods": "GET, POST, PUT, PATCH, DELETE, OPTIONS",
-  "Access-Control-Allow-Headers": "Content-Type, Authorization",
+  "Access-Control-Allow-Headers": "Content-Type, Authorization, x-d1-bookmark",
 };
 
 // Email 入面嘅連結唔可以靠 Origin／相對路徑（用戶喺 email client 撳），要絕對 URL。
@@ -60,6 +60,7 @@ function applyCors(resp, request) {
   if (!isAllowedOrigin(origin)) return resp; // 唔喺 allow-list：唔俾 ACAO，瀏覽器會封鎖個 response
   const h = new Headers(resp.headers);
   h.set("Access-Control-Allow-Origin", origin);
+  h.set("Access-Control-Expose-Headers", "x-d1-bookmark");   // D1 讀取副本書籤（前端要讀到先帶得返嚟）
   h.append("Vary", "Origin");
   return new Response(resp.body, { status: resp.status, headers: h });
 }
@@ -7414,9 +7415,26 @@ export default {
     const u0 = new URL(request.url);
     const perfOn = request.method !== "OPTIONS" && u0.pathname.startsWith("/api/") && await perfLogActive(rawDb).catch(() => false);
     const meter = perfOn ? newMeter(perfRoute(request.method, u0.pathname)) : null;
-    if (meter) env = { ...env, DB: meteredDb(rawDb, meter) };
+    // D1 讀取副本（2026-11-03）：D1 主庫喺北美，香港用戶每條查詢 ~0.2 秒來回，開今日頁要 4–5 秒。
+    // 每個 API 請求開一個 session：讀可以去最近嘅副本，寫照去主庫。前端帶返上次回應嘅書籤（x-d1-bookmark），
+    // 保證讀得返自己啱啱寫嘅嘢（sequential consistency）；冇書籤＝first-unconstrained（最近副本）。
+    // 排程（scheduled）唔經呢度，照用主庫。runtime／本機冇 withSession 就照舊用 env.DB。
+    let d1s = null;
+    if (request.method !== "OPTIONS" && u0.pathname.startsWith("/api/") && typeof rawDb.withSession === "function") {
+      const bm = request.headers.get("x-d1-bookmark") || "";
+      try { d1s = rawDb.withSession(/^[A-Za-z0-9._:-]{1,256}$/.test(bm) ? bm : "first-unconstrained"); }
+      catch (_) { try { d1s = rawDb.withSession("first-unconstrained"); } catch (_) { d1s = null; } }
+      if (d1s) env = { ...env, DB: d1s };
+    }
+    if (meter) env = { ...env, DB: meteredDb(env.DB, meter) };
     // 所有 response 經 applyCors：只 reflect allow-list 內嘅 Origin
-    const resp = await this.handleRequest(request, env, ctx);
+    let resp = await this.handleRequest(request, env, ctx);
+    if (d1s) {
+      try {
+        const b = d1s.getBookmark();
+        if (b) { const h = new Headers(resp.headers); h.set("x-d1-bookmark", b); resp = new Response(resp.body, { status: resp.status, statusText: resp.statusText, headers: h }); }
+      } catch (_) { /* 冇書籤就算 */ }
+    }
     if (meter) {
       const wallMs = Date.now() - t0, status = resp.status;
       ctx.waitUntil(resp.clone().arrayBuffer().then((b) => b.byteLength).catch(() => 0)
@@ -7429,7 +7447,7 @@ export default {
     // 公開搜尋（/api/public/*）唔行：未登入流量唔應該食 D1。
     const reqPath = new URL(request.url).pathname;
     if (request.method !== "OPTIONS" && reqPath.startsWith("/api/") && !reqPath.startsWith("/api/public/")) {
-      ctx.waitUntil(checkCronWatchdog(env.DB, env).catch(() => {}));
+      ctx.waitUntil(checkCronWatchdog(rawDb, { ...env, DB: rawDb }).catch(() => {}));
     }
     return applyCors(resp, request);
   },

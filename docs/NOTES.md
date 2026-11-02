@@ -795,3 +795,11 @@ drip sync（`*/2`）同樣被雙重觸發：兩個 invocation 同時揀同一批
 - 卡底：「精選 N 項（全部 M 項）／淨係顯示最愛屋苑（全部 M 項）・睇晒今日全部 M 項 ›」，撳完「只睇精選／只睇最愛 ▴」（`_hlShowAll`）。最愛今日冇變動就寫「你嘅最愛屋苑今日冇變動。」。只影響今日（本週照舊）。
 
 - 週報第二期（估值變化、朋友屋企、租金回報、睇樓進度）：**暫緩**（2026-11-02 用戶），等收費用戶多啲先做。
+
+## 效能／第一印象（2026-11-03，另一個 AI review）
+
+- **D1 讀取副本**：DB 設定 `read_replication.mode = auto`（2026-11-03 經 REST API 開，免費版得；要關：PUT `/accounts/:id/d1/database/:id {"read_replication":{"mode":"disabled"}}`）。worker `fetch` 每個 `/api/*` 請求 `env.DB.withSession(書籤 or "first-unconstrained")`，回應帶 `x-d1-bookmark`（CORS Allow／Expose 已加）；前端 `api()` 存喺 sessionStorage `pw_d1bm`，下次請求帶返，保證讀得返自己寫嘅嘢。排程（scheduled）唔經呢度，照用主庫。原因：主庫喺北美（ENAM），香港用戶每條查詢 ~0.2 秒來回，開今日頁 4–5 秒。
+- **搵盤「唔睇居屋（未補地價）」預設開**：網址冇講明＝開，熄咗寫 `nohos=0`；最近搜尋標籤改寫「包括居屋」；「已設 N 項」唔計呢個預設。
+- **八卦朋友屋企先出卡**：唔再等晒各屋苑全部放盤先畫；「類近在售」格背景補（`fh-sim-<id>`）。
+- **功能介紹縮成一行**：`<details class="ob-tip">`「💡 X：點用？▾」撳先展開，✕＝不再提醒。
+- review 話「搵盤一次拉四網過萬個盤」係誤會：每網只攞第一版（~12 個），「中原 10578」係總數。
