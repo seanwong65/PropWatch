@@ -701,11 +701,11 @@ drip sync（`*/2`）同樣被雙重觸發：兩個 invocation 同時揀同一批
 
 ## 主選單（2026-11-01，UI review C 組）
 
-- 今日／屋苑／搵盤／睇樓／設定。闊屏＝左邊直排（`.nv-rail`，`.layout` grid 第 1 欄），手機＝底部一排（`.nv-mobile`，fixed，padding 靠 `env(safe-area-inset-bottom)`；iOS 26 Safari 嘅安全區已包浮動網址列）。2026-11-01 實機教訓：選單被網址列遮住係因為頁面被 iOS 自動放大（輸入框 <16px → 已修），唔係安全區唔夠；曾經 iPhone Safari 額外加 64px，結果多咗一大截空位，已拎走。打字時（focusin input）`body.kb-open` 收埋選單（iOS 收鍵盤後 fixed 元素錯位）。`body.authed`（`hideLoginScreen` 加）先出。Demo：`docs/demo/main-nav.html`。
+- 今日／屋苑／搵盤／睇樓記錄／設定（「睇樓記錄」2026-11-02 由「睇樓」改名，4 字喺 320px 闊手機都放得落）。闊屏＝左邊直排（`.nv-rail`，`.layout` grid 第 1 欄），手機＝底部一排（`.nv-mobile`，fixed，padding 靠 `env(safe-area-inset-bottom)`；iOS 26 Safari 嘅安全區已包浮動網址列）。2026-11-01 實機教訓：選單被網址列遮住係因為頁面被 iOS 自動放大（輸入框 <16px → 已修），唔係安全區唔夠；曾經 iPhone Safari 額外加 64px，結果多咗一大截空位，已拎走。打字時（focusin input）`body.kb-open` 收埋選單（iOS 收鍵盤後 fixed 元素錯位）。`body.authed`（`hideLoginScreen` 加）先出。Demo：`docs/demo/main-nav.html`。
 - `navGo(tab)` 換頁；`navSet(tab, estList)` 只負責高亮＋屋苑列表。各頁函數自己 call navSet：`showDashboard`（today／view）、`showEstate`（estates）、`openPublicSearch`（find）、`showHistoryPage`（today）。
 - **屋苑**＝原本左邊側欄（`.sidebar`）：`body.nv-estlist` 先出，佔主內容位、`.main` 收埋；其他頁側欄收埋。`toggleSidebar()`（登入後）＝`navGo('estates')`；`trackNameFromSearch`／`focusEstateSearch`／track_name handoff 一律 `navGo('estates')`。屋苑卡加「今日：新盤 N．減價 N…」（stats.d1）。
 - **今日**＝`showDashboard(estates,'today')`：你嘅屋苑今日／待跟進（＋冇更新時搵樓）＋「動態」（撳「睇動態」先載，慳 D1）。睇樓日記資料照背景載（待跟進要用），panel 收埋。五粒捷徑已拎走。
-- **睇樓**＝`showDashboard(estates,'view')`：📝 新增睇樓大掣＋睇樓日記／朋友屋企分頁。兩頁共用同一骨架（panel id 唔變），`.dashboard[data-page]` CSS 決定出邊啲分頁。`todoGo` 會先轉去睇樓頁再等 `_compsLoadP` 載完先展開卡。
+- **睇樓記錄**（選單 2026-11-02 由「睇樓」改名）＝`showDashboard(estates,'view')`：📝 新增睇樓大掣＋睇樓日記／朋友屋企分頁。兩頁共用同一骨架（panel id 唔變），`.dashboard[data-page]` CSS 決定出邊啲分頁。`todoGo` 會先轉去睇樓頁再等 `_compsLoadP` 載完先展開卡。
 - **搵盤**＝`openPublicSearch`：四網搜尋／♥ 心儀單位（原本主頁分頁，`#dash-panel-fav` 搬嚟，放喺 `.ps-root` 外面免走色）／🧮 按揭計算（開彈窗）。`findSeg(seg)`。
 - **設定**＝開返 ⚙️ 彈窗（唔換頁）；頂欄 ⚙️ 同漢堡掣登入後收埋。
 

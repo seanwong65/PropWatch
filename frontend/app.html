@@ -1984,7 +1984,7 @@
     <button type="button" data-nav="today" onclick="navGo('today')"><span class="i">🏠</span><span>今日</span></button>
     <button type="button" data-nav="estates" onclick="navGo('estates')"><span class="i">🏢</span><span>屋苑</span></button>
     <button type="button" data-nav="find" onclick="navGo('find')"><span class="i">🔍</span><span>搵盤</span></button>
-    <button type="button" data-nav="view" onclick="navGo('view')"><span class="i">📝</span><span>睇樓</span></button>
+    <button type="button" data-nav="view" onclick="navGo('view')"><span class="i">📝</span><span>睇樓記錄</span></button>
     <button type="button" data-nav="settings" onclick="navGo('settings')"><span class="i">⚙️</span><span>設定</span></button>
 </nav>
 
@@ -2608,7 +2608,7 @@
     <button type="button" data-nav="today" onclick="navGo('today')"><span class="i">🏠</span><span>今日</span></button>
     <button type="button" data-nav="estates" onclick="navGo('estates')"><span class="i">🏢</span><span>屋苑</span></button>
     <button type="button" data-nav="find" onclick="navGo('find')"><span class="i">🔍</span><span>搵盤</span></button>
-    <button type="button" data-nav="view" onclick="navGo('view')"><span class="i">📝</span><span>睇樓</span></button>
+    <button type="button" data-nav="view" onclick="navGo('view')"><span class="i">📝</span><span>睇樓記錄</span></button>
     <button type="button" data-nav="settings" onclick="navGo('settings')"><span class="i">⚙️</span><span>設定</span></button>
   </nav>
   <!-- Sidebar：2026-11-01 起係「屋苑」頁（body.nv-estlist 先出） -->
@@ -3369,7 +3369,7 @@ async function showDashboard(estates, page = 'today') {
   main.innerHTML = `
     <div class="dashboard" data-page="${page}">
       <!-- 2026-11-01 主選單取代「五粒捷徑」：新增睇樓→睇樓頁大掣；搵樓／按揭計算機→搵盤頁；朋友屋企→睇樓頁分頁 -->
-      ${page === 'view' ? `<div class="nv-pgtitle">睇樓</div>
+      ${page === 'view' ? `<div class="nv-pgtitle">睇樓記錄</div>
       <button type="button" class="nv-bigbtn" onclick="openQuickAddViewing()">📝 新增睇樓</button>` : `
       <div id="ob-slot-home"></div>
       <div id="viewing-todo"></div>`}
@@ -4158,7 +4158,7 @@ function glossShow(ev, key) {
 // 原本分「明白／唔再提醒」兩粒，用戶覺得一樣）。存 server：POST /api/onboard-off，跟帳戶，換機都記得；key 要喺 worker ONBOARD_KEYS 白名單。
 // ⚙️ 設定「重新顯示功能介紹」＝全部重置。用固定介紹位而唔係插入內容，因為分頁內容會成個重畫。
 const ONBOARD = {
-  home: ['今日', '最頂會話你追蹤嘅屋苑今日有咩新盤、減價、成交；冇變動嘅日子就幫你喺四大地產網搵盤。撳「睇動態」逐個睇。其他功能喺選單：屋苑、搵盤、睇樓、設定。'],
+  home: ['今日', '最頂會話你追蹤嘅屋苑今日有咩新盤、減價、成交；冇變動嘅日子就幫你喺四大地產網搵盤。撳「睇動態」逐個睇。其他功能喺選單：屋苑、搵盤、睇樓記錄、設定。'],
   estate: ['屋苑頁', '「最新放盤」係各地產網而家放緊嘅盤，可以按房數、價錢篩，仲會話你個盤放咗幾耐、減過幾多次價。睇中咗就撳「記睇樓」記入睇樓日記。'],
   txns: ['成交記錄', '呢度係土地註冊處登記咗嘅真實成交價（唔係叫價），通常比叫價低。想知一個盤大概值幾多，睇同座、同層數嘅成交最準。'],
   analysis: ['樓盤分析', '睇呢個屋苑嘅呎價走勢同市況。「去貨月數」越長＝盤多買家少，買家較有議價空間；越短＝賣家話事。'],
