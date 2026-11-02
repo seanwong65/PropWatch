@@ -294,7 +294,7 @@ export function renderWeeklyHtml(w, { appUrl, unsubUrl, iconUrl, prefLabel = "",
     const blk = t.block && t.block !== t.estate ? `${t.block}${/座$/.test(t.block) ? "" : "座"}` : "";
     const unitLabel = `${blk}${t.floor ? `${t.floor}${/[樓層]$/.test(t.floor) ? "" : "樓"}` : ""}${t.unit ? `${t.unit}${/[室號]$/.test(t.unit) ? "" : "室"}` : ""}`;
     const tags = [t.missing.length ? `待補：${t.missing.join("、")}` : "", t.needLink ? "待確認放盤" : ""].filter(Boolean);
-    return `<tr><td style="${TD}">${esc(t.estate)} ${esc(unitLabel)}<br><span style="color:#7a8ca0;font-size:12.5px">睇樓 ${esc(String(t.viewDate).slice(5, 10))}</span></td>`
+    return `<tr><td style="${TD}">${esc(t.estate)} ${esc(unitLabel)}<br><span style="color:#7a8ca0;font-size:12.5px">睇樓 ${esc(String(t.viewDate).slice(8, 10) + "/" + String(t.viewDate).slice(5, 7))}</span></td>`
       + `<td style="${TD};text-align:right"><span style="display:inline-block;background:#fff4e0;color:#b45309;border-radius:8px;padding:2px 8px;font-size:12px;font-weight:700">${esc(tags.join("・"))}</span></td></tr>`;
   };
   const todoBox = w.todo && w.todo.total

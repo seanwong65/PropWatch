@@ -2813,6 +2813,10 @@ let filters = { ...FILTER_DEFAULTS };
 
 // ── Toast ──────────────────────────────────────────────────────
 function hkTodayStr() { return new Date(Date.now() + 8 * 3600000).toISOString().slice(0, 10); }
+// 日期顯示（2026-11-03 用戶：全系統用「日／月」，唔係「月／日」）。內部照用 YYYY-MM-DD（排序／比較），淨係顯示經呢度。
+function fmtDM(d) { const m = String(d || '').match(/^(\d{4})-(\d{2})-(\d{2})/); return m ? `${m[3]}/${m[2]}` : String(d || ''); }
+function fmtDMY(d) { const m = String(d || '').match(/^(\d{4})-(\d{2})-(\d{2})/); return m ? `${m[3]}/${m[2]}/${m[1]}` : String(d || ''); }
+function fmtMY(d) { const m = String(d || '').match(/^(\d{4})-(\d{2})/); return m ? `${m[2]}/${m[1]}` : String(d || ''); }
 
 // 取代原生 confirm()：Claude desktop 內置瀏覽器窗格（同部分嵌入式 webview）會即刻
 // 回 false、唔彈窗，令所有靠 confirm() 嘅刪除掣「撳咗冇反應」。呢個係頁內確認框，
@@ -3564,7 +3568,7 @@ async function pickEstateForQuick(id) {
 // 手機版 sidebar 收埋咗，快捷掣要幫手拉返出嚟先 focus 到個搜尋框
 // 側欄「🔍 搵樓」：喺主畫面（#main）入面開四大地產網搜尋——同公開 /search 頁共用
 // public-search.js／.css（第一次先載入）。「🔔 追蹤加減價」直接帶去側欄屋苑搜尋，唔使再登記。
-const PS_VER = '20261103a';   // 改 public-search.js/.css 要同 search.html 一齊 bump（Pages 靜態檔 cache 4 小時）
+const PS_VER = '20261103b';   // 改 public-search.js/.css 要同 search.html 一齊 bump（Pages 靜態檔 cache 4 小時）
 let _psAssets = null;
 function _loadPublicSearchAssets() {
   if (!_psAssets) _psAssets = new Promise((resolve, reject) => {
@@ -3861,7 +3865,7 @@ function fhTxnsHtml(h) {
     : (h.txn_status === 'none' ? '<span style="color:var(--muted);font-size:0.75rem" title="中原冇呢個單位嘅成交記錄">中原冇成交記錄</span>'
       : '<span style="color:var(--muted);font-size:0.75rem">冇記錄</span>');
   const rows = txns.slice(0, 4).map((t, i) =>
-    `<div style="${i ? 'color:var(--muted);font-size:0.75rem' : 'font-weight:600;color:var(--accent)'}">$${(t.price/1e4).toFixed(0)}萬 <span style="color:var(--muted);font-size:0.72rem;font-weight:400">${(t.reg_date||'').slice(0,7)}</span></div>`
+    `<div style="${i ? 'color:var(--muted);font-size:0.75rem' : 'font-weight:600;color:var(--accent)'}">$${(t.price/1e4).toFixed(0)}萬 <span style="color:var(--muted);font-size:0.72rem;font-weight:400">${fmtMY(t.reg_date)}</span></div>`
   ).join('');
   const more = txns.length > 4 ? `<div class="unit-price">+${txns.length - 4} 宗更早</div>` : '';
   const link = h.est_url ? `<div style="margin-top:2px"><a href="${safeUrl(h.est_url)}" target="_blank" style="color:var(--accent2);font-size:0.72rem;text-decoration:none">中原記錄 ↗</a></div>` : '';
@@ -4338,7 +4342,7 @@ function renderHomeCarousel() {
   if (mode === 'A') {
     const quiet = ests.length - upd.length - fresh.length;
     host.innerHTML = `<div class="sec">
-        <div class="sec-h"><h3>📈 你嘅屋苑${label}<small>${escHtml(day.slice(5).replace('-', '/'))}</small></h3></div>
+        <div class="sec-h"><h3>📈 你嘅屋苑${label}<small>${escHtml(fmtDM(day))}</small></h3></div>
         ${upd.map(e => { const d = e.stats.d1, id = Number(e.id); return `<div class="mon-item">
           <div class="mon-row">
             <button type="button" class="mon-name" onclick="showEstate(${id})" title="入屋苑頁">${escHtml(e.name)}</button>
@@ -4392,7 +4396,7 @@ function _monDetailHtml(id, r) {
   if (r.new?.length) h += `<div class="md-h">🆕 新盤 ${Number(c.new)}</div>` + r.new.map(x => `<div class="md-r"><span class="md-u">${unit(x)}</span><span class="md-p">${_monWan(x.p)}</span><span class="md-m">${facts(x)}</span>${link(x)}</div>`).join('') + more(r.new.length, c.new);
   if (r.cuts?.length) h += `<div class="md-h" style="color:var(--up)">🔻 減價 ${Number(c.cuts)}</div>` + r.cuts.map(x => `<div class="md-r"><span class="md-u">${unit(x)}</span><span class="md-m">${_monWan(x.from)} →</span><span class="md-p">${_monWan(x.p)}</span><span style="color:var(--up)">${Number(x.pct)}%</span><span class="md-m">${facts(x)}</span>${link(x)}</div>`).join('') + more(r.cuts.length, c.cuts);
   if (r.ups?.length) h += `<div class="md-h">🔺 加價 ${Number(c.ups)}</div>` + r.ups.map(x => `<div class="md-r"><span class="md-u">${unit(x)}</span><span class="md-m">${_monWan(x.from)} →</span><span class="md-p">${_monWan(x.p)}</span><span style="color:var(--down)">+${Number(x.pct)}%</span><span class="md-m">${facts(x)}</span>${link(x)}</div>`).join('') + more(r.ups.length, c.ups);
-  if (r.txns?.length) h += `<div class="md-h">🤝 新成交 ${Number(c.txns)}</div>` + r.txns.map(x => `<div class="md-r"><span class="md-u">${unit(x)}</span><span class="md-p">${_monWan(x.p)}</span><span class="md-m">${[x.s ? `${Math.round(x.s)}呎` : '', x.psf ? `$${Math.round(x.psf).toLocaleString()}/呎` : '', x.reg ? `登記 ${escHtml(String(x.reg).slice(5))}` : ''].filter(Boolean).join('．')}</span></div>`).join('') + more(r.txns.length, c.txns);
+  if (r.txns?.length) h += `<div class="md-h">🤝 新成交 ${Number(c.txns)}</div>` + r.txns.map(x => `<div class="md-r"><span class="md-u">${unit(x)}</span><span class="md-p">${_monWan(x.p)}</span><span class="md-m">${[x.s ? `${Math.round(x.s)}呎` : '', x.psf ? `$${Math.round(x.psf).toLocaleString()}/呎` : '', x.reg ? `登記 ${escHtml(fmtDM(x.reg))}` : ''].filter(Boolean).join('．')}</span></div>`).join('') + more(r.txns.length, c.txns);
   return (h || '<div class="md-m">冇變動</div>') + `<div class="md-foot"><a onclick="showEstate(${Number(id)})">去屋苑頁睇全部放盤 ›</a></div>`;
 }
 async function _homeMountSearch() {
@@ -4416,7 +4420,7 @@ function renderViewingTodo() {
   };
   const rows = shown.map(({ v, missing, needLink }) => `
     <div class="todo-row">
-      <div class="todo-title">${title(v)} <span style="font-weight:400;color:var(--muted)">· 睇樓 ${escHtml(String(v.view_date || '').slice(5))}</span></div>
+      <div class="todo-title">${title(v)} <span style="font-weight:400;color:var(--muted)">· 睇樓 ${escHtml(fmtDM(v.view_date))}</span></div>
       ${missing.length ? `<span class="todo-tag">待補：${missing.map(escHtml).join('、')}</span>` : ''}
       ${needLink ? '<span class="todo-tag">待確認放盤</span>' : ''}
       ${missing.length ? `<button class="todo-btn" onclick="todoFill(${Number(v.id)})">補資料</button>` : ''}
@@ -4438,7 +4442,7 @@ function renderRecentViewings() {
   const ttl = (v) => [escHtml(v.estate_name || ''), escHtml(_blockLabel(v) || ''), v.floor ? escHtml(String(v.floor)) + (/[樓層]$/.test(v.floor) ? '' : '樓') : '', v.unit ? escHtml(String(v.unit)) + (/[室號]$/.test(v.unit) ? '' : '室') : ''].filter(Boolean).join(' ');
   el.innerHTML = `<div class="sec"><div class="sec-h"><h3>📝 最近睇樓</h3><button type="button" class="sec-link" onclick="navGo('view')">睇樓記錄 ›</button></div>
     ${list.map(v => { const a = ratingAvg(parseRatings(v)), g = viewingGaps(v).all.length; return `<div class="rv-row" role="button" tabindex="0" onclick="navGo('view')">
-      <span class="t">${ttl(v)}<small>${escHtml(String(v.view_date || '').slice(5))}${v.price ? `．${v.deal_type === 'R' ? `$${Math.round(v.price).toLocaleString()}/月` : `$${(Math.round(v.price / 1e3) / 10).toLocaleString('en-US', { maximumFractionDigits: 1 })}萬`}` : ''}${a != null ? `．⭐ ${a.toFixed(1)}` : ''}${g ? `．<span class="todo-tag">待補 ${g} 項</span>` : ''}</small></span><span class="go">›</span></div>`; }).join('')}
+      <span class="t">${ttl(v)}<small>${escHtml(fmtDM(v.view_date))}${v.price ? `．${v.deal_type === 'R' ? `$${Math.round(v.price).toLocaleString()}/月` : `$${(Math.round(v.price / 1e3) / 10).toLocaleString('en-US', { maximumFractionDigits: 1 })}萬`}` : ''}${a != null ? `．⭐ ${a.toFixed(1)}` : ''}${g ? `．<span class="todo-tag">待補 ${g} 項</span>` : ''}</small></span><span class="go">›</span></div>`; }).join('')}
   </div>`;
 }
 function todoDismiss(id) {
@@ -4774,7 +4778,7 @@ function _vcHtml() {
     <div class="vc-bar">${dealHtml}<span>排序：</span>${sortHtml}</div>
     ${sorted.map(v => { const p = _vcPsf(v), a = avgOf(v), g = viewingGaps(v).all.length; return `<label class="vc-row ${_vcSel.has(v.id) ? 'sel' : ''}">
       <input type="checkbox" ${_vcSel.has(v.id) ? 'checked' : ''} onchange="vcToggle(${Number(v.id)})">
-      <div class="vc-t">${_vcTitle(v)}<small>睇樓 ${escHtml(String(v.view_date || '').slice(5))}</small></div>
+      <div class="vc-t">${_vcTitle(v)}<small>睇樓 ${escHtml(fmtDM(v.view_date))}</small></div>
       <div class="vc-p">${v.price ? _vcWan(v) : '<span style="color:var(--muted);font-size:0.8rem;font-weight:500">未填價</span>'}<small>${p && deal === 'S' ? `$${p.toLocaleString()}/呎` : ''}</small></div>
       <div class="vc-m"><span>${_vcVs(v)}</span>${v.size_net ? `<span>實用 <b>${Math.round(v.size_net)}</b> 呎</span>` : ''}${a != null ? `<span>評分 <b>${starsHtml(a)} ${a.toFixed(1)}</b></span>` : ''}${v.img_count ? `<span>📷 ${Number(v.img_count)}</span>` : ''}${g ? `<span style="color:var(--accent)">待補 ${g} 項</span>` : ''}</div>
       ${p && deal === 'S' ? `<div class="vc-psf" title="呎價"><i style="width:${Math.round(p / maxPsf * 100)}%"></i></div>` : ''}
@@ -4808,7 +4812,7 @@ function _vcSideHtml(cols) {
         ${grp('🏠 單位')}
         ${row('房數', cols.map(v => v.bedrooms ?? null), x => `${Number(x)} 房`)}
         ${row('座向', cols.map(v => v.direction || null), x => escHtml(String(x)))}
-        ${row('睇樓日', cols.map(v => v.view_date || null), x => escHtml(String(x)))}
+        ${row('睇樓日', cols.map(v => v.view_date || null), x => escHtml(fmtDMY(x)))}
         ${row('相', cols.map(v => Number(v.img_count) || null), x => `📷 ${x}`)}
         ${row('備註', cols.map(v => v.notes || null), x => escHtml(String(x).slice(0, 120)))}
       </tbody></table></div>`;
@@ -4949,7 +4953,7 @@ function openCompModal(id) {
         <td style="text-align:right;padding:0.35rem 0.4rem;color:var(--muted)">${c.size_net || '?'}呎</td>
         <td style="text-align:right;padding:0.35rem 0.4rem;white-space:nowrap">$${_wan(c.price)}萬</td>
         <td style="text-align:right;padding:0.35rem 0.4rem;white-space:nowrap;color:var(--muted)">@$${(c.price_per_ft || 0).toLocaleString()}</td>
-        <td style="text-align:right;padding:0.35rem 0 0.35rem 0.4rem;white-space:nowrap;color:var(--muted);font-size:0.75rem">${c.reg_date}</td>
+        <td style="text-align:right;padding:0.35rem 0 0.35rem 0.4rem;white-space:nowrap;color:var(--muted);font-size:0.75rem">${fmtDMY(c.reg_date)}</td>
       </tr>`;
     }).join('') + `</tbody></table>`;
   }
@@ -4960,7 +4964,7 @@ function openCompModal(id) {
   if (v.status === 'sold' && v.sold) {
     const vs = v.sold.vs_view;
     const gap = vs == null ? '' : ` <span style="font-size:0.78rem;color:${vs <= 0 ? 'var(--up)' : 'var(--down)'}">(較睇樓價 ${vs > 0 ? '+' : ''}${vs}%)</span>`;
-    headBox = `<div style="background:rgba(16,185,129,0.1);border:1px solid var(--up);border-radius:8px;padding:0.5rem 0.7rem;margin-bottom:0.5rem"><span style="color:var(--muted);font-size:0.78rem">本單位真實成交 </span><span style="color:var(--up);font-weight:700">$${_wan(v.sold.price)}萬</span> <span style="color:var(--muted);font-size:0.75rem">${v.sold.reg_date}</span>${gap}</div>`;
+    headBox = `<div style="background:rgba(16,185,129,0.1);border:1px solid var(--up);border-radius:8px;padding:0.5rem 0.7rem;margin-bottom:0.5rem"><span style="color:var(--muted);font-size:0.78rem">本單位真實成交 </span><span style="color:var(--up);font-weight:700">$${_wan(v.sold.price)}萬</span> <span style="color:var(--muted);font-size:0.75rem">${fmtDMY(v.sold.reg_date)}</span>${gap}</div>`;
   } else {
     const rangeTxt = v.range ? `$${_wan(v.range.price_low)}–${_wan(v.range.price_high)}萬 (@$${v.range.ppf_low.toLocaleString()}–${v.range.ppf_high.toLocaleString()})` : '近 12 個月冇足夠參考';
     headBox = `<div style="background:rgba(251,191,36,0.08);border:1px solid var(--border);border-radius:8px;padding:0.5rem 0.7rem;margin-bottom:0.5rem"><span style="color:var(--muted);font-size:0.78rem">推算合理價 </span><span style="color:var(--accent);font-weight:600">${rangeTxt}</span></div>`;
@@ -5023,7 +5027,7 @@ async function loadTodayHighlights() {
   if (!body) return;
   try {
     const data = await _hlFetch();
-    if (dateEl) dateEl.textContent = data.date || "";
+    if (dateEl) dateEl.textContent = fmtDMY(data.date);
     const fmt = p => p ? `$${(p/1e4).toFixed(0)}萬` : "-";
     // 租盤價錢係實數月租，唔似買盤要 ×萬——同 fmt 撞用會將 $23,000/月
     // 讀成 $2萬（差 1e4 倍），一定要獨立一個 formatter。
@@ -5075,7 +5079,7 @@ async function loadTodayHighlights() {
         return `<div style="margin-top:0.3rem;font-size:0.72rem;color:var(--muted)">追蹤${days}日，價格冇變動</div>`;
       }
       const parts = segs.map((s, i) => {
-        const d = s.start.slice(5);
+        const d = fmtDM(s.start);
         if (i === 0) return `${d} ${fmtFn(s.price)}`;
         const cls = s.price <= s.prev ? 'gain-pos' : 'gain-neg';
         return `<span class="${cls}">→ ${d} ${fmtFn(s.price)}</span>`;
@@ -5142,7 +5146,7 @@ async function loadTodayHighlights() {
           v.view_price ? fmt(v.view_price) : '-',
           `<span style="font-weight:700;color:var(--accent)">${v.txn_price ? fmt(v.txn_price) : '-'}</span>`,
           diffHtml,
-          `<span style="font-size:0.75rem">${v.view_date||''}</span>`
+          `<span style="font-size:0.75rem">${fmtDMY(v.view_date)}</span>`
         );
       }
       html += `<div class="highlights-group" style="border:1px solid rgba(248,113,113,0.35);border-radius:8px;padding:0.75rem;background:rgba(248,113,113,0.06);margin-bottom:1rem"><div class="highlights-group-label" style="color:#f87171;font-size:0.9rem;margin-bottom:0.5rem">👀 睇過嘅單位成交 (${allViewedTxns.length})</div>${tbl(TH('屋苑 / 單位','睇樓價','成交價','差價','睇樓日期'), rows)}</div>`;
@@ -5200,7 +5204,7 @@ async function loadTodayHighlights() {
           v.view_price ? fmtRent(v.view_price) : '-',
           `<span style="font-weight:700;color:var(--accent)">${v.txn_price ? fmtRent(v.txn_price) : '-'}</span>`,
           diffHtml,
-          `<span style="font-size:0.75rem">${v.view_date||''}</span>`
+          `<span style="font-size:0.75rem">${fmtDMY(v.view_date)}</span>`
         );
       }
       html += `<div class="highlights-group" style="border:1px solid rgba(248,113,113,0.35);border-radius:8px;padding:0.75rem;background:rgba(248,113,113,0.06);margin-bottom:1rem"><div class="highlights-group-label" style="color:#f87171;font-size:0.9rem;margin-bottom:0.5rem">👀 睇過嘅單位租務成交 (${allViewedRentTxns.length})</div>${tbl(TH('屋苑 / 單位','睇樓租','成交租','差價','睇樓日期'), rows)}</div>`;
@@ -5241,7 +5245,7 @@ async function loadTodayHighlights() {
             .filter(Boolean).join('．');
           rows += `<tr class="hl-tr">
             <td class="hl-c1">${escHtml(t.building||'')} ${escHtml(t.floor||'')} ${escHtml(t.unit||'')}${sizeLine ? `<div class="unit-price">${sizeLine}</div>` : ''}</td>
-            <td class="hl-c2">${escHtml(t.reg_date||'')}</td>
+            <td class="hl-c2">${escHtml(fmtDMY(t.reg_date))}</td>
             <td class="hl-c3"><span style="font-weight:700;color:var(--accent)">${t.price ? fmt(t.price) : '-'}</span><span id="${rowId}-diff"></span></td>
             <td class="hl-c4">${heldStr}<div class="unit-price">${gainHtml}</div></td>
             <td class="hl-c5"><span id="${rowId}-val" style="color:var(--accent)"></span></td>
@@ -5511,7 +5515,7 @@ async function loadHistoryHighlights(months) {
           ? `<span style="color:${diff<=0?'var(--up)':'var(--down)'}">${diff<=0?'▼':'▲'} ${fmt(Math.abs(diff))}</span>`
           : '-';
         rows += TR(
-          `${v.reg_date||v.first_seen||''}`,
+          `${fmtDMY(v.reg_date||v.first_seen)}`,
           `<span style="color:var(--text)"><strong>${escHtml(v.estate_name||'')}</strong> ${escHtml(v.building||'')} ${escHtml(v.floor||'')} ${escHtml(v.unit||'')}</span>`,
           v.view_price ? fmt(v.view_price) : '-',
           `<span style="font-weight:700;color:var(--accent)">${v.txn_price ? fmt(v.txn_price) : '-'}</span>`,
@@ -5576,7 +5580,7 @@ async function loadHistoryHighlights(months) {
         let rows = "";
         for (const l of newListings) {
           rows += TR(
-            `<span style="color:var(--muted)">${l.first_seen_date||''}</span>`,
+            `<span style="color:var(--muted)">${fmtDMY(l.first_seen_date)}</span>`,
             `${escHtml(l.building_name||'')} ${escHtml(l.floor||'')} ${escHtml(l.unit||'')}`,
             `${l.bedrooms!=null?l.bedrooms+'房':'-'}${l.size_net?' '+l.size_net+'呎':''}`,
             `<span style="font-weight:700;color:var(--accent)">${fmt(l.price)}</span>`,
@@ -5591,7 +5595,7 @@ async function loadHistoryHighlights(months) {
         for (const r of removedListings) {
           // 已下架嘅盤條 link 去唔到（listing 已經落架），唔顯示來源 link
           rows += TR(
-            `<span style="color:var(--muted)">${r.last_seen_date||''}</span>`,
+            `<span style="color:var(--muted)">${fmtDMY(r.last_seen_date)}</span>`,
             `${escHtml(r.building_name||'')} ${escHtml(r.floor||'')} ${escHtml(r.unit||'')}`,
             r.bedrooms != null ? `${r.bedrooms}房` : '-',
             `<span style="text-decoration:line-through">${fmt(r.price)}</span>`,
@@ -5760,7 +5764,7 @@ function renderBillingSummary() {
     el.innerHTML = `
       <div style="display:flex;align-items:center;gap:0.5rem;flex-wrap:wrap">
         <span style="background:rgba(245,158,11,0.15);color:var(--accent);border-radius:999px;padding:0.1rem 0.55rem;font-size:0.75rem;font-weight:600">🎁 免費試用中</span>
-        <span style="color:var(--muted);font-size:0.8rem">用到 ${escHtml(b.current_period_end || '')}</span>
+        <span style="color:var(--muted);font-size:0.8rem">用到 ${escHtml(fmtDMY(b.current_period_end))}</span>
       </div>
       <div style="color:var(--muted);font-size:0.78rem;margin:0.4rem 0 0.5rem;line-height:1.6">試用完結會自動轉返免費版，<b>唔會扣錢</b>，資料全部保留。想試用完繼續用收費功能，可以而家訂閱——由試用完結之後先開始收費。</div>
       ${planPickerHtml()}`;
@@ -5772,7 +5776,7 @@ function renderBillingSummary() {
     <div style="display:flex;align-items:center;gap:0.5rem;flex-wrap:wrap">
       <span style="background:rgba(245,158,11,0.15);color:var(--accent);border-radius:999px;padding:0.1rem 0.55rem;font-size:0.75rem;font-weight:600">收費版</span>
       <span style="color:var(--muted);font-size:0.8rem">${escHtml(st)}${
-        b.current_period_end ? `・${b.cancel_at_period_end ? '用到' : '下次扣費'} ${escHtml(b.current_period_end)}` : ''}</span>
+        b.current_period_end ? `・${b.cancel_at_period_end ? '用到' : '下次扣費'} ${escHtml(fmtDMY(b.current_period_end))}` : ''}</span>
     </div>
     ${b.hasCustomer ? `<button class="vf-submit" style="width:auto;padding:0.45rem 0.9rem;margin:0.55rem 0 0" onclick="openBillingPortal()">管理訂閱／發票</button>`
       : `<div style="color:var(--muted);font-size:0.78rem;margin-top:0.4rem">由管理員直接開通，冇付款記錄</div>`}`;
@@ -6827,7 +6831,7 @@ function renderSlTable() {
       const soldKey = `${_feNormBlk(l.building_name)}|${_feNormUnit(l.unit)}`;
       const sold = _slSoldMap.get(soldKey);
       const soldTag = sold
-        ? `<span style="background:rgba(16,185,129,0.16);color:var(--up);border-radius:4px;font-size:0.68rem;padding:0.05rem 0.35rem;margin-left:0.35rem;white-space:nowrap">✓ 已成交 ${fmt(sold.price)} · ${escHtml((sold.reg_date||'').slice(0,7))}</span>`
+        ? `<span style="background:rgba(16,185,129,0.16);color:var(--up);border-radius:4px;font-size:0.68rem;padding:0.05rem 0.35rem;margin-left:0.35rem;white-space:nowrap">✓ 已成交 ${fmt(sold.price)} · ${escHtml(fmtMY(sold.reg_date))}</span>`
         : '';
       return `<tr style="border-top:1px solid var(--border)${sold ? ';background:rgba(251,191,36,0.08)' : ''}">
         <td style="padding:0.35rem 0.4rem 0.35rem 0;color:var(--text)">${unit}${l.direction ? ` <span style="color:var(--muted);font-size:0.72rem">向${escHtml(l.direction)}</span>` : ''}${soldTag}</td>
@@ -6903,7 +6907,7 @@ function renderEcTable() {
         <td style="text-align:right;padding:0.35rem 0.4rem;white-space:nowrap;color:var(--muted)">${c.size_net?c.size_net+'呎':'-'}</td>
         <td style="text-align:right;padding:0.35rem 0.4rem;white-space:nowrap;font-weight:600;color:var(--accent)">${fmt(c.price)}</td>
         <td style="text-align:right;padding:0.35rem 0.4rem;white-space:nowrap;color:var(--muted)">@$${Math.round(c.price_per_ft).toLocaleString()}</td>
-        <td style="text-align:right;padding:0.35rem 0 0.35rem 0.4rem;white-space:nowrap;color:var(--muted);font-size:0.75rem">${(c.reg_date||'').slice(0,10)}</td>
+        <td style="text-align:right;padding:0.35rem 0 0.35rem 0.4rem;white-space:nowrap;color:var(--muted);font-size:0.75rem">${fmtDMY(c.reg_date)}</td>
       </tr>`).join('') + `</tbody></table>`;
   }
   if (!html) html = '<div style="color:var(--muted)">冇成交紀錄</div>';
@@ -6993,7 +6997,7 @@ async function showHSHistory(block, floor, flat, estateId) {
     if (!history.length) { content.innerHTML = '<div class="no-data">暫無歷史記錄</div>'; return; }
     const rows = history.map(h => `
       <tr>
-        <td>${h.fetched_at?.slice(0,10) || '-'}</td>
+        <td>${fmtDMY(h.fetched_at) || '-'}</td>
         <td class="price-cell">$${(h.price/1e4).toFixed(0)}萬</td>
         <td class="unit-price">${h.valuation_date || '-'}</td>
       </tr>
@@ -7446,7 +7450,7 @@ function renderRentalTxnTable() {
     <td>${t.size_net ? Math.round(t.size_net) + '呎' : '-'}</td>
     <td><strong style="color:var(--accent)">$${t.price ? Math.round(t.price).toLocaleString() : '-'}</strong><div class="unit-price">/月</div></td>
     <td>${t.price_per_ft ? '$' + Math.round(t.price_per_ft).toLocaleString() : '-'}<div class="unit-price">/呎</div></td>
-    <td class="txn-date">${escHtml(t.reg_date || '')}</td>
+    <td class="txn-date">${escHtml(fmtDMY(t.reg_date))}</td>
     <td style="font-size:0.75rem;color:var(--muted)">${escHtml(sourceLabel(t.source))}</td>
   </tr>`).join('');
   panel.innerHTML = `<div class="sticky-bar" style="background:transparent;border-bottom:none">${rentTxnFilterBarHtml()}</div>`
@@ -7851,8 +7855,8 @@ function openShareModal(items, kind) {
   document.querySelector('#shareModalOverlay .modal-title').textContent = isFav ? '📤 分享心儀樓盤' : '📤 分享睇樓記錄';
   if (isFav) document.getElementById('share-target').innerHTML = `<div style="font-size:0.85rem;line-height:1.8">${items.map(f => `<div><span class="dj-detail-estate">${escHtml(_favEstateName(f) || '搜尋結果')}</span> ${escHtml(_favUnit(f))} <span style="color:var(--muted);font-size:0.78rem">${escHtml(_favLinks(f).map(l => l.label).join('、'))}</span></div>`).join('')}</div>`;
   else document.getElementById('share-target').innerHTML = kind === 'day'
-    ? `<span class="dj-detail-estate">${escHtml(v0.view_date || '')} 睇樓日記</span> <span style="font-size:0.82rem;color:var(--muted)">${items.length} 個盤：${escHtml(items.map(v => `${_shareEstate(v)} ${_shareUnit(v)}`).join('、'))}</span>`
-    : `<span class="dj-detail-estate">${escHtml(_shareEstate(v0))}</span> <span style="font-size:0.82rem;color:var(--muted)">${escHtml(_shareUnit(v0))}${v0.view_date ? ' · ' + escHtml(v0.view_date) : ''}</span>`;
+    ? `<span class="dj-detail-estate">${escHtml(fmtDMY(v0.view_date))} 睇樓日記</span> <span style="font-size:0.82rem;color:var(--muted)">${items.length} 個盤：${escHtml(items.map(v => `${_shareEstate(v)} ${_shareUnit(v)}`).join('、'))}</span>`
+    : `<span class="dj-detail-estate">${escHtml(_shareEstate(v0))}</span> <span style="font-size:0.82rem;color:var(--muted)">${escHtml(_shareUnit(v0))}${v0.view_date ? ' · ' + escHtml(fmtDMY(v0.view_date)) : ''}</span>`;
   document.getElementById('sh-photos').checked = true;
   document.getElementById('sh-price').checked = true;
   document.getElementById('sh-ratings').checked = true;
@@ -7901,7 +7905,7 @@ function _shareText() {
   const lines = [];
   for (const v of _shareCtx.items) {
     lines.push(`🏠 ${_shareEstate(v)} ${_shareUnit(v)}`.trim());
-    const facts = [v.view_date ? `睇於 ${v.view_date}` : '', v.size_net ? `實用 ${v.size_net} 呎` : '', v.direction ? `向${v.direction}` : '',
+    const facts = [v.view_date ? `睇於 ${fmtDMY(v.view_date)}` : '', v.size_net ? `實用 ${v.size_net} 呎` : '', v.direction ? `向${v.direction}` : '',
       v.bedrooms ? `${v.bedrooms} 房` : '', v.toilet || ''].filter(Boolean);
     if (facts.length) lines.push(facts.join(' · '));
     if (o.price && v.price) lines.push(v.deal_type === 'R' ? `💰 月租 $${Number(v.price).toLocaleString()}`
@@ -7937,7 +7941,7 @@ async function loadMyShares() {
     const { shares } = await api('/api/shares');
     if (!shares.length) { box.textContent = '未分享過。喺睇樓記錄卡撳 📤 就可以分享。'; return; }
     box.innerHTML = shares.map(sh => `<div style="display:flex;align-items:center;gap:0.4rem;padding:0.4rem 0;border-bottom:1px solid var(--border)">
-        <div style="flex:1;min-width:0;color:var(--text)">${escHtml(sh.label || '睇樓記錄')}<br><span style="color:var(--muted);font-size:0.72rem">${escHtml(String(sh.created_at || '').slice(0, 10))}</span></div>
+        <div style="flex:1;min-width:0;color:var(--text)">${escHtml(sh.label || '睇樓記錄')}<br><span style="color:var(--muted);font-size:0.72rem">${escHtml(fmtDMY(sh.created_at))}</span></div>
         <button type="button" class="share-btn" style="padding:0.25rem 0.6rem;font-size:0.75rem" onclick="copyShareLink('${escJsAttr(sh.token)}')">複製</button>
         <button type="button" class="share-btn" style="padding:0.25rem 0.6rem;font-size:0.75rem;color:var(--down)" onclick="revokeShare(${Number(sh.id)})">取消分享</button>
       </div>`).join('');
@@ -8056,7 +8060,7 @@ function renderFavListings() {
     const hs = f.history || [];
     const money = (p) => rent ? '$' + Math.round(p).toLocaleString() : wan(p);
     const multiYear = new Set(hs.map(h => String(h.d).slice(0, 4))).size > 1;
-    const dstr = (d) => multiYear ? String(d || '') : String(d || '').slice(5);
+    const dstr = (d) => multiYear ? fmtDMY(d) : fmtDM(d);
     let hist = '';
     if (f.estate_id && hs.length >= 2) {
       const first = hs[0], last = hs[hs.length - 1];
@@ -8089,10 +8093,10 @@ function renderFavListings() {
         <div style="font-weight:700;margin-top:0.2rem">${escHtml(unit || '-')}${rent ? ' <span class="fav-chip">租盤</span>' : ''}</div>
         <div style="color:var(--muted)">${sn.bedrooms != null ? sn.bedrooms + '房' : ''}${sn.size_net ? ' · ' + Math.round(sn.size_net).toLocaleString() + '呎' : ''}${sn.direction ? ' · 座向' + escHtml(sn.direction) : ''}</div>
         <div style="margin-top:0.25rem"><span class="fav-price">${f.active && nowP ? fmt(nowP) : fmt(f.fav_price)}</span>
-          ${f.active ? '' : '<span class="fav-chip gone">已下架' + (f.last_seen ? ' · 最後見到 ' + escHtml(String(f.last_seen).slice(0, 10)) : '') + '</span>'} ${chg}</div>
+          ${f.active ? '' : '<span class="fav-chip gone">已下架' + (f.last_seen ? ' · 最後見到 ' + escHtml(fmtDMY(f.last_seen)) : '') + '</span>'} ${chg}</div>
         ${hist}
         <div class="fav-actions">${links}
-          <span style="font-size:0.7rem;color:var(--muted)">收藏於 ${escHtml(String(f.created_at || '').slice(0, 10))}${f.fav_price ? ' · 當時 ' + fmt(f.fav_price) : ''}</span></div>
+          <span style="font-size:0.7rem;color:var(--muted)">收藏於 ${escHtml(fmtDMY(f.created_at))}${f.fav_price ? ' · 當時 ' + fmt(f.fav_price) : ''}</span></div>
       </div>
     </div>`;
   };
@@ -8271,7 +8275,7 @@ function renderAbSubs() {
           // 但已經冇意義——唔顯示，否則會令人以為個帳戶仲有到期日噉。
           ? '—'
           : s.current_period_end
-            ? `${escHtml(s.current_period_end)}${!s.stripe_subscription_id ? `<div style="font-size:0.68rem;color:var(--muted)">人手到期</div>` : ''}`
+            ? `${escHtml(fmtDMY(s.current_period_end))}${!s.stripe_subscription_id ? `<div style="font-size:0.68rem;color:var(--muted)">人手到期</div>` : ''}`
             : (!s.stripe_subscription_id ? `<span style="color:var(--muted)">長期</span>` : '—')}</td>
         <td style="padding:0.4rem 0.5rem;white-space:nowrap">
           <button class="history-btn" style="font-size:0.7rem;padding:0.1rem 0.4rem" onclick="abAction('sync',${s.id})">同步</button>
@@ -9738,7 +9742,7 @@ function renderOneViewing(v, estateId, isMobile, showTypeFilter) {
         else if (diff < 0) sqzHtml = `<div style="color:var(--up);font-size:0.72rem">加咗 ${pfmt(-diff)}（${pct}%）</div>`;
       }
       const soldHtml = (v.txn_price && v.txn_reg_date >= v.view_date)
-        ? `<span class="vw-status vw-status-sold">✓ ${pfmt(v.txn_price)}</span> <span style="color:var(--muted);font-size:0.75rem">${v.txn_reg_date}</span>${annualHtml}${sqzHtml}`
+        ? `<span class="vw-status vw-status-sold">✓ ${pfmt(v.txn_price)}</span> <span style="color:var(--muted);font-size:0.75rem">${fmtDMY(v.txn_reg_date)}</span>${annualHtml}${sqzHtml}`
         : `<span class="vw-status vw-status-unsold">${isRent ? '未租出' : '未沽出'}</span>`;
       // 手機卡片版專用：沽出／未沽出合埋一格，連放咗幾耐／上手購買都夾入嚟
       // （桌面表格版唔改，繼續用返上面嘅 soldHtml/domCell/獨立 vprev-）。
@@ -9749,7 +9753,7 @@ function renderOneViewing(v, estateId, isMobile, showTypeFilter) {
       if (sqzInline) soldMetaParts.push(sqzInline);
       if (domMonths != null && domMonths >= 1) soldMetaParts.push(`<span style="color:var(--muted);font-size:0.72rem">放咗${domMonths}個月</span>`);
       const soldBlockMobile = (v.txn_price && v.txn_reg_date >= v.view_date)
-        ? `<div><span class="vw-status vw-status-sold">✓ ${isRent ? '租出' : '沽出'} ${pfmt(v.txn_price)}</span></div><div style="margin-top:0.2rem;color:var(--muted);font-size:0.75rem">${v.txn_reg_date}</div>${soldMetaParts.length ? `<div style="margin-top:0.15rem">${soldMetaParts.join(' <span style="color:var(--muted);font-size:0.7rem">·</span> ')}</div>` : ''}`
+        ? `<div><span class="vw-status vw-status-sold">✓ ${isRent ? '租出' : '沽出'} ${pfmt(v.txn_price)}</span></div><div style="margin-top:0.2rem;color:var(--muted);font-size:0.75rem">${fmtDMY(v.txn_reg_date)}</div>${soldMetaParts.length ? `<div style="margin-top:0.15rem">${soldMetaParts.join(' <span style="color:var(--muted);font-size:0.7rem">·</span> ')}</div>` : ''}`
         : `<div><span class="vw-status vw-status-unsold">${isRent ? '未租出' : '未沽出'}</span>${v.dom_days != null ? ` <span style="color:var(--muted);font-size:0.72rem">· 放咗${v.dom_days.toLocaleString()}日</span>` : ''}</div>
            ${isRent ? '' : `<div style="margin-top:0.25rem;font-size:0.75rem;color:var(--muted)">上手 <span id="vprev-${v.id}" style="cursor:pointer" onclick="fetchUnitTxn(${v.id})">查上手成交</span></div>`}`;
       // 睇樓評分：平均分做個細 badge 貼喺單位名側（一眼比得到邊層好），
@@ -9782,7 +9786,7 @@ function renderOneViewing(v, estateId, isMobile, showTypeFilter) {
           <div class="viewing-card-header">
             <div>
               <div class="viewing-card-title">${unitStr}${rateBadge}</div>
-              <div class="viewing-card-date">${unitSub ? unitSub + ' · ' : ''}睇於 ${v.view_date}</div>
+              <div class="viewing-card-date">${unitSub ? unitSub + ' · ' : ''}睇於 ${fmtDMY(v.view_date)}</div>
             </div>
             <div style="white-space:nowrap;flex-shrink:0">${shareBtn}${viewBtn}${editBtn}${delBtn}</div>
           </div>
@@ -9803,7 +9807,7 @@ function renderOneViewing(v, estateId, isMobile, showTypeFilter) {
       return `<tr data-vrow="${v.id}">
         <td><strong>${unitStr}</strong>${rateBadge}
           ${unitSub ? `<div style="color:var(--muted);font-size:0.75rem">${unitSub}</div>` : ''}
-          <div style="color:var(--muted);font-size:0.72rem">睇於 ${v.view_date}</div></td>
+          <div style="color:var(--muted);font-size:0.72rem">睇於 ${fmtDMY(v.view_date)}</div></td>
         <td><strong style="color:var(--accent)">${pfmt(v.price)}</strong>
           <div style="color:var(--muted);font-size:0.75rem">${psfStr}</div>
           ${mgmtMonthly ? `<div style="color:var(--muted);font-size:0.72rem">管理費 $${mgmtMonthly.toLocaleString()}/月</div>` : ''}</td>
@@ -9839,7 +9843,7 @@ async function fetchUnitTxn(viewingId) {
         : '-';
       return;
     }
-    const dateStr = t.reg_date ? t.reg_date.slice(0, 7) : null;
+    const dateStr = t.reg_date ? fmtMY(t.reg_date) : null;
     const linkStart = data.estateUrl ? `<a href="${safeUrl(data.estateUrl)}" target="_blank" style="text-decoration:none;white-space:nowrap">` : '';
     const linkEnd = data.estateUrl ? '</a>' : '';
     cell.innerHTML = `${linkStart}<span style="color:var(--muted)"><strong>${fmt(t.price)}</strong>${dateStr ? ` ${dateStr}買入` : ''}</span>${linkEnd}`;
@@ -10136,7 +10140,7 @@ function renderTransactionsTable(estateId, offset, hasMore) {
       : '-';
     const srcBadge = txnSrcBadge(t.source);
     return `<tr>
-      <td class="txn-date">${t.reg_date || '-'}${t.instrument_date && t.instrument_date !== t.reg_date ? `<div class="unit-price">簽約 ${t.instrument_date.slice(5)}</div>` : ''}</td>
+      <td class="txn-date">${fmtDMY(t.reg_date) || '-'}${t.instrument_date && t.instrument_date !== t.reg_date ? `<div class="unit-price">簽約 ${fmtDM(t.instrument_date)}</div>` : ''}</td>
       <td>${escHtml(t.building||'')} ${escHtml(t.floor||'')} ${escHtml(t.unit||'')}${srcBadge}</td>
       <td><span class="price-cell">$${t.price ? (t.price/1e4).toFixed(0)+'萬' : '-'}</span><span id="${rowId}-diff">${t.hs_price ? hsDiffHtml(t.hs_price, t.price) : ''}</span></td>
       <td>
@@ -11069,10 +11073,10 @@ function renderListingCards(el, displayRows) {
     const dateLine = (() => {
       const d = listingDate(l);
       const head = isPaid()
-        ? `<span>${escHtml(d || '-')}</span>`
+        ? `<span>${escHtml(fmtDMY(d) || '-')}</span>`
         : `<span class="lc-lock" onclick="event.stopPropagation();showUpgrade('放盤時間軸')">上盤日期 🔒</span>`;
       const tail = l.removed_date
-        ? `<span style="color:var(--down)">下架 ${escHtml(l.removed_date)}</span>`
+        ? `<span style="color:var(--down)">下架 ${escHtml(fmtDMY(l.removed_date))}</span>`
         : l.manual_removed_at
           ? `<span style="color:var(--down)">已下架(手動)</span>`
           : domBadge(l).replace(/^<div[^>]*style="([^"]*)"[^>]*>/, '<span style="$1">').replace(/<\/div>$/, '</span>');
@@ -11263,9 +11267,9 @@ function renderListingsTable() {
       <tr${rowStyle}>
         ${checkboxCell}
         <td class="txn-date">
-          ${listingDate(l) || '-'}
+          ${fmtDMY(listingDate(l)) || '-'}
           ${l.removed_date
-            ? `<div style="color:var(--down);font-size:0.75rem">下架 ${l.removed_date}</div>`
+            ? `<div style="color:var(--down);font-size:0.75rem">下架 ${fmtDMY(l.removed_date)}</div>`
             : l.manual_removed_at
               ? `<div style="color:var(--down);font-size:0.75rem">已下架(手動)</div>`
               : domBadge(l)}
@@ -11411,7 +11415,7 @@ function drawChart(trends, overlay, soldTrend) {
   const fillRgb = hexRgb(mainColor);
   const fmtY = v => isPrice ? "$" + Math.round(v).toLocaleString() : String(Math.round(v));
 
-  const labels = trends.map(t => t.snapshot_date.slice(5));
+  const labels = trends.map(t => fmtDM(t.snapshot_date));
   const data = trends.map(t => isPrice ? t.avg_price_ft : t.listing_count);
   // 成交線：後端 soldTrend 同 trends 對齊（同 snapshot_date），sold_ppf 可能 null。
   const soldData = (isPrice && soldTrend) ? soldTrend.map(t => t.sold_ppf) : null;
@@ -11738,7 +11742,7 @@ async function openLineHistory(building, unit, floorBand) {
         <td style="padding:0.35rem 0.4rem 0.35rem 0;color:var(--text)">${escHtml(String(h.floor||'?'))}</td>
         <td style="text-align:right;padding:0.35rem 0.4rem;white-space:nowrap">$${(h.price/1e4).toFixed(0)}萬</td>
         <td style="text-align:right;padding:0.35rem 0.4rem;color:var(--muted);white-space:nowrap">${h.price_per_ft ? '@$'+Math.round(h.price_per_ft).toLocaleString() : '-'}</td>
-        <td style="text-align:right;padding:0.35rem 0.4rem;white-space:nowrap;color:var(--muted);font-size:0.75rem">${h.reg_date || '-'}</td>
+        <td style="text-align:right;padding:0.35rem 0.4rem;white-space:nowrap;color:var(--muted);font-size:0.75rem">${fmtDMY(h.reg_date) || '-'}</td>
         <td style="text-align:right;padding:0.35rem 0 0.35rem 0.4rem;white-space:nowrap;font-size:0.75rem">${held} ${gain}</td>
       </tr>`;
     }).join('');
