@@ -12,6 +12,8 @@ import { esc, wan, arrow, TD, box, pickRowHtml } from "./weekly.js";
 
 
 const safeHref = (u) => (/^https:\/\//i.test(String(u || "")) ? esc(u) : "");
+// 日期顯示：全系統「日／月／年」（2026-11-03 用戶）
+const dmy = (d) => { const m = String(d || "").match(/^(\d{4})-(\d{2})-(\d{2})/); return m ? `${m[3]}/${m[2]}/${m[1]}` : String(d || ""); };
 const rent = (p) => (p ? `$${Math.round(p).toLocaleString("en-US")}/月` : "-");
 const pctChg = (n, o) => (o ? (n / o - 1) * 100 : null);
 const lab = (...a) => esc(a.filter(Boolean).join(" "));
@@ -27,7 +29,7 @@ const histPills = (segs, fmtFn) => {
     const col = i === 0 ? "#4f647a" : s.price <= s.prev ? "#15803d" : "#cf2020";
     const mark = i === 0 ? "" : s.price <= s.prev ? "▼" : "▲";
     const last = i === segs.length - 1;
-    return `<span style="display:inline-block;background:${last ? "#e4eefa" : "#f3f7fb"};border-radius:8px;padding:2px 7px;margin:2px 0;font-size:12px;color:${col};white-space:nowrap"><span style="color:#7a8ca0">${esc(String(s.start).slice(5))}</span> ${mark}${fmtFn(s.price)}</span>`;
+    return `<span style="display:inline-block;background:${last ? "#e4eefa" : "#f3f7fb"};border-radius:8px;padding:2px 7px;margin:2px 0;font-size:12px;color:${col};white-space:nowrap"><span style="color:#7a8ca0">${esc(String(s.start).slice(8, 10) + "/" + String(s.start).slice(5, 7))}</span> ${mark}${fmtFn(s.price)}</span>`;
   });
   return `<div style="line-height:1.9">${pills.join('<span style="color:#1270ac;font-size:15px;font-weight:700"> → </span>')}</div>`;
 };
@@ -87,7 +89,7 @@ export function renderDailyHtml(h, picks, { appUrl, unsubUrl, iconUrl, prefLabel
   }
   for (const c of h.linkedRemoved || []) {
     watched.push(row(`🚫 ${lab(c.estate_name, c.building_name, c.floor, c.l_unit)}`, '<span style="color:#cf2020;font-weight:700">已下架</span>',
-      `${wan(c.price)}${c.view_date ? `・睇樓 ${esc(c.view_date)}` : ""}`, histPills(c.history, wan)));
+      `${wan(c.price)}${c.view_date ? `・睇樓 ${esc(dmy(c.view_date))}` : ""}`, histPills(c.history, wan)));
   }
   for (const v of h.allViewedTxns || []) {
     const d = v.view_price && v.txn_price ? pctChg(v.txn_price, v.view_price) : null;
@@ -117,7 +119,7 @@ export function renderDailyHtml(h, picks, { appUrl, unsubUrl, iconUrl, prefLabel
         const gainTxt = t.gain_pct != null
           ? ` <span style="color:${t.gain_pct >= 0 ? "#15803d" : "#cf2020"};font-weight:700">${t.gain_pct >= 0 ? "▲" : "▼"}${Math.abs(t.gain_pct).toFixed(1)}%</span>` : "";
         rows += row(lab(t.building, t.floor, t.unit), `<b>${money(t.price)}</b>${gainTxt}`,
-          `${esc(sizePsf(t.size_net, t.price_per_ft))}・${rentMode ? "租" : "成交"} ${esc(t.reg_date || "-")}${yrs ? `・持有 ${yrs.toFixed(1)} 年` : ""}`);
+          `${esc(sizePsf(t.size_net, t.price_per_ft))}・${rentMode ? "租" : "成交"} ${esc(dmy(t.reg_date) || "-")}${yrs ? `・持有 ${yrs.toFixed(1)} 年` : ""}`);
       }
       rows += more(tx.length - listCap);
     }
@@ -158,7 +160,7 @@ export function renderDailyHtml(h, picks, { appUrl, unsubUrl, iconUrl, prefLabel
 <body style="margin:0;background:#eef6fd;font-family:-apple-system,'PingFang HK','Heiti TC',sans-serif;color:#0f1c2e">
 <div style="max-width:560px;margin:0 auto;padding:18px 14px 30px">
  <table role="presentation" style="border-collapse:collapse;width:100%"><tr><td style="padding-right:10px;width:44px"><img src="${esc(iconUrl)}" width="44" height="44" alt="" style="border-radius:10px;display:block"></td><td>
-  <div style="font-size:19px;font-weight:800">🏙️ 每日通知</div><div style="font-size:13px;color:#4f647a">${esc(h.date || "")}</div></td><td style="text-align:right;vertical-align:middle;padding-left:8px"><a href="${esc(appUrl)}" style="background:#1270ac;color:#fff;text-decoration:none;padding:7px 13px;border-radius:999px;font-weight:700;font-size:13px;white-space:nowrap;display:inline-block">打開 app →</a></td></tr></table>
+  <div style="font-size:19px;font-weight:800">🏙️ 每日通知</div><div style="font-size:13px;color:#4f647a">${esc(dmy(h.date))}</div></td><td style="text-align:right;vertical-align:middle;padding-left:8px"><a href="${esc(appUrl)}" style="background:#1270ac;color:#fff;text-decoration:none;padding:7px 13px;border-radius:999px;font-weight:700;font-size:13px;white-space:nowrap;display:inline-block">打開 app →</a></td></tr></table>
  <div style="background:#1270ac;color:#fff;border-radius:14px;padding:12px 16px;margin:12px 0 4px;font-size:14px;line-height:1.7">${esc(dailyHeadline(h))}</div>
  ${watched.length ? box("❤️ 你睇過嘅盤", watched.join("")) : ""}
  ${picks.length ? box(`✨ 值得留意 <span style="font-weight:400;font-size:12px;color:#4f647a">（${esc(prefLabel)}）</span>`, picks.map((p) => pickRowHtml(p, srcName)).join("")) : ""}

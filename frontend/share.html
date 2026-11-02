@@ -64,6 +64,8 @@
   <div class="cta">想好似咁記低你自己睇過嘅樓？價錢、評分、相片一次過記晒。<br><a href="/">免費用搵樓日記 →</a></div>
 </main>
 <script>
+// 日期顯示「日／月／年」（2026-11-03）
+function dmy(d) { var m = String(d || "").match(/^(\d{4})-(\d{2})-(\d{2})/); return m ? m[3] + "/" + m[2] + "/" + m[1] : String(d || ""); }
 (function () {
   // production 用自訂域名（同 /search 一樣）；本機打本機 worker；其他（test／preview）打 test worker
   var API = location.hostname === "home.ws-techs.com" ? "https://api.ws-techs.com"
@@ -98,7 +100,7 @@
     var html = '<div class="sv" data-id="' + Number(v.id) + '">' +
       '<span class="estate-pill">' + esc(v.estate || "（屋苑）") + "</span>" +
       '<div class="unit">' + esc(unitOf(v)) + "</div>" +
-      '<div class="meta">' + (v.view_date ? "睇於 " + esc(v.view_date) + " · " : "") + (v.deal_type === "R" ? "🔑 租盤" : "🏠 買盤") + "</div>" +
+      '<div class="meta">' + (v.view_date ? "睇於 " + esc(dmy(v.view_date)) + " · " : "") + (v.deal_type === "R" ? "🔑 租盤" : "🏠 買盤") + "</div>" +
       (facts.length ? '<div class="facts"><span>' + facts.join("</span><span>") + "</span></div>" : "") +
       ("price" in v && v.price ? '<div class="price">' + money(v) + "</div>" : "");
     if (v.ratings && v.ratings.length) {
@@ -161,7 +163,7 @@
 
   post("/api/public/share", { t: token }).then(function (j) {
     var items = j.items || [];
-    $("sub").textContent = (j.kind === "day" && items[0] && items[0].view_date ? items[0].view_date + " 睇樓日記 · " : "") + items.length + " 個盤 · 由搵樓日記用戶分享";
+    $("sub").textContent = (j.kind === "day" && items[0] && items[0].view_date ? dmy(items[0].view_date) + " 睇樓日記 · " : "") + items.length + " 個盤 · 由搵樓日記用戶分享";
     $("list").innerHTML = items.map(card).join("");
   }).catch(function (e) { fail(e.message || "載入失敗"); });
 })();

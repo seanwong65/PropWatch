@@ -538,7 +538,8 @@ function fmtDate(d) {
   if (days <= 0) return "今日";
   if (days === 1) return "尋日";
   if (days < 30) return `${days} 日前`;
-  return d;
+  const m = String(d).match(/^(\d{4})-(\d{2})-(\d{2})/);   // 2026-11-03：全系統日期用「日／月／年」
+  return m ? `${m[3]}/${m[2]}/${m[1]}` : d;
 }
 
 // ── 事件 ───────────────────────────────────────────────────
