@@ -1065,13 +1065,13 @@ export function refFromPortalUrl(u) {
   return null;
 }
 // 一個盤嘅價錢歷史摘要（lph 稀疏：每行＝一段價錢）。純計算，有單元測試。
-export function historySummary(rows, today) {
+export function historySummary(rows, today, eps = 1000) {   // eps：當改價嘅最少差額（買盤 $1,000；租盤 $100）
   if (!rows.length) return null;
   const r = rows.slice().sort((a, b) => String(a.snapshot_date).localeCompare(String(b.snapshot_date)));
   let cuts = 0, ups = 0;
   for (let i = 1; i < r.length; i++) {
-    if (r[i - 1].price - r[i].price > 1000) cuts++;
-    else if (r[i].price - r[i - 1].price > 1000) ups++;
+    if (r[i - 1].price - r[i].price > eps) cuts++;
+    else if (r[i].price - r[i - 1].price > eps) ups++;
   }
   const days = Math.max(0, Math.round((Date.parse(today + "T00:00:00Z") - Date.parse(r[0].snapshot_date + "T00:00:00Z")) / 86400000));
   return { days, cuts, ups, from: r[0].price, to: r[r.length - 1].price };
@@ -10752,7 +10752,7 @@ export default {
       // 功能介紹（onboarding，2026-11-01）：用戶揀「唔再提醒」嘅功能。key 一定要喺 ONBOARD_KEYS 白名單；{reset:true}＝全部重新顯示。
       // 搵盤結果「有歷史記錄」標記（2026-11-02）：地產網連結 → 我哋 listing_price_history 摘要（減價次數、最初／而家價、最少放咗幾耐）。
       // 只回摘要唔回成條歷史；每次最多 60 個；每帳戶限速（sec_history_tags_rpm）。改價時間軸係收費功能：免費版淨係知「有記錄」（has）。
-      // 而家只做買盤（租盤價錢歷史係另一套表）。
+      // 租盤（deal:"R"，2026-11-02）查 rental_price_history，改價門檻 $100。
       if (method === "POST" && path === "/api/listing-history-tags") {
         const sec = await getSecCfg(db);
         if (rateLimited(`hist:${session.account_id}`, sec.sec_history_tags_rpm)) return json(429, { error: "查得太密，請稍後再試" });
@@ -10762,13 +10762,15 @@ export default {
         for (const u of urls) { const r = refFromPortalUrl(u); if (r) { if (!byRef.has(r)) byRef.set(r, []); byRef.get(r).push(u); } }
         if (!byRef.size) return json(200, isPaidSession(session) ? { tags: {} } : { locked: true, has: [] });
         const refs = [...byRef.keys()];
+        const rent = body.deal === "R";
+        if (rent) await ensureRentalTables(db);
         const { results } = await db.prepare(
-          `SELECT ref_no, price, snapshot_date FROM listing_price_history WHERE ref_no IN (${refs.map(() => "?").join(",")})`).bind(...refs).all();
+          `SELECT ref_no, price, snapshot_date FROM ${rent ? "rental_price_history" : "listing_price_history"} WHERE ref_no IN (${refs.map(() => "?").join(",")}) AND price > 0`).bind(...refs).all();
         const rowsBy = new Map();
         for (const r of results) { if (!rowsBy.has(r.ref_no)) rowsBy.set(r.ref_no, []); rowsBy.get(r.ref_no).push(r); }
         if (!isPaidSession(session)) return json(200, { locked: true, has: [...rowsBy.keys()].flatMap((r) => byRef.get(r)) });
         const today = hkDateStr(), tags = {};
-        for (const [ref, rows] of rowsBy) { const sum = historySummary(rows, today); if (sum) for (const u of byRef.get(ref)) tags[u] = sum; }
+        for (const [ref, rows] of rowsBy) { const sum = historySummary(rows, today, rent ? 100 : 1000); if (sum) for (const u of byRef.get(ref)) tags[u] = sum; }
         return json(200, { tags });
       }
 

@@ -771,7 +771,7 @@ drip sync（`*/2`）同樣被雙重觸發：兩個 invocation 同時揀同一批
 
 - app 搵盤結果（買盤）每張卡：我哋 `listing_price_history` 有呢個盤就加「📈 減過 N 次價（$A萬→$B萬）・最少放咗 N 日」（減過價綠色）；冇改過價寫「價錢冇變過」。「最少放咗」＝我哋最早見到呢個盤至今（唔係地產網嘅上架日）。
 - 對應：地產網連結尾編號＝`listings.ref_no`（`refFromPortalUrl`：中原 `_DAR740`、美聯 `-M\d+`、置業 `-H\d+`、利嘉閣 `-cm77970685-3-hk`→大楷）。唔認得一律 null，**唔估**（同「唔做四網合併」一樣原則）。
-- `POST /api/listing-history-tags {urls}`：auth、每次 ≤60、每帳戶 `sec_history_tags_rpm`（預設 30／分鐘）限速；只回摘要（`historySummary`），唔回成條歷史。改價時間軸係收費功能：免費版只回 `{locked, has}`，卡上「📈 我哋有呢個盤嘅改價記錄 🔒」撳＝`showUpgrade('放盤時間軸')`。公開 `/search` 冇（唔准讀 D1）。租盤未做（價錢歷史係另一套表）。
+- `POST /api/listing-history-tags {urls}`：auth、每次 ≤60、每帳戶 `sec_history_tags_rpm`（預設 30／分鐘）限速；只回摘要（`historySummary`），唔回成條歷史。改價時間軸係收費功能：免費版只回 `{locked, has}`，卡上「📈 我哋有呢個盤嘅改價記錄 🔒」撳＝`showUpgrade('放盤時間軸')`。公開 `/search` 冇（唔准讀 D1）。租盤（2026-11-02 加）：`{deal:"R"}` 查 `rental_price_history`，改價門檻 $100（買盤 $1,000），卡上寫「減過 N 次租（$A→$B/月）」；前端 histMap key 帶買／租。
 - 前端：`public-search.js` `opts.history = {fetch, onLocked}`，`loadHistTags`／`paintHist`（同 like 數一樣一版一次過問）。
 
 ## 產品決定（2026-11-02）
@@ -793,3 +793,5 @@ drip sync（`*/2`）同樣被雙重觸發：兩個 invocation 同時揀同一批
 
 - 用戶：太多項會亂。`_hlFeature(data)`：有 ★ 最愛（未暫停）＝屋苑分組淨係出最愛屋苑；冇最愛＝全部屋苑揀頭 5 項，排序：減價（幅度最大先）→ 新盤（最平先）→ 新成交（最貴先）→ 加價 → 下架。先套睇樓偏好再揀。「睇過嘅盤」專區唔受影響。
 - 卡底：「精選 N 項（全部 M 項）／淨係顯示最愛屋苑（全部 M 項）・睇晒今日全部 M 項 ›」，撳完「只睇精選／只睇最愛 ▴」（`_hlShowAll`）。最愛今日冇變動就寫「你嘅最愛屋苑今日冇變動。」。只影響今日（本週照舊）。
+
+- 週報第二期（估值變化、朋友屋企、租金回報、睇樓進度）：**暫緩**（2026-11-02 用戶），等收費用戶多啲先做。

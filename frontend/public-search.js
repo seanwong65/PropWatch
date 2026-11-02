@@ -268,13 +268,16 @@ function renderAll() {
 
 // 「有歷史記錄」標記（2026-11-02，淨係 app：opts.history = { fetch(urls), onLocked() }）：我哋資料庫有呢個盤嘅價錢歷史就加一行
 // 「📈 減過 N 次價（$A萬→$B萬）・最少放咗 N 日」。收費版先有內容，免費版淨係「有記錄 🔒」。只做買盤。公開 /search 冇（唔准讀 D1）。
+// 租盤（2026-11-02）都有：key 帶買／租（histMap／histAsked 用 `${deal}|${url}`），租金寫 $X/月、「減過 N 次租」
 const histMap = new Map(), histAsked = new Set();
 function histLine(url) {
-  const h = url ? histMap.get(url) : null;
+  const deal = state ? state.cond.deal : "S", rent = deal === "R";
+  const h = url ? histMap.get(deal + "|" + url) : null;
   if (!h) return "";
-  if (h === "locked") return `<div class="ps-hist lock" role="button" tabindex="0" title="收費版睇到呢個盤嘅改價記錄">📈 我哋有呢個盤嘅改價記錄 🔒</div>`;
-  const w = (p) => `$${fmtWan(p)}萬`;
-  const parts = [h.cuts ? `減過 ${h.cuts} 次價（${w(h.from)}→${w(h.to)}）` : h.ups ? `加過價（${w(h.from)}→${w(h.to)}）` : "價錢冇變過"];
+  if (h === "locked") return `<div class="ps-hist lock" role="button" tabindex="0" title="收費版睇到呢個盤嘅改價記錄">📈 我哋有呢個盤嘅${rent ? "改租" : "改價"}記錄 🔒</div>`;
+  const w = (p) => rent ? `$${Math.round(p).toLocaleString("en-US")}` : `$${fmtWan(p)}萬`;
+  const unit = rent ? "/月" : "";
+  const parts = [h.cuts ? `減過 ${h.cuts} 次${rent ? "租" : "價"}（${w(h.from)}→${w(h.to)}${unit}）` : h.ups ? `加過${rent ? "租" : "價"}（${w(h.from)}→${w(h.to)}${unit}）` : (rent ? "租金冇變過" : "價錢冇變過")];
   if (h.days >= 1) parts.push(`最少放咗 ${h.days} 日`);
   return `<div class="ps-hist${h.cuts ? " cut" : ""}" title="我哋每日記錄嘅價錢歷史">📈 ${escHtml(parts.join("・"))}</div>`;
 }
@@ -291,18 +294,18 @@ function paintHist(url) {
   }
 }
 async function loadHistTags() {
-  if (!opts.history || !state || state.cond.deal !== "S") return;
-  const id = runId;
-  const urls = [...new Set(state.items.map((x) => x.url).filter(Boolean))].filter((u) => !histAsked.has(u));
+  if (!opts.history || !state) return;
+  const id = runId, deal = state.cond.deal;
+  const urls = [...new Set(state.items.map((x) => x.url).filter(Boolean))].filter((u) => !histAsked.has(deal + "|" + u));
   if (!urls.length) return;
-  urls.forEach((u) => histAsked.add(u));
+  urls.forEach((u) => histAsked.add(deal + "|" + u));
   for (let i = 0; i < urls.length; i += 60) {
     const chunk = urls.slice(i, i + 60);
     let r;
-    try { r = await opts.history.fetch(chunk); } catch (_) { chunk.forEach((u) => histAsked.delete(u)); continue; }
+    try { r = await opts.history.fetch(chunk, deal); } catch (_) { chunk.forEach((u) => histAsked.delete(deal + "|" + u)); continue; }
     if (id !== runId) return;
-    if (r && r.locked) for (const u of (r.has || [])) histMap.set(u, "locked");
-    else for (const [u, sum] of Object.entries((r && r.tags) || {})) histMap.set(u, sum);
+    if (r && r.locked) for (const u of (r.has || [])) histMap.set(deal + "|" + u, "locked");
+    else for (const [u, sum] of Object.entries((r && r.tags) || {})) histMap.set(deal + "|" + u, sum);
     chunk.forEach(paintHist);
   }
 }
@@ -511,7 +514,7 @@ function cardHtml(it) {
       <div class="ps-title">${escHtml(head || it.title || "（未有屋苑名）")}${sub ? `<small>${escHtml(sub)}</small>` : ""}</div>
       ${facts ? `<div class="ps-facts">${facts}</div>` : ""}
       <div class="ps-money"><span class="ps-price num">${price}</span>${hos}<span class="ps-psf num">${psf}</span></div>
-      ${rent ? "" : histLine(it.url)}
+      ${histLine(it.url)}
       <div class="ps-cta">
         <a class="ps-out ${it.src}" href="${safeUrl(it.url)}" target="_blank" rel="noopener noreferrer nofollow">去${escHtml(name)}睇 ↗</a>
         ${track}
