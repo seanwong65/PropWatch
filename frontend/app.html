@@ -1935,8 +1935,6 @@
     /* 今日頁：只出「動態」分頁；睇樓頁：只出睇樓日記／朋友屋企 */
     .dashboard[data-page="today"] #dash-tab-comps, .dashboard[data-page="today"] #dash-tab-friends,
     .dashboard[data-page="view"] #dash-tab-today, .dashboard[data-page="view"] #dash-tab-actions { display: none !important; }
-    .dyn-ph { display: flex; align-items: center; justify-content: space-between; gap: 0.6rem; flex-wrap: wrap; font-size: 0.82rem; color: var(--muted); padding: 0.4rem 0 0.2rem; }
-    .dyn-ph button { background: var(--brand); color: var(--brand-ink, #fff); border: none; border-radius: 999px; padding: 0.35rem 0.9rem; font-size: 0.8rem; font-weight: 700; cursor: pointer; font-family: inherit; }
     @media (min-width: 769px) and (max-width: 1024px) {
       body.authed .layout { grid-template-columns: 150px minmax(0, 1fr); }
     }
@@ -3389,7 +3387,6 @@ async function showDashboard(estates, page = 'today') {
           </div>
         </div>
         <div id="ob-slot-dash"></div>
-        ${page === 'today' ? `<div class="dyn-ph" id="dyn-ph"><span>逐個睇你追蹤屋苑嘅新盤、減價、下架同成交</span><button type="button" onclick="homeGoDyn('today')">睇動態 ›</button></div>` : ''}
         <div id="dash-panel-today" style="display:none">
           <div class="dyn-toggle" role="tablist" aria-label="動態範圍">
             <button class="dyn-chip on" id="dyn-chip-today" role="tab" onclick="setDynMode('today')">今日 <span id="highlights-date" style="font-weight:400;font-size:0.76rem"></span></button>
@@ -3407,8 +3404,9 @@ async function showDashboard(estates, page = 'today') {
   if (page === 'view') { switchDashTab('comps', true); return; }
   renderHomeCarousel();   // 主頁頂部：你嘅屋苑今日／待跟進／搵樓（見 renderHomeCarousel）
   obSlot('ob-slot-home', 'home');
-  // 今日頁：「動態」撳「睇動態」先載（慳 D1：今日動態一次讀幾萬 rows）；睇樓日記資料照載（待跟進要用），panel 收埋
+  // 今日頁：動態一開就自動載（2026-11-02 用戶要求；_hlFetch 有 30 分鐘暫存慳 D1）；睇樓日記資料照載（待跟進要用），panel 收埋
   _compsLoaded = true; _compsLoadP = loadViewingComps();
+  switchDashTab('today', true);
 }
 
 // ── 快捷功能面板 ───────────────────────────────────────────────────────────
@@ -3592,7 +3590,6 @@ let _friendsLoaded = false;
 let _todayLoaded = false;
 function switchDashTab(tab, auto = false) {
   const tabs = ['today', 'comps', 'radar', 'friends', 'fav'];
-  if (tab === 'today') document.getElementById('dyn-ph')?.remove();
   // 功能介紹：用戶自己撳分頁先出（開主頁預設嗰個唔出，免得同主頁介紹兩張一齊）
   if (auto) obSlot('ob-slot-dash', '');
   else obSlot('ob-slot-dash', { today: 'dyn', comps: 'diary', friends: 'friends', fav: 'fav' }[tab] || '');
@@ -4786,13 +4783,27 @@ function openCompModal(id) {
 }
 function closeCompModal() { document.getElementById('compModalOverlay').style.display = 'none'; }
 
+// 今日動態暫存（2026-11-02）：今日頁一開就自動載（用戶要求），但一次讀 ~7k rows D1——同一個登入、同一日 30 分鐘內唔重讀。
+// sessionStorage（分頁關咗就冇）；key 帶 token 頭段，換帳戶登入唔會見到上一個人嘅。數據本身每日 06:00 sync 先變，30 分鐘夠新。
+const _HL_TTL = 30 * 60000;
+async function _hlFetch() {
+  const tok = (localStorage.getItem('propwatch_token') || '').slice(0, 16);
+  const key = `pw_hl_${tok}`, today = hkTodayStr();
+  try {
+    const c = JSON.parse(sessionStorage.getItem(key) || 'null');
+    if (c && c.day === today && Date.now() - c.at < _HL_TTL && c.data) return c.data;
+  } catch (_) { /* 冇暫存就照攞 */ }
+  const data = await api("/api/today-highlights");
+  try { sessionStorage.setItem(key, JSON.stringify({ day: today, at: Date.now(), data })); } catch (_) { /* 太大／私隱模式：唔暫存 */ }
+  return data;
+}
 async function loadTodayHighlights() {
   _todayLoaded = true;
   const body = document.getElementById("highlights-body");
   const dateEl = document.getElementById("highlights-date");
   if (!body) return;
   try {
-    const data = await api("/api/today-highlights");
+    const data = await _hlFetch();
     if (dateEl) dateEl.textContent = data.date || "";
     const fmt = p => p ? `$${(p/1e4).toFixed(0)}萬` : "-";
     // 租盤價錢係實數月租，唔似買盤要 ×萬——同 fmt 撞用會將 $23,000/月
