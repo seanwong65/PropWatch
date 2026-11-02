@@ -761,3 +761,8 @@ drip sync（`*/2`）同樣被雙重觸發：兩個 invocation 同時揀同一批
 - 睇樓記錄頁（跨屋苑，`!_compsScope`）加「📅 日曆／📊 比較」切換（`_compsView`，記喺 localStorage `pw_comps_view`）；屋苑頁入面嘅睇樓記錄維持日曆。Demo：`docs/demo/viewing-compare.html`。
 - 比較列表（`_vcHtml`）：每個記錄一行：睇樓價、呎價、對比市價、實用、評分、相、待補；排序「最抵（對比市價）／評分最高／最新」（免費版「最抵」改「呎價最平」）；呎價長條。剔 2–3 個（`_vcSel`）→「並排比較」（`_vcSideHtml`）：價錢／評分（逐個評分項目，名嚟自 `_ratingCriteria`）／單位三組，每項最好 ✓、打和唔標。
 - 「對比市價」＝收費版 `computeViewingComps` 嘅 `verdict`（同類成交市價範圍中位），免費版 🔒（相對市價係收費功能，`showUpgrade('相對市價')`）。買盤／租盤分開比（`_vcDeal`）。
+
+## ★ 最愛定義＋主頁搵盤行（2026-11-02）
+
+- ★「最愛」保留個名（用戶：有啲屋苑只係睇過、唔係真係想要；最愛＝自己特別 focus 嘅屋苑）。說明改為先講意思再講收費版作用：「★ 最愛＝你特別留意嘅屋苑（排喺最前）。收費版仲會每日更新最愛、寄每週摘要」；`_starHelp` 一樣。
+- 主頁「有更新」嘅日子拎走「🔍 搵其他屋苑／全港搵盤」一行（主選單已有搵盤；demo `docs/demo/home-search-row.html` 用戶確認）；冇更新／新用戶照保留搜尋表單。`homeOpenFind`／`.find-row` 已刪。
