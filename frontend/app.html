@@ -875,7 +875,13 @@
     .dyn-chip { border: 0; background: transparent; color: var(--muted); border-radius: 999px; padding: 0.28rem 0.95rem; font-size: 0.86rem; cursor: pointer; font-family: inherit; }
     .dyn-chip.on { background: var(--brand); color: #fff; font-weight: 700; }
     .dyn-chip.on span { color: inherit !important; }
-    .dyn-week .hl-pref-toggle { display: none !important; }
+    .dyn-week .hl-pref-toggle, .dyn-week .hl-applied { display: none !important; }
+    /* 動態「已套用你嘅睇樓偏好…✕ 清除」框（2026-11-02，同搵盤 .ps-applied 一樣設計，取代「🎯 偏好」chip） */
+    .hl-applied { display: flex; flex-wrap: wrap; align-items: center; gap: 0.4rem 0.6rem; font-size: 0.82rem; color: var(--text); background: var(--brand-soft); border: 1px solid var(--border); border-radius: 12px; padding: 0.45rem 0.75rem; margin: 0 0 0.6rem; }
+    .hl-applied[hidden] { display: none; }
+    .hl-applied.off { background: var(--glass-bg); color: var(--muted); }
+    .hl-applied-x { background: none; border: 1px solid var(--border-strong); border-radius: 999px; padding: 0.1rem 0.6rem; font-size: 0.78rem; cursor: pointer; color: var(--muted); font-family: inherit; }
+    .hl-applied-x:hover { color: var(--text); border-color: var(--brand); }
     .wk-estate { scroll-margin-top: 10.2rem; border-radius: 6px; display: flex; justify-content: space-between; align-items: baseline; gap: 0.5rem; padding: 0.6rem 0 0.15rem; font-weight: 700; font-size: 0.92rem; color: var(--text); border-top: 2px solid var(--border); margin-top: 0.4rem; cursor: pointer; }
     .wk-estate small { font-weight: 400; color: var(--muted); font-size: 0.74rem; }
     .wk-go { border: 1px solid var(--border); background: transparent; color: var(--brand); border-radius: 999px; padding: 0.1rem 0.6rem; font-size: 0.74rem; cursor: pointer; font-family: inherit; }
@@ -3385,12 +3391,12 @@ async function showDashboard(estates, page = 'today') {
             <button id="dash-tab-today" onclick="switchDashTab('today')" style="background:none;border:none;border-bottom:2px solid transparent;margin-bottom:-2px;color:var(--muted);font-size:0.9rem;padding:0.35rem 0.85rem;cursor:pointer">動態</button>
           </div>
           <div id="dash-tab-actions" style="display:flex;align-items:center;gap:0.5rem">
-            <button class="filter-chip hl-pref-toggle active" onclick="toggleHlPrefFilter()" title="用你嘅睇樓偏好（售價/房數/實呎）篩選下面嘅動態" style="display:none">🎯 偏好</button>
             <button class="history-btn" id="dash-history-btn" style="font-size:0.88rem;padding:0.35rem 0.85rem" onclick="isPaid() ? showHistoryPage() : showUpgrade('歷史動態')">歷史動態 →</button>
           </div>
         </div>
         <div id="ob-slot-dash"></div>
         <div id="dash-panel-today" style="display:none">
+          <div class="hl-applied" hidden></div>
           <div class="dyn-toggle" role="tablist" aria-label="動態範圍">
             <button class="dyn-chip on" id="dyn-chip-today" role="tab" onclick="setDynMode('today')">今日 <span id="highlights-date" style="font-weight:400;font-size:0.76rem"></span></button>
             <button class="dyn-chip" id="dyn-chip-week" role="tab" onclick="setDynMode('week')">本週<span id="dyn-week-lock">${isPaid() ? '' : ' 🔒'}</span></button>
@@ -5219,10 +5225,10 @@ function showHistoryPage() {
     <div class="dashboard">
       <div id="ob-slot-history"></div>
       <div class="highlights-section" id="history-section">
+        <div class="hl-applied" hidden></div>
         <div class="highlights-title" style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:0.4rem">
           <span>歷史動態</span>
           <div style="display:flex;align-items:center;gap:0.5rem">
-            <button class="filter-chip hl-pref-toggle ${_hlPrefFilterOn ? 'active' : ''}" onclick="toggleHlPrefFilter()" title="用你嘅睇樓偏好（售價/房數/實呎）篩選下面嘅動態" style="display:${_hlPrefsUsable() ? '' : 'none'}">🎯 偏好</button>
             <select class="filter-select" id="historyMonthsSel" onchange="loadHistoryHighlights(this.value)" style="font-size:0.78rem;padding:0.2rem 0.5rem">
               <option value="1">最近 1 個月</option>
               <option value="3">最近 3 個月</option>
@@ -8494,8 +8500,22 @@ function prefMatchHl(r, isRent = false) {
   return true;
 }
 
+// 「已套用你嘅睇樓偏好：… ✕ 清除」（開）／「顯示緊全部動態 · 🎯 只睇啱我偏好嘅」（熄）。冇可篩偏好就收埋。
+function renderHlApplied() {
+  const usable = _hlPrefsUsable();
+  const sum = usable ? escHtml(formatPrefsSummary(_userPrefs)) : '';
+  document.querySelectorAll('.hl-applied').forEach(el => {
+    el.hidden = !usable;
+    if (!usable) { el.innerHTML = ''; return; }
+    el.classList.toggle('off', !_hlPrefFilterOn);
+    el.innerHTML = _hlPrefFilterOn
+      ? `<span>已套用你嘅睇樓偏好：<b>${sum}</b></span><button type="button" class="hl-applied-x" title="顯示全部動態" onclick="toggleHlPrefFilter()">✕ 清除</button>`
+      : `<span>顯示緊全部動態</span><button type="button" class="hl-applied-x" title="只顯示啱你睇樓偏好嘅動態" onclick="toggleHlPrefFilter()">🎯 只睇啱我偏好（${sum}）</button>`;
+  });
+}
 function toggleHlPrefFilter() {
   _hlPrefFilterOn = !_hlPrefFilterOn;
+  renderHlApplied();
   document.querySelectorAll('.hl-pref-toggle').forEach(b => b.classList.toggle('active', _hlPrefFilterOn));
   loadTodayHighlights();
   if (_radarLoaded && document.getElementById('radar-body')) loadBargainRadar();
@@ -8506,6 +8526,7 @@ function toggleHlPrefFilter() {
 
 // 有可篩偏好先顯示「🎯 偏好」chip
 function syncHlPrefChips() {
+  renderHlApplied();
   document.querySelectorAll('.hl-pref-toggle').forEach(b => {
     b.style.display = _hlPrefsUsable() ? '' : 'none';
     b.classList.toggle('active', _hlPrefFilterOn);

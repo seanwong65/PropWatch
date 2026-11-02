@@ -751,3 +751,7 @@ drip sync（`*/2`）同樣被雙重觸發：兩個 invocation 同時揀同一批
 ## 放盤「⋯」（2026-11-02）
 
 - 「標記已下架／還原」由放盤卡同表格嘅細字掣收入「⋯」選單（`lcMoreBtn`／`openLcMenu`，沿用 `.estate-menu` 樣式＋`.lc-menu`）。理由：新手以為要自己幫系統報下架，系統本身會自動偵測。
+
+## 動態「已套用你嘅睇樓偏好」框（2026-11-02）
+
+- 「🎯 偏好」chip 換成同搵盤 `.ps-applied` 一樣嘅框（`.hl-applied`，`renderHlApplied()`）：開＝「已套用你嘅睇樓偏好：… ［✕ 清除］」；熄＝「顯示緊全部動態 ［🎯 只睇啱我偏好（…）］」。主頁動態（`#dash-panel-today` 頂）同歷史動態頁都用；本週模式收埋（本週唔篩）。冇可篩偏好就唔出。`toggleHlPrefFilter`／`syncHlPrefChips` 會重畫。
