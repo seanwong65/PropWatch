@@ -1127,6 +1127,42 @@
     .gl { border-bottom: 1px dotted currentColor; cursor: help; }
     .gl-pop { position: fixed; z-index: 10000; max-width: min(300px, calc(100vw - 24px)); background: var(--surface); color: var(--text); border: 1px solid var(--border-strong); border-radius: 10px; box-shadow: 0 8px 24px rgba(0,0,0,0.18); padding: 0.55rem 0.7rem; font-size: 0.8rem; line-height: 1.55; font-weight: 400; text-align: left; white-space: normal; }
     .mt-plain { font-weight: 400; color: var(--muted); }
+    /* 睇樓記錄「📊 比較」（2026-11-02）：比較列表＋並排比較 */
+    .vc-seg { display: inline-flex; background: var(--surface); border: 1px solid var(--border); border-radius: 999px; padding: 3px; margin: 0 0 0.7rem; }
+    .vc-seg button { border: none; background: none; padding: 0.3rem 0.85rem; border-radius: 999px; font-size: 0.82rem; color: var(--muted); cursor: pointer; font-family: inherit; font-weight: 600; }
+    .vc-seg button.on { background: var(--brand); color: var(--brand-ink, #fff); }
+    .vc-bar { display: flex; flex-wrap: wrap; gap: 0.3rem; align-items: center; font-size: 0.8rem; color: var(--muted); margin-bottom: 0.6rem; }
+    .vc-hint { font-size: 0.78rem; color: var(--muted); margin: 0 0 0.6rem; line-height: 1.5; }
+    .vc-row { display: grid; grid-template-columns: 26px 1fr auto; gap: 0.2rem 0.6rem; align-items: start; background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 0.65rem 0.7rem; margin-bottom: 0.5rem; cursor: pointer; }
+    .vc-row.sel { border-color: var(--brand); box-shadow: 0 0 0 2px var(--brand-soft); }
+    .vc-row input { margin-top: 0.25rem; width: 18px; height: 18px; }
+    .vc-t { font-weight: 700; font-size: 0.9rem; }
+    .vc-t small { font-weight: 400; color: var(--muted); font-size: 0.74rem; margin-left: 0.3rem; }
+    .vc-m { grid-column: 2 / 4; display: flex; flex-wrap: wrap; gap: 0.15rem 0.8rem; font-size: 0.8rem; color: var(--muted); }
+    .vc-m b { color: var(--text); }
+    .vc-p { text-align: right; font-weight: 800; color: var(--accent); font-size: 1rem; white-space: nowrap; }
+    .vc-p small { display: block; font-size: 0.72rem; color: var(--muted); font-weight: 500; }
+    .vc-vs { font-weight: 700; border-radius: 999px; padding: 0 0.5rem; font-size: 0.74rem; }
+    .vc-vs.cheap { color: var(--up); background: rgba(21,128,61,0.1); }
+    .vc-vs.dear { color: var(--down); background: rgba(207,32,32,0.08); }
+    .vc-vs.na { color: var(--muted); background: var(--glass-bg); }
+    .vc-vs.lock { color: var(--accent); background: rgba(245,158,11,0.12); cursor: pointer; }
+    .vc-psf { height: 6px; border-radius: 999px; background: var(--border); overflow: hidden; grid-column: 2 / 4; margin-top: 0.2rem; }
+    .vc-psf i { display: block; height: 100%; background: var(--accent); }
+    .vc-cta { position: sticky; bottom: calc(80px + env(safe-area-inset-bottom)); display: flex; justify-content: center; margin-top: 0.6rem; z-index: 5; }
+    @media (min-width: 769px) { .vc-cta { bottom: 12px; } }
+    .vc-cta button { border: none; background: var(--brand); color: var(--brand-ink, #fff); border-radius: 999px; padding: 0.65rem 1.4rem; font-weight: 800; font-size: 0.92rem; box-shadow: var(--shadow); font-family: inherit; cursor: pointer; }
+    .vc-cta button[disabled] { opacity: 0.45; cursor: default; }
+    .vc-back { background: none; border: none; color: var(--accent2); font-size: 0.85rem; cursor: pointer; padding: 0; margin-bottom: 0.6rem; font-family: inherit; }
+    .vc-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+    table.vc-cmp { border-collapse: separate; border-spacing: 0; width: 100%; min-width: 420px; font-size: 0.82rem; }
+    table.vc-cmp th, table.vc-cmp td { padding: 0.5rem 0.55rem; border-bottom: 1px solid var(--border); text-align: left; vertical-align: top; }
+    table.vc-cmp th:first-child, table.vc-cmp td:first-child { position: sticky; left: 0; background: var(--surface); color: var(--muted); font-weight: 600; white-space: nowrap; z-index: 1; }
+    table.vc-cmp thead th { font-size: 0.86rem; color: var(--text); background: var(--surface); }
+    table.vc-cmp thead th small { display: block; font-weight: 400; color: var(--muted); font-size: 0.72rem; }
+    table.vc-cmp td.best { background: rgba(21,128,61,0.09); font-weight: 800; }
+    table.vc-cmp td.best::after { content: " ✓"; color: var(--up); }
+    table.vc-cmp tr.grp td { background: var(--glass-bg); font-weight: 800; color: var(--text); font-size: 0.78rem; }
     /* 功能介紹（onboarding，2026-11-01）：每個功能頂部一張細卡，撳「明白」就永久唔再出（跟帳戶） */
     .ob-tip { background: var(--brand-soft); border: 1px solid var(--border); border-radius: 12px; padding: 0.6rem 0.8rem; margin: 0 0 0.7rem; font-size: 0.82rem; line-height: 1.55; }
     .ob-t { font-weight: 700; margin-bottom: 0.15rem; }
@@ -4633,13 +4669,100 @@ function toggleCompsViewing(vid) {
   if (open) { _compsOpenRows.add(vid); fillCompsDetail(vid); } else _compsOpenRows.delete(vid);
 }
 
+// ── 睇樓記錄「📊 比較」（2026-11-02）─────────────────────────────────────────
+// 比較列表：每個記錄一行（叫價／呎價／對比市價／評分／相），可排序；剔 2–3 個再「並排比較」逐項對比（最好嗰個 ✓，打和唔標）。
+// 「對比市價」＝收費版 computeViewingComps 嘅 verdict（同類成交市價範圍中位），免費版 🔒（相對市價係收費功能）。
+// 買盤／租盤分開比（月租同樓價唔好混埋）。全部字串 escHtml（屋苑名、座、備註…當唔可信）。
+let _compsView = (() => { try { return localStorage.getItem('pw_comps_view') === 'cmp' ? 'cmp' : 'cal'; } catch (_) { return 'cal'; } })();
+let _vcSort = 'value', _vcSel = new Set(), _vcSide = false, _vcDeal = 'S';
+function setCompsView(m) {
+  _compsView = m; _vcSide = false;
+  try { localStorage.setItem('pw_comps_view', m); } catch (_) { /* 冇所謂 */ }
+  renderCompsPanel();
+}
+function vcSet(k, val) { if (k === 'sort') _vcSort = val; if (k === 'deal') { _vcDeal = val; _vcSel.clear(); } if (k === 'side') _vcSide = !!val; renderCompsPanel(); }
+function vcToggle(id) {
+  if (_vcSel.has(id)) _vcSel.delete(id);
+  else if (_vcSel.size >= 3) { toast('最多並排比較 3 個'); return; }
+  else _vcSel.add(id);
+  renderCompsPanel();
+}
+const _vcPsf = (v) => v.price && v.size_net ? Math.round(v.price / v.size_net) : null;
+const _vcWan = (v) => v.deal_type === 'R' ? `$${Math.round(v.price).toLocaleString()}/月` : `$${(Math.round(v.price / 1e3) / 10).toLocaleString('en-US', { maximumFractionDigits: 1 })}萬`;
+const _vcTitle = (v) => [escHtml(v.estate_name || ''), escHtml(_blockLabel(v) || ''), v.floor ? escHtml(String(v.floor)) + (/[樓層]$/.test(v.floor) ? '' : '樓') : '', v.unit ? escHtml(String(v.unit)) + (/[室號]$/.test(v.unit) ? '' : '室') : ''].filter(Boolean).join(' ');
+function _vcVs(v) {
+  if (!isPaid()) return `<span class="vc-vs lock" onclick="event.stopPropagation();event.preventDefault();showUpgrade('相對市價')">🔒 對比市價</span>`;
+  if (v.verdict == null) return `<span class="vc-vs na">${v.price ? '未夠成交比較' : '未有睇樓價'}</span>`;
+  return v.verdict <= 0 ? `<span class="vc-vs cheap">比市價平 ${Math.abs(v.verdict)}%</span>` : `<span class="vc-vs dear">比市價貴 ${v.verdict}%</span>`;
+}
+function _vcHtml() {
+  const hasR = _compsData.some(v => (v.deal_type || 'S') === 'R'), hasS = _compsData.some(v => (v.deal_type || 'S') === 'S');
+  const deal = hasS && hasR ? _vcDeal : (hasR ? 'R' : 'S');
+  const rows = _compsData.filter(v => (v.deal_type || 'S') === deal);
+  const dealHtml = hasS && hasR ? `<span>類型：</span>${[['S', '🏠 買盤'], ['R', '🔑 租盤']].map(([k, l]) => `<button type="button" class="filter-chip ${deal === k ? 'active' : ''}" onclick="vcSet('deal','${k}')">${l}</button>`).join('')}<span style="width:0.6rem"></span>` : '';
+  if (_vcSide) return _vcSideHtml(rows.filter(v => _vcSel.has(v.id)));
+  const avgOf = (v) => ratingAvg(parseRatings(v));
+  const valueKey = (v) => isPaid() ? (v.verdict ?? 999) : (_vcPsf(v) ?? 9e9);
+  const sorted = rows.slice().sort((a, b) => _vcSort === 'value' ? valueKey(a) - valueKey(b)
+    : _vcSort === 'rating' ? (avgOf(b) ?? -1) - (avgOf(a) ?? -1)
+    : String(b.view_date || '').localeCompare(String(a.view_date || '')));
+  const maxPsf = Math.max(1, ...rows.map(_vcPsf).filter(Boolean));
+  const sortHtml = [['value', isPaid() ? '最抵（對比市價）' : '呎價最平'], ['rating', '評分最高'], ['date', '最新']]
+    .map(([k, l]) => `<button type="button" class="filter-chip ${_vcSort === k ? 'active' : ''}" onclick="vcSet('sort','${k}')">${l}</button>`).join('');
+  const nSel = rows.filter(v => _vcSel.has(v.id)).length;
+  return `<div class="vc-hint">所有睇過嘅單位一行一個，即刻見到邊個抵、邊個評分高。剔 2–3 個再撳「並排比較」逐項對比。</div>
+    <div class="vc-bar">${dealHtml}<span>排序：</span>${sortHtml}</div>
+    ${sorted.map(v => { const p = _vcPsf(v), a = avgOf(v), g = viewingGaps(v).all.length; return `<label class="vc-row ${_vcSel.has(v.id) ? 'sel' : ''}">
+      <input type="checkbox" ${_vcSel.has(v.id) ? 'checked' : ''} onchange="vcToggle(${Number(v.id)})">
+      <div class="vc-t">${_vcTitle(v)}<small>睇樓 ${escHtml(String(v.view_date || '').slice(5))}</small></div>
+      <div class="vc-p">${v.price ? _vcWan(v) : '<span style="color:var(--muted);font-size:0.8rem;font-weight:500">未填價</span>'}<small>${p && deal === 'S' ? `$${p.toLocaleString()}/呎` : ''}</small></div>
+      <div class="vc-m"><span>${_vcVs(v)}</span>${v.size_net ? `<span>實用 <b>${Math.round(v.size_net)}</b> 呎</span>` : ''}${a != null ? `<span>評分 <b>${starsHtml(a)} ${a.toFixed(1)}</b></span>` : ''}${v.img_count ? `<span>📷 ${Number(v.img_count)}</span>` : ''}${g ? `<span style="color:var(--accent)">待補 ${g} 項</span>` : ''}</div>
+      ${p && deal === 'S' ? `<div class="vc-psf" title="呎價"><i style="width:${Math.round(p / maxPsf * 100)}%"></i></div>` : ''}
+    </label>`; }).join('')}
+    <div class="vc-cta"><button type="button" ${nSel < 2 ? 'disabled' : ''} onclick="vcSet('side',1)">📊 並排比較（已揀 ${nSel} 個）</button></div>`;
+}
+function _vcSideHtml(cols) {
+  if (cols.length < 2) { _vcSide = false; return _vcHtml(); }
+  const best = (vals, low) => { const ok = vals.filter(x => x != null); if (ok.length < 2 || Math.min(...ok) === Math.max(...ok)) return -1; const t = low ? Math.min(...ok) : Math.max(...ok); return vals.filter(x => x === t).length > 1 ? -1 : vals.indexOf(t); };
+  const dash = '<span style="color:var(--muted)">—</span>';
+  const row = (label, vals, fmt, low) => { const b = low == null ? -1 : best(vals, low); return `<tr><td>${label}</td>${vals.map((x, i) => `<td class="${i === b ? 'best' : ''}">${x == null || x === '' ? dash : fmt(x)}</td>`).join('')}</tr>`; };
+  const grp = (t) => `<tr class="grp"><td colspan="${cols.length + 1}">${t}</td></tr>`;
+  const rent = (cols[0].deal_type || 'S') === 'R';
+  const rts = cols.map(v => parseRatings(v));
+  const critIds = [...new Set(rts.flatMap(r => Object.keys(r)))];
+  const critName = (id) => escHtml((_ratingCriteria.find(c => String(c.id) === String(id)) || {}).value || '評分');
+  return `<button type="button" class="vc-back" onclick="vcSet('side',0)">‹ 返去比較列表</button>
+    <div class="vc-hint">逐項對比，每項最好嗰個綠色 ✓（打和唔標）。手機闊度唔夠可以左右碌。</div>
+    <div class="vc-wrap"><table class="vc-cmp">
+      <thead><tr><th></th>${cols.map(v => `<th>${escHtml(v.estate_name || '')}<small>${_vcTitle(v).replace(escHtml(v.estate_name || ''), '').trim() || '—'}</small></th>`).join('')}</tr></thead>
+      <tbody>
+        ${grp('💰 價錢')}
+        ${row(rent ? '月租' : '睇樓價', cols.map(v => v.price || null), x => rent ? `$${Math.round(x).toLocaleString()}` : `$${(Math.round(x / 1e3) / 10).toLocaleString('en-US', { maximumFractionDigits: 1 })}萬`, true)}
+        ${row('實用面積', cols.map(v => v.size_net ? Math.round(v.size_net) : null), x => `${x} 呎`, false)}
+        ${rent ? '' : row('呎價', cols.map(_vcPsf), x => `$${x.toLocaleString()}`, true)}
+        ${rent ? '' : (isPaid() ? row('對比市價', cols.map(v => v.verdict ?? null), x => x <= 0 ? `<span style="color:var(--up)">平 ${Math.abs(x)}%</span>` : `<span style="color:var(--down)">貴 ${x}%</span>`, true)
+          : `<tr><td>對比市價</td><td colspan="${cols.length}"><span class="vc-vs lock" onclick="showUpgrade('相對市價')">🔒 收費版先有：用同類單位成交計市價</span></td></tr>`)}
+        ${row('管理費／呎', cols.map(v => Number(v.mgmt_fee) || null), x => `$${x}`, true)}
+        ${critIds.length ? grp('⭐ 評分') + row('平均', cols.map(v => { const a = ratingAvg(parseRatings(v)); return a == null ? null : Math.round(a * 10) / 10; }), x => `${starsHtml(x)} ${x}`, false)
+          + critIds.map(id => row(critName(id), rts.map(r => r[id] != null ? Number(r[id]) : null), x => `${x}`, false)).join('') : ''}
+        ${grp('🏠 單位')}
+        ${row('房數', cols.map(v => v.bedrooms ?? null), x => `${Number(x)} 房`)}
+        ${row('座向', cols.map(v => v.direction || null), x => escHtml(String(x)))}
+        ${row('睇樓日', cols.map(v => v.view_date || null), x => escHtml(String(x)))}
+        ${row('相', cols.map(v => Number(v.img_count) || null), x => `📷 ${x}`)}
+        ${row('備註', cols.map(v => v.notes || null), x => escHtml(String(x).slice(0, 120)))}
+      </tbody></table></div>`;
+}
 function renderCompsPanel() {
   const body = document.getElementById('comps-body');
   if (!body) return;
   // 屋苑頁：買盤／租盤 chip（偏好有揀租盤先出），清單跟 filter
   const tidyHtml = (!_compsScope && _photoTodo && _photoTodo.length)
     ? `<div class="dj-tidy"><span>📷 有 <b>${_photoTodo.length}</b> 個睇樓記錄嘅相仲未整理（舊格式／冇封面縮圖）。整理後打開卡會即刻見到封面，載入亦快好多。</span><button type="button" onclick="runPhotoTidy(this)">整理相片</button></div>` : '';
-  const filterBarHtml = tidyHtml + ((_compsScope && wantsDeal('R')) ? `
+  // 「📅 日曆／📊 比較」（2026-11-02）：淨係睇樓記錄頁（跨屋苑）先有；屋苑頁入面嘅睇樓記錄維持日曆
+  const vcSegHtml = (_compsScope || !_compsData.length) ? '' : `<div class="vc-seg" role="tablist"><button type="button" class="${_compsView !== 'cmp' ? 'on' : ''}" onclick="setCompsView('cal')">📅 日曆</button><button type="button" class="${_compsView === 'cmp' ? 'on' : ''}" onclick="setCompsView('cmp')">📊 比較</button></div>`;
+  if (!_compsScope && _compsView === 'cmp' && _compsData.length) { body.innerHTML = tidyHtml + vcSegHtml + _vcHtml(); return; }
+  const filterBarHtml = vcSegHtml + tidyHtml + ((_compsScope && wantsDeal('R')) ? `
     <div style="display:flex;gap:0.4rem;margin-bottom:0.6rem">
       <button class="filter-chip ${_viewingTypeFilter==='all'?'active':''}" onclick="setViewingTypeFilter('all')">全部</button>
       <button class="filter-chip ${_viewingTypeFilter==='S'?'active':''}" onclick="setViewingTypeFilter('S')">🏠 買盤</button>
