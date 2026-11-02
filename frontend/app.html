@@ -4973,6 +4973,33 @@ async function _hlFetch() {
   try { sessionStorage.setItem(key, JSON.stringify({ day: today, at: Date.now(), data })); } catch (_) { /* 太大／私隱模式：唔暫存 */ }
   return data;
 }
+// 今日動態精選（2026-11-02 用戶）：有 ★ 最愛＝屋苑分組淨係出最愛；冇最愛＝全部屋苑揀頭 5 項（減價幅度最大先 → 新盤最平先 → 新成交 → 加價 → 下架）。
+// 先套睇樓偏好再揀。冇嘢收埋（全部都入選）就回 null。只影響今日（本週另一套）。
+let _hlShowAll = false;
+function _hlFeature(data) {
+  const favNames = new Set((dashboardEstates || []).filter(e => e.is_favourite && !e.paused).map(e => e.name));
+  const KEYS = [['byEstate', ['priceChanges', 'newListings', 'newTransactions', 'removedListings'], false],
+                ['byEstateRent', ['rentPriceChanges', 'newRentals', 'newRentTransactions', 'removedRentals'], true]];
+  const all = [];
+  for (const [gk, ks, rent] of KEYS) for (const g of (data[gk] || [])) for (const k of ks) for (const x of (g[k] || [])) if (prefMatchHl(x, rent)) all.push({ x, k, est: g.estate });
+  if (!all.length) return null;
+  const fav = favNames.size > 0;
+  let keep;
+  if (fav) keep = new Set(all.filter(a => favNames.has(a.est)).map(a => a.x));
+  else {
+    const rank = (a) => {
+      if (/riceChanges$/.test(a.k)) { const o = Number(a.x.old_price), n = Number(a.x.new_price), pct = o ? (n - o) / o : 0; return pct < 0 ? [0, pct] : [3, -pct]; }
+      if (/^new(Listings|Rentals)$/.test(a.k)) return [1, Number(a.x.price) || 0];
+      if (/Transactions$/.test(a.k)) return [2, -(Number(a.x.price) || 0)];
+      return [4, 0];
+    };
+    keep = new Set(all.slice().sort((p, q) => { const a = rank(p), b = rank(q); return a[0] - b[0] || a[1] - b[1]; }).slice(0, 5).map(a => a.x));
+  }
+  if (keep.size === all.length) return null;
+  const out = { ...data };
+  for (const [gk, ks] of KEYS) out[gk] = (data[gk] || []).map(g => { const ng = { ...g }; for (const k of ks) ng[k] = (g[k] || []).filter(x => keep.has(x)); return ng; });
+  return { data: out, total: all.length, shown: keep.size, fav };
+}
 async function loadTodayHighlights() {
   _todayLoaded = true;
   const body = document.getElementById("highlights-body");
@@ -5164,7 +5191,11 @@ async function loadTodayHighlights() {
     }
 
     syncHlPrefChips();
-    for (const _g of (data.byEstate || [])) {
+    // 今日精選（2026-11-02）：屋苑分組淨係出最愛屋苑；冇最愛就頭 5 項。「睇過嘅盤」專區（上面）唔受影響。
+    const feat = _hlFeature(data);
+    const view = (feat && !_hlShowAll) ? feat.data : data;
+    const viewedHtmlLen = html.length;
+    for (const _g of (view.byEstate || [])) {
       const estate = _g.estate;
       // 跟用戶睇樓偏好篩（🎯 chip 可以熄）；「睇過嘅盤」兩組喺上面，唔經呢度
       const newTransactions = (_g.newTransactions || []).filter(prefMatchHl);
@@ -5264,7 +5295,7 @@ async function loadTodayHighlights() {
     }
 
     // 🔑 租盤動態——跟買盤同一套 layout，逐屋苑擺喺買盤所有屋苑之後。
-    for (const _g of (data.byEstateRent || [])) {
+    for (const _g of (view.byEstateRent || [])) {
       const estate = _g.estate;
       const newRentTransactions = (_g.newRentTransactions || []).filter((r) => prefMatchHl(r, true));
       const rentPriceChanges = (_g.rentPriceChanges || []).filter((r) => prefMatchHl(r, true));
@@ -5343,6 +5374,12 @@ async function loadTodayHighlights() {
       }
     }
 
+    if (feat) {
+      const groupsEmpty = html.length === viewedHtmlLen;
+      const msg = !_hlShowAll && groupsEmpty ? `<div class="hl-empty">${feat.fav ? '你嘅最愛屋苑今日冇變動。' : '今日冇精選變動。'}</div>` : '';
+      html += msg + `<div class="sec-foot"><span>${_hlShowAll ? `顯示緊今日全部 ${feat.total} 項` : feat.fav ? `淨係顯示最愛屋苑（全部 ${feat.total} 項）` : `精選 ${feat.shown} 項（全部 ${feat.total} 項）`}</span>`
+        + `<a onclick="_hlShowAll=${_hlShowAll ? 'false' : 'true'};loadTodayHighlights()">${_hlShowAll ? (feat.fav ? '只睇最愛 ▴' : '只睇精選 ▴') : `睇晒今日全部 ${feat.total} 項 ›`}</a></div>`;
+    }
     if (!html) html = _todayEmptyHtml(data);
     body.innerHTML = html;
 
