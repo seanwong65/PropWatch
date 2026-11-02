@@ -1982,7 +1982,7 @@
 <!-- 主選單（手機，固定喺底部；底部安全區處理見 CSS .nv-mobile） -->
 <nav class="nv-mobile" aria-label="主選單">
     <button type="button" data-nav="today" onclick="navGo('today')"><span class="i">🏠</span><span>今日</span></button>
-    <button type="button" data-nav="estates" onclick="navGo('estates')"><span class="i">🏢</span><span>屋苑</span></button>
+    <button type="button" data-nav="estates" onclick="navGo('estates')"><span class="i">🏢</span><span>追蹤中屋苑</span></button>
     <button type="button" data-nav="find" onclick="navGo('find')"><span class="i">🔍</span><span>搵盤</span></button>
     <button type="button" data-nav="view" onclick="navGo('view')"><span class="i">📝</span><span>睇樓記錄</span></button>
     <button type="button" data-nav="settings" onclick="navGo('settings')"><span class="i">⚙️</span><span>設定</span></button>
@@ -2606,14 +2606,14 @@
   <!-- 主選單（闊屏，左邊直排） -->
   <nav class="nv-rail" aria-label="主選單">
     <button type="button" data-nav="today" onclick="navGo('today')"><span class="i">🏠</span><span>今日</span></button>
-    <button type="button" data-nav="estates" onclick="navGo('estates')"><span class="i">🏢</span><span>屋苑</span></button>
+    <button type="button" data-nav="estates" onclick="navGo('estates')"><span class="i">🏢</span><span>追蹤中屋苑</span></button>
     <button type="button" data-nav="find" onclick="navGo('find')"><span class="i">🔍</span><span>搵盤</span></button>
     <button type="button" data-nav="view" onclick="navGo('view')"><span class="i">📝</span><span>睇樓記錄</span></button>
     <button type="button" data-nav="settings" onclick="navGo('settings')"><span class="i">⚙️</span><span>設定</span></button>
   </nav>
   <!-- Sidebar：2026-11-01 起係「屋苑」頁（body.nv-estlist 先出） -->
   <aside class="sidebar">
-    <div class="nv-pgtitle">屋苑</div>
+    <div class="nv-pgtitle">追蹤中屋苑</div>
     <div class="sidebar-mobile-bar">
       <button class="sidebar-home-btn" onclick="goHome();closeSidebar()">🏠 主頁</button>
       <button class="sidebar-close-btn" onclick="closeSidebar()">✕ 關閉</button>
@@ -3575,7 +3575,7 @@ async function trackNameFromSearch(name) {
   navGo('estates');
   searchInput.value = name;
   await doSearch(name);
-  toast(`喺「屋苑」頁揀返「${name}」就會開始每日追蹤加減價`);
+  toast(`喺「追蹤中屋苑」頁揀返「${name}」就會開始每日追蹤加減價`);
 }
 
 function focusEstateSearch() {
@@ -4158,7 +4158,7 @@ function glossShow(ev, key) {
 // 原本分「明白／唔再提醒」兩粒，用戶覺得一樣）。存 server：POST /api/onboard-off，跟帳戶，換機都記得；key 要喺 worker ONBOARD_KEYS 白名單。
 // ⚙️ 設定「重新顯示功能介紹」＝全部重置。用固定介紹位而唔係插入內容，因為分頁內容會成個重畫。
 const ONBOARD = {
-  home: ['今日', '最頂會話你追蹤嘅屋苑今日有咩新盤、減價、成交；冇變動嘅日子就幫你喺四大地產網搵盤。撳「睇動態」逐個睇。其他功能喺選單：屋苑、搵盤、睇樓記錄、設定。'],
+  home: ['今日', '最頂會話你追蹤嘅屋苑今日有咩新盤、減價、成交；冇變動嘅日子就幫你喺四大地產網搵盤。下面「動態」逐個列出。其他功能喺選單：追蹤中屋苑、搵盤、睇樓記錄、設定。'],
   estate: ['屋苑頁', '「最新放盤」係各地產網而家放緊嘅盤，可以按房數、價錢篩，仲會話你個盤放咗幾耐、減過幾多次價。睇中咗就撳「記睇樓」記入睇樓日記。'],
   txns: ['成交記錄', '呢度係土地註冊處登記咗嘅真實成交價（唔係叫價），通常比叫價低。想知一個盤大概值幾多，睇同座、同層數嘅成交最準。'],
   analysis: ['樓盤分析', '睇呢個屋苑嘅呎價走勢同市況。「去貨月數」越長＝盤多買家少，買家較有議價空間；越短＝賣家話事。'],
