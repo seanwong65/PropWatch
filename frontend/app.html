@@ -1127,6 +1127,22 @@
     .gl { border-bottom: 1px dotted currentColor; cursor: help; }
     .gl-pop { position: fixed; z-index: 10000; max-width: min(300px, calc(100vw - 24px)); background: var(--surface); color: var(--text); border: 1px solid var(--border-strong); border-radius: 10px; box-shadow: 0 8px 24px rgba(0,0,0,0.18); padding: 0.55rem 0.7rem; font-size: 0.8rem; line-height: 1.55; font-weight: 400; text-align: left; white-space: normal; }
     .mt-plain { font-weight: 400; color: var(--muted); }
+    /* 朋友屋企卡（2026-11-02，取代 8 欄大表） */
+    .fh-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 0.7rem; }
+    .fh-card { background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: 0.75rem 0.85rem; font-size: 0.82rem; color: var(--text); }
+    .fh-top { display: flex; align-items: flex-start; gap: 0.5rem; }
+    .fh-who { flex: 1; min-width: 0; display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.2rem 0.6rem; }
+    .fh-who b { font-size: 1rem; }
+    .fh-est { color: var(--accent2); cursor: pointer; font-weight: 600; }
+    .fh-act { display: flex; gap: 0.1rem; flex-shrink: 0; }
+    .fh-act button { background: none; border: none; cursor: pointer; font-size: 0.9rem; padding: 0.15rem 0.25rem; border-radius: 6px; }
+    .fh-act button:hover { background: var(--btn2-bg); }
+    .fh-unit { margin: 0.2rem 0 0.55rem; color: var(--text); }
+    .fh-unit .unit-price { display: inline; margin-left: 0.4rem; }
+    .fh-unit > div { display: inline; }
+    .fh-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem 0.8rem; border-top: 1px solid var(--border); padding-top: 0.55rem; }
+    .fh-cell { min-width: 0; }
+    .fh-lbl { font-size: 0.72rem; color: var(--muted); font-weight: 600; margin-bottom: 0.15rem; }
     /* 睇樓記錄「📊 比較」（2026-11-02）：比較列表＋並排比較 */
     .vc-seg { display: inline-flex; background: var(--surface); border: 1px solid var(--border); border-radius: 999px; padding: 3px; margin: 0 0 0.7rem; }
     .vc-seg button { border: none; background: none; padding: 0.3rem 0.85rem; border-radius: 999px; font-size: 0.82rem; color: var(--muted); cursor: pointer; font-family: inherit; font-weight: 600; }
@@ -3760,22 +3776,26 @@ async function loadFriendHomes() {
       body.innerHTML = addBtn + '<div style="color:var(--muted);font-size:0.85rem">未有記錄——加個朋友屋企，自動搵過往成交、估值同市價參考。</div>';
       return;
     }
-    const rows = homes.map(h => `<tr class="hl-tr">
-      <td style="padding:0.4rem 0.5rem 0.4rem 0;white-space:nowrap;font-weight:600">${escHtml(h.friend_name)}</td>
-      <td style="padding:0.4rem 0.5rem;white-space:nowrap;cursor:pointer" onclick="showEstate(${h.estate_id},'${escJsAttr(h.estate_name)}','')">${escHtml(h.estate_name)} <span style="font-size:0.72rem;color:var(--accent2)">↗</span></td>
-      <td style="padding:0.4rem 0.5rem;white-space:nowrap">${fhUnitHtml(h)}</td>
-      <td style="padding:0.4rem 0.5rem;white-space:nowrap">${fhTxnsHtml(h)}</td>
-      <td style="padding:0.4rem 0.5rem;white-space:nowrap">${fhHsHtml(h)}</td>
-      <td style="padding:0.4rem 0.5rem;white-space:nowrap">${fhMarketHtml(h)}</td>
-      <td style="padding:0.4rem 0.5rem;white-space:nowrap">${fhSimilarHtml(h)}</td>
-      <td style="padding:0.4rem 0 0.4rem 0.5rem;white-space:nowrap;text-align:right">
-        <button onclick="refreshFriendHome(${h.id})" style="background:none;border:none;cursor:pointer;font-size:0.85rem" title="更新過往成交同估值">🔄</button>
-        <button onclick="openFriendModal(${h.id})" style="background:none;border:none;cursor:pointer;font-size:0.85rem" title="編輯">✏️</button>
-        <button onclick="deleteFriendHome(${h.id})" style="background:none;border:none;cursor:pointer;font-size:0.85rem" title="刪除">🗑</button>
-      </td>
-    </tr>`).join('');
-    body.innerHTML = addBtn + '<div id="fhTableWrap"></div>';
-    renderFrozenTable(document.getElementById('fhTableWrap'), FH_THEAD, rows);
+    // 2026-11-02：由 8 欄大表（手機要橫碌 918px）改做每個朋友一張卡：名＋屋苑／單位／2×2 格（估值、市價、成交、類近在售）
+    const cards = homes.map(h => `<div class="fh-card">
+      <div class="fh-top">
+        <div class="fh-who"><b>${escHtml(h.friend_name)}</b>
+          <span class="fh-est" role="button" tabindex="0" onclick="showEstate(${Number(h.estate_id)},'${escJsAttr(h.estate_name)}','')">${escHtml(h.estate_name)} ↗</span></div>
+        <div class="fh-act">
+          <button type="button" onclick="refreshFriendHome(${Number(h.id)})" title="更新過往成交同估值">🔄</button>
+          <button type="button" onclick="openFriendModal(${Number(h.id)})" title="編輯">✏️</button>
+          <button type="button" onclick="deleteFriendHome(${Number(h.id)})" title="刪除">🗑</button>
+        </div>
+      </div>
+      <div class="fh-unit">${fhUnitHtml(h)}</div>
+      <div class="fh-grid">
+        <div class="fh-cell"><div class="fh-lbl">恆生估值</div>${fhHsHtml(h)}</div>
+        <div class="fh-cell"><div class="fh-lbl">相對市價</div>${fhMarketHtml(h)}</div>
+        <div class="fh-cell"><div class="fh-lbl">過往成交</div>${fhTxnsHtml(h)}</div>
+        <div class="fh-cell"><div class="fh-lbl">類近在售</div>${fhSimilarHtml(h)}</div>
+      </div>
+    </div>`).join('');
+    body.innerHTML = addBtn + `<div class="fh-cards">${cards}</div>`;
     // 過往成交/估值而家由後端 enrich 一次存 DB、GET 直接俾——render 完就得，
     // 唔使再逐 cell async 抓（快好多，亦冇 stale-DOM / 重算高度問題）
     fhAutoEnrich(homes);
@@ -3784,7 +3804,6 @@ async function loadFriendHomes() {
   }
 }
 
-const FH_THEAD = `<th style="padding:0.3rem 0.5rem 0.3rem 0">朋友</th><th style="padding:0.3rem 0.5rem">屋苑</th><th style="padding:0.3rem 0.5rem">單位</th><th style="padding:0.3rem 0.5rem">過往成交</th><th style="padding:0.3rem 0.5rem">恆生估值</th><th style="padding:0.3rem 0.5rem">相對市價</th><th style="padding:0.3rem 0.5rem">類近在售</th><th style="padding:0.3rem 0 0.3rem 0.5rem"></th>`;
 
 function fhUnitHtml(h) {
   // 座：純數字先補「座」；單幢（留空/屋苑名）就照 show 或者唔 show

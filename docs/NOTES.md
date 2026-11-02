@@ -778,3 +778,7 @@ drip sync（`*/2`）同樣被雙重觸發：兩個 invocation 同時揀同一批
 
 - 買盤／租盤：維持兩樣並重（現狀）。
 - 四網搜尋合併同一單位：**唔做**——要靠估（樓層寫「中層」、冇室號），估錯會影響系統準確性。
+
+## 朋友屋企卡片（2026-11-02）
+
+- 由 8 欄大表（`renderFrozenTable`，手機要橫碌 918px）改做每個朋友一張卡（`.fh-cards` grid，手機一欄、闊屏 auto-fill 300px 起）：頂＝名＋屋苑（撳入屋苑頁）＋🔄✏️🗑；單位一行；2×2 格：恆生估值／相對市價／過往成交／類近在售（沿用 `fhHsHtml`／`fhMarketHtml`／`fhTxnsHtml`／`fhSimilarHtml`）。背景補抓／手動更新都係 `loadFriendHomes()` 成個重畫，唔受影響。
