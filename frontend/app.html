@@ -1379,8 +1379,9 @@
     .lc-mini:hover { color: var(--text); }
     .estate-market { background: none; border: none; padding: 0; margin-top: 0.3rem; font-size: 0.82rem; color: var(--muted); cursor: pointer; font-family: inherit; text-align: left; }
     .estate-market:hover { color: var(--text); }
-    .hl-empty { color: var(--muted); font-size: 0.85rem; line-height: 1.8; }
-    .hl-empty-link { background: none; border: none; padding: 0; color: var(--accent2); font-size: inherit; font-weight: 600; cursor: pointer; font-family: inherit; }
+    /* 2026-11-02：空狀態用正文大細＋深色（之前似細字說明，用戶唔會睇）；連結各自一行 */
+    .hl-empty { color: var(--text); font-size: 1rem; font-weight: 600; line-height: 1.6; padding: 0.3rem 0; }
+    .hl-empty-link { display: block; margin-top: 0.45rem; background: none; border: none; padding: 0; color: var(--accent2); font-size: 0.92rem; font-weight: 600; cursor: pointer; font-family: inherit; text-align: left; }
     .hl-empty-link:hover { text-decoration: underline; }
 
     /* Loading */
