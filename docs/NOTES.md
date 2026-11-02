@@ -742,3 +742,8 @@ drip sync（`*/2`）同樣被雙重觸發：兩個 invocation 同時揀同一批
 
 - `homeGoDyn('today')`（同「睇動態 ›」）會先熄「🎯 偏好」篩選（`_hlPrefFilterOn=false`）再入動態；已載過就重新載。用戶唔使再撳「睇返今日全部 N 項」。想篩可以撳 chip 開返。
 - 「你嘅屋苑今日」唔計今日先加入（`account_estates.added_at = 今日`）嘅屋苑，改寫「X 今日先加入，聽日開始計變動」；屋苑卡「今日：」行一樣。理由：同「動態」規則一致；而且佢嘅 d1 係對上一次 sync 以嚟累積（例如日出康城 10/28→11/02 五日），唔係今日。
+
+## 今日頁自動載動態（2026-11-02）
+
+- 用戶要求一開 app 就見到動態（唔使撳「睇動態」）：`showDashboard('today')` 尾 `switchDashTab('today', true)`；「睇動態」placeholder（`.dyn-ph`）已刪。
+- 成本：`/api/today-highlights` 每次約讀 7.4k rows（perf_log 樣本）。`_hlFetch` 用 sessionStorage 暫存：同一個登入（key 帶 token 頭 16 字）、同一個香港日、30 分鐘內唔重讀；偏好開關／返主頁都用暫存（篩選本身喺前端做）。用戶多咗要再睇讀取量（admin 用量統計）。
