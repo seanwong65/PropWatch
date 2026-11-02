@@ -707,7 +707,7 @@ drip sync（`*/2`）同樣被雙重觸發：兩個 invocation 同時揀同一批
 - **今日**＝`showDashboard(estates,'today')`：你嘅屋苑今日／待跟進（＋冇更新時搵樓）＋「動態」（撳「睇動態」先載，慳 D1）。睇樓日記資料照背景載（待跟進要用），panel 收埋。五粒捷徑已拎走。
 - **睇樓記錄**（選單 2026-11-02 由「睇樓」改名）＝`showDashboard(estates,'view')`：📝 新增睇樓大掣＋睇樓日記／朋友屋企分頁。兩頁共用同一骨架（panel id 唔變），`.dashboard[data-page]` CSS 決定出邊啲分頁。`todoGo` 會先轉去睇樓頁再等 `_compsLoadP` 載完先展開卡。
 - **搵盤**＝`openPublicSearch`：四網搜尋／♥ 心儀單位（原本主頁分頁，`#dash-panel-fav` 搬嚟，放喺 `.ps-root` 外面免走色）／🧮 按揭計算（開彈窗）。`findSeg(seg)`。
-- **設定**＝開返 ⚙️ 彈窗（唔換頁）；頂欄 ⚙️ 同漢堡掣登入後收埋。
+- **設定**：2026-11-02 用戶要求由主選單拎走，變返頂欄右上角 ⚙️（彈窗）；主選單剩 4 項。漢堡掣登入後照收埋。
 
 - iOS Safari 輸入框細過 16px 撳落去會自動放大成頁（左右被切）：`@supports (-webkit-touch-callout: none)` 只對 iOS 強制 16px（app.html＋public-search.css）。
 
@@ -747,3 +747,7 @@ drip sync（`*/2`）同樣被雙重觸發：兩個 invocation 同時揀同一批
 
 - 用戶要求一開 app 就見到動態（唔使撳「睇動態」）：`showDashboard('today')` 尾 `switchDashTab('today', true)`；「睇動態」placeholder（`.dyn-ph`）已刪。
 - 成本：`/api/today-highlights` 每次約讀 7.4k rows（perf_log 樣本）。`_hlFetch` 用 sessionStorage 暫存：同一個登入（key 帶 token 頭 16 字）、同一個香港日、30 分鐘內唔重讀；偏好開關／返主頁都用暫存（篩選本身喺前端做）。用戶多咗要再睇讀取量（admin 用量統計）。
+
+## 放盤「⋯」（2026-11-02）
+
+- 「標記已下架／還原」由放盤卡同表格嘅細字掣收入「⋯」選單（`lcMoreBtn`／`openLcMenu`，沿用 `.estate-menu` 樣式＋`.lc-menu`）。理由：新手以為要自己幫系統報下架，系統本身會自動偵測。

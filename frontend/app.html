@@ -456,6 +456,11 @@
     }
     .estate-menu button { display: block; width: 100%; text-align: left; background: none; border: none; padding: 0.5rem 0.65rem; border-radius: 7px; font-size: 0.82rem; cursor: pointer; font-family: inherit; color: var(--text); }
     .estate-menu button:hover { background: var(--btn2-bg); }
+    /* 放盤「⋯」（2026-11-02：「標記已下架」收入嚟） */
+    .lc-more-wrap { position: relative; display: inline-block; }
+    .lc-more { background: none; border: none; color: var(--muted); font-size: 1rem; line-height: 1; padding: 0.15rem 0.35rem; border-radius: 6px; cursor: pointer; font-family: inherit; }
+    .lc-more:hover { background: var(--btn2-bg); color: var(--text); }
+    .estate-menu.lc-menu { position: fixed; right: auto; margin: 0; white-space: nowrap; z-index: 400; }
     .estate-menu .estate-menu-danger { color: var(--down); }
     .star-legend { font-size: 0.7rem; color: var(--muted); line-height: 1.5; padding: 0 0.2rem 0.1rem; }
 
@@ -1924,7 +1929,7 @@
     body.authed .sidebar { display: none; }
     body.authed.nv-estlist .sidebar { display: flex; border-right: none; width: 100%; max-width: 760px; background: none; backdrop-filter: none; -webkit-backdrop-filter: none; }
     body.authed.nv-estlist .main { display: none; }
-    body.authed .hamburger, body.authed #settings-hdr-btn, body.authed .sidebar-mobile-bar, body.authed .sidebar-overlay { display: none !important; }
+    body.authed .hamburger, body.authed .sidebar-mobile-bar, body.authed .sidebar-overlay { display: none !important; }   /* ⚙️ 設定 2026-11-02 起返去頂欄右上角（用戶要求） */
     .nv-pgtitle { font-size: 1.15rem; font-weight: 800; margin: 0 0 0.7rem; }
     .sidebar .nv-pgtitle { padding: 1rem 1rem 0; margin: 0; }
     .nv-seg { display: inline-flex; flex-wrap: wrap; background: var(--glass-bg); border: 1px solid var(--border); border-radius: 999px; padding: 3px; margin: 0 0 0.8rem; }
@@ -1985,7 +1990,6 @@
     <button type="button" data-nav="estates" onclick="navGo('estates')"><span class="i">🏢</span><span>追蹤中屋苑</span></button>
     <button type="button" data-nav="find" onclick="navGo('find')"><span class="i">🔍</span><span>搵盤</span></button>
     <button type="button" data-nav="view" onclick="navGo('view')"><span class="i">📝</span><span>睇樓記錄</span></button>
-    <button type="button" data-nav="settings" onclick="navGo('settings')"><span class="i">⚙️</span><span>設定</span></button>
 </nav>
 
 <!-- Login Screen -->
@@ -2609,7 +2613,6 @@
     <button type="button" data-nav="estates" onclick="navGo('estates')"><span class="i">🏢</span><span>追蹤中屋苑</span></button>
     <button type="button" data-nav="find" onclick="navGo('find')"><span class="i">🔍</span><span>搵盤</span></button>
     <button type="button" data-nav="view" onclick="navGo('view')"><span class="i">📝</span><span>睇樓記錄</span></button>
-    <button type="button" data-nav="settings" onclick="navGo('settings')"><span class="i">⚙️</span><span>設定</span></button>
   </nav>
   <!-- Sidebar：2026-11-01 起係「屋苑」頁（body.nv-estlist 先出） -->
   <aside class="sidebar">
@@ -4158,7 +4161,7 @@ function glossShow(ev, key) {
 // 原本分「明白／唔再提醒」兩粒，用戶覺得一樣）。存 server：POST /api/onboard-off，跟帳戶，換機都記得；key 要喺 worker ONBOARD_KEYS 白名單。
 // ⚙️ 設定「重新顯示功能介紹」＝全部重置。用固定介紹位而唔係插入內容，因為分頁內容會成個重畫。
 const ONBOARD = {
-  home: ['今日', '最頂會話你追蹤嘅屋苑今日有咩新盤、減價、成交；冇變動嘅日子就幫你喺四大地產網搵盤。下面「動態」逐個列出。其他功能喺選單：追蹤中屋苑、搵盤、睇樓記錄、設定。'],
+  home: ['今日', '最頂會話你追蹤嘅屋苑今日有咩新盤、減價、成交；冇變動嘅日子就幫你喺四大地產網搵盤。下面「動態」逐個列出。其他功能喺選單：追蹤中屋苑、搵盤、睇樓記錄；設定喺右上角 ⚙️。'],
   estate: ['屋苑頁', '「最新放盤」係各地產網而家放緊嘅盤，可以按房數、價錢篩，仲會話你個盤放咗幾耐、減過幾多次價。睇中咗就撳「記睇樓」記入睇樓日記。'],
   txns: ['成交記錄', '呢度係土地註冊處登記咗嘅真實成交價（唔係叫價），通常比叫價低。想知一個盤大概值幾多，睇同座、同層數嘅成交最準。'],
   analysis: ['樓盤分析', '睇呢個屋苑嘅呎價走勢同市況。「去貨月數」越長＝盤多買家少，買家較有議價空間；越短＝賣家話事。'],
@@ -5964,7 +5967,7 @@ function crowdTag(l) {
   const rm = Math.max(0, ...refs.map(r => Number(_crowd.removed?.[r]) || 0));
   const out = [];
   if (favs) out.push(`<span style="color:var(--accent2)" title="只顯示人數">❤️ ${favs} 人收藏</span>`);
-  if (rm && !l.removed_date && !l.manual_removed_at) out.push(`<span style="color:var(--down)" title="其他用戶標記，未必準確；你可以自己覆核，或者撳「標記已下架」">⚠️ ${rm} 位用戶標記咗已下架</span>`);
+  if (rm && !l.removed_date && !l.manual_removed_at) out.push(`<span style="color:var(--down)" title="其他用戶標記，未必準確；你可以自己覆核，或者喺「⋯」標記已下架">⚠️ ${rm} 位用戶標記咗已下架</span>`);
   return out.length ? `<div class="lc-meta" style="gap:0.5rem">${out.join('')}</div>` : '';
 }
 // ── Estate detail ──────────────────────────────────────────────
@@ -10475,6 +10478,29 @@ async function openAdminClicks() {
 }
 
 // 用戶手動標記/取消「已下架」(per-account，唔影響 source 自動偵測嘅狀態)
+// 放盤「⋯」選單（2026-11-02）：而家淨係「標記已下架／還原」，日後次要動作都可以放入嚟
+function lcMoreBtn(l) {
+  return `<span class="lc-more-wrap"><button type="button" class="lc-more" title="更多" aria-label="更多選項" onclick="event.stopPropagation();openLcMenu(event,'${escJsAttr(l.ref_no)}')">⋯</button></span>`;
+}
+function openLcMenu(ev, ref) {
+  const wrap = ev.currentTarget.closest('.lc-more-wrap');
+  const was = wrap.querySelector('.estate-menu');
+  document.querySelectorAll('.estate-menu').forEach(m => m.remove());
+  if (was) return;   // 再撳一下＝閂
+  const l = allListings.find(x => x.ref_no === ref);
+  if (!l) return;
+  wrap.insertAdjacentHTML('beforeend', `<div class="estate-menu lc-menu" role="menu" onclick="event.stopPropagation()">
+    <button type="button" role="menuitem" title="地產網已經冇咗呢個盤？幫手標記（其他用戶會見到提示）" onclick="toggleManualRemoved('${escJsAttr(ref)}', this)">${l.manual_removed_at ? '↺ 還原（未下架）' : '標記已下架'}</button>
+  </div>`);
+  // 用 fixed 定位：放盤卡有 overflow:hidden 會裁走個選單；按「⋯」位置計，唔好出畫面；一碌畫面就收埋
+  const m = wrap.querySelector('.lc-menu');
+  if (!m) return;
+  const b = ev.currentTarget.getBoundingClientRect(), w = m.offsetWidth, h = m.offsetHeight;
+  m.style.left = Math.max(8, Math.min(b.right - w, innerWidth - w - 8)) + 'px';
+  m.style.top = (b.bottom + 4 + h > innerHeight ? Math.max(8, b.top - h - 4) : b.bottom + 4) + 'px';
+  const close = () => { m.remove(); window.removeEventListener('scroll', close, true); };
+  window.addEventListener('scroll', close, true);
+}
 async function toggleManualRemoved(refNo, btn) {
   const l = allListings.find(x => x.ref_no === refNo);
   if (!l) return;
@@ -10812,9 +10838,8 @@ function renderListingCards(el, displayRows) {
     })();
 
     // ── 掣：標記已下架／還原（同表格一樣，淨係單一盤先有）──────────────
-    const manualBtn = (!l._combined && l.ref_no && !l.removed_date)
-      ? `<button class="lc-mini" title="地產網已經冇咗呢個盤？幫手標記（其他用戶會見到提示）" onclick="event.stopPropagation();toggleManualRemoved('${escJsAttr(l.ref_no)}', this)">${l.manual_removed_at ? '↺ 還原' : '標記已下架'}</button>`
-      : '';
+    // 2026-11-02：收入「⋯」（新手以為要自己幫系統報下架；系統本身會自動偵測）
+    const manualBtn = (!l._combined && l.ref_no && !l.removed_date) ? lcMoreBtn(l) : '';
     // 類近成交（表格喺單位格底下）
     const lineBtn = (l.building_name && l.unit)
       ? `<button class="history-btn lc-btn" title="同一條線（座＋室）嘅過往成交" onclick="event.stopPropagation();openLineHistory('${escJsAttr(l.building_name)}','${escJsAttr(l.unit)}','${escJsAttr(l.floor||'')}')">類近成交</button>`
@@ -10991,13 +11016,7 @@ function renderListingsTable() {
       const checkboxCell = groupSelectMode
         ? `<td>${(!l._combined && l.ref_no) ? `<input type="checkbox" ${groupSelected.has(l.ref_no) ? 'checked' : ''} onchange="toggleGroupSelect('${escHtml(l.ref_no)}')">` : ''}</td>`
         : '';
-      const manualBtn = (!l._combined && l.ref_no)
-        ? (l.removed_date
-            ? ''
-            : l.manual_removed_at
-              ? `<button class="lc-mini" style="margin-top:0.15rem" onclick="toggleManualRemoved('${escJsAttr(l.ref_no)}', this)">↺ 還原</button>`
-              : `<button class="lc-mini" style="margin-top:0.15rem" title="地產網已經冇咗呢個盤？幫手標記（其他用戶會見到提示）" onclick="toggleManualRemoved('${escJsAttr(l.ref_no)}', this)">標記已下架</button>`)
-        : '';
+      const manualBtn = (!l._combined && l.ref_no && !l.removed_date) ? lcMoreBtn(l) : '';   // 收入「⋯」（2026-11-02）
       return `
       <tr${rowStyle}>
         ${checkboxCell}
