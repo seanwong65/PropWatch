@@ -663,6 +663,8 @@ const SEC_DEFS = [
     desc: "用戶寄意見時可以附圖（截圖）。相只係隨 email 寄去 hkbuyhouse@gmail.com，唔存落 D1／R2。設 0 = 唔准附圖。" },
   { key: "sec_feedback_img_max_kb", def: 700, min: 50, max: 3000, label: "意見回饋：每張相最大 KB",
     desc: "前端寄出前會自動壓細（最闊 1280px JPEG）；呢個係後端硬上限，超過即 400。" },
+  { key: "sec_history_tags_rpm", def: 30, min: 5, max: 200, label: "搵盤「有歷史記錄」標記：每個帳戶每分鐘最多查幾次",
+    desc: "app 入面搵盤結果，每版（最多 60 個盤）問一次我哋有冇嗰啲盤嘅改價記錄。限住次數防止有人用嚟大量抽我哋嘅價錢歷史。" },
   { key: "sec_heat_min_users", def: 5, min: 3, max: 50, label: "匿名熱度：最少幾多人先顯示",
     desc: "「N 人追蹤呢個屋苑」「N 人收藏呢個盤」「搜尋結果 N 人心儀」只喺人數達到呢個數先出，否則唔出任何數字（人太少用戶可以估到係邊個）。唔好調到低過 3。" },
   { key: "sec_crowd_removed_min_users", def: 3, min: 2, max: 20, label: "眾人標記已下架：最少幾多人先提示",
@@ -1049,6 +1051,31 @@ function weekChangesCached(db, estateId, sources) {
 // 待跟進「✕ 唔再提醒」：以前只存喺瀏覽器 localStorage，email（每週摘要）睇唔到。而家存 settings.todo_dismissed_<accountId>（JSON 數字陣列），前端同步。
 // 功能介紹（onboarding）白名單：前端 ONBOARD 嘅 key 要喺度有先存得到
 const ONBOARD_KEYS = ["home", "estate", "txns", "analysis", "estate_viewings", "diary", "friends", "fav", "dyn", "search", "mortgage", "viewing_add", "history"];
+// 地產網放盤連結 → 我哋 listings.ref_no（2026-11-02 實測四個網站都係連結尾嘅編號）。唔認得就 null（唔估）。
+export function refFromPortalUrl(u) {
+  let x;
+  try { x = new URL(String(u)); } catch (_) { return null; }
+  if (x.protocol !== "https:") return null;
+  let path;
+  try { path = decodeURIComponent(x.pathname); } catch (_) { return null; }
+  if (x.hostname === "hk.centanet.com") { const m = path.match(/^\/findproperty\/detail\/[^/]*_([A-Z0-9]{4,20})$/); return m ? m[1] : null; }
+  if (x.hostname === "www.midland.com.hk") { const m = path.match(/-(M\d{5,15})$/); return m ? m[1] : null; }
+  if (x.hostname === "www.hkp.com.hk") { const m = path.match(/-(H\d{5,15})$/); return m ? m[1] : null; }
+  if (x.hostname === "www.ricacorp.com") { const m = path.match(/-(c[a-z]\d{5,15})-\d+-hk$/i); return m ? m[1].toUpperCase() : null; }
+  return null;
+}
+// 一個盤嘅價錢歷史摘要（lph 稀疏：每行＝一段價錢）。純計算，有單元測試。
+export function historySummary(rows, today) {
+  if (!rows.length) return null;
+  const r = rows.slice().sort((a, b) => String(a.snapshot_date).localeCompare(String(b.snapshot_date)));
+  let cuts = 0, ups = 0;
+  for (let i = 1; i < r.length; i++) {
+    if (r[i - 1].price - r[i].price > 1000) cuts++;
+    else if (r[i].price - r[i - 1].price > 1000) ups++;
+  }
+  const days = Math.max(0, Math.round((Date.parse(today + "T00:00:00Z") - Date.parse(r[0].snapshot_date + "T00:00:00Z")) / 86400000));
+  return { days, cuts, ups, from: r[0].price, to: r[r.length - 1].price };
+}
 async function getOnboardOff(db, accountId) {
   const row = await db.prepare("SELECT value FROM settings WHERE key = ?").bind(`onboard_off_${accountId}`).first();
   try { const a = JSON.parse(row?.value || "[]"); return Array.isArray(a) ? a.filter((k) => ONBOARD_KEYS.includes(k)) : []; } catch (_) { return []; }
@@ -10723,6 +10750,28 @@ export default {
       // 全部欄位 optional；dismissed=true 即係「以後不再提醒」
       // 待跟進「唔再提醒」同步（只准記自己嘅睇樓記錄 id；每帳戶最多留 1000 個）
       // 功能介紹（onboarding，2026-11-01）：用戶揀「唔再提醒」嘅功能。key 一定要喺 ONBOARD_KEYS 白名單；{reset:true}＝全部重新顯示。
+      // 搵盤結果「有歷史記錄」標記（2026-11-02）：地產網連結 → 我哋 listing_price_history 摘要（減價次數、最初／而家價、最少放咗幾耐）。
+      // 只回摘要唔回成條歷史；每次最多 60 個；每帳戶限速（sec_history_tags_rpm）。改價時間軸係收費功能：免費版淨係知「有記錄」（has）。
+      // 而家只做買盤（租盤價錢歷史係另一套表）。
+      if (method === "POST" && path === "/api/listing-history-tags") {
+        const sec = await getSecCfg(db);
+        if (rateLimited(`hist:${session.account_id}`, sec.sec_history_tags_rpm)) return json(429, { error: "查得太密，請稍後再試" });
+        const body = await request.json().catch(() => ({}));
+        const urls = [...new Set((Array.isArray(body.urls) ? body.urls : []).map(String))].filter((u) => u.length <= 500).slice(0, 60);
+        const byRef = new Map();
+        for (const u of urls) { const r = refFromPortalUrl(u); if (r) { if (!byRef.has(r)) byRef.set(r, []); byRef.get(r).push(u); } }
+        if (!byRef.size) return json(200, isPaidSession(session) ? { tags: {} } : { locked: true, has: [] });
+        const refs = [...byRef.keys()];
+        const { results } = await db.prepare(
+          `SELECT ref_no, price, snapshot_date FROM listing_price_history WHERE ref_no IN (${refs.map(() => "?").join(",")})`).bind(...refs).all();
+        const rowsBy = new Map();
+        for (const r of results) { if (!rowsBy.has(r.ref_no)) rowsBy.set(r.ref_no, []); rowsBy.get(r.ref_no).push(r); }
+        if (!isPaidSession(session)) return json(200, { locked: true, has: [...rowsBy.keys()].flatMap((r) => byRef.get(r)) });
+        const today = hkDateStr(), tags = {};
+        for (const [ref, rows] of rowsBy) { const sum = historySummary(rows, today); if (sum) for (const u of byRef.get(ref)) tags[u] = sum; }
+        return json(200, { tags });
+      }
+
       if (method === "POST" && path === "/api/onboard-off") {
         const body = await request.json().catch(() => ({}));
         let keys;

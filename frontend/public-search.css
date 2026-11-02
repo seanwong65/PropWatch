@@ -132,3 +132,8 @@ button.ps-track { cursor: pointer; font-family: inherit; }
 .ps-sugg-item:hover, .ps-sugg-item:focus { background: var(--surface2, rgba(0,0,0,0.04)); }
 .ps-sugg-item small { display: block; color: var(--faint); font-size: 0.78rem; margin-top: 0.1rem; }
 .ps-sugg-msg { padding: 0.6rem 0.8rem; color: var(--faint); font-size: 0.85rem; }
+
+/* 「有歷史記錄」標記（app 入面先有，2026-11-02） */
+.ps-hist { font-size: 0.78rem; font-weight: 600; color: var(--brand, #1270ac); background: var(--brand-soft, #e8f1fa); border-radius: 8px; padding: 0.25rem 0.5rem; margin-top: 0.3rem; line-height: 1.45; }
+.ps-hist.cut { color: #15803d; background: #dcfce7; }
+.ps-hist.lock { color: #b45309; background: rgba(245,158,11,0.12); cursor: pointer; }
