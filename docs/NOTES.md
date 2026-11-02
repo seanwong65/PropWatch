@@ -766,3 +766,15 @@ drip sync（`*/2`）同樣被雙重觸發：兩個 invocation 同時揀同一批
 
 - ★「最愛」保留個名（用戶：有啲屋苑只係睇過、唔係真係想要；最愛＝自己特別 focus 嘅屋苑）。說明改為先講意思再講收費版作用：「★ 最愛＝你特別留意嘅屋苑（排喺最前）。收費版仲會每日更新最愛、寄每週摘要」；`_starHelp` 一樣。
 - 主頁「有更新」嘅日子拎走「🔍 搵其他屋苑／全港搵盤」一行（主選單已有搵盤；demo `docs/demo/home-search-row.html` 用戶確認）；冇更新／新用戶照保留搜尋表單。`homeOpenFind`／`.find-row` 已刪。
+
+## 搵盤「有歷史記錄」標記（2026-11-02）
+
+- app 搵盤結果（買盤）每張卡：我哋 `listing_price_history` 有呢個盤就加「📈 減過 N 次價（$A萬→$B萬）・最少放咗 N 日」（減過價綠色）；冇改過價寫「價錢冇變過」。「最少放咗」＝我哋最早見到呢個盤至今（唔係地產網嘅上架日）。
+- 對應：地產網連結尾編號＝`listings.ref_no`（`refFromPortalUrl`：中原 `_DAR740`、美聯 `-M\d+`、置業 `-H\d+`、利嘉閣 `-cm77970685-3-hk`→大楷）。唔認得一律 null，**唔估**（同「唔做四網合併」一樣原則）。
+- `POST /api/listing-history-tags {urls}`：auth、每次 ≤60、每帳戶 `sec_history_tags_rpm`（預設 30／分鐘）限速；只回摘要（`historySummary`），唔回成條歷史。改價時間軸係收費功能：免費版只回 `{locked, has}`，卡上「📈 我哋有呢個盤嘅改價記錄 🔒」撳＝`showUpgrade('放盤時間軸')`。公開 `/search` 冇（唔准讀 D1）。租盤未做（價錢歷史係另一套表）。
+- 前端：`public-search.js` `opts.history = {fetch, onLocked}`，`loadHistTags`／`paintHist`（同 like 數一樣一版一次過問）。
+
+## 產品決定（2026-11-02）
+
+- 買盤／租盤：維持兩樣並重（現狀）。
+- 四網搜尋合併同一單位：**唔做**——要靠估（樓層寫「中層」、冇室號），估錯會影響系統準確性。

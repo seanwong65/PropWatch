@@ -3513,7 +3513,7 @@ async function pickEstateForQuick(id) {
 // 手機版 sidebar 收埋咗，快捷掣要幫手拉返出嚟先 focus 到個搜尋框
 // 側欄「🔍 搵樓」：喺主畫面（#main）入面開四大地產網搜尋——同公開 /search 頁共用
 // public-search.js／.css（第一次先載入）。「🔔 追蹤加減價」直接帶去側欄屋苑搜尋，唔使再登記。
-const PS_VER = '20261102a';   // 改 public-search.js/.css 要同 search.html 一齊 bump（Pages 靜態檔 cache 4 小時）
+const PS_VER = '20261102b';   // 改 public-search.js/.css 要同 search.html 一齊 bump（Pages 靜態檔 cache 4 小時）
 let _psAssets = null;
 function _loadPublicSearchAssets() {
   if (!_psAssets) _psAssets = new Promise((resolve, reject) => {
@@ -3597,7 +3597,7 @@ async function openPublicSearch(initialQs) {
     const root = document.getElementById('psEmbedRoot');
     if (!root) return;      // 期間用戶已經去咗第度
     root.innerHTML = '';
-    window.PublicSearch.mount(root, { embedded: true, track: trackNameFromSearch, initial: _searchDefaultsFromPrefs(), priceByDeal: _searchPriceByDeal(), suggest: _searchSuggest, initialQs: typeof initialQs === 'string' ? initialQs : undefined, fav: _searchFav });
+    window.PublicSearch.mount(root, { embedded: true, track: trackNameFromSearch, history: { fetch: (urls) => api('/api/listing-history-tags', { method: 'POST', body: JSON.stringify({ urls }) }), onLocked: () => showUpgrade('放盤時間軸') }, initial: _searchDefaultsFromPrefs(), priceByDeal: _searchPriceByDeal(), suggest: _searchSuggest, initialQs: typeof initialQs === 'string' ? initialQs : undefined, fav: _searchFav });
   } catch (_) {
     const root = document.getElementById('psEmbedRoot');
     if (root) root.innerHTML = '<div style="color:var(--down)">載入失敗，請再試</div>';

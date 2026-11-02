@@ -263,6 +263,48 @@ function renderAll() {
   renderGrid();
   renderMore();
   loadLikeCounts();
+  loadHistTags();
+}
+
+// 「有歷史記錄」標記（2026-11-02，淨係 app：opts.history = { fetch(urls), onLocked() }）：我哋資料庫有呢個盤嘅價錢歷史就加一行
+// 「📈 減過 N 次價（$A萬→$B萬）・最少放咗 N 日」。收費版先有內容，免費版淨係「有記錄 🔒」。只做買盤。公開 /search 冇（唔准讀 D1）。
+const histMap = new Map(), histAsked = new Set();
+function histLine(url) {
+  const h = url ? histMap.get(url) : null;
+  if (!h) return "";
+  if (h === "locked") return `<div class="ps-hist lock" role="button" tabindex="0" title="收費版睇到呢個盤嘅改價記錄">📈 我哋有呢個盤嘅改價記錄 🔒</div>`;
+  const w = (p) => `$${fmtWan(p)}萬`;
+  const parts = [h.cuts ? `減過 ${h.cuts} 次價（${w(h.from)}→${w(h.to)}）` : h.ups ? `加過價（${w(h.from)}→${w(h.to)}）` : "價錢冇變過"];
+  if (h.days >= 1) parts.push(`最少放咗 ${h.days} 日`);
+  return `<div class="ps-hist${h.cuts ? " cut" : ""}" title="我哋每日記錄嘅價錢歷史">📈 ${escHtml(parts.join("・"))}</div>`;
+}
+function bindHistLock(el) {
+  const l = el.querySelector(".ps-hist.lock");
+  if (l) l.addEventListener("click", (e) => { e.preventDefault(); e.stopPropagation(); opts.history?.onLocked?.(); });
+}
+function paintHist(url) {
+  for (const [key, el] of cardCache) {
+    if (!key.endsWith("|" + url)) continue;
+    el.querySelector(".ps-hist")?.remove();
+    const html = histLine(url);
+    if (html) { el.querySelector(".ps-money")?.insertAdjacentHTML("afterend", html); bindHistLock(el); }
+  }
+}
+async function loadHistTags() {
+  if (!opts.history || !state || state.cond.deal !== "S") return;
+  const id = runId;
+  const urls = [...new Set(state.items.map((x) => x.url).filter(Boolean))].filter((u) => !histAsked.has(u));
+  if (!urls.length) return;
+  urls.forEach((u) => histAsked.add(u));
+  for (let i = 0; i < urls.length; i += 60) {
+    const chunk = urls.slice(i, i + 60);
+    let r;
+    try { r = await opts.history.fetch(chunk); } catch (_) { chunk.forEach((u) => histAsked.delete(u)); continue; }
+    if (id !== runId) return;
+    if (r && r.locked) for (const u of (r.has || [])) histMap.set(u, "locked");
+    else for (const [u, sum] of Object.entries((r && r.tags) || {})) histMap.set(u, sum);
+    chunk.forEach(paintHist);
+  }
 }
 
 // 最近搜尋（淨係存喺呢部機瀏覽器 localStorage，唔上傳、唔寫 D1）：首頁搜尋框下面「最近搜尋」列出，
@@ -429,6 +471,7 @@ function cardEl(it) {
   el = wrap.firstElementChild;
   const img = el.querySelector("img");
   if (img) img.addEventListener("error", () => { img.parentElement.textContent = "🏠"; }, { once: true });
+  bindHistLock(el);
   cardCache.set(it.key, el);
   return el;
 }
@@ -468,6 +511,7 @@ function cardHtml(it) {
       <div class="ps-title">${escHtml(head || it.title || "（未有屋苑名）")}${sub ? `<small>${escHtml(sub)}</small>` : ""}</div>
       ${facts ? `<div class="ps-facts">${facts}</div>` : ""}
       <div class="ps-money"><span class="ps-price num">${price}</span>${hos}<span class="ps-psf num">${psf}</span></div>
+      ${rent ? "" : histLine(it.url)}
       <div class="ps-cta">
         <a class="ps-out ${it.src}" href="${safeUrl(it.url)}" target="_blank" rel="noopener noreferrer nofollow">去${escHtml(name)}睇 ↗</a>
         ${track}
