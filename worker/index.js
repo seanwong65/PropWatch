@@ -1,6 +1,6 @@
 import { loadWeeklyInputs, computeWeekly, renderWeeklyHtml, weeklySubject, weeklyHeadline, weeklyIsEmpty } from "./weekly.js";
 import { renderDailyHtml, dailySubject, dailyIsEmpty } from "./daily.js";
-import { ensureEstateStats, refreshEstateStats, computeWeekChanges } from "./estateStats.js";
+import { ensureEstateStats, refreshEstateStats, computeWeekChanges, dayChangeRows } from "./estateStats.js";
 import { expiredEmail, expiredSubject, paymentFailedEmail, paymentFailedSubject } from "./lifecycle.js";
 
 // ⚠️ 效能（2026-10-25）：D1 主庫喺 ENAM（北美東部），worker 喺香港／台灣 edge 行，
@@ -7938,7 +7938,7 @@ export default {
       // 回 404 唔係 403：唔畀人用嚟探邊個 id 存在。PATCH/DELETE/favourite/pause/resume
       // 本身已經 scope 咗 account_id，唔使行呢度。
       {
-        const em = path.match(/^\/api\/estates\/(\d+)\/(listings|rental-listings|rental-trends|rental-transactions|market-temp|line-history|group-overrides|week-changes|trends|transactions|estate-info|photos)$/);
+        const em = path.match(/^\/api\/estates\/(\d+)\/(listings|rental-listings|rental-trends|rental-transactions|market-temp|line-history|group-overrides|week-changes|day-changes|trends|transactions|estate-info|photos)$/);
         if (em && !(await canReadEstate(db, session, em[1]))) return json(404, { error: "搵唔到屋苑" });
       }
 
@@ -7947,6 +7947,15 @@ export default {
       if (method === "GET" && /^\/api\/estates\/\d+\/week-changes$/.test(path)) {
         if (!isPaidSession(session)) return paywall("本週變動");
         const r = await weekChangesCached(db, Number(path.split("/")[3]), SOURCES.map((x) => x.id));
+        return json(200, r || { unavailable: true });
+      }
+
+      // 某日嘅新盤／減價／加價／新成交逐個列（主頁「你嘅屋苑今日」撳「睇下」，2026-11-02）。今日 snapshot＝免費都有；
+      // canReadEstate 喺上面 regex 已經驗。day 只准最近 7 日（每次只讀嗰日嘅盤，約 4×盤數 rows）。
+      if (method === "GET" && /^\/api\/estates\/\d+\/day-changes$/.test(path)) {
+        const day = String(url.searchParams.get("day") || "");
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(day) || day > hkDateStr() || day < hkDateStr(-7)) return json(400, { error: "日期唔啱" });
+        const r = await dayChangeRows(db, Number(path.split("/")[3]), day, SOURCES.map((x) => x.id));
         return json(200, r || { unavailable: true });
       }
 

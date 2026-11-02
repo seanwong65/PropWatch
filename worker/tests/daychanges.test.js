@@ -24,12 +24,12 @@ async function setup() {
   const db = await mf.getD1Database("DB");
   for (const t of ["estates", "listings", "listing_price_history", "transactions"]) await db.prepare(`DROP TABLE IF EXISTS ${t}`).run();
   await db.prepare("CREATE TABLE estates (id INTEGER PRIMARY KEY, first_seen TEXT)").run();
-  await db.prepare("CREATE TABLE listings (id INTEGER PRIMARY KEY, estate_id INTEGER, source TEXT, ref_no TEXT, price REAL, snapshot_date TEXT)").run();
+  await db.prepare("CREATE TABLE listings (id INTEGER PRIMARY KEY, estate_id INTEGER, source TEXT, ref_no TEXT, price REAL, snapshot_date TEXT, building_name TEXT, floor TEXT, unit TEXT, bedrooms INTEGER, size_net REAL, price_per_ft REAL, detail_url TEXT)").run();
   await db.prepare("CREATE INDEX idx_listings_estate_src_date ON listings(estate_id, source, snapshot_date)").run();
   await db.prepare(`CREATE TABLE listing_price_history (id INTEGER PRIMARY KEY AUTOINCREMENT, ref_no TEXT NOT NULL, estate_id INTEGER NOT NULL,
     price REAL NOT NULL, snapshot_date TEXT NOT NULL, seen_until TEXT, UNIQUE(ref_no, snapshot_date))`).run();
   await db.prepare("CREATE INDEX idx_lph_ref ON listing_price_history(ref_no, snapshot_date DESC)").run();
-  await db.prepare("CREATE TABLE transactions (id INTEGER PRIMARY KEY, estate_id INTEGER, first_seen TEXT, reg_date TEXT)").run();
+  await db.prepare("CREATE TABLE transactions (id INTEGER PRIMARY KEY, estate_id INTEGER, first_seen TEXT, reg_date TEXT, building TEXT, floor TEXT, unit TEXT, price REAL, size_net REAL, price_per_ft REAL, source TEXT)").run();
   await db.prepare("CREATE INDEX idx_txn_estate ON transactions(estate_id, first_seen DESC)").run();
   return db;
 }
@@ -53,5 +53,24 @@ describe("computeDayChanges", () => {
     await ins(db, "INSERT INTO estates VALUES (1, '2026-10-31 06:00:00')");
     expect(await computeDayChanges(db, 1, "2026-11-01", SOURCES)).toBeNull();
     expect(await computeDayChanges(db, 99, "2026-11-01", SOURCES)).toBeNull();
+  });
+});
+
+describe("dayChangeRows（逐個列，同 computeDayChanges 數字一致）", () => {
+  it("新盤／減價（含原價、%）／加價／新成交；同 computeDayChanges 計數一樣", async () => {
+    const { dayChangeRows } = await import("../estateStats.js");
+    const db = await setup();
+    const D = "2026-11-01";
+    await ins(db, "INSERT INTO estates VALUES (1, '2026-10-01 06:00:00')");
+    for (const [ref, p] of [["N", 500e4], ["C", 580e4], ["U", 620e4], ["S", 700e4]]) await ins(db, "INSERT INTO listings (estate_id, source, ref_no, price, snapshot_date) VALUES (1, 'centanet', ?, ?, ?)", ref, p, D);
+    for (const [ref, p, d] of [["C", 600e4, "2026-10-20"], ["C", 580e4, D], ["U", 600e4, "2026-10-25"], ["U", 620e4, D], ["S", 700e4, "2026-10-10"], ["N", 500e4, D]])
+      await ins(db, "INSERT INTO listing_price_history (ref_no, estate_id, price, snapshot_date) VALUES (?, 1, ?, ?)", ref, p, d);
+    await ins(db, "INSERT INTO transactions (estate_id, first_seen, reg_date) VALUES (1, ?, '2026-10-20')", D);
+    const r = await dayChangeRows(db, 1, D, SOURCES);
+    expect(r.counts).toEqual({ new: 1, cuts: 1, ups: 1, txns: 1 });
+    expect(r.cuts[0]).toMatchObject({ p: 580e4, from: 600e4, pct: -3.3 });
+    expect(r.ups[0]).toMatchObject({ p: 620e4, from: 600e4, pct: 3.3 });
+    const c = await computeDayChanges(db, 1, D, SOURCES);
+    expect([c.new, c.cuts, c.ups, c.txns]).toEqual([r.counts.new, r.counts.cuts, r.counts.ups, r.counts.txns]);
   });
 });
