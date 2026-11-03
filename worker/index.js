@@ -1051,7 +1051,7 @@ function weekChangesCached(db, estateId, sources) {
 
 // 待跟進「✕ 唔再提醒」：以前只存喺瀏覽器 localStorage，email（每週摘要）睇唔到。而家存 settings.todo_dismissed_<accountId>（JSON 數字陣列），前端同步。
 // 功能介紹（onboarding）白名單：前端 ONBOARD 嘅 key 要喺度有先存得到
-const ONBOARD_KEYS = ["home", "estate", "txns", "analysis", "estate_viewings", "diary", "friends", "fav", "dyn", "search", "mortgage", "viewing_add", "history"];
+const ONBOARD_KEYS = ["home", "estate", "txns", "analysis", "estate_viewings", "diary", "friends", "fav", "dyn", "search", "mortgage", "viewing_add", "history", "tour"];   // tour＝第一次登入嘅逐步導覽（2026-11-03）
 // 地產網放盤連結 → 我哋 listings.ref_no（2026-11-02 實測四個網站都係連結尾嘅編號）。唔認得就 null（唔估）。
 export function refFromPortalUrl(u) {
   let x;

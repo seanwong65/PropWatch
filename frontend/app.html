@@ -1179,6 +1179,20 @@
     table.vc-cmp td.best { background: rgba(21,128,61,0.09); font-weight: 800; }
     table.vc-cmp td.best::after { content: " ✓"; color: var(--up); }
     table.vc-cmp tr.grp td { background: var(--glass-bg); font-weight: 800; color: var(--text); font-size: 0.78rem; }
+    /* 新手逐步導覽（2026-11-03）：暗底＋亮起目標掣＋說明框（上一步／下一步／略過） */
+    .tour-hole { position: fixed; z-index: 9700; border-radius: 12px; box-shadow: 0 0 0 9999px rgba(8,15,28,0.6); pointer-events: none; transition: all 0.25s ease; }
+    .tour-hole.center { width: 0; height: 0; left: 50%; top: 45%; }
+    .tour-block { position: fixed; inset: 0; z-index: 9699; }
+    .tour-pop { position: fixed; z-index: 9701; width: min(300px, calc(100vw - 24px)); background: var(--surface); color: var(--text); border-radius: 14px; box-shadow: 0 12px 32px rgba(0,0,0,0.3); padding: 0.9rem 1rem 0.8rem; font-size: 0.86rem; line-height: 1.6; transition: top 0.25s ease, left 0.25s ease; }
+    .tour-pop h4 { margin: 0 0 0.3rem; font-size: 1rem; }
+    .tour-x { position: absolute; top: 0.45rem; right: 0.55rem; background: none; border: none; font-size: 1rem; color: var(--muted); cursor: pointer; }
+    .tour-foot { display: flex; align-items: center; gap: 0.4rem; margin-top: 0.7rem; }
+    .tour-dots { flex: 1; display: flex; gap: 4px; }
+    .tour-dots i { width: 6px; height: 6px; border-radius: 999px; background: var(--border-strong); }
+    .tour-dots i.on { width: 16px; background: var(--brand); }
+    .tour-foot button { border: none; border-radius: 999px; padding: 0.4rem 0.95rem; font-size: 0.82rem; font-weight: 700; cursor: pointer; font-family: inherit; }
+    .tour-prev { background: none; color: var(--muted); }
+    .tour-next { background: var(--brand); color: var(--brand-ink, #fff); }
     /* 功能介紹（onboarding，2026-11-01）：每個功能頂部一張細卡，撳「明白」就永久唔再出（跟帳戶） */
     .ob-tip { background: var(--brand-soft); border: 1px solid var(--border); border-radius: 12px; padding: 0.4rem 0.7rem; margin: 0 0 0.7rem; font-size: 0.82rem; line-height: 1.55; }
     .ob-tip > summary { display: flex; align-items: center; gap: 0.4rem; cursor: pointer; list-style: none; }
@@ -2423,10 +2437,10 @@
       <div class="modal-sub" style="margin-top:1.25rem">📧 Email 通知</div>
       <div id="settings-email-box"></div>
 
-      <div class="modal-sub" style="margin-top:1.25rem">💡 功能介紹</div>
+      <div class="modal-sub" style="margin-top:1.25rem">🧭 新手導覽</div>
       <div style="display:flex;align-items:center;gap:0.6rem;font-size:0.8rem;color:var(--muted);margin-top:0.3rem">
-        <span style="flex:1">打開每個功能嗰陣嘅簡單介紹。撳咗「不再提醒」嘅想再睇，可以喺度重設。</span>
-        <button class="vf-submit" style="width:auto;padding:0.45rem 0.9rem;margin:0;white-space:nowrap" onclick="obResetAll()">重新顯示</button>
+        <span style="flex:1">逐步介紹每個功能喺邊、有咩用（第一次登入會自動出）。</span>
+        <button class="vf-submit" style="width:auto;padding:0.45rem 0.9rem;margin:0;white-space:nowrap" onclick="document.getElementById('settingsModalOverlay').style.display='none';startTour()">重新睇導覽</button>
       </div>
 
       <div class="modal-sub" style="margin-top:1.25rem">🔗 我分享過嘅連結</div>
@@ -4275,11 +4289,94 @@ const ONBOARD = {
   history: ['歷史動態', '過去幾個月嘅新盤、減價、成交記錄，睇返一個屋苑嘅成交節奏同減價趨勢。'],
 };
 let _onboardOff = new Set();
+const OB_PAGE_TIPS_OFF = true;   // 每頁頂 💡 介紹停用（由導覽取代）；想恢復改 false
+
+// ── 新手逐步導覽（2026-11-03）──────────────────────────────────────────────
+// 第一次登入（偏好彈窗閂咗之後）自動開始：暗底、亮起目標掣、旁邊說明框，「上一步／下一步／略過」。
+// 手機指底部選單（.nv-mobile），闊屏指左邊（.nv-rail）；搵唔到／睇唔到嘅步驟自動跳過。
+// 完成或者略過＝obOff('tour')（存 server，跟帳戶）；⚙️ 設定「重新睇導覽」＝startTour()。
+const TOUR_STEPS = [
+  { t: '👋 歡迎嚟到搵樓日記', b: '用一分鐘睇下點用：每日幫你留意屋苑嘅新盤、減價、成交，記低睇過嘅樓，再一次過搵四大地產網嘅盤。' },
+  { sel: '[data-nav="today"]', t: '🏠 今日', b: '一打開就見到你追蹤嘅屋苑今日有咩新盤、減價、成交，同埋要跟進嘅睇樓記錄。' },
+  { sel: '[data-nav="estates"]', t: '🏢 追蹤中屋苑', b: '加入你想留意嘅屋苑，系統每日幫你記錄放盤同價錢變化。撳 ★ 設為最愛，即係你最 focus 嘅屋苑。' },
+  { sel: '[data-nav="find"]', t: '🔍 搵盤', b: '中原、美聯、香港置業、利嘉閣一次過搜。我哋有記錄嘅盤，會話你減過幾多次價、放咗幾耐。' },
+  { sel: '[data-nav="view"]', t: '📝 睇樓記錄', b: '睇完樓喺度記低價錢、評分、相片；用「比較」並排睇邊個單位抵啲。' },
+  { sel: '[data-nav="friends"]', t: '👥 八卦朋友屋企', b: '記低親戚朋友住邊，睇下佢哋層樓而家大概值幾多。' },
+  { sel: '#settings-hdr-btn', t: '⚙️ 設定', b: '睇樓偏好（預算、房數）、Email 通知同訂閱都喺度。想再睇呢個導覽，都可以喺設定重新開始。' },
+  { sel: '#feedback-btn', t: '💬 意見回饋', b: '有問題、發現錯漏，或者想要咩新功能，撳呢度話我哋知。' },
+  { t: '🎉 完成！', b: '而家可以先去「追蹤中屋苑」加入你想留意嘅屋苑，或者去「搵盤」睇下有咩盤。' },
+];
+let _tourIdx = 0, _tourOn = false;
+function _tourTarget(step) {
+  if (!step.sel) return null;
+  const els = [...document.querySelectorAll(`.nv-mobile ${step.sel}, .nv-rail ${step.sel}`), ...(step.sel.startsWith('#') ? [document.querySelector(step.sel)] : [])].filter(Boolean);
+  return els.find(el => { const r = el.getBoundingClientRect(); return r.width > 0 && r.height > 0 && getComputedStyle(el).display !== 'none'; }) || null;
+}
+function startTour() {
+  _tourOn = true; _tourIdx = 0;
+  document.getElementById('tour-root')?.remove();
+  document.body.insertAdjacentHTML('beforeend', `<div id="tour-root"><div class="tour-block"></div><div class="tour-hole"></div>
+    <div class="tour-pop" role="dialog" aria-modal="true" aria-live="polite"><button type="button" class="tour-x" aria-label="略過導覽" onclick="endTour()">✕</button><div id="tour-body"></div>
+      <div class="tour-foot"><div class="tour-dots" id="tour-dots"></div><button type="button" class="tour-prev" id="tour-prev" onclick="tourGo(-1)">上一步</button><button type="button" class="tour-next" id="tour-next" onclick="tourGo(1)">下一步</button></div></div></div>`);
+  tourRender();
+}
+function tourGo(d) {
+  let i = _tourIdx + d;
+  while (i > 0 && i < TOUR_STEPS.length - 1 && TOUR_STEPS[i].sel && !_tourTarget(TOUR_STEPS[i])) i += d;   // 搵唔到嘅步驟跳過
+  if (i >= TOUR_STEPS.length) { endTour(); return; }
+  _tourIdx = Math.max(0, i);
+  tourRender();
+}
+function tourRender() {
+  const root = document.getElementById('tour-root');
+  if (!root) return;
+  const step = TOUR_STEPS[_tourIdx], hole = root.querySelector('.tour-hole'), pop = root.querySelector('.tour-pop');
+  document.getElementById('tour-body').innerHTML = `<h4>${escHtml(step.t)}</h4><div>${escHtml(step.b)}</div>`;
+  document.getElementById('tour-dots').innerHTML = TOUR_STEPS.map((_, i) => `<i class="${i === _tourIdx ? 'on' : ''}"></i>`).join('');
+  document.getElementById('tour-prev').style.visibility = _tourIdx ? '' : 'hidden';
+  const last = _tourIdx === TOUR_STEPS.length - 1;
+  document.getElementById('tour-next').textContent = _tourIdx === 0 ? '開始' : last ? '完成' : '下一步';
+  const el = _tourTarget(step);
+  if (!el) {   // 冇目標（歡迎／完成）：置中
+    hole.className = 'tour-hole center'; hole.removeAttribute('style');
+    pop.style.left = Math.max(12, (innerWidth - pop.offsetWidth) / 2) + 'px';
+    pop.style.top = Math.max(12, (innerHeight - pop.offsetHeight) / 2) + 'px';
+    return;
+  }
+  const r = el.getBoundingClientRect(), pad = 6;
+  hole.className = 'tour-hole';
+  Object.assign(hole.style, { left: (r.left - pad) + 'px', top: (r.top - pad) + 'px', width: (r.width + pad * 2) + 'px', height: (r.height + pad * 2) + 'px' });
+  const pw = pop.offsetWidth, ph = pop.offsetHeight;
+  const below = r.top + r.height / 2 < innerHeight / 2;
+  let top = below ? r.bottom + pad + 10 : r.top - pad - 10 - ph;
+  let left = r.left + r.width / 2 - pw / 2;
+  if (r.right + pw + 24 < innerWidth && r.width < 220 && getComputedStyle(el.closest('.nv-rail') || document.body).display !== 'none' && el.closest('.nv-rail')) { left = r.right + pad + 12; top = r.top + r.height / 2 - ph / 2; }   // 闊屏左邊選單：放右邊
+  pop.style.left = Math.max(12, Math.min(left, innerWidth - pw - 12)) + 'px';
+  pop.style.top = Math.max(12, Math.min(top, innerHeight - ph - 12)) + 'px';
+}
+function endTour() {
+  _tourOn = false;
+  document.getElementById('tour-root')?.remove();
+  obOff('tour');
+}
+window.addEventListener('resize', () => { if (_tourOn) tourRender(); });
+document.addEventListener('keydown', (e) => { if (!_tourOn) return; if (e.key === 'Escape') endTour(); else if (e.key === 'ArrowRight') tourGo(1); else if (e.key === 'ArrowLeft') tourGo(-1); });
+// 登入後：未睇過導覽就等偏好彈窗閂咗先開始（最多等 10 分鐘）
+let _tourChecked = false;
+async function maybeStartTour() {
+  if (_tourChecked || _onboardOff.has('tour') || !document.body.classList.contains('authed')) return;
+  _tourChecked = true;
+  const busy = () => ['prefsModalOverlay', 'settingsModalOverlay', 'viewingModalOverlay'].some(id => document.getElementById(id)?.style.display === 'flex');
+  for (let i = 0; i < 1200 && busy(); i++) await new Promise(r => setTimeout(r, 500));
+  await new Promise(r => setTimeout(r, 400));
+  if (!_onboardOff.has('tour') && !_tourOn) startTour();
+}
 function obSlot(slotId, key) {
   const el = document.getElementById(slotId);
   if (!el) return;
   const t = ONBOARD[key];
-  if (!t || _onboardOff.has(key)) { el.innerHTML = ''; return; }
+  // 2026-11-03：改用第一次登入嘅逐步導覽（startTour），每頁頂唔再出介紹（用戶：佢想要嘅係「下一步、下一步」嗰種導覽）
+  if (OB_PAGE_TIPS_OFF || !t || _onboardOff.has(key)) { el.innerHTML = ''; return; }
   // 2026-11-03：縮成一行（「💡 X：點用？▾」），撳先展開（之前成段攤開，每頁頂都佔位）；✕＝不再提醒
   el.innerHTML = `<details class="ob-tip" data-ob="${key}"><summary><span class="ob-t">💡 ${escHtml(t[0])}：點用？</span><span class="ob-chev">▾</span>
       <button type="button" class="ob-x" title="不再提醒" aria-label="不再提醒" onclick="event.preventDefault();event.stopPropagation();obOff('${key}')">✕</button></summary>
@@ -5827,10 +5924,12 @@ async function loadEstates() {
       // 2026-11-01 之前係直接自動跳去搵樓頁，而家主頁本身已經可以搜尋，唔使跳。
       await cfgReady;
       if (!activeEstateId) showDashboard([]);
+      maybeStartTour();
       return;
     }
     await cfgReady;
     if (!activeEstateId) showDashboard(estates);
+    maybeStartTour();
     list.innerHTML = estates.map(e => e.paused ? `
       <!-- 暫停咗（降級時被擠走）：淡色顯示，唔畀撳入去（入去都係舊數據，
            已經停咗 sync），改為擺個「恢復」掣。特登唔隱藏——要俾用戶見到
