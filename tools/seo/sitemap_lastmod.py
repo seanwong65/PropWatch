@@ -23,7 +23,9 @@ s = open(SM, encoding="utf-8").read()
 
 
 def fix(m):
-    loc = m.group(1); f = "frontend/" + src(loc[len(BASE):])
+    loc = m.group(1)
+    if "/estate/" in loc: return m.group(0)   # 屋苑頁嘅 lastmod 係數據日期，由 tools/estate/gen.py 寫
+    f = "frontend/" + src(loc[len(BASE):])
     assert os.path.exists(os.path.join(ROOT, f)), f
     d = today if f in dirty else (git("log", "-1", "--format=%cs", "--", f) or today)
     return f"<loc>{loc}</loc>\n    <lastmod>{d}</lastmod>"

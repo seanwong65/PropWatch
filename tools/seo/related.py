@@ -41,7 +41,7 @@ RELATED = {
     "h-vs-p-mortgage": ["bank-valuation", "buying-process", "extra-costs"],
     "rent-or-buy": ["renting-checklist", "extra-costs", "buying-process"],
 }
-TOOLS = '<p class="related-tools">用工具：<a href="/mortgage-calculator">按揭計算機</a>・<a href="/search">四大地產網一次搜</a>・<a href="/area/">各區樓盤</a>・<a href="/guides/">全部教學</a></p>'
+TOOLS = '<p class="related-tools">用工具：<a href="/mortgage-calculator">按揭計算機</a>・<a href="/search">四大地產網一次搜</a>・<a href="/area/">各區樓盤</a>・<a href="/estate/">屋苑數據</a>・<a href="/guides/">全部教學</a></p>'
 
 
 def block(slug):

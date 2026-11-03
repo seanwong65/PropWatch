@@ -2,7 +2,7 @@
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
   <url>
     <loc>https://home.ws-techs.com/</loc>
-    <lastmod>2026-10-30</lastmod>
+    <lastmod>2026-11-03</lastmod>
   </url>
   <url>
     <loc>https://home.ws-techs.com/search</loc>
@@ -10,7 +10,7 @@
   </url>
   <url>
     <loc>https://home.ws-techs.com/area/</loc>
-    <lastmod>2026-10-22</lastmod>
+    <lastmod>2026-11-03</lastmod>
   </url>
   <url>
     <loc>https://home.ws-techs.com/area/central-western</loc>
@@ -166,11 +166,11 @@
   </url>
   <url>
     <loc>https://home.ws-techs.com/mortgage-calculator</loc>
-    <lastmod>2026-10-30</lastmod>
+    <lastmod>2026-11-03</lastmod>
   </url>
   <url>
     <loc>https://home.ws-techs.com/guides/</loc>
-    <lastmod>2026-10-22</lastmod>
+    <lastmod>2026-11-03</lastmod>
   </url>
   <url>
     <loc>https://home.ws-techs.com/guides/listing-days</loc>
@@ -244,4 +244,114 @@
     <loc>https://home.ws-techs.com/privacy</loc>
     <lastmod>2026-11-03</lastmod>
   </url>
+  <!-- estate:start -->
+  <url>
+    <loc>https://home.ws-techs.com/estate/</loc>
+    <lastmod>2026-11-03</lastmod>
+  </url>
+  <url>
+    <loc>https://home.ws-techs.com/estate/%E5%A4%AA%E5%8F%A4%E5%9F%8E</loc>
+    <lastmod>2026-11-01</lastmod>
+  </url>
+  <url>
+    <loc>https://home.ws-techs.com/estate/%E6%98%A0%E7%81%A3%E5%9C%92</loc>
+    <lastmod>2026-11-01</lastmod>
+  </url>
+  <url>
+    <loc>https://home.ws-techs.com/estate/%E6%98%87%E6%82%85%E5%B1%85</loc>
+    <lastmod>2026-11-03</lastmod>
+  </url>
+  <url>
+    <loc>https://home.ws-techs.com/estate/%E5%98%89%E6%B9%96%E5%B1%B1%E8%8E%8A</loc>
+    <lastmod>2026-11-02</lastmod>
+  </url>
+  <url>
+    <loc>https://home.ws-techs.com/estate/%E6%B3%93%E6%99%AF%E8%87%BA</loc>
+    <lastmod>2026-11-03</lastmod>
+  </url>
+  <url>
+    <loc>https://home.ws-techs.com/estate/%E7%A2%A7%E6%B5%B7%E8%97%8D%E5%A4%A9</loc>
+    <lastmod>2026-11-03</lastmod>
+  </url>
+  <url>
+    <loc>https://home.ws-techs.com/estate/%E5%96%9C%E8%96%88</loc>
+    <lastmod>2026-11-03</lastmod>
+  </url>
+  <url>
+    <loc>https://home.ws-techs.com/estate/%E5%AE%87%E6%99%B4%E8%BB%92</loc>
+    <lastmod>2026-11-03</lastmod>
+  </url>
+  <url>
+    <loc>https://home.ws-techs.com/estate/%E7%AA%A9%E6%89%93%E8%80%81%E9%81%938%E8%99%9F</loc>
+    <lastmod>2026-10-31</lastmod>
+  </url>
+  <url>
+    <loc>https://home.ws-techs.com/estate/%E9%BB%83%E5%9F%94%E8%8A%B1%E5%9C%92</loc>
+    <lastmod>2026-11-02</lastmod>
+  </url>
+  <url>
+    <loc>https://home.ws-techs.com/estate/%E5%96%9C%E9%9F%BB</loc>
+    <lastmod>2026-11-02</lastmod>
+  </url>
+  <url>
+    <loc>https://home.ws-techs.com/estate/%E8%B1%90%E7%9B%9B%E5%B1%85</loc>
+    <lastmod>2026-11-02</lastmod>
+  </url>
+  <url>
+    <loc>https://home.ws-techs.com/estate/%E6%99%AF%E6%80%A1%E5%B3%B0</loc>
+    <lastmod>2026-10-30</lastmod>
+  </url>
+  <url>
+    <loc>https://home.ws-techs.com/estate/%E5%A4%A9%E6%99%89</loc>
+    <lastmod>2026-10-28</lastmod>
+  </url>
+  <url>
+    <loc>https://home.ws-techs.com/estate/%E8%B6%8A%E7%A7%80%E5%BB%A3%E5%A0%B4</loc>
+    <lastmod>2026-10-31</lastmod>
+  </url>
+  <url>
+    <loc>https://home.ws-techs.com/estate/%E6%B7%98%E5%A4%A7%E8%8A%B1%E5%9C%92</loc>
+    <lastmod>2026-10-30</lastmod>
+  </url>
+  <url>
+    <loc>https://home.ws-techs.com/estate/%E5%BE%B7%E7%A6%8F%E8%8A%B1%E5%9C%92</loc>
+    <lastmod>2026-10-31</lastmod>
+  </url>
+  <url>
+    <loc>https://home.ws-techs.com/estate/%E9%BA%97%E6%B8%AF%E5%9F%8E</loc>
+    <lastmod>2026-11-03</lastmod>
+  </url>
+  <url>
+    <loc>https://home.ws-techs.com/estate/%E6%B5%B7%E9%80%B8%E8%B1%AA%E5%9C%92</loc>
+    <lastmod>2026-11-01</lastmod>
+  </url>
+  <url>
+    <loc>https://home.ws-techs.com/estate/%E5%BA%B7%E6%80%A1%E8%8A%B1%E5%9C%92</loc>
+    <lastmod>2026-11-03</lastmod>
+  </url>
+  <url>
+    <loc>https://home.ws-techs.com/estate/%E6%B5%B7%E6%80%A1%E5%8D%8A%E5%B3%B6</loc>
+    <lastmod>2026-11-03</lastmod>
+  </url>
+  <url>
+    <loc>https://home.ws-techs.com/estate/%E7%BE%8E%E5%AD%9A%E6%96%B0%E9%82%A8</loc>
+    <lastmod>2026-11-03</lastmod>
+  </url>
+  <url>
+    <loc>https://home.ws-techs.com/estate/%E6%96%B0%E9%83%BD%E5%9F%8E</loc>
+    <lastmod>2026-10-29</lastmod>
+  </url>
+  <url>
+    <loc>https://home.ws-techs.com/estate/%E6%B2%99%E7%94%B0%E7%AC%AC%E4%B8%80%E5%9F%8E</loc>
+    <lastmod>2026-10-30</lastmod>
+  </url>
+  <url>
+    <loc>https://home.ws-techs.com/estate/%E5%A4%AA%E5%AE%89%E6%A8%93</loc>
+    <lastmod>2026-10-31</lastmod>
+  </url>
+  <url>
+    <loc>https://home.ws-techs.com/estate/%E6%97%A5%E5%87%BA%E5%BA%B7%E5%9F%8E</loc>
+    <lastmod>2026-11-02</lastmod>
+  </url>
+  <!-- estate:end -->
 </urlset>
