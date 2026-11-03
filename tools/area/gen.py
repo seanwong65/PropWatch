@@ -72,6 +72,11 @@ def page(d, deal="S"):
     intro_html = e(d["intro"]) if not rent else (e(RENT[c][0]) + "<br><br>" + e(d["intro"]))
     h1 = f"{name}租樓：四大地產網最新租盤一次睇" if rent else f"{name}二手樓：四大地產網最新放盤一次睇"
     eg = "、".join(f'<a href="{kw(x, rent)}">{e(x)}</a>' for x in top)
+    G = {"buying-process": ("買二手樓流程", "由睇樓、出價、簽約到收樓"), "asking-vs-transaction": ("叫價同成交價差幾多先算抵？", "用成交中位數判斷貴定平"),
+         "listing-days": ("點知一個盤放咗幾耐？", "放盤日數、減價歷史點睇"), "renting-checklist": ("租樓注意事項", "按金、佣金、租約印花稅、生約死約"),
+         "rent-or-buy": ("租樓定買樓好？", "用數字比較，唔好只計月供同租金"), "viewing-checklist": ("睇樓清單", "睇樓要注意乜")}
+    guide_html = "\n".join(f'      <li><a href="/guides/{s}"><b>{e(G[s][0])}</b><small>{e(G[s][1])}</small></a></li>'
+                           for s in (["renting-checklist", "rent-or-buy", "viewing-checklist"] if rent else ["buying-process", "asking-vs-transaction", "listing-days"]))
     faq_html = "\n".join(f'    <details><summary>{e(q)}</summary><p>{e(a)}</p></details>' for q, a in faqs)
     return f'''<!DOCTYPE html>
 <html lang="zh-HK">
@@ -151,6 +156,13 @@ def page(d, deal="S"):
       {chr(10).join("      " + x for x in chips).strip()}
       <a href="/area/">全港各區</a>
     </div>
+  </section>
+
+  <section class="area-sec related">
+    <h2>{"租樓前先睇" if rent else "睇樓前先睇"}</h2>
+    <ul>
+{guide_html}
+    </ul>
   </section>
 
   <section class="area-sec">
