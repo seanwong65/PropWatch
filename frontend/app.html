@@ -1148,6 +1148,12 @@
     .vc-seg button { border: none; background: none; padding: 0.3rem 0.85rem; border-radius: 999px; font-size: 0.82rem; color: var(--muted); cursor: pointer; font-family: inherit; font-weight: 600; }
     .vc-seg button.on { background: var(--brand); color: var(--brand-ink, #fff); }
     .vc-bar { display: flex; flex-wrap: wrap; gap: 0.3rem; align-items: center; font-size: 0.8rem; color: var(--muted); margin-bottom: 0.6rem; }
+    .vc-filter { display: flex; flex-wrap: wrap; gap: 0.4rem; margin: 0 0 0.6rem; }
+    .vc-filter > div { display: flex; gap: 0.4rem; align-items: center; flex: 1 1 100%; min-width: 0; }
+    @media (min-width: 640px) { .vc-filter > div { flex: 1 1 0; } }
+    .vc-filter select { flex: 1 1 0; min-width: 0; text-overflow: ellipsis; border: 1px solid var(--border-strong); border-radius: 999px; padding: 0.35rem 0.7rem; background: var(--surface); color: var(--text); font: inherit; font-size: 0.8rem; cursor: pointer; }
+    .vc-filter select.on { border-color: var(--brand); color: var(--brand); font-weight: 700; background: var(--brand-soft); }
+    .vc-filter .vc-fclr { flex: none; white-space: nowrap; border: none; background: none; color: var(--accent2); font: inherit; font-size: 0.78rem; font-weight: 600; cursor: pointer; padding: 0.2rem; }
     .vc-hint { font-size: 0.78rem; color: var(--muted); margin: 0 0 0.6rem; line-height: 1.5; }
     .vc-row { display: grid; grid-template-columns: 26px 1fr auto; gap: 0.2rem 0.6rem; align-items: start; background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 0.65rem 0.7rem; margin-bottom: 0.5rem; cursor: pointer; }
     .vc-row.sel { border-color: var(--brand); box-shadow: 0 0 0 2px var(--brand-soft); }
@@ -4921,12 +4927,20 @@ function toggleCompsViewing(vid) {
 // 買盤／租盤分開比（月租同樓價唔好混埋）。全部字串 escHtml（屋苑名、座、備註…當唔可信）。
 let _compsView = (() => { try { return localStorage.getItem('pw_comps_view') === 'cmp' ? 'cmp' : 'cal'; } catch (_) { return 'cal'; } })();
 let _vcSort = 'value', _vcSel = new Set(), _vcSide = false, _vcDeal = 'S';
+// 比較列表篩選（2026-11-03 用戶：屋苑／樓價／房數）：'' ＝唔限；樓價係 _VC_PRICE 嘅 index
+let _vcEst = '', _vcPrice = '', _vcBed = '';
+const _VC_PRICE = {
+  S: [['500萬以下', 0, 500e4], ['500–700萬', 500e4, 700e4], ['700–1000萬', 700e4, 1000e4], ['1000–1500萬', 1000e4, 1500e4], ['1500萬以上', 1500e4, Infinity]],
+  R: [['$15,000 以下', 0, 15000], ['$15,000–25,000', 15000, 25000], ['$25,000–40,000', 25000, 40000], ['$40,000 以上', 40000, Infinity]],
+};
+const _vcBedOf = (v) => v.bedrooms == null || v.bedrooms === '' ? null : Math.min(4, Number(v.bedrooms));
 function setCompsView(m) {
   _compsView = m; _vcSide = false;
   try { localStorage.setItem('pw_comps_view', m); } catch (_) { /* 冇所謂 */ }
   renderCompsPanel();
 }
-function vcSet(k, val) { if (k === 'sort') _vcSort = val; if (k === 'deal') { _vcDeal = val; _vcSel.clear(); } if (k === 'side') _vcSide = !!val; renderCompsPanel(); }
+function vcSet(k, val) { if (k === 'sort') _vcSort = val; if (k === 'deal') { _vcDeal = val; _vcSel.clear(); _vcPrice = ''; }
+  if (k === 'est') _vcEst = val; if (k === 'price') _vcPrice = val; if (k === 'bed') _vcBed = val; if (k === 'fclear') { _vcEst = _vcPrice = _vcBed = ''; } if (k === 'side') _vcSide = !!val; renderCompsPanel(); }
 function vcToggle(id) {
   if (_vcSel.has(id)) _vcSel.delete(id);
   else if (_vcSel.size >= 3) { toast('最多並排比較 3 個'); return; }
@@ -4944,7 +4958,23 @@ function _vcVs(v) {
 function _vcHtml() {
   const hasR = _compsData.some(v => (v.deal_type || 'S') === 'R'), hasS = _compsData.some(v => (v.deal_type || 'S') === 'S');
   const deal = hasS && hasR ? _vcDeal : (hasR ? 'R' : 'S');
-  const rows = _compsData.filter(v => (v.deal_type || 'S') === deal);
+  const dealRows = _compsData.filter(v => (v.deal_type || 'S') === deal);
+  // 篩選：每個下拉嘅數量按「其他兩個篩選」計（揀咗屋苑，樓價嗰度就只數嗰個屋苑）
+  const pb = _VC_PRICE[deal];
+  const inPrice = (v, i) => i === '' || (v.price && v.price >= pb[i][1] && v.price < pb[i][2]);
+  const okEst = (v) => _vcEst === '' || String(v.estate_id) === _vcEst;
+  const okBed = (v) => _vcBed === '' || String(_vcBedOf(v)) === _vcBed;
+  const rows = dealRows.filter(v => okEst(v) && inPrice(v, _vcPrice) && okBed(v));
+  const ests = [...new Map(dealRows.map(v => [String(v.estate_id), v.estate_name || ''])).entries()].sort((a, b) => a[1].localeCompare(b[1], 'zh-Hant'));
+  const cnt = (f) => dealRows.filter(f).length;
+  const opt = (val, label, n, cur) => `<option value="${escHtml(val)}" ${cur === val ? 'selected' : ''} ${val === '' || n || cur === val ? '' : 'disabled'}>${escHtml(label)}${val === '' ? '' : `（${n}）`}</option>`;
+  const fActive = _vcEst !== '' || _vcPrice !== '' || _vcBed !== '';
+  const filterHtml = dealRows.length < 2 ? '' : `<div class="vc-filter"><div>
+      <select class="${_vcEst !== '' ? 'on' : ''}" onchange="vcSet('est',this.value)" aria-label="屋苑">${opt('', '全部屋苑', 0, _vcEst)}${ests.map(([id, name]) => opt(id, name, cnt(v => String(v.estate_id) === id && inPrice(v, _vcPrice) && okBed(v)), _vcEst)).join('')}</select>
+      ${fActive ? `<button type="button" class="vc-fclr" onclick="vcSet('fclear')">✕ 清除</button>` : ''}</div><div>
+      <select class="${_vcPrice !== '' ? 'on' : ''}" onchange="vcSet('price',this.value)" aria-label="${deal === 'R' ? '月租' : '樓價'}">${opt('', deal === 'R' ? '月租唔限' : '樓價唔限', 0, _vcPrice)}${pb.map((b, i) => opt(String(i), b[0], cnt(v => okEst(v) && inPrice(v, i) && okBed(v)), _vcPrice)).join('')}</select>
+      <select class="${_vcBed !== '' ? 'on' : ''}" onchange="vcSet('bed',this.value)" aria-label="房數">${opt('', '房數唔限', 0, _vcBed)}${[0, 1, 2, 3, 4].map(b => opt(String(b), b === 0 ? '開放式' : b === 4 ? '4房或以上' : `${b}房`, cnt(v => okEst(v) && inPrice(v, _vcPrice) && String(_vcBedOf(v)) === String(b)), _vcBed)).join('')}</select></div>
+    </div>`;
   const dealHtml = hasS && hasR ? `<span>類型：</span>${[['S', '🏠 買盤'], ['R', '🔑 租盤']].map(([k, l]) => `<button type="button" class="filter-chip ${deal === k ? 'active' : ''}" onclick="vcSet('deal','${k}')">${l}</button>`).join('')}<span style="width:0.6rem"></span>` : '';
   if (_vcSide) return _vcSideHtml(rows.filter(v => _vcSel.has(v.id)));
   const avgOf = (v) => ratingAvg(parseRatings(v));
@@ -4956,8 +4986,9 @@ function _vcHtml() {
   const sortHtml = [['value', isPaid() ? '最抵（對比市價）' : '呎價最平'], ['rating', '評分最高'], ['date', '最新']]
     .map(([k, l]) => `<button type="button" class="filter-chip ${_vcSort === k ? 'active' : ''}" onclick="vcSet('sort','${k}')">${l}</button>`).join('');
   const nSel = rows.filter(v => _vcSel.has(v.id)).length;
-  return `<div class="vc-hint">所有睇過嘅單位一行一個，即刻見到邊個抵、邊個評分高。剔 2–3 個再撳「並排比較」逐項對比。</div>
+  return `${filterHtml}<div class="vc-hint">所有睇過嘅單位一行一個，即刻見到邊個抵、邊個評分高。剔 2–3 個再撳「並排比較」逐項對比。</div>
     <div class="vc-bar">${dealHtml}<span>排序：</span>${sortHtml}</div>
+    ${!rows.length ? `<div class="dj-empty">冇符合篩選嘅睇樓記錄。<a style="color:var(--accent2);cursor:pointer" onclick="vcSet('fclear')">清除篩選</a></div>` : ''}
     ${sorted.map(v => { const p = _vcPsf(v), a = avgOf(v), g = viewingGaps(v).all.length; return `<label class="vc-row ${_vcSel.has(v.id) ? 'sel' : ''}">
       <input type="checkbox" ${_vcSel.has(v.id) ? 'checked' : ''} onchange="vcToggle(${Number(v.id)})">
       <div class="vc-t">${_vcTitle(v)}<small>睇樓 ${escHtml(fmtDM(v.view_date))}</small></div>
