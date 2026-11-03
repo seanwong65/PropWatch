@@ -1,0 +1,20 @@
+/* 屋苑專頁（/estate/*）：匯總數字卡、橫條圖 */
+.es-sample { background: rgba(245,158,11,0.14); border: 1px dashed var(--accent); border-radius: 10px; padding: 0.5rem 0.75rem; font-size: 0.8rem; line-height: 1.6; margin: 0 0 0.8rem; color: var(--text); }
+.es-cards { display: grid; grid-template-columns: repeat(2, 1fr); gap: 0.6rem; margin: 0.4rem 0 0.4rem; }
+.es-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 0.65rem 0.8rem; min-width: 0; }
+.es-card small { display: block; color: var(--muted); font-size: 0.74rem; line-height: 1.35; }
+.es-card b { display: block; font-size: 1.35rem; font-weight: 800; margin: 0.15rem 0; color: var(--text); }
+.es-card span { display: block; color: var(--muted); font-size: 0.74rem; }
+.es-asof { color: var(--muted); font-size: 0.8rem; margin: 0.3rem 0 0; }
+.es-bars { display: grid; gap: 0.4rem; }
+.es-bar { display: grid; grid-template-columns: 7.2rem 1fr auto; align-items: center; gap: 0.5rem; font-size: 0.82rem; }
+.es-bar span { color: var(--muted); }
+.es-bar i { display: block; height: 0.7rem; min-width: 2px; border-radius: 999px; background: var(--brand); }
+.es-bar b { font-weight: 700; font-size: 0.8rem; text-align: right; }
+.es-note { color: var(--muted); font-size: 0.78rem; line-height: 1.6; margin: 0.6rem 0 0; }
+.es-table { width: 100%; border-collapse: collapse; font-size: 0.86rem; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-sm); overflow: hidden; }
+.es-table th, .es-table td { padding: 0.55rem 0.6rem; text-align: left; border-bottom: 1px solid var(--border); white-space: nowrap; }
+.es-table th { color: var(--muted); font-weight: 600; font-size: 0.78rem; }
+.es-table tr:last-child td { border-bottom: none; }
+@media (min-width: 640px) { .es-cards { grid-template-columns: repeat(4, 1fr); } .es-bar { grid-template-columns: 9rem 1fr auto; } }
+@media (max-width: 420px) { .es-bar { grid-template-columns: 6rem 1fr auto; } .es-bar b { font-size: 0.74rem; } }
