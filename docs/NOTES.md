@@ -807,3 +807,10 @@ drip sync（`*/2`）同樣被雙重觸發：兩個 invocation 同時揀同一批
 ## 日期格式：日／月（2026-11-03）
 
 - 用戶要求全系統用「日／月」唔係「月／日」。app 共用 `fmtDM`（02/11）、`fmtDMY`（02/11/2026）、`fmtMY`（09/2022）；內部照用 YYYY-MM-DD（排序／比較／data 屬性唔郁），淨係顯示經呢度。搜尋元件 `fmtDate`、分享頁 `dmy`、每日 email `dmy`（daily.js）、每週 email 睇樓日都改咗。中文寫法（「11月2日」、日記卡「28／10月」、lifecycle email「2027年2月1日」）本身唔會混淆，唔改。新加日期顯示一律用呢幾個 helper。
+
+## 新手逐步導覽（2026-11-03）
+
+- 用戶澄清：佢要嘅「新手導覽」係第一次登入時彈出、指住某粒掣、「下一步、下一步」嗰種（product tour），唔係每頁頂嘅 💡 介紹。
+- `TOUR_STEPS`（9 步：歡迎→今日→追蹤中屋苑→搵盤→睇樓記錄→八卦朋友屋企→⚙️ 設定→💬 意見→完成）；`startTour`／`tourGo`／`tourRender`／`endTour`。暗底（`.tour-hole` 大 box-shadow）亮起目標，說明框自動擺上／下（闊屏左邊選單就擺右邊），搵唔到嘅步驟跳過；Esc／←→ 鍵盤得。
+- `maybeStartTour()`：`loadEstates` 畫完主頁後，未睇過（`onboardOff` 冇 `tour`）就等偏好／設定／睇樓彈窗閂咗先開始。完成或略過＝`obOff('tour')`（worker `ONBOARD_KEYS` 已加 `tour`）。⚙️ 設定「🧭 新手導覽 → 重新睇導覽」。
+- 每頁頂 💡 介紹停用（`OB_PAGE_TIPS_OFF = true`，`ONBOARD` 內容保留，想恢復改 false）。
