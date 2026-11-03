@@ -817,4 +817,5 @@ drip sync（`*/2`）同樣被雙重觸發：兩個 invocation 同時揀同一批
 - **每個 tab 第一次入嘅介紹**（同日，用戶：例如 ★ 星咗一個屋苑代表咩）：`PAGE_TOURS.{today,estates,find,view,friends}`，同一個引擎（`startTour(steps, key)`），key＝`tour_<tab>`（worker `ONBOARD_KEYS` 已加）。`maybePageTour(tab)` 喺 `navGo` 同 app 開主頁時 call：要主導覽完咗／略過咗先出；等頁面第一個目標出咗（最多 6 秒）、有彈窗就等閂咗、仲喺嗰個 tab 先開始。頁內目標喺畫面外會自動碌去中間；用戶自己碌，個框跟住（scroll listener，`tourRender(true)` 唔再自動碌）。搵唔到目標嘅步驟跳過（例如未有搜尋結果就冇「我哋嘅記錄」）；點點只計睇得到嘅步驟。
 - 主導覽撳「完成」會即刻接今日頁介紹；✕／Esc 略過就唔接。設定「重新睇導覽」＝`resetTours()`（`POST /api/onboard-off {reset:true}`，連每頁介紹一齊重設）。
 - 修咗舊 bug：新用戶第一次登入，偏好彈窗係異步載入，主導覽會同偏好彈窗疊埋一齊出 → `checkFirstLoginPrefs()` 回個 promise（`_prefsCheckP`），`maybeStartTour` 等佢載完先檢查彈窗。
+- **最後一步兩粒掣**（同日，用戶）：「關閉」＝今次閂咗（`_tourSeen`，淨係今次開住 app 期間唔再出，下次開 app 再出）；「不再提醒」＝`obOff` 永久唔出。中途 ✕／Esc 同「關閉」一樣（唔寫入），但唔會接今日頁介紹。主導覽「關閉」咗都照出每頁介紹。最後一步收埋點點，讓位俾三粒掣（手機 300px 框排到一行）。
 - 加步驟：sel 揀頁入面第一個睇得到嘅元素；文字用新手白話。
