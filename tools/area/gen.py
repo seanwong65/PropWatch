@@ -6,6 +6,10 @@ BASE = "https://home.ws-techs.com"
 OG = f"{BASE}/images/og-default.jpg"
 PSV = "20261022b"
 e = html.escape
+try:   # 屋苑專頁（tools/estate/gen.py 生成）：有專頁嘅屋苑，買盤頁嘅屋苑連結直接去專頁（含呎價／成交／放盤日數＋即時放盤）
+    ESTATE_PAGES = {p["name"]: p["slug"] for p in json.load(open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "estate", "pages.json"), encoding="utf-8"))}
+except FileNotFoundError:
+    ESTATE_PAGES = {}
 GUIDE_LINKS = {"買舊樓要留意乜": "/guides/old-building", "居屋未補地價點計": "/guides/hos-premium", "單位有僭建點算": "/guides/unauthorised-works"}
 
 
@@ -14,6 +18,11 @@ def linkify(t):
     for k, href in GUIDE_LINKS.items():
         t = t.replace(f"見{k}", f'見<a href="{href}">{k}？</a>')
     return t
+
+
+def est_link(n, rent=False):
+    if not rent and n in ESTATE_PAGES: return "/estate/" + urllib.parse.quote(ESTATE_PAGES[n], safe="")
+    return kw(n, rent)
 
 
 def kw(n, rent=False): return ("/search?deal=R&kw=" if rent else "/search?kw=") + urllib.parse.quote(n)
@@ -61,14 +70,14 @@ def page(d, deal="S"):
         {"@type": "FAQPage", "mainEntity": [{"@type": "Question", "name": q, "acceptedAnswer": {"@type": "Answer", "text": a}} for q, a in faqs]}]}
     rows = "\n".join(
         f'        <tr><td>{e(sub)}</td><td>{e(mtr)}</td><td>' +
-        ("、".join(f'<a href="{kw(x, rent)}">{e(x)}</a>' for x in ests) if ests else '<span style="color:var(--muted)">以單幢樓、村屋或者公營房屋為主</span>') +
+        ("、".join(f'<a href="{est_link(x, rent)}">{e(x)}</a>' for x in ests) if ests else '<span style="color:var(--muted)">以單幢樓、村屋或者公營房屋為主</span>') +
         '</td></tr>' for sub, mtr, ests in d["rows"])
     tip_list = (RENT[c][1] + RENT_TIPS_COMMON) if rent else d["tips"]
     tips = "\n".join(f'        <li><b>{e(t)}</b>：{linkify(x)}</li>' for t, x in tip_list)
     if rent:
         chips = [f'<a href="/area/{d["slug"]}">{e(name)}二手樓（買盤）</a>'] + [f'<a href="/area/{SLUG[n]}-rent">{e(NAME[n])}租盤</a>' for n in d["neighbours"]]
     else:
-        chips = [f'<a href="/area/{d["slug"]}-rent">{e(name)}租盤</a>'] + [f'<a href="/area/{SLUG[n]}">{e(NAME[n])}二手樓</a>' for n in d["neighbours"]]
+        chips = [f'<a href="/area/{d["slug"]}-rent">{e(name)}租盤</a>'] + [f'<a href="/area/{SLUG[n]}">{e(NAME[n])}二手樓</a>' for n in d["neighbours"]] + ['<a href="/estate/">全港屋苑數據</a>']
     intro_html = e(d["intro"]) if not rent else (e(RENT[c][0]) + "<br><br>" + e(d["intro"]))
     h1 = f"{name}租樓：四大地產網最新租盤一次睇" if rent else f"{name}二手樓：四大地產網最新放盤一次睇"
     eg = "、".join(f'<a href="{kw(x, rent)}">{e(x)}</a>' for x in top)
@@ -128,7 +137,7 @@ def page(d, deal="S"):
     <h2>{e(name)}分區、港鐵站同屋苑</h2>
     <div class="area-table-wrap">
       <table class="area-table">
-        <tr><th>分區</th><th>交通</th><th>屋苑例子（撳一下即搜）</th></tr>
+        <tr><th>分區</th><th>交通</th><th>屋苑例子{"（撳一下即搜）" if rent else "（撳入去睇放盤、呎價、成交）"}</th></tr>
 {rows}
       </table>
     </div>
@@ -178,6 +187,7 @@ def page(d, deal="S"):
     <a href="/">搵樓日記</a>
     <a href="/search">搵樓</a>
     <a href="/area/">各區樓盤</a>
+    <a href="/estate/">屋苑數據</a>
     <a href="/mortgage-calculator">按揭計算機</a>
     <a href="/guides/">買樓教學</a>
     <a href="/about">關於我們</a>
@@ -265,6 +275,7 @@ def hub():
     <a href="/">搵樓日記</a>
     <a href="/search">搵樓</a>
     <a href="/area/">各區樓盤</a>
+    <a href="/estate/">屋苑數據</a>
     <a href="/mortgage-calculator">按揭計算機</a>
     <a href="/guides/">買樓教學</a>
     <a href="/about">關於我們</a>

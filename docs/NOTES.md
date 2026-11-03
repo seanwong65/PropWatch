@@ -814,15 +814,17 @@ drip sync（`*/2`）同樣被雙重觸發：兩個 invocation 同時揀同一批
 - 每個選項後面有數量，**按其他兩個篩選計**（揀咗屋苑，樓價檔就淨係數嗰個屋苑）；冇結果嘅選項 disabled。有篩選時出「✕ 清除」；篩到冇就出「冇符合篩選」＋清除連結。切買／租盤會重置樓價篩選（兩邊檔位唔同）。
 - 純前端（資料本身已經有 estate_id／price／bedrooms），冇加 endpoint。手機兩行（屋苑＋清除／樓價＋房數），闊屏一行。
 
-## 屋苑專頁樣本 `/estate/4`（昇悅居，2026-11-03，待用戶決定）
+## 屋苑專頁 `/estate/<中文名>`（2026-11-03，已上線）
 
-- 動機：用戶／搜尋器要搵「XX屋苑 呎價／放盤／成交／減價」呢類長尾字，`/search?kw=` 全部 canonical 去 `/search` 收唔到；放盤日數、減價比例係中原／美聯等冇嘅獨有數據。
-- **樣本狀態**：`noindex`、**唔入 sitemap**、**冇任何頁面連入**（淨係知網址先開到）。數字取自本機 dump（2026-10-01）。用戶睇完先決定做唔做正式版（範圍、幾多個屋苑、數據匯總公開係咪可以）。
-- `tools/estate/gen.py <id> [--db sqlite]`（零依賴，只讀 dump）→ `frontend/estate/<id>.html`；樣式 `frontend/estate/estate.css`。`--index`（可收錄版本）故意未開。
-- **只出匯總**：放盤數、叫價呎價／樓價中位、近 3 個月成交呎價中位、叫價比成交貴平 %、放盤日數分佈、減價比例／平均減幅、按房數叫價、近 12 個月按季成交呎價＋嵌入即時搜尋（kw）。**唔出任何單一單位嘅座／層／室／價錢**。數字定義同 `worker/estateStats.js` 一致（去重鍵、中位數、成交 <5 宗唔計；已同 estate_stats 對過 n／psf）。
-- 放盤日數＝地產網上盤日期同我哋 `listing_span.first_seen`（2026-06 起）取較早；減價只計我哋記錄之後。頁面有註明。
-- 麵包屑／同區連結用 `tools/area/data.py` 嘅屋苑→地區對應（搵唔到就退返 `/area/`）。
-- 正式版要答嘅嘢：URL 格式（`/estate/<id>` vs 中文／拼音 slug）、做邊啲屋苑（全部定頂 N 個）、數據點更新（build 時由 production D1 讀、cron 重生成＋deploy hook）、D1 讀取額度、同地區頁互連、sitemap 分檔。
+- 用戶決定：公開**匯總**數字 OK、做曬所有屋苑、網址用中文名；**每日自動更新遲啲有多啲人用先做**（而家手動重生成＋deploy）。
+- 動機：「XX屋苑 呎價／放盤／成交／減價」呢類長尾字；`/search?kw=` 全部 canonical 去 `/search` 收唔到。放盤日數、減價比例係中原／美聯等冇嘅獨有數據。
+- **重生成（更新數據）**：`python3 tools/estate/gen.py --all --remote`（讀 production D1，只讀；約 30 秒，每個屋苑 2 個 CLI call、全部 `(estate_id, …)` 索引 seek，唔會全表 scan）→ `python3 tools/area/gen.py`（地區頁連入屋苑頁）→ `python3 tools/seo/sitemap_lastmod.py` → build／commit／deploy。生成器會**清走 `frontend/estate/*.html` 再重寫**，同時更新 `index.html`（總覽）、`tools/estate/pages.json`、sitemap 嘅 `<!-- estate:start/end -->` 區塊（lastmod＝數據日期）。⚠️ 唔好手改 `frontend/estate/*.html`。
+- 只出匯總：放盤數、叫價呎價／樓價中位、近 3 個月成交呎價中位、叫價比成交 %、放盤日數分佈、減價比例、按房數叫價、近 12 個月按季成交＋嵌入即時搜尋；**唔出任何單一單位嘅座／層／室／價錢**。數字定義同 `worker/estateStats.js` 一致（已同卡片數字對過）。
+- **出頁門檻**（gen.py 頂部常數）：最新 snapshot 離今日 ≤ `FRESH_DAYS`（14）；單一 source 比整體最新舊過 `SRC_FRESH_DAYS`（3）日就唔計（防止下架嘅盤當現有）；去重後放盤 ≥ `MIN_LISTINGS`（5）。**每日 sync 淨係做有人追蹤嘅屋苑**，所以冇人追蹤／停咗 sync 嘅屋苑（2026-11-03：43 個啟用屋苑入面 26 個出到頁）唔出頁；要加某屋苑：揀咗追蹤令佢有新鮮數據，再重行。
+- **短記錄保護**：`MIN_TRACK_DAYS`（60）——我哋記錄呢個屋苑少過 60 日，減價比例（冇歷史會被低估）唔出，放盤日數只用地產網自己嘅上盤日期（`publish_date`，centanet／hkp 先有），夠數先出。
+- 麵包屑／同區連結：`tools/area/data.py` 有列嘅屋苑，否則 `tools/estate/areas.py` 按 estates.district 對應；對唔到放總覽「其他」（gen 結尾會列出）。
+- 網址：`slug_of(name)`＝名稱（空白／`/ ? # % &` 轉 `-`），重名先到先得、之後加 district／id；`<loc>`／canonical 用 percent-encode。
+- 連結入口：`/estate/` 總覽（按地區）、地區買盤頁嘅屋苑表（有專頁就連專頁）、每頁 footer「屋苑數據」、教學頁底工具行、屋苑頁互連（同區最多 6 個）。
 
 ## SEO 內部連結＋sitemap（2026-11-03）
 
