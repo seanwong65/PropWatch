@@ -814,3 +814,7 @@ drip sync（`*/2`）同樣被雙重觸發：兩個 invocation 同時揀同一批
 - `TOUR_STEPS`（9 步：歡迎→今日→追蹤中屋苑→搵盤→睇樓記錄→八卦朋友屋企→⚙️ 設定→💬 意見→完成）；`startTour`／`tourGo`／`tourRender`／`endTour`。暗底（`.tour-hole` 大 box-shadow）亮起目標，說明框自動擺上／下（闊屏左邊選單就擺右邊），搵唔到嘅步驟跳過；Esc／←→ 鍵盤得。
 - `maybeStartTour()`：`loadEstates` 畫完主頁後，未睇過（`onboardOff` 冇 `tour`）就等偏好／設定／睇樓彈窗閂咗先開始。完成或略過＝`obOff('tour')`（worker `ONBOARD_KEYS` 已加 `tour`）。⚙️ 設定「🧭 新手導覽 → 重新睇導覽」。
 - 每頁頂 💡 介紹停用（`OB_PAGE_TIPS_OFF = true`，`ONBOARD` 內容保留，想恢復改 false）。
+- **每個 tab 第一次入嘅介紹**（同日，用戶：例如 ★ 星咗一個屋苑代表咩）：`PAGE_TOURS.{today,estates,find,view,friends}`，同一個引擎（`startTour(steps, key)`），key＝`tour_<tab>`（worker `ONBOARD_KEYS` 已加）。`maybePageTour(tab)` 喺 `navGo` 同 app 開主頁時 call：要主導覽完咗／略過咗先出；等頁面第一個目標出咗（最多 6 秒）、有彈窗就等閂咗、仲喺嗰個 tab 先開始。頁內目標喺畫面外會自動碌去中間；用戶自己碌，個框跟住（scroll listener，`tourRender(true)` 唔再自動碌）。搵唔到目標嘅步驟跳過（例如未有搜尋結果就冇「我哋嘅記錄」）；點點只計睇得到嘅步驟。
+- 主導覽撳「完成」會即刻接今日頁介紹；✕／Esc 略過就唔接。設定「重新睇導覽」＝`resetTours()`（`POST /api/onboard-off {reset:true}`，連每頁介紹一齊重設）。
+- 修咗舊 bug：新用戶第一次登入，偏好彈窗係異步載入，主導覽會同偏好彈窗疊埋一齊出 → `checkFirstLoginPrefs()` 回個 promise（`_prefsCheckP`），`maybeStartTour` 等佢載完先檢查彈窗。
+- 加步驟：sel 揀頁入面第一個睇得到嘅元素；文字用新手白話。
