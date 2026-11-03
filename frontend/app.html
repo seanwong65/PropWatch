@@ -1192,7 +1192,6 @@
     .tour-dots i.on { width: 16px; background: var(--brand); }
     .tour-foot button { border: none; border-radius: 999px; padding: 0.4rem 0.8rem; white-space: nowrap; font-size: 0.82rem; font-weight: 700; cursor: pointer; font-family: inherit; }
     .tour-prev { background: none; color: var(--muted); margin-left: auto; }
-    .tour-close { background: none; color: var(--text); border: 1px solid var(--border-strong) !important; }
     .tour-next { background: var(--brand); color: var(--brand-ink, #fff); }
     /* 功能介紹（onboarding，2026-11-01）：每個功能頂部一張細卡，撳「明白」就永久唔再出（跟帳戶） */
     .ob-tip { background: var(--brand-soft); border: 1px solid var(--border); border-radius: 12px; padding: 0.4rem 0.7rem; margin: 0 0 0.7rem; font-size: 0.82rem; line-height: 1.55; }
@@ -2021,6 +2020,9 @@
     body.authed .hamburger, body.authed .sidebar-mobile-bar, body.authed .sidebar-overlay { display: none !important; }   /* ⚙️ 設定 2026-11-02 起返去頂欄右上角（用戶要求） */
     .nv-pgtitle { font-size: 1.15rem; font-weight: 800; margin: 0 0 0.7rem; }
     .sidebar .nv-pgtitle { padding: 1rem 1rem 0; margin: 0; }
+    .nv-pgtitle-row { display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; }
+    .tour-btn { font: inherit; font-size: 0.76rem; font-weight: 600; color: var(--muted); background: var(--surface); border: 1px solid var(--border-strong); border-radius: 999px; padding: 0.25rem 0.75rem; cursor: pointer; white-space: nowrap; }
+    .tour-btn:hover { color: var(--brand); border-color: var(--brand); }
     .nv-seg { display: inline-flex; flex-wrap: wrap; background: var(--glass-bg); border: 1px solid var(--border); border-radius: 999px; padding: 3px; margin: 0 0 0.8rem; }
     .nv-seg button { border: none; background: none; padding: 0.35rem 0.95rem; border-radius: 999px; font-size: 0.84rem; color: var(--muted); cursor: pointer; font-family: inherit; font-weight: 600; }
     .nv-seg button.on { background: var(--surface); color: var(--brand); box-shadow: 0 1px 4px rgba(0,0,0,0.08); }
@@ -3477,7 +3479,7 @@ async function showDashboard(estates, page = 'today') {
       <!-- 2026-11-01 主選單取代「五粒捷徑」：新增睇樓→睇樓頁大掣；搵樓／按揭計算機→搵盤頁；朋友屋企→睇樓頁分頁 -->
       ${page === 'friends' ? `<div class="nv-pgtitle">八卦朋友屋企</div>` : page === 'view' ? `<div class="nv-pgtitle">睇樓記錄</div>
       <button type="button" class="nv-bigbtn" onclick="openQuickAddViewing()">📝 新增睇樓</button>` : `
-      <div class="nv-pgtitle">今日</div>
+      <div class="nv-pgtitle nv-pgtitle-row">今日<button type="button" class="tour-btn" onclick="replayTour()" title="逐步介紹每個功能">🧭 導覽</button></div>
       <div id="ob-slot-home"></div>
       <div id="viewing-todo"></div>`}
       <div class="highlights-section" id="highlights-section">
@@ -4355,8 +4357,8 @@ function startTour(steps = TOUR_STEPS, key = 'tour') {
   _tourOn = true; _tourIdx = 0;
   document.getElementById('tour-root')?.remove();
   document.body.insertAdjacentHTML('beforeend', `<div id="tour-root"><div class="tour-block"></div><div class="tour-hole"></div>
-    <div class="tour-pop" role="dialog" aria-modal="true" aria-live="polite"><button type="button" class="tour-x" aria-label="關閉導覽" onclick="endTour(false, true)">✕</button><div id="tour-body"></div>
-      <div class="tour-foot"><div class="tour-dots" id="tour-dots"></div><button type="button" class="tour-prev" id="tour-prev" onclick="tourGo(-1)">上一步</button><button type="button" class="tour-close" id="tour-close" onclick="endTour(true, true)" hidden>關閉</button><button type="button" class="tour-next" id="tour-next" onclick="tourGo(1)">下一步</button></div></div></div>`);
+    <div class="tour-pop" role="dialog" aria-modal="true" aria-live="polite"><button type="button" class="tour-x" aria-label="關閉導覽" onclick="endTour()">✕</button><div id="tour-body"></div>
+      <div class="tour-foot"><div class="tour-dots" id="tour-dots"></div><button type="button" class="tour-prev" id="tour-prev" onclick="tourGo(-1)">上一步</button><button type="button" class="tour-next" id="tour-next" onclick="tourGo(1)">下一步</button></div></div></div>`);
   tourRender();
 }
 function tourGo(d) {
@@ -4379,10 +4381,8 @@ function tourRender(noScroll) {
   document.getElementById('tour-dots').innerHTML = live.map(i => `<i class="${i === _tourIdx ? 'on' : ''}"></i>`).join('');
   document.getElementById('tour-prev').style.visibility = _tourIdx > (live[0] ?? 0) ? '' : 'hidden';
   const last = _tourIdx === live[live.length - 1];
-  // 最後一步（2026-11-03 用戶）：「關閉」＝今次閂咗，下次再出；「不再提醒」＝永久唔再出
-  document.getElementById('tour-next').textContent = (!page && _tourIdx === 0) ? '開始' : last ? '不再提醒' : '下一步';
-  document.getElementById('tour-close').hidden = !last;
-  document.getElementById('tour-dots').style.display = last ? 'none' : '';   // 最後一步三粒掣，點點讓位
+  // 最後一步「關閉」：每個導覽淨係自動出一次（2026-11-03 用戶試過「下次再出」覺得好似 loop，唔要）；想重睇撳今日頁「🧭 導覽」
+  document.getElementById('tour-next').textContent = (!page && _tourIdx === 0) ? '開始' : last ? '關閉' : '下一步';
   const el = _tourTarget(step);
   if (el && page && !noScroll) {   // 頁內目標可能喺畫面外：碌到中間先量位置
     const r0 = el.getBoundingClientRect();
@@ -4405,20 +4405,21 @@ function tourRender(noScroll) {
   pop.style.left = Math.max(12, Math.min(left, innerWidth - pw - 12)) + 'px';
   pop.style.top = Math.max(12, Math.min(top, innerHeight - ph - 12)) + 'px';
 }
-// keep＝「關閉」／✕／Esc：唔寫入「不再提醒」，淨係今次開住 app 期間唔再出（下次開 app 再出）
-const _tourSeen = new Set();
-function endTour(completed, keep) {
+let _tourReplay = false;   // 今日頁「🧭 導覽」重睇：行完主導覽照接今日頁介紹（就算睇過）
+function endTour(completed) {
   _tourOn = false;
   document.getElementById('tour-root')?.remove();
-  if (keep) _tourSeen.add(_tourKey); else obOff(_tourKey);
-  // 主導覽行到最後一步（撳「不再提醒」或者「關閉」，唔係中途 ✕）就即刻接今日頁介紹
-  if (completed && _tourKey === 'tour' && _dashPage === 'today' && document.querySelector('.dashboard[data-page="today"]')) maybePageTour('today');
+  obOff(_tourKey);
+  const replay = _tourReplay; if (_tourKey === 'tour') _tourReplay = false;
+  // 主導覽行到最後一步（唔係中途 ✕）就即刻接今日頁介紹
+  if (completed && _tourKey === 'tour' && _dashPage === 'today' && document.querySelector('.dashboard[data-page="today"]')) maybePageTour('today', replay);
 }
+function replayTour() { if (_tourOn) return; _tourReplay = true; startTour(); }
 // 每個 tab 第一次入：主導覽完咗（或略過咗）先出；等頁面內容（第一個有目標嘅步驟）出咗先開始，最多等 6 秒
 const _pageTourPending = new Set();
-async function maybePageTour(key) {
+async function maybePageTour(key, force) {
   const steps = PAGE_TOURS[key], k = 'tour_' + key;
-  if (!steps || _onboardOff.has(k) || _tourSeen.has(k) || !(_onboardOff.has('tour') || _tourSeen.has('tour')) || _tourOn || _pageTourPending.has(k)) return;
+  if (!steps || (!force && _onboardOff.has(k)) || !_onboardOff.has('tour') || _tourOn || _pageTourPending.has(k)) return;
   _pageTourPending.add(k);
   try {
     for (let i = 0; i < 30 && !steps.some(st => _tourTarget(st)); i++) await new Promise(r => setTimeout(r, 200));
@@ -4428,7 +4429,7 @@ async function maybePageTour(key) {
     await new Promise(r => setTimeout(r, 300));
     const here = document.querySelector(`.nv-mobile [data-nav="${key}"].on, .nv-rail [data-nav="${key}"].on`);   // 等緊期間轉咗 tab 就唔出
     const first = steps.findIndex(st => _tourTarget(st));
-    if (!here || busy() || first < 0 || _tourOn || _onboardOff.has(k) || _tourSeen.has(k)) return;
+    if (!here || busy() || first < 0 || _tourOn || (!force && _onboardOff.has(k))) return;
     startTour(steps, k);
     _tourIdx = first; tourRender();
   } finally { _pageTourPending.delete(k); }
@@ -4437,11 +4438,11 @@ window.addEventListener('resize', () => { if (_tourOn) tourRender(); });
 // 用戶自己碌：個框跟住目標（唔再自動碌，否則同用戶打交）
 let _tourScrollRaf = 0;
 window.addEventListener('scroll', () => { if (_tourOn && !_tourScrollRaf) _tourScrollRaf = requestAnimationFrame(() => { _tourScrollRaf = 0; tourRender(true); }); }, { capture: true, passive: true });
-document.addEventListener('keydown', (e) => { if (!_tourOn) return; if (e.key === 'Escape') endTour(false, true); else if (e.key === 'ArrowRight') tourGo(1); else if (e.key === 'ArrowLeft') tourGo(-1); });
+document.addEventListener('keydown', (e) => { if (!_tourOn) return; if (e.key === 'Escape') endTour(); else if (e.key === 'ArrowRight') tourGo(1); else if (e.key === 'ArrowLeft') tourGo(-1); });
 // 設定「重新睇導覽」：清走所有導覽記錄（主導覽＋每頁介紹），即刻由頭開始
 async function resetTours() {
   try { await api('/api/onboard-off', { method: 'POST', body: JSON.stringify({ reset: true }) }); } catch (_) { /* 照開 */ }
-  _onboardOff = new Set(); _tourSeen.clear();
+  _onboardOff = new Set();
   startTour();
 }
 // 登入後：未睇過導覽就等偏好彈窗閂咗先開始（最多等 10 分鐘）
