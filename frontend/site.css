@@ -58,6 +58,15 @@ th { background: var(--surface2); color: var(--muted); font-size: 0.78rem; text-
 td { padding: 0.55rem 0.8rem; border-top: 1px solid var(--td-border); vertical-align: top; }
 td.num { white-space: nowrap; font-variant-numeric: tabular-nums; }
 .eg { background: var(--brand-soft); border-left: 3px solid var(--brand); border-radius: 6px; padding: 0.65rem 0.85rem; margin: 0.8rem 0; font-size: 0.9rem; }
+.related { margin: 2rem 0 0; }
+.related h2 { font-size: 1.05rem; margin: 0 0 0.6rem; }
+.related ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 0.5rem; }
+.related li { margin: 0; }
+.related li a { display: block; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 0.65rem 0.85rem; text-decoration: none; color: var(--text); }
+.related li a:hover { border-color: var(--brand); }
+.related li b { display: block; font-size: 0.92rem; color: var(--accent2); }
+.related li small { display: block; color: var(--muted); font-size: 0.8rem; margin-top: 0.1rem; }
+.related-tools { font-size: 0.85rem; color: var(--muted); margin: 0.8rem 0 0; }
 .toc { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 0.8rem 1rem; margin: 1rem 0; font-size: 0.88rem; }
 .toc ol { padding-left: 1.2rem; }
 

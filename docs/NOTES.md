@@ -814,6 +814,14 @@ drip sync（`*/2`）同樣被雙重觸發：兩個 invocation 同時揀同一批
 - 每個選項後面有數量，**按其他兩個篩選計**（揀咗屋苑，樓價檔就淨係數嗰個屋苑）；冇結果嘅選項 disabled。有篩選時出「✕ 清除」；篩到冇就出「冇符合篩選」＋清除連結。切買／租盤會重置樓價篩選（兩邊檔位唔同）。
 - 純前端（資料本身已經有 estate_id／price／bedrooms），冇加 endpoint。手機兩行（屋苑＋清除／樓價＋房數），闊屏一行。
 
+## SEO 內部連結＋sitemap（2026-11-03）
+
+- 審計結果（正式站實測）：title／description／canonical／OG／Twitter／JSON-LD（Article／FAQPage／BreadcrumbList）全部到位，無重複 title／description，無缺 alt／尺寸嘅圖，301／308／404 狀態正確；`/area/sha-tin` 手機 FCP／LCP ≈1.0s、CLS 0。技術層冇問題，缺口喺**內部連結**：16 篇教學入站連結只有 1–3 條，地區頁幾乎唔連去教學。
+- `tools/seo/related.py`：每篇教學加「睇埋呢幾篇」（3 篇相關教學＋工具／各區／全部教學連結），夾喺 `<!--related-->…<!--/related-->`，可重覆行。新加教學要喺 `LABEL`／`RELATED` 加返。CSS 喺 `site.css` `.related`。
+- 地區頁（`tools/area/gen.py`）加「睇樓前先睇」（買盤頁：買樓流程／叫價同成交價差／放盤日數；租盤頁：租樓注意事項／租樓定買樓／睇樓清單），位置喺「附近地區」同 FAQ 之間。**唔好直接改 `frontend/area/*.html`**，改 gen.py 再重生成。
+- `tools/seo/sitemap_lastmod.py`：`<lastmod>` 按檔案最後 commit 日期（有未 commit 改動就用今日）更新，commit 前行一次。加／刪頁面仍要手動改 sitemap 嘅 `<url>`。
+- `privacy.html` 補 og:image／twitter 標籤。
+
 ## 新手逐步導覽（2026-11-03）
 
 - 用戶澄清：佢要嘅「新手導覽」係第一次登入時彈出、指住某粒掣、「下一步、下一步」嗰種（product tour），唔係每頁頂嘅 💡 介紹。
